@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DMI Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Playfair+Display:ital,wght@0,700;1,500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23ff6a3d'/><path d='M12 9l12 7-12 7z' fill='white'/></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">▶</span> DMI Studio</div>
+    <input id="projTitle" class="proj-title" placeholder="Dự án chưa đặt tên" />
+    <div class="top-actions">
+      <button id="btnNew" class="ghost" title="Dự án mới">Mới</button>
+      <button id="btnOpen" class="ghost" title="Mở file .json">Mở</button>
+      <button id="btnSave" class="ghost" title="Tải file dự án .json">Lưu</button>
+      <button id="btnSettings" class="ghost" title="Cài đặt Claude">⚙︎</button>
+      <button id="btnExport" class="primary">Xuất video</button>
+    </div>
+    <input id="fileOpen" type="file" accept=".json,application/json" hidden />
+  </header>
+
+  <main class="layout">
+    <!-- LEFT: prompt + refine -->
+    <aside class="panel left">
+      <section class="block">
+        <h3>Ý tưởng video</h3>
+        <textarea id="prompt" rows="6" placeholder="VD: Video 30 giây giới thiệu quán cà phê muối ở Huế, phong cách ấm áp, kêu gọi ghé thăm cuối tuần…"></textarea>
+        <div class="row">
+          <label>Tỉ lệ
+            <select id="aspect">
+              <option value="16:9">16:9 YouTube</option>
+              <option value="9:16">9:16 TikTok/Reels</option>
+              <option value="1:1">1:1 Feed</option>
+            </select>
+          </label>
+          <label>Độ dài
+            <select id="seconds">
+              <option value="15">15 giây</option>
+              <option value="30" selected>30 giây</option>
+              <option value="45">45 giây</option>
+              <option value="60">60 giây</option>
+            </select>
+          </label>
+        </div>
+        <label>Phong cách <span class="muted">(tuỳ chọn)</span>
+          <input id="style" placeholder="tối giản, neon, sang trọng, vui nhộn…" />
+        </label>
+        <button id="btnGenerate" class="primary wide">✦ Tạo video bằng Claude</button>
+        <button id="btnDemo" class="ghost wide small">Dùng bản mẫu (không cần API key)</button>
+        <div class="chips" id="ideaChips"></div>
+      </section>
+
+      <section class="block grow">
+        <h3>Chỉnh bằng lời</h3>
+        <div id="chatLog" class="chat-log"><p class="muted small">Sau khi có video, gõ yêu cầu như “thêm cảnh số liệu”, “màu ấm hơn”, “dịch sang tiếng Anh”…</p></div>
+        <div class="chips" id="refineChips"></div>
+        <form id="refineForm" class="refine">
+          <input id="refineInput" placeholder="Bảo Claude sửa video…" autocomplete="off" />
+          <button class="primary" type="submit">Gửi</button>
+        </form>
+      </section>
+    </aside>
+
+    <!-- CENTER: stage -->
+    <section class="center">
+      <div class="stage-wrap" id="stageWrap">
+        <canvas id="stage" width="1280" height="720"></canvas>
+        <div id="emptyState" class="empty">
+          <div class="empty-icon">✦</div>
+          <h2>Mô tả video bạn muốn</h2>
+          <p>Claude sẽ viết kịch bản, chọn màu, bố cục, chuyển động và nhạc nền.<br/>Bạn chỉnh lại rồi xuất ra file video.</p>
+        </div>
+        <div id="busy" class="busy" hidden><div class="spinner"></div><span id="busyText">Claude đang viết kịch bản…</span></div>
+      </div>
+
+      <div class="transport">
+        <button id="btnPlay" class="icon-btn" title="Phát / dừng (Space)">▶</button>
+        <span id="timeLabel" class="mono">0:00.0 / 0:00.0</span>
+        <div class="spacer"></div>
+        <label class="toggle"><input type="checkbox" id="optCaptions" checked /> Phụ đề</label>
+        <label class="toggle"><input type="checkbox" id="optMusic" checked /> Nhạc</label>
+        <label class="toggle" title="Chỉ khi xem trước, không có trong file xuất"><input type="checkbox" id="optVoice" /> Đọc thử</label>
+      </div>
+
+      <div class="timeline" id="timeline">
+        <div class="track" id="track"></div>
+        <div class="playhead" id="playhead"></div>
+      </div>
+    </section>
+
+    <!-- RIGHT: inspector -->
+    <aside class="panel right">
+      <div class="tabs">
+        <button class="tab active" data-tab="scene">Cảnh</button>
+        <button class="tab" data-tab="global">Toàn video</button>
+      </div>
+
+      <div class="tabpane" id="tab-scene">
+        <div class="scene-tools">
+          <span id="sceneIdx" class="muted">—</span>
+          <div class="spacer"></div>
+          <button class="icon-btn sm" id="scUp" title="Lên">↑</button>
+          <button class="icon-btn sm" id="scDown" title="Xuống">↓</button>
+          <button class="icon-btn sm" id="scDup" title="Nhân bản">⧉</button>
+          <button class="icon-btn sm danger" id="scDel" title="Xoá">✕</button>
+        </div>
+        <div id="sceneForm" class="form"></div>
+        <button id="scAdd" class="ghost wide">+ Thêm cảnh</button>
+      </div>
+
+      <div class="tabpane" id="tab-global" hidden>
+        <div class="form">
+          <label>Bảng màu</label>
+          <div class="presets" id="presets"></div>
+          <div class="colors">
+            <label>Nền 1<input type="color" data-pal="bg1" /></label>
+            <label>Nền 2<input type="color" data-pal="bg2" /></label>
+            <label>Nhấn<input type="color" data-pal="accent" /></label>
+            <label>Chữ<input type="color" data-pal="text" /></label>
+          </div>
+          <label>Font chữ
+            <select id="gFont">
+              <option value="sans">Hiện đại (Inter)</option>
+              <option value="serif">Sang trọng (Playfair)</option>
+              <option value="mono">Công nghệ (Mono)</option>
+              <option value="display">Mạnh mẽ (Bebas)</option>
+            </select>
+          </label>
+          <div class="row">
+            <label>Nhạc nền
+              <select id="gMood">
+                <option value="calm">Nhẹ nhàng</option>
+                <option value="upbeat">Sôi động</option>
+                <option value="epic">Hùng tráng</option>
+                <option value="none">Tắt</option>
+              </select>
+            </label>
+            <label>Nhịp (BPM)<input id="gBpm" type="number" min="60" max="160" /></label>
+          </div>
+          <p class="muted small">Nhạc được tổng hợp trực tiếp trong trình duyệt — không vướng bản quyền.</p>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- settings -->
+  <dialog id="dlgSettings">
+    <form method="dialog" class="dialog">
+      <h3>Kết nối Claude</h3>
+      <p class="muted small" id="serverKeyStatus"></p>
+      <label>Claude API key <span class="muted">(lưu trong trình duyệt này)</span>
+        <input id="apiKey" type="password" placeholder="sk-ant-…" autocomplete="off" />
+      </label>
+      <label>Model
+        <select id="model">
+          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 — nhanh, cân bằng</option>
+          <option value="claude-opus-5-5">Claude Opus 5.5 — sáng tạo nhất</option>
+          <option value="claude-haiku-5-5">Claude Haiku 5.5 — siêu nhanh, rẻ</option>
+        </select>
+      </label>
+      <p class="muted small">Lấy key tại console.anthropic.com. Key chỉ được gửi tới server DMI Studio đang chạy trên máy bạn rồi chuyển thẳng tới Anthropic.</p>
+      <div class="row end"><button class="primary" value="ok">Xong</button></div>
+    </form>
+  </dialog>
+
+  <!-- export -->
+  <dialog id="dlgExport">
+    <div class="dialog">
+      <h3>Xuất video</h3>
+      <div id="exportSetup">
+        <label>Độ phân giải
+          <select id="exRes">
+            <option value="1080">1080p (Full HD)</option>
+            <option value="720">720p (nhẹ hơn)</option>
+          </select>
+        </label>
+        <p class="muted small">Video được ghi theo thời gian thực — giữ tab này mở và hiển thị cho tới khi xong.</p>
+        <div class="row end">
+          <button class="ghost" id="exCancel">Huỷ</button>
+          <button class="primary" id="exStart">Bắt đầu</button>
+        </div>
+      </div>
+      <div id="exportRun" hidden>
+        <div class="progress"><div id="exBar"></div></div>
+        <p class="mono small" id="exText">0%</p>
+      </div>
+      <div id="exportDone" hidden>
+        <video id="exVideo" controls playsinline></video>
+        <div class="row end">
+          <button class="ghost" id="exClose">Đóng</button>
+          <a class="btn primary" id="exDownload" download>Tải xuống</a>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="renderer.js"></script>
+  <script src="music.js"></script>
+  <script src="demo.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

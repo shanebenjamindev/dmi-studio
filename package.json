@@ -1,0 +1,29 @@
+{
+  "name": "dm-studio",
+  "version": "2.0.0",
+  "private": true,
+  "description": "DM Studio — full-stack AI video maker for Detailers Movement. Script: Claude / GPT / OpenRouter. Clips: Seedance / Higgsfield / fal.ai (Kling, Veo…). Images: GPT Image / FLUX. Voice: OpenAI TTS.",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && tsx server/index.ts",
+    "serve": "tsx server/index.ts",
+    "demo": "npm run build && cross-env DMS_MOCK=1 tsx server/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": { "node": ">=22.13" },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tsx": "^4.23.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "cross-env": "^7.0.3",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.6.0"
+  }
+}

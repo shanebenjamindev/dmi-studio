@@ -1,0 +1,7 @@
+node_modules
+data
+web/dist
+legacy-v1
+.env
+.git
+.DS_Store

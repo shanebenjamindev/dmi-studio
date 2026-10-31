@@ -1,0 +1,15 @@
+# Render Blueprint: Dashboard → New → Blueprint → pick this repo.
+services:
+  - type: web
+    name: dm-studio
+    runtime: docker
+    plan: starter            # a persistent disk needs a paid instance
+    region: singapore
+    healthCheckPath: /api/health
+    envVars:
+      - key: SETUP_CODE      # asked once when creating the first admin account (see Environment tab)
+        generateValue: true
+    disk:
+      name: dm-studio-data
+      mountPath: /var/data
+      sizeGB: 1
