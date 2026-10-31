@@ -24,6 +24,8 @@ export const DATA_DIR = path.resolve(ROOT, process.env.DATA_DIR || 'data');
 export const ASSET_DIR = path.join(DATA_DIR, 'assets');
 export const WEB_DIST = path.join(ROOT, 'web', 'dist');
 export const MOCK = process.env.DMS_MOCK === '1';
+// Free cloud instances have ephemeral disks: customer files must go to Google Drive.
+export const CLOUD_STORAGE_ONLY = process.env.CLOUD_STORAGE_ONLY === '1';
 export const MAX_UPLOAD = 1024 * 1024 * 800; // 800 MB render uploads
 
 fs.mkdirSync(ASSET_DIR, { recursive: true });

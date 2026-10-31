@@ -24,7 +24,7 @@ export async function writeStoryboard(providerId: string, model: string, userCon
   const p = findProvider(providerId);
   if (!p || p.kind !== 'llm') throw new ProviderError('Không hỗ trợ nhà cung cấp: ' + providerId, 400);
   if (p.mock) return mockStoryboard(userContent);
-  const key = getKey(p.keyEnv);
+  const key = await getKey(p.keyEnv);
   if (!key) throw new ProviderError(`Chưa có API key cho ${p.name}. Mở ⚙︎ Cài đặt để thêm ${p.keyEnv}.`, 400);
   if (!model) throw new ProviderError('Chưa chọn model.', 400);
 

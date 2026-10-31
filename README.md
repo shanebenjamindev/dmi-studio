@@ -1,6 +1,6 @@
 # DM Studio — Detailers Movement
 
-Ứng dụng **full-stack** làm video bằng AI: gõ ý tưởng, AI viết kịch bản, các model video/ảnh tạo cảnh nền, AI đọc lời thoại. Trình duyệt dựng chữ, chuyển động, logo và nhạc, rồi xuất **MP4**. Mọi thứ được lưu trên server của bạn.
+Ứng dụng **full-stack** làm video bằng AI: gõ ý tưởng, AI viết kịch bản, các model video/ảnh tạo cảnh nền, AI đọc lời thoại. Trình duyệt dựng chữ, chuyển động, logo và nhạc, rồi xuất **MP4**. Dữ liệu được lưu trên Turso cloud hoặc SQLite local; xem [DEPLOY.md](DEPLOY.md) để dùng chung database miễn phí.
 
 ## Chạy trên máy (macOS)
 
@@ -37,7 +37,7 @@ Mỗi nền tảng đều có mục **„＋ Model khác…“** để dán mode
 server/                 Node + TypeScript (chạy bằng tsx), không framework
   index.ts              HTTP server: REST API, /assets (hỗ trợ Range), phục vụ giao diện
   routes.ts             /api/projects, /api/ai/*, /api/jobs, /api/renders, /api/settings
-  db.ts                 SQLite tích hợp sẵn của Node (node:sqlite): projects, jobs, assets, renders, settings, ai_calls
+  db.ts                 Turso cloud / SQLite local qua @libsql/client: projects, jobs, assets, renders, settings, ai_calls
   jobs.ts               Worker nền: gửi job → poll → tải file về → gắn vào cảnh (vẫn chạy khi đóng trình duyệt)
   storyboard.ts         Schema JSON chung cho mọi model + bộ nhận diện thương hiệu Detailers Movement
   providers/
@@ -61,6 +61,6 @@ data/                   studio.db + assets/ (tự tạo, đã nằm trong .gitig
 
 ## Lưu ý
 - Video AI tính phí theo từng nhà cung cấp và thường mất 1–5 phút mỗi clip. Job chạy nền trên server, bạn có thể đóng trang.
-- API key được lưu dạng văn bản trong `data/studio.db` trên máy bạn. Đừng chia sẻ thư mục `data/`.
-- Mặc định server chỉ nghe trên `127.0.0.1`. Muốn mở cho máy khác trong mạng thì đặt `HOST=0.0.0.0`, nhưng app **chưa có đăng nhập**.
+- API key được lưu trong database (Turso cloud nếu đã cấu hình, hoặc `data/studio.db` khi chạy local). Đừng chia sẻ thư mục `data/`.
+- Mặc định server chỉ nghe trên `127.0.0.1`. Muốn mở cho máy khác trong mạng thì đặt `HOST=0.0.0.0`, mọi người vẫn phải đăng nhập và tuân theo quyền admin/member.
 # dmi-studio

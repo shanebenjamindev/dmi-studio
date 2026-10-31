@@ -9,6 +9,7 @@ import { api, ProviderError } from './routes';
 import { startWorker } from './jobs';
 import { publicCatalog } from './providers/registry';
 import { guard } from './auth';
+import { cloudDatabase } from './db';
 
 // Hostnames this server answers to. Checking Host blocks DNS rebinding; checking Origin on writes
 // blocks other websites from driving the API (and spending API credit) through the user's browser.
@@ -37,7 +38,7 @@ const server = http.createServer(async (req0, res) => {
   if (!trustedRequest(req)) return json(res, 403, { error: 'Yêu cầu bị chặn: Host/Origin không hợp lệ (đặt ALLOWED_HOSTS nếu cần)' });
 
   try {
-    if (req.path.startsWith('/api/') || req.path.startsWith('/assets/')) guard(req);
+    if (req.path.startsWith('/api/') || req.path.startsWith('/assets/')) await guard(req);
     if (req.path.startsWith('/api/')) {
       const m = api.match(req.method || 'GET', req.path);
       if (!m) throw new HttpError(404, 'Không có API này');
@@ -65,10 +66,11 @@ const server = http.createServer(async (req0, res) => {
 
 // Large video uploads can take longer than Node's default 5-minute request timeout.
 server.requestTimeout = 0;
-startWorker();
+await startWorker();
+const ready = (await publicCatalog()).filter((p) => p.configured && !p.mock).map((p) => p.name);
 server.listen(PORT, HOST, () => {
-  const ready = publicCatalog().filter((p) => p.configured && !p.mock).map((p) => p.name);
   console.log(`\n  ▶ DM Studio  ${PUBLIC_URL || `http://localhost:${PORT}`}`);
+  console.log(`    Database: ${cloudDatabase ? 'Turso cloud (dùng chung)' : 'SQLite local'}`);
   console.log(`    Nền tảng đã có key: ${ready.length ? [...new Set(ready)].join(', ') : 'chưa có — thêm trong ⚙︎ Cài đặt hoặc file .env'}`);
   console.log(`    ffmpeg: ${FFMPEG ? 'có (xuất MP4)' : 'không có (xuất WebM/MP4 tuỳ trình duyệt)'}${MOCK ? '   · CHẾ ĐỘ DEMO' : ''}\n`);
 });

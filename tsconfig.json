@@ -12,5 +12,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["server", "web/src"]
+  "include": ["server", "web/src", "scripts/*.ts"]
 }

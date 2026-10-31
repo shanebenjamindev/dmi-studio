@@ -150,7 +150,7 @@ export async function submitJob(providerId: string, model: string, kind: string,
   if (!p) throw new ProviderError('Không rõ nhà cung cấp ' + providerId, 400);
   if (p.kind !== kind) throw new ProviderError(`${p.name} không hỗ trợ loại "${kind}"`, 400);
   if (p.mock) return { done: await mockMedia(kind, input) };
-  const key = getKey(p.keyEnv);
+  const key = await getKey(p.keyEnv);
   if (!key) throw new ProviderError(`Chưa có API key cho ${p.name} (${p.keyEnv}).`, 400);
   if (!input.prompt?.trim()) throw new ProviderError('Thiếu prompt.', 400);
   switch (providerId) {
@@ -165,7 +165,7 @@ export async function submitJob(providerId: string, model: string, kind: string,
 
 export async function pollJob(providerId: string, remoteId: string, meta: any): Promise<PollResult> {
   const p = findProvider(providerId)!;
-  const key = getKey(p.keyEnv);
+  const key = await getKey(p.keyEnv);
   switch (providerId) {
     case 'seedance': return seedance.poll(remoteId, key);
     case 'higgsfield': return higgsfield.poll(remoteId, key, meta);

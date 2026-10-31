@@ -3,13 +3,20 @@ services:
   - type: web
     name: dm-studio
     runtime: docker
-    plan: starter            # a persistent disk needs a paid instance
+    plan: free
     region: singapore
+    numInstances: 1
     healthCheckPath: /api/health
     envVars:
+      - key: DATA_DIR
+        value: /tmp/dm-studio
+      - key: HOST
+        value: 0.0.0.0
+      - key: CLOUD_STORAGE_ONLY
+        value: "1"
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
       - key: SETUP_CODE      # asked once when creating the first admin account (see Environment tab)
         generateValue: true
-    disk:
-      name: dm-studio-data
-      mountPath: /var/data
-      sizeGB: 1

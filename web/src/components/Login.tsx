@@ -1,10 +1,12 @@
-// Sign-in page. On first run (no accounts yet) it creates the admin account instead.
+// Sign-in page. Always opens on "Đăng nhập"; on a brand-new server a small link switches to creating the first admin.
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useStore, signedIn } from '../store';
 
 export function LoginPage() {
-  const setup = useStore((s) => s.setup);
+  const noAccounts = useStore((s) => s.setup);
+  const [creating, setCreating] = useState(false);
+  const setup = noAccounts && creating;
   const google = useStore((s) => s.googleSignin);
   const needCode = useStore((s) => s.setupCode);
   const [f, setF] = useState({ name: '', email: '', password: '', confirm: '', code: '' });
@@ -22,6 +24,7 @@ export function LoginPage() {
     if (setup && f.password !== f.confirm) return setErr('Hai mật khẩu không khớp');
     setBusy(true); setErr('');
     try {
+      if (!setup && noAccounts) { setErr('Chưa có tài khoản nào. Bấm “Tạo tài khoản quản trị” bên dưới.'); return; }
       const r = setup ? await api.setup({ name: f.name, email: f.email, password: f.password, code: f.code }) : await api.login(f.email, f.password);
       await signedIn(r.user);
     } catch (x: any) { setErr(x.message); } finally { setBusy(false); }
@@ -49,7 +52,12 @@ export function LoginPage() {
             <a className="btn btn-gray btn-lg" href="/api/auth/google"><GoogleG />Đăng nhập bằng Google</a>
           </>
         )}
-        {!setup && <p className="login-foot">Chưa có tài khoản? Hãy nhờ quản trị viên thêm email của bạn.</p>}
+        {!setup && !noAccounts && <p className="login-foot">Chưa có tài khoản? Hãy nhờ quản trị viên thêm email của bạn.</p>}
+        {noAccounts && (
+          <button type="button" className="link login-switch" onClick={() => { setCreating(!creating); setErr(''); }}>
+            {creating ? '← Quay lại đăng nhập' : 'Lần đầu dùng DM Studio? Tạo tài khoản quản trị'}
+          </button>
+        )}
       </form>
     </main>
   );

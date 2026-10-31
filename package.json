@@ -10,10 +10,15 @@
     "start": "npm run build && tsx server/index.ts",
     "serve": "tsx server/index.ts",
     "demo": "npm run build && cross-env DMS_MOCK=1 tsx server/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:migrate:turso": "tsx scripts/migrate-to-turso.ts",
+    "test": "node --import tsx --test tests/*.test.mjs"
   },
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "tsx": "^4.23.12"

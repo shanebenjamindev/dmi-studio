@@ -111,28 +111,28 @@ export const findProvider = (id: string) => allProviders().find((p) => p.id === 
 // ---------------------------------------------------------------- credentials
 export const KEY_ENVS = [...new Set(PROVIDERS.map((p) => p.keyEnv).filter(Boolean))];
 
-export function getKey(env: string): string {
+export async function getKey(env: string): Promise<string> {
   if (!env) return 'mock';
-  return getSetting<string>('key:' + env, '') || process.env[env] || '';
+  return await getSetting<string>('key:' + env, '') || process.env[env] || '';
 }
-export function keySource(env: string): 'saved' | 'env' | 'none' {
-  if (getSetting<string>('key:' + env, '')) return 'saved';
+export async function keySource(env: string): Promise<'saved' | 'env' | 'none'> {
+  if (await getSetting<string>('key:' + env, '')) return 'saved';
   return process.env[env] ? 'env' : 'none';
 }
-export function setKey(env: string, value: string) {
+export async function setKey(env: string, value: string) {
   if (!KEY_ENVS.includes(env)) throw new Error('Không rõ biến khoá: ' + env);
-  setSetting('key:' + env, value?.trim() || null);
+  await setSetting('key:' + env, value?.trim() || null);
 }
 export const mask = (k: string) => (k ? k.slice(0, 5) + '…' + k.slice(-4) : '');
 
-export function customModels(): Record<string, string[]> { return getSetting('custom_models', {}); }
+export async function customModels(): Promise<Record<string, string[]>> { return await getSetting('custom_models', {}); }
 
-export function publicCatalog() {
-  const custom = customModels();
-  return allProviders().map((p) => ({
+export async function publicCatalog() {
+  const custom = await customModels();
+  return await Promise.all(allProviders().map(async (p) => ({
     id: p.id, name: p.name, vendor: p.vendor, kind: p.kind, keyEnv: p.keyEnv, keyHint: p.keyHint,
     docs: p.docs, note: p.note, voices: p.voices, mock: !!p.mock,
-    configured: p.mock ? true : !!getKey(p.keyEnv),
+    configured: p.mock ? true : !!await getKey(p.keyEnv),
     models: [...p.models, ...(custom[p.id] || []).filter((id) => !p.models.some((m) => m.id === id)).map((id) => ({ id, label: id, custom: true }))],
-  }));
+  })));
 }

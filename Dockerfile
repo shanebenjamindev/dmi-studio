@@ -1,8 +1,8 @@
-# DM Studio: one container serving the API and the built web app. Data (SQLite, local uploads) lives in DATA_DIR,
-# which must be a persistent disk/volume on the host.
+# DM Studio: API + web app. Render Free uses Turso for SQL and Google Drive for files.
+# Local SQLite and uploads require a persistent DATA_DIR when used on other hosts.
 FROM node:22-bookworm-slim
 WORKDIR /app
-ENV HOST=0.0.0.0 PORT=10000 DATA_DIR=/var/data
+ENV HOST=0.0.0.0 PORT=10000 DATA_DIR=/tmp/dm-studio
 
 COPY package.json package-lock.json ./
 RUN npm ci

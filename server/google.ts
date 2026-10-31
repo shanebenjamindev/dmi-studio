@@ -12,18 +12,18 @@ const DRIVE = 'https://www.googleapis.com/drive/v3';
 export const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 export interface GAccount { email: string; name: string; picture: string; refresh: string; access?: string; expiry?: number }
-export function oauthConfig() {
-  const c = getSetting<{ clientId?: string; clientSecret?: string }>('google_oauth', {});
+export async function oauthConfig() {
+  const c = await getSetting<{ clientId?: string; clientSecret?: string }>('google_oauth', {});
   return { clientId: c.clientId || process.env.GOOGLE_CLIENT_ID || '', clientSecret: c.clientSecret || process.env.GOOGLE_CLIENT_SECRET || '' };
 }
-export const setOauthConfig = (clientId: string, clientSecret: string) =>
-  setSetting('google_oauth', clientId || clientSecret ? { clientId: clientId.trim(), clientSecret: clientSecret.trim() } : null);
-export const accounts = () => getSetting<GAccount[]>('google_accounts', []);
-const saveAccounts = (a: GAccount[]) => setSetting('google_accounts', a.length ? a : null);
-export const publicAccounts = () => accounts().map(({ email, name, picture }) => ({ email, name, picture }));
-export function removeAccount(email: string) {
-  const a = accounts().find((x) => x.email === email);
-  saveAccounts(accounts().filter((x) => x.email !== email));
+export const setOauthConfig = async (clientId: string, clientSecret: string) =>
+  await setSetting('google_oauth', clientId || clientSecret ? { clientId: clientId.trim(), clientSecret: clientSecret.trim() } : null);
+export const accounts = async () => await getSetting<GAccount[]>('google_accounts', []);
+const saveAccounts = async (a: GAccount[]) => await setSetting('google_accounts', a.length ? a : null);
+export const publicAccounts = async () => (await accounts()).map(({ email, name, picture }) => ({ email, name, picture }));
+export async function removeAccount(email: string) {
+  const a = (await accounts()).find((x) => x.email === email);
+  await saveAccounts((await accounts()).filter((x) => x.email !== email));
   if (a) fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(a.refresh)}`, { method: 'POST' }).catch(() => {});
 }
 
@@ -31,8 +31,8 @@ export function removeAccount(email: string) {
 // 'drive' connects an account for storage; 'signin' only identifies who is logging in to DM Studio.
 export type Purpose = 'drive' | 'signin';
 const pending = new Map<string, { redirect: string; purpose: Purpose; at: number }>();
-export function authUrl(redirect: string, purpose: Purpose = 'drive') {
-  const { clientId } = oauthConfig();
+export async function authUrl(redirect: string, purpose: Purpose = 'drive') {
+  const { clientId } = await oauthConfig();
   if (!clientId) throw new HttpError(400, 'Chưa cấu hình Google OAuth Client ID');
   const state = crypto.randomBytes(16).toString('hex');
   pending.set(state, { redirect, purpose, at: Date.now() });
@@ -46,7 +46,7 @@ export function authUrl(redirect: string, purpose: Purpose = 'drive') {
   return `https://accounts.google.com/o/oauth2/v2/auth?${q}`;
 }
 async function tokenCall(params: Record<string, string>) {
-  const { clientId, clientSecret } = oauthConfig();
+  const { clientId, clientSecret } = await oauthConfig();
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, ...params }),
@@ -67,17 +67,17 @@ export async function finishLogin(code: string, state: string) {
     if (me.email_verified === false) throw new HttpError(400, 'Email Google này chưa được xác minh');
     return { purpose: p.purpose, email: String(me.email).toLowerCase(), name: me.name || me.email, picture: me.picture || '' };
   }
-  const prev = accounts().find((a) => a.email === me.email);
+  const prev = (await accounts()).find((a) => a.email === me.email);
   const acc: GAccount = {
     email: me.email, name: me.name || me.email, picture: me.picture || '',
     refresh: t.refresh_token || prev?.refresh || '', access: t.access_token, expiry: Date.now() + (t.expires_in - 60) * 1000,
   };
   if (!acc.refresh) throw new HttpError(400, 'Google không cấp quyền truy cập lâu dài, hãy đăng nhập lại');
-  saveAccounts([...accounts().filter((a) => a.email !== acc.email), acc]);
+  await saveAccounts([...(await accounts()).filter((a) => a.email !== acc.email), acc]);
   return { purpose: p.purpose, email: acc.email, name: acc.name, picture: acc.picture };
 }
 async function accessToken(email: string, force = false) {
-  const list = accounts();
+  const list = await accounts();
   const a = list.find((x) => x.email === email);
   if (!a) throw new HttpError(401, `Tài khoản Google ${email} chưa được kết nối, hãy đăng nhập lại`);
   if (!force && a.access && (a.expiry || 0) > Date.now()) return a.access;
@@ -85,13 +85,13 @@ async function accessToken(email: string, force = false) {
     throw new HttpError(401, `Phiên Google của ${email} đã hết hạn, hãy đăng nhập lại`);
   });
   a.access = t.access_token; a.expiry = Date.now() + (t.expires_in - 60) * 1000;
-  saveAccounts(list);
+  await saveAccounts(list);
   return a.access!;
 }
 /** Authorised request to a Google API; retries once with a fresh token on 401. */
 export async function gfetch(email: string, url: string, init: RequestInit = {}, retry = true): Promise<Response> {
   const res = await fetch(url, { ...init, headers: { ...(init.headers as any), authorization: `Bearer ${await accessToken(email, !retry)}` } });
-  if (res.status === 401 && retry) return gfetch(email, url, init, false);
+  if (res.status === 401 && retry) return await gfetch(email, url, init, false);
   return res;
 }
 async function gjson<T = any>(email: string, url: string, init: RequestInit = {}): Promise<T> {
@@ -120,10 +120,10 @@ async function listAll(email: string, query: string, fields: string) {
   } while (page && out.length < 2000);
   return out;
 }
-export const listFolders = (email: string, parent: string) =>
-  listAll(email, `'${parent}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`, 'id,name');
-export const listVideos = (email: string, parent: string) =>
-  listAll(email, `'${parent}' in parents and mimeType contains 'video/' and trashed=false`, 'id,name,size,mimeType,modifiedTime,webViewLink,thumbnailLink,shared');
+export const listFolders = async (email: string, parent: string) =>
+  await listAll(email, `'${parent}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`, 'id,name');
+export const listVideos = async (email: string, parent: string) =>
+  await listAll(email, `'${parent}' in parents and mimeType contains 'video/' and trashed=false`, 'id,name,size,mimeType,modifiedTime,webViewLink,thumbnailLink,shared');
 /** Videos directly inside any of `parents` (chunked so the query stays short); each file carries its `parents`. */
 export async function listVideosIn(email: string, parents: string[]) {
   const out: GFile[] = [];
@@ -133,10 +133,10 @@ export async function listVideosIn(email: string, parents: string[]) {
   }
   return out;
 }
-export const meta = (email: string, id: string, fields = 'id,name,mimeType,parents,driveId,webViewLink') =>
-  gjson<GFile>(email, `${DRIVE}/files/${q(id)}?fields=${q(fields)}&supportsAllDrives=true`);
+export const meta = async (email: string, id: string, fields = 'id,name,mimeType,parents,driveId,webViewLink') =>
+  await gjson<GFile>(email, `${DRIVE}/files/${q(id)}?fields=${q(fields)}&supportsAllDrives=true`);
 export async function createFolder(email: string, parent: string, name: string) {
-  return gjson<GFile>(email, `${DRIVE}/files?fields=id,name&supportsAllDrives=true`, {
+  return await gjson<GFile>(email, `${DRIVE}/files?fields=id,name&supportsAllDrives=true`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, mimeType: FOLDER_MIME, parents: [parent] }),
   });
 }
@@ -144,12 +144,12 @@ export async function findChildFolder(email: string, parent: string, name: strin
   const f = await listAll(email, `'${parent}' in parents and mimeType='${FOLDER_MIME}' and name='${name.replace(/['\\]/g, '\\$&')}' and trashed=false`, 'id,name');
   return f[0] || null;
 }
-export const rename = (email: string, id: string, name: string) =>
-  gjson(email, `${DRIVE}/files/${q(id)}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
-export const trash = (email: string, id: string) =>
-  gjson(email, `${DRIVE}/files/${q(id)}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
-export const shareAnyone = (email: string, id: string) =>
-  gjson(email, `${DRIVE}/files/${q(id)}/permissions?supportsAllDrives=true`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) });
+export const rename = async (email: string, id: string, name: string) =>
+  await gjson(email, `${DRIVE}/files/${q(id)}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
+export const trash = async (email: string, id: string) =>
+  await gjson(email, `${DRIVE}/files/${q(id)}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
+export const shareAnyone = async (email: string, id: string) =>
+  await gjson(email, `${DRIVE}/files/${q(id)}/permissions?supportsAllDrives=true`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) });
 
 /** Breadcrumb from the drive root down to `id` (My Drive or a shared drive). */
 export async function crumbs(email: string, id: string) {
