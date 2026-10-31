@@ -64,7 +64,7 @@ Nếu sửa service Render cũ: lưu hai biến Turso, chuyển dữ liệu cầ
 
 ## 5. Đăng nhập và kết nối Google Drive
 
-- Database mới: lấy `SETUP_CODE` trong **Environment** của Render, mở app để tạo admin đầu tiên.
+- Giao diện chỉ có đăng nhập. Với database mới, nhập tài khoản cũ theo mục 2 trước khi sử dụng; API `/api/auth/setup` vẫn dành cho việc khởi tạo có mã `SETUP_CODE`, nhưng không có form tạo admin công khai.
 - Database đã nhập: đăng nhập bằng tài khoản cũ.
 - Admin vào Quản trị để thêm email và mật khẩu cho thành viên.
 - Trong Google Cloud Console, thêm `https://<dia-chi-app>/api/google/callback` vào Authorized redirect URIs của OAuth client. Giữ localhost nếu vẫn phát triển local.

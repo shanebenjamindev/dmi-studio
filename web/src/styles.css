@@ -835,4 +835,3 @@ button.ws-vmeta { padding: 8px 2px 4px; }
 .users > .side-title { margin-bottom: -4px; }
 .ws-name[readonly] { cursor: default; }
 .ws-name[readonly]:hover { background: transparent; }
-.login-switch { align-self: center; margin-top: 6px; font-size: 12.5px; }
