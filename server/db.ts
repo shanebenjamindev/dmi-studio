@@ -2,24 +2,31 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import crypto from 'node:crypto';
-import { createClient, type InValue } from '@libsql/client';
-import { DATA_DIR } from './config';
+import { createClient, type Client, type InValue } from '@libsql/client';
+import { DATA_DIR, IS_CLOUDFLARE } from './config';
 
-const url = process.env.TURSO_DATABASE_URL?.trim();
-const token = process.env.TURSO_AUTH_TOKEN?.trim();
-export const cloudDatabase = !!url;
-if (!!url !== !!token) throw new Error('Cần đặt cả TURSO_DATABASE_URL và TURSO_AUTH_TOKEN');
-if (url && !/^(libsql|https):\/\//.test(url)) throw new Error('TURSO_DATABASE_URL phải dùng libsql:// hoặc https://');
-if (process.env.RENDER && !url) throw new Error('Render cần database cloud: hãy đặt TURSO_DATABASE_URL và TURSO_AUTH_TOKEN');
-export const db = createClient({
-  url: url || pathToFileURL(path.join(DATA_DIR, 'studio.db')).href,
-  authToken: token,
-});
-// Never fall back to a local database if the cloud is unavailable.
-await db.execute('SELECT 1');
-if (!cloudDatabase) await db.execute('PRAGMA journal_mode = WAL');
-await db.execute('PRAGMA foreign_keys = ON');
-await db.executeMultiple(`
+export const cloudDatabase = IS_CLOUDFLARE || !!process.env.TURSO_DATABASE_URL?.trim();
+export let db: Client;
+function connect() {
+  const url = process.env.TURSO_DATABASE_URL?.trim();
+  const token = process.env.TURSO_AUTH_TOKEN?.trim();
+  if (!!url !== !!token) throw new Error('Cần đặt cả TURSO_DATABASE_URL và TURSO_AUTH_TOKEN');
+  if (url && !/^(libsql|https):\/\//.test(url)) throw new Error('TURSO_DATABASE_URL phải dùng libsql:// hoặc https://');
+  if ((process.env.RENDER || IS_CLOUDFLARE) && !url) throw new Error('Cloud cần TURSO_DATABASE_URL và TURSO_AUTH_TOKEN');
+  return createClient({ url: url || pathToFileURL(path.join(DATA_DIR, 'studio.db')).href, authToken: token });
+}
+
+// Workers cannot perform network I/O at module scope. Initialize inside the first request.
+let initialized: Promise<void> | undefined;
+export function initDatabase(): Promise<void> {
+  return initialized ||= initialize().catch((error) => { initialized = undefined; throw error; });
+}
+async function initialize() {
+  db ||= connect();
+  await db.execute('SELECT 1');
+  if (!cloudDatabase) await db.execute('PRAGMA journal_mode = WAL');
+  await db.execute('PRAGMA foreign_keys = ON');
+  await db.executeMultiple(`
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, aspect TEXT NOT NULL DEFAULT '16:9',
   data TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
@@ -52,15 +59,23 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member',
   pass TEXT, disabled INTEGER NOT NULL DEFAULT 0, last_login INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS oauth_states (
+  id TEXT PRIMARY KEY, redirect TEXT NOT NULL, purpose TEXT NOT NULL, expires_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS login_attempts (
+  id TEXT PRIMARY KEY, n INTEGER NOT NULL, expires_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL
 );
 `);
-// Upgrade existing local or cloud databases without changing their data.
-for (const [table, column] of [['projects', 'customer_id'], ['customers', 'gloc'], ['customers', 'links']]) {
-  const info = await db.execute(`PRAGMA table_info(${table})`);
-  if (!info.rows.some((c) => c.name === column)) await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
+  // Upgrade existing local or cloud databases without changing their data.
+  for (const [table, column] of [['projects', 'customer_id'], ['customers', 'gloc'], ['customers', 'links']]) {
+    const info = await db.execute(`PRAGMA table_info(${table})`);
+    if (!info.rows.some((c) => c.name === column)) await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
+  }
 }
+if (!IS_CLOUDFLARE) await initDatabase();
 
 export const uid = (p = '') => p + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 export const now = () => Date.now();

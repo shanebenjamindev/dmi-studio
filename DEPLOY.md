@@ -1,86 +1,66 @@
-# DM Studio miễn phí: Render Free + Turso Free
+# DM Studio trên Cloudflare Workers + Turso
 
-Mọi người mở cùng một URL app. Tài khoản, phiên đăng nhập, khách hàng, ghi chú và cấu hình được lưu trong một database Turso chung. Video khách hàng lưu trên Google Drive qua API. Backend không sao chép database về ổ tạm và không tự chuyển về SQLite khi Turso lỗi.
+URL đang triển khai: https://dmi-studio.vophonggiang0205.workers.dev
 
-- Turso Free: hiện có 5 GB lưu trữ tổng, cùng hạn mức đọc/ghi. Kiểm tra [bảng giá Turso](https://turso.tech/pricing) khi đăng ký.
-- Render Free: ngủ sau 15 phút không có truy cập, lần mở lại có thể chậm. Không có persistent disk. Xem [giới hạn Render Free](https://render.com/docs/free).
-- Dung lượng Google Drive và các API AI dùng hạn mức/gói riêng của bạn.
+Một Worker phục vụ cả React và API tại cùng một URL `https://dmi-studio.<subdomain>.workers.dev`. Turso lưu tài khoản, phiên đăng nhập, khách hàng, ghi chú và cấu hình. Video lưu trên Google Drive. Không cần backend Render.
 
-## 1. Tạo database Turso Free
-
-1. Mở https://turso.tech và chọn đăng ký/đăng nhập, có thể dùng GitHub. Chọn gói **Free**.
-2. Trong dashboard, tạo database, ví dụ `dmi-studio`. Chọn vùng gần người dùng nếu có lựa chọn.
-3. Mở trang database và phần kết nối. Sao chép **Database URL** có dạng `libsql://...`.
-4. Tạo **database auth token** có quyền đọc/ghi cho database đó; lưu riêng token. Không dùng token quản trị toàn bộ tài khoản.
-5. Không gửi token trong chat, không đặt trong `web/`, không commit vào Git. Token chỉ dùng ở backend.
-
-Ứng dụng tự tạo bảng khi khởi động. Nếu muốn giữ tài khoản và ghi chú cũ, thực hiện mục 2 trước khi khởi động app cloud.
-
-## 2. Chuyển dữ liệu local cũ (tùy chọn)
-
-Bỏ qua mục này nếu muốn bắt đầu với database trống.
-
-1. Dừng các server local đang ghi dữ liệu, sao lưu thư mục `data/` sau khi server đã dừng.
-2. Thêm vào `.env` trên máy của bạn, mỗi biến một dòng, không thêm chú thích phía sau giá trị:
-   ```dotenv
-   TURSO_DATABASE_URL=libsql://your-database.turso.io
-   TURSO_AUTH_TOKEN=your-database-token
-   ```
-3. Khi database Turso còn trống, chạy:
-   ```sh
-   npm run db:migrate:turso
-   ```
-   Có thể chỉ định file khác: `npm run db:migrate:turso -- /duong-dan/studio.db`.
-4. Script đọc SQLite nguồn, chuyển các bảng ứng dụng trong một transaction và dừng nếu database đích đã có dữ liệu. Không ghi đè dữ liệu nguồn. Phiên đăng nhập cũ không được chuyển; mọi người đăng nhập lại.
-5. Tài khoản, mật khẩu đã băm, khách hàng, link, ghi chú, cấu hình và token Google được chuyển. File video/media nằm trên ổ máy cũ không được tải lên. Các bản ghi asset/render cũ vẫn cần file media tương ứng để sử dụng.
-6. Nếu đang dùng thư mục local/Drive for desktop, hãy tải file lên Google Drive và chọn lại thư mục gốc qua Google API trên bản cloud. Khách hàng còn dùng đường dẫn local được ẩn khỏi danh sách cloud. Các thư mục Drive sẽ được nhập khi duyệt; không tự ghép khách hàng theo tên. Muốn giữ ghi chú của bản ghi local, cần liên kết bản ghi đó với đúng Drive folder qua API trước khi sử dụng trên cloud.
-
-Sau khi thêm hai biến Turso vào `.env`, cả app local cũng đọc/ghi database cloud thật. Xóa hai biến khỏi `.env` để quay lại database local độc lập; thay đổi local sau đó không tự nhập vào Turso.
-
-## 3. Đẩy code lên GitHub
-
-Repo hiện tại: `https://github.com/shanebenjamindev/dmi-studio.git`.
-
-Review và commit các thay đổi cần triển khai, rồi đẩy nhánh lên GitHub:
+## Triển khai từ máy này
 
 ```sh
-git push -u origin main
+npm ci
+npm run cf:login
+npm run typecheck
+npm test
+npm run test:worker
+npm run cf:secrets
+npm run cf:deploy
 ```
 
-`.env`, `data/` và các token không được đưa vào Git. Không nhúng token trong `render.yaml`.
+- `cf:login` mở luồng đăng nhập Cloudflare nếu chưa có phiên đăng nhập.
+- Điền `TURSO_DATABASE_URL` và `TURSO_AUTH_TOKEN` trong `.env` trước khi chạy `cf:secrets`.
+- `cf:secrets` gửi hai giá trị đó dưới dạng Cloudflare Secrets, cùng mã bảo vệ khởi tạo admin. Nếu Worker chưa tồn tại, Wrangler có thể hỏi tạo Worker; chọn tạo. Không in token và không đưa `.env` vào Git.
+- `cf:deploy` build React, tải static assets và API lên Worker. Wrangler in URL sau khi hoàn tất.
+- Không đặt token trong `wrangler.jsonc`, frontend hay GitHub. `.env` chỉ được Wrangler đọc khi phát triển local; production dùng Secrets riêng.
 
-## 4. Tạo app Render Free
+Nếu cấu hình secrets bằng dashboard: **Workers & Pages → dmi-studio → Settings → Variables and Secrets**, thêm `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` dưới loại Secret. Deploy lại sau khi lưu.
 
-1. Đăng nhập https://dashboard.render.com, chọn **New → Blueprint**.
-2. Kết nối GitHub và chọn repo `shanebenjamindev/dmi-studio` cùng nhánh vừa push.
-3. Render đọc `render.yaml`: Docker, gói **Free**, một instance, không có disk.
-4. Nhập hai giá trị được yêu cầu:
-   - `TURSO_DATABASE_URL`: URL database ở mục 1.
-   - `TURSO_AUTH_TOKEN`: token database ở mục 1.
-5. `SETUP_CODE` được Render tạo tự động; `CLOUD_STORAGE_ONLY=1` chỉ cho phép lưu file qua Google Drive.
-6. Kiểm tra đúng gói **Free**, rồi triển khai. Sau khi build xong, mở URL `https://...onrender.com` do Render cấp.
+## Chuyển từ Render
 
-Nếu sửa service Render cũ: lưu hai biến Turso, chuyển dữ liệu cần giữ trước, rồi mới chuyển sang gói Free và bỏ persistent disk. Việc xóa disk có thể mất dữ liệu trên disk đó; không làm trước khi sao lưu và kiểm tra dữ liệu đã chuyển.
+1. Dùng lại đúng database Turso của Render. Không tạo database thứ hai.
+2. Deploy Worker và cấu hình Secrets.
+3. Mở URL Workers, đăng nhập bằng tài khoản cũ, kiểm tra danh sách khách hàng và ghi chú.
+4. Thêm `https://dmi-studio.vophonggiang0205.workers.dev/api/google/callback` vào Authorized redirect URIs trong Google Cloud Console cho OAuth client đang dùng. Với custom domain, thêm callback của domain đó nữa.
+5. Kết nối lại Google nếu cần và kiểm tra upload/xem video.
+6. Sau khi xác nhận đầy đủ, mới ngừng service Render. Quá trình chuyển này không tự xóa dịch vụ hoặc ổ dữ liệu Render.
 
-## 5. Đăng nhập và kết nối Google Drive
+Mật khẩu cũ giữ nguyên định dạng scrypt. Cookie phiên thuộc từng domain nên cần đăng nhập lại trên domain Cloudflare. Trạng thái OAuth và giới hạn thử mật khẩu nằm trong Turso để hoạt động qua nhiều Worker.
 
-- Giao diện chỉ có đăng nhập. Với database mới, nhập tài khoản cũ theo mục 2 trước khi sử dụng; API `/api/auth/setup` vẫn dành cho việc khởi tạo có mã `SETUP_CODE`, nhưng không có form tạo admin công khai.
-- Database đã nhập: đăng nhập bằng tài khoản cũ.
-- Admin vào Quản trị để thêm email và mật khẩu cho thành viên.
-- Trong Google Cloud Console, thêm `https://<dia-chi-app>/api/google/callback` vào Authorized redirect URIs của OAuth client. Giữ localhost nếu vẫn phát triển local.
-- Trong Quản trị của app, cấu hình Google OAuth và kết nối tài khoản Google Drive, rồi chọn thư mục gốc chứa khách hàng.
-- Mọi người mở cùng URL cloud; không cần chạy server trên từng máy.
+## Nếu dữ liệu vẫn chỉ nằm ở SQLite local
 
-## 6. Kiểm tra dùng chung và lưu bền vững
+Dừng ghi dữ liệu local, sao lưu `data/` rồi điền hai biến Turso vào `.env` và chạy:
 
-1. Admin tạo tài khoản thành viên trên cloud.
-2. Mở cùng URL trên điện thoại hoặc trình duyệt khác, đăng nhập tài khoản thành viên.
-3. Sửa ghi chú khách hàng và tải lại trên thiết bị còn lại để kiểm tra. Giao diện hiện chưa cập nhật realtime.
-4. Restart service Render và kiểm tra tài khoản, ghi chú vẫn còn.
-5. Log khởi động phải hiện `Database: Turso cloud (dùng chung)`. Nếu thiếu URL/token hoặc không kết nối được Turso, app dừng để tránh tạo một bộ dữ liệu local khác.
+```sh
+npm run db:migrate:turso
+```
 
-## Phạm vi của bản miễn phí
+Script chỉ nhập vào database trống, không ghi đè hoặc trộn dữ liệu đã có. Chuyển tài khoản, mật khẩu đã băm, ghi chú và cấu hình; không chuyển phiên đăng nhập và file video local. Giao diện chỉ có đăng nhập nên cần tài khoản được nhập sẵn hoặc được quản trị viên cấp.
 
-`CLOUD_STORAGE_ONLY=1` tắt lưu thư mục/file trên server, tạo media AI nền và lưu bản render vào `/assets`. Các tính năng này cần chỗ lưu file bền vững riêng trước khi bật lại. Luồng Khách hàng đang hiển thị trong app sử dụng Google Drive, hỗ trợ tải lên và xem video qua Drive.
+Nếu khách hàng cũ dùng đường dẫn trên Mac/Drive for desktop, cần liên kết lại với Google Drive API. Không thể truy cập file trên máy Mac từ Workers. Các bản ghi dùng đường dẫn local vẫn được giữ trong database nhưng bị ẩn trên bản cloud.
 
-Không đưa database token vào trình duyệt. Việc đăng nhập và kiểm tra quyền admin/member vẫn diễn ra ở backend. Database dùng chung không có nghĩa là thành viên được quyền quản trị.
+## Phát triển và kiểm tra
+
+- `npm run dev`: Node.js + SQLite local nếu chưa cấu hình Turso; nếu có hai biến Turso, dùng database cloud đó.
+- `npm run cf:dev`: chạy Workers runtime local, đọc Secrets từ `.env`. Dùng database Turso riêng để thử nếu không muốn tác động dữ liệu thật.
+- `npm run cf:check`: kiểm tra build/bundle Workers, không deploy.
+- `npm test`: kiểm tra database và backend Node; worker tests chạy nếu đã có bundle test.
+- `npm run test:worker`: build bundle mới và chạy kiểm tra Workers với database giả lập riêng, không dùng credentials production. Kiểm tra cookie HTTPS, đăng nhập, callback Google qua hai isolate, chống callback dùng lại, giới hạn thử mật khẩu và Origin.
+
+## Giới hạn
+
+- Workers Free có hạn mức request/CPU và Turso Free có hạn mức dung lượng/đọc/ghi; theo dõi dashboard khi dùng thực tế. [Cloudflare Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/), [Turso pricing](https://turso.tech/pricing).
+- Workers không có ổ lưu trữ local bền vững hoặc ffmpeg. `CLOUD_STORAGE_ONLY=1` được bật bắt buộc: video khách hàng đi qua Google Drive; các tính năng tạo media nền và lưu render vào `/assets` bị tắt.
+- Dùng upload trực tiếp lên Google Drive cho video lớn. Đường upload dự phòng qua Worker chịu giới hạn request của Cloudflare.
+- Database được khởi tạo trong request đầu tiên, không thực hiện network I/O khi nạp module. Thiếu secrets hoặc mất kết nối Turso trả HTTP 503, không tạo database local thay thế.
+- Static assets được Cloudflare phục vụ trực tiếp. `/api/*` luôn qua Worker và kiểm tra đăng nhập/phân quyền; không dùng SPA fallback cho API.
+
+Cấu hình Render cũ được giữ trong `render.yaml`; hướng dẫn cũ ở [DEPLOY-RENDER.md](DEPLOY-RENDER.md).

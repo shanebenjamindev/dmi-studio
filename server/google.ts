@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import type http from 'node:http';
 import { HttpError } from './http';
-import { getSetting, setSetting } from './db';
+import { get, run, getSetting, setSetting } from './db';
 
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/drive';
 const DRIVE = 'https://www.googleapis.com/drive/v3';
@@ -30,13 +30,13 @@ export async function removeAccount(email: string) {
 // ---------------------------------------------------------------- OAuth
 // 'drive' connects an account for storage; 'signin' only identifies who is logging in to DM Studio.
 export type Purpose = 'drive' | 'signin';
-const pending = new Map<string, { redirect: string; purpose: Purpose; at: number }>();
+interface OAuthState { redirect: string; purpose: Purpose }
 export async function authUrl(redirect: string, purpose: Purpose = 'drive') {
   const { clientId } = await oauthConfig();
   if (!clientId) throw new HttpError(400, 'Chưa cấu hình Google OAuth Client ID');
   const state = crypto.randomBytes(16).toString('hex');
-  pending.set(state, { redirect, purpose, at: Date.now() });
-  for (const [k, v] of pending) if (Date.now() - v.at > 15 * 60e3) pending.delete(k);
+  await run('DELETE FROM oauth_states WHERE expires_at < ?', Date.now());
+  await run('INSERT INTO oauth_states(id, redirect, purpose, expires_at) VALUES(?,?,?,?)', state, redirect, purpose, Date.now() + 15 * 60e3);
   const q = new URLSearchParams(purpose === 'signin'
     ? { client_id: clientId, redirect_uri: redirect, response_type: 'code', scope: 'openid email profile', prompt: 'select_account', state }
     : {
@@ -55,11 +55,10 @@ async function tokenCall(params: Record<string, string>) {
   if (!res.ok) throw new HttpError(400, `Google từ chối đăng nhập: ${j.error_description || j.error || res.status}`);
   return j;
 }
-export const purposeOf = (state: string) => pending.get(state)?.purpose ?? null;
+export const purposeOf = async (state: string) => (await get<OAuthState>('SELECT purpose FROM oauth_states WHERE id=? AND expires_at>?', state, Date.now()))?.purpose ?? null;
 export async function finishLogin(code: string, state: string) {
-  const p = pending.get(state);
+  const p = await get<OAuthState>('DELETE FROM oauth_states WHERE id=? AND expires_at>? RETURNING redirect, purpose', state, Date.now());
   if (!p) throw new HttpError(400, 'Phiên đăng nhập đã hết hạn, hãy thử lại');
-  pending.delete(state);
   const t = await tokenCall({ code, grant_type: 'authorization_code', redirect_uri: p.redirect });
   const me: any = await (await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { authorization: `Bearer ${t.access_token}` } })).json();
   if (!me.email) throw new HttpError(400, 'Không đọc được email tài khoản Google');

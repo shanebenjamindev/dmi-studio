@@ -8,9 +8,22 @@
     "noImplicitAny": false,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["node"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "node"
+    ],
     "noEmit": true
   },
-  "include": ["server", "web/src", "scripts/*.ts"]
+  "include": [
+    "server",
+    "web/src",
+    "scripts/*.ts"
+  ],
+  "exclude": [
+    "server/worker.ts"
+  ]
 }

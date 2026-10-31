@@ -1,6 +1,7 @@
 // DM Studio accounts: email + password (or "Sign in with Google" for an email an admin has added),
 // cookie sessions, and admin-only user management. The first visitor creates the admin account.
 import crypto from 'node:crypto';
+import { promisify } from 'node:util';
 import type http from 'node:http';
 import { Router, HttpError, json, readJson, publicOrigin, type Req, type Res } from './http';
 import { all, get, run, uid, now } from './db';
@@ -14,15 +15,16 @@ const TTL = 30 * 24 * 3600e3;
 const ROLES: Role[] = ['admin', 'member'];
 
 // ---------------------------------------------------------------- passwords & sessions
-function hashPass(pw: string) {
+const scrypt = promisify(crypto.scrypt);
+async function hashPass(pw: string) {
   const salt = crypto.randomBytes(16);
-  return `s1$${salt.toString('hex')}$${crypto.scryptSync(pw, salt, 64).toString('hex')}`;
+  return `s1$${salt.toString('hex')}$${((await scrypt(pw, salt, 64)) as Buffer).toString('hex')}`;
 }
-function checkPass(pw: string, stored: string | null) {
+async function checkPass(pw: string, stored: string | null) {
   const [v, salt, hash] = (stored || '').split('$');
   if (v !== 's1' || !salt || !hash) return false;
   const want = Buffer.from(hash, 'hex');
-  return crypto.timingSafeEqual(crypto.scryptSync(pw, Buffer.from(salt, 'hex'), want.length), want);
+  return crypto.timingSafeEqual((await scrypt(pw, Buffer.from(salt, 'hex'), want.length)) as Buffer, want);
 }
 const tokenId = (t: string) => crypto.createHash('sha256').update(t).digest('hex');
 
@@ -83,12 +85,18 @@ async function mustUser(id: string) {
 const redirect = (res: Res, to: string) => { res.writeHead(302, { location: to }); res.end(); };
 
 // Slow down password guessing: 8 failures per email+IP within 15 minutes locks that pair for the rest of the window.
-const fails = new Map<string, { n: number; at: number }>();
-function throttle(key: string, failed?: boolean) {
-  const f = fails.get(key);
-  if (f && Date.now() - f.at > 15 * 60e3) fails.delete(key);
-  if (failed === undefined) { if ((fails.get(key)?.n || 0) >= 8) throw new HttpError(429, 'Sai mật khẩu quá nhiều lần, hãy thử lại sau 15 phút'); return; }
-  if (failed) fails.set(key, { n: (fails.get(key)?.n || 0) + 1, at: fails.get(key)?.at || Date.now() }); else fails.delete(key);
+async function throttle(key: string, failed?: boolean) {
+  const at = Date.now(), expiry = at + 15 * 60e3;
+  if (failed === undefined) {
+    const f = await get<{ n: number; expires_at: number }>('SELECT n, expires_at FROM login_attempts WHERE id=?', key);
+    if (f && f.expires_at > at && f.n >= 8) throw new HttpError(429, 'Sai mật khẩu quá nhiều lần, hãy thử lại sau 15 phút');
+    return;
+  }
+  if (!failed) { await run('DELETE FROM login_attempts WHERE id=?', key); return; }
+  await run(`INSERT INTO login_attempts(id,n,expires_at) VALUES(?,1,?) ON CONFLICT(id) DO UPDATE SET
+    n=CASE WHEN expires_at<=? THEN 1 ELSE n+1 END,
+    expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END`, key, expiry, at, at);
+  await run('DELETE FROM login_attempts WHERE expires_at<?', at);
 }
 
 // ---------------------------------------------------------------- routes
@@ -110,7 +118,7 @@ export function registerAuth(api: Router) {
     const email = validEmail(normEmail(b.email)), name = String(b.name || '').trim() || email.split('@')[0];
     const id = uid('u_');
     // One atomic statement: concurrent setup requests must not create multiple first admins.
-    const created = await run('INSERT INTO users(id, email, name, role, pass, created_at, updated_at) SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM users)', id, email, name, 'admin', hashPass(validPass(b.password)), now(), now());
+    const created = await run('INSERT INTO users(id, email, name, role, pass, created_at, updated_at) SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM users)', id, email, name, 'admin', await hashPass(validPass(b.password)), now(), now());
     if (!created.changes) throw new HttpError(409, 'Đã có tài khoản quản trị, hãy đăng nhập');
     const u = await mustUser(id);
     await startSession(req, res, u);
@@ -119,10 +127,10 @@ export function registerAuth(api: Router) {
   api.post('/api/auth/login', async (req, res) => {
     const b = await readJson(req);
     const email = normEmail(b.email), key = `${email}|${req.socket.remoteAddress}`;
-    throttle(key);
+    await throttle(key);
     const u = await get<User>('SELECT * FROM users WHERE email = ?', email);
-    const ok = !!u && checkPass(String(b.password || ''), u.pass);
-    throttle(key, !ok);
+    const ok = !!u && await checkPass(String(b.password || ''), u.pass);
+    await throttle(key, !ok);
     if (!ok) throw new HttpError(401, u && !u.pass ? 'Tài khoản này đăng nhập bằng Google' : 'Sai email hoặc mật khẩu');
     if (u!.disabled) throw new HttpError(403, 'Tài khoản đã bị khoá, hãy liên hệ quản trị viên');
     await startSession(req, res, u!);
@@ -138,8 +146,8 @@ export function registerAuth(api: Router) {
     const u = await currentUser(req);
     if (!u) throw new HttpError(401, 'Hãy đăng nhập');
     const b = await readJson(req);
-    if (u.pass && !checkPass(String(b.current || ''), u.pass)) throw new HttpError(400, 'Mật khẩu hiện tại không đúng');
-    await run('UPDATE users SET pass=?, updated_at=? WHERE id=?', hashPass(validPass(b.next)), now(), u.id);
+    if (u.pass && !await checkPass(String(b.current || ''), u.pass)) throw new HttpError(400, 'Mật khẩu hiện tại không đúng');
+    await run('UPDATE users SET pass=?, updated_at=? WHERE id=?', await hashPass(validPass(b.next)), now(), u.id);
     // Sign out every other device.
     await run('DELETE FROM sessions WHERE user_id = ? AND id != ?', u.id, tokenId(cookieToken(req)));
     json(res, 200, { ok: true });
@@ -153,7 +161,7 @@ export function registerAuth(api: Router) {
     const email = validEmail(normEmail(b.email));
     if (await get('SELECT id FROM users WHERE email = ?', email)) throw new HttpError(409, 'Email này đã có tài khoản');
     const role: Role = ROLES.includes(b.role) ? b.role : 'member';
-    const pass = b.password ? hashPass(validPass(b.password)) : null;
+    const pass = b.password ? await hashPass(validPass(b.password)) : null;
     const id = uid('u_');
     await run('INSERT INTO users(id, email, name, role, pass, created_at, updated_at) VALUES(?,?,?,?,?,?,?)', id, email, String(b.name || '').trim() || email.split('@')[0], role, pass, now(), now());
     json(res, 201, userOut(await mustUser(id)));
@@ -170,7 +178,7 @@ export function registerAuth(api: Router) {
       email = validEmail(normEmail(b.email));
       if (await get('SELECT id FROM users WHERE email = ?', email)) throw new HttpError(409, 'Email này đã có tài khoản');
     }
-    const pass = b.password ? hashPass(validPass(b.password)) : u.pass;
+    const pass = b.password ? await hashPass(validPass(b.password)) : u.pass;
     await run('UPDATE users SET email=?, name=?, role=?, disabled=?, pass=?, updated_at=? WHERE id=?',
       email, b.name !== undefined ? String(b.name).trim() || u.name : u.name, role, disabled, pass, now(), u.id);
     // A new password, a lock or a lower role takes effect immediately on every device.

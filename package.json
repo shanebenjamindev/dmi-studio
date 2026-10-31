@@ -10,9 +10,15 @@
     "start": "npm run build && tsx server/index.ts",
     "serve": "tsx server/index.ts",
     "demo": "npm run build && cross-env DMS_MOCK=1 tsx server/index.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
     "db:migrate:turso": "tsx scripts/migrate-to-turso.ts",
-    "test": "node --import tsx --test tests/*.test.mjs"
+    "test": "node --import tsx --test tests/*.test.mjs",
+    "cf:dev": "wrangler dev",
+    "cf:check": "wrangler deploy --dry-run",
+    "cf:deploy": "wrangler deploy",
+    "cf:login": "wrangler login",
+    "test:worker": "wrangler deploy --dry-run --outdir .wrangler/test-bundle && node --test tests/worker.test.mjs",
+    "cf:secrets": "tsx scripts/cloudflare-secrets.ts"
   },
   "engines": {
     "node": ">=22.13"
@@ -24,11 +30,14 @@
     "tsx": "^4.23.12"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261031.1",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "cross-env": "^7.0.3",
     "esbuild": "^0.28.2",
-    "typescript": "^5.6.0"
+    "miniflare": "^5.20261023.3-beta",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.156.0"
   }
 }

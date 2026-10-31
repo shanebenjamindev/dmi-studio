@@ -1,6 +1,6 @@
 # DM Studio — Detailers Movement
 
-Ứng dụng **full-stack** làm video bằng AI: gõ ý tưởng, AI viết kịch bản, các model video/ảnh tạo cảnh nền, AI đọc lời thoại. Trình duyệt dựng chữ, chuyển động, logo và nhạc, rồi xuất **MP4**. Dữ liệu được lưu trên Turso cloud hoặc SQLite local; xem [DEPLOY.md](DEPLOY.md) để dùng chung database miễn phí.
+Ứng dụng **full-stack** làm video bằng AI: gõ ý tưởng, AI viết kịch bản, các model video/ảnh tạo cảnh nền, AI đọc lời thoại. Trình duyệt dựng chữ, chuyển động, logo và nhạc, rồi xuất **MP4**. Bản cloud chạy trên Cloudflare Workers, dùng chung Turso và lưu video khách hàng trên Google Drive; xem [DEPLOY.md](DEPLOY.md). Local vẫn hỗ trợ SQLite.
 
 ## Chạy trên máy (macOS)
 
@@ -35,7 +35,8 @@ Mỗi nền tảng đều có mục **„＋ Model khác…“** để dán mode
 
 ```
 server/                 Node + TypeScript (chạy bằng tsx), không framework
-  index.ts              HTTP server: REST API, /assets (hỗ trợ Range), phục vụ giao diện
+  index.ts              HTTP server local: REST API, /assets (hỗ trợ Range), phục vụ giao diện
+  worker.ts             Cloudflare Workers: static assets + API, dùng Turso và Google Drive
   routes.ts             /api/projects, /api/ai/*, /api/jobs, /api/renders, /api/settings
   db.ts                 Turso cloud / SQLite local qua @libsql/client: projects, jobs, assets, renders, settings, ai_calls
   jobs.ts               Worker nền: gửi job → poll → tải file về → gắn vào cảnh (vẫn chạy khi đóng trình duyệt)

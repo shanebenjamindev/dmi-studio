@@ -11,7 +11,7 @@ import { pipeline } from 'node:stream/promises';
 import type { Router, Req, Res } from './http';
 import { HttpError, json, readJson, sendFile, publicOrigin } from './http';
 import { all, get, run, uid, now, getSetting, setSetting } from './db';
-import { DATA_DIR, CLOUD_STORAGE_ONLY } from './config';
+import { DATA_DIR, CLOUD_STORAGE_ONLY, IS_CLOUDFLARE } from './config';
 import * as G from './google';
 import { currentUser, finishGoogleSignin } from './auth';
 
@@ -253,6 +253,7 @@ async function setHidden(key: string, on: boolean) {
 }
 const syncing = new Map<string, Promise<Set<string>>>();
 async function syncFolder(r: Loc, label: string) {
+  if (IS_CLOUDFLARE) return doSync(r, label);
   const k = folderKey(r);
   if (!syncing.has(k)) syncing.set(k, doSync(r, label).finally(() => syncing.delete(k)));
   return syncing.get(k)!;
@@ -275,7 +276,10 @@ async function doSync(r: Loc, label: string) {
   }
   for (const f of found) {
     if (skip.has(f.key)) continue;
-    await run('INSERT INTO customers(id, name, links, notes, folder, gloc, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)', uid('c_'), f.name, '[]', '', f.folder, f.gloc, now(), now());
+    await run(`INSERT INTO customers(id, name, links, notes, folder, gloc, created_at, updated_at)
+      SELECT ?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM customers WHERE
+      (? IS NOT NULL AND json_extract(gloc, '$.id') = json_extract(?, '$.id') AND json_extract(gloc, '$.account') = json_extract(?, '$.account'))
+      OR (? IS NULL AND gloc IS NULL AND folder=?))`, uid('c_'), f.name, '[]', '', f.folder, f.gloc, now(), now(), f.gloc, f.gloc, f.gloc, f.gloc, f.folder);
   }
   return new Set(found.map((f) => f.key));
 }
@@ -373,7 +377,7 @@ export function registerWorkspace(api: Router) {
   // Shared by both Google flows: connecting a Drive account, and signing in to DM Studio.
   api.get('/api/google/callback', async (req, res) => {
     const err = req.query.get('error'), state = req.query.get('state') || '';
-    const signin = G.purposeOf(state) === 'signin';
+    const signin = await G.purposeOf(state) === 'signin';
     try {
       if (err) throw new Error(err === 'access_denied' ? 'Bạn đã huỷ đăng nhập' : err);
       const a = await G.finishLogin(req.query.get('code') || '', state);

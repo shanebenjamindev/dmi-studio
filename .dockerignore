@@ -5,3 +5,7 @@ legacy-v1
 .env
 .git
 .DS_Store
+
+.wrangler
+.dev.vars*
+.env.*

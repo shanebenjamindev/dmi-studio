@@ -3,3 +3,8 @@ web/dist/
 data/
 .env
 .DS_Store
+
+.wrangler/
+.dev.vars*
+.env.*
+!.env.example

@@ -4,11 +4,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
-export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+export const IS_CLOUDFLARE = process.env.DMS_RUNTIME === 'cloudflare';
+export const ROOT = IS_CLOUDFLARE ? '/tmp/dm-studio' : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // Minimal .env loader (no dependency). Real environment variables win.
 const envFile = path.join(ROOT, '.env');
-if (fs.existsSync(envFile)) {
+if (!IS_CLOUDFLARE && fs.existsSync(envFile)) {
   for (const line of fs.readFileSync(envFile, 'utf8').split(/\r?\n/)) {
     const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
     if (!m || line.trim().startsWith('#')) continue;
@@ -25,12 +26,12 @@ export const ASSET_DIR = path.join(DATA_DIR, 'assets');
 export const WEB_DIST = path.join(ROOT, 'web', 'dist');
 export const MOCK = process.env.DMS_MOCK === '1';
 // Free cloud instances have ephemeral disks: customer files must go to Google Drive.
-export const CLOUD_STORAGE_ONLY = process.env.CLOUD_STORAGE_ONLY === '1';
+export const CLOUD_STORAGE_ONLY = IS_CLOUDFLARE || process.env.CLOUD_STORAGE_ONLY === '1';
 export const MAX_UPLOAD = 1024 * 1024 * 800; // 800 MB render uploads
 
-fs.mkdirSync(ASSET_DIR, { recursive: true });
+if (!IS_CLOUDFLARE) fs.mkdirSync(ASSET_DIR, { recursive: true });
 
 function hasBin(bin: string) {
   try { execFileSync(bin, ['-version'], { stdio: 'ignore' }); return true; } catch { return false; }
 }
-export const FFMPEG = process.env.FFMPEG_PATH || (hasBin('ffmpeg') ? 'ffmpeg' : '');
+export const FFMPEG = IS_CLOUDFLARE ? '' : process.env.FFMPEG_PATH || (hasBin('ffmpeg') ? 'ffmpeg' : '');
