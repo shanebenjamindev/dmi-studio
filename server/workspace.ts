@@ -248,19 +248,23 @@ function setHidden(key: string, on: boolean) {
   if (on) h.add(key); else h.delete(key);
   setSetting('hidden_folders', h.size ? [...h] : null);
 }
-let syncing: Promise<Set<string>> | null = null;
-const syncRoot = () => (syncing ??= doSync().finally(() => { syncing = null; }));
-/** Imports new folders of the root and returns the keys of every folder directly inside it. */
-async function doSync() {
-  const r = rootLoc(), skip = hidden();
+const syncing = new Map<string, Promise<Set<string>>>();
+function syncFolder(r: Loc, label: string) {
+  const k = folderKey(r);
+  if (!syncing.has(k)) syncing.set(k, doSync(r, label).finally(() => syncing.delete(k)));
+  return syncing.get(k)!;
+}
+/** Imports new sub-folders of the viewed folder as customers and returns the keys of every folder directly inside it. */
+async function doSync(r: Loc, label: string) {
+  const skip = hidden();
   for (const c of all<any>('SELECT * FROM customers')) skip.add(folderKey(custLoc(c)));
   const found: { name: string; folder: string; gloc: string | null; key: string }[] = [];
   if (r.kind === 'gdrive') {
     for (const d of await G.listFolders(r.account, r.id)) {
-      found.push({ name: d.name, folder: d.name, key: `g:${d.id}`, gloc: JSON.stringify({ account: r.account, id: d.id, label: `${locLabel(r)} › ${d.name}`, owned: true }) });
+      found.push({ name: d.name, folder: d.name, key: `g:${d.id}`, gloc: JSON.stringify({ account: r.account, id: d.id, label: `${label} › ${d.name}`, owned: true }) });
     }
   } else {
-    for (const name of fsSubdirs(r.dir)) found.push({ name, folder: name, gloc: null, key: folderKey({ kind: 'fs', dir: path.join(r.dir, name) }) });
+    for (const name of fsSubdirs(r.dir)) found.push({ name, folder: path.join(r.dir, name), gloc: null, key: folderKey({ kind: 'fs', dir: path.join(r.dir, name) }) });
   }
   for (const f of found) {
     if (skip.has(f.key)) continue;
@@ -268,6 +272,45 @@ async function doSync() {
   }
   return new Set(found.map((f) => f.key));
 }
+// ---------------------------------------------------------------- per-user view
+// Everyone browses on their own (the `at` query, kept by the browser); the root is shared and set by admins.
+// Members only see the root and what is inside it.
+const crumbCache = new Map<string, { name: string; loc: Loc }[]>();
+async function crumbsOf(l: Loc): Promise<{ name: string; loc: Loc }[]> {
+  if (l.kind === 'fs') return fsCrumbs(l.dir).crumbs;
+  const k = `${l.account}|${l.id}`;
+  if (!crumbCache.has(k)) {
+    const chain = await G.crumbs(l.account, l.id).catch(() => { throw new HttpError(404, 'Không mở được thư mục này trên Drive'); });
+    crumbCache.set(k, chain.map((c) => ({ name: c.name, loc: { kind: 'gdrive', account: l.account, id: c.id } as Loc })));
+  }
+  return crumbCache.get(k)!;
+}
+const sameLoc = (a: Loc, b: Loc) => (a.kind === 'fs' && b.kind === 'fs' ? path.resolve(a.dir) === path.resolve(b.dir) : a.kind === 'gdrive' && b.kind === 'gdrive' && a.account === b.account && a.id === b.id);
+async function viewOf(req: Req) {
+  const root = rootLoc(), raw = req.query.get('at');
+  let l: Loc = root;
+  if (raw) {
+    let x: any; try { x = JSON.parse(raw); } catch { throw new HttpError(400, 'Thư mục không hợp lệ'); }
+    l = x?.kind === 'gdrive' ? { kind: 'gdrive', account: String(x.account || ''), id: String(x.id || '') } : { kind: 'fs', dir: mustDir(x?.dir) };
+    if (l.kind === 'gdrive' && !G.accounts().some((a) => a.email === (l as any).account)) throw new HttpError(404, 'Tài khoản Google này chưa được kết nối');
+  }
+  let crumbs = await crumbsOf(l);
+  if (currentUser(req)?.role !== 'admin') {
+    if (l.kind === 'fs' && root.kind === 'fs') {
+      const rel = path.relative(path.resolve(root.dir), path.resolve(l.dir));
+      if (rel.startsWith('..') || path.isAbsolute(rel)) throw new HttpError(403, 'Bạn chỉ xem được các thư mục bên trong thư mục gốc');
+      let cur = root.dir;
+      crumbs = [{ name: path.basename(root.dir), loc: root }, ...rel.split(path.sep).filter(Boolean).map((part) => ({ name: part, loc: { kind: 'fs', dir: (cur = path.join(cur, part)) } as Loc }))];
+    } else {
+      // "My Drive" picked as root is stored as the alias 'root'; the chain carries its real id.
+      const i = crumbs.findIndex((c, k) => sameLoc(c.loc, root) || (root.kind === 'gdrive' && root.id === 'root' && k === 0 && c.loc.kind === 'gdrive' && c.loc.account === root.account));
+      if (i < 0) throw new HttpError(403, 'Bạn chỉ xem được các thư mục bên trong thư mục gốc');
+      crumbs = crumbs.slice(i);
+    }
+  }
+  return { loc: l, crumbs, label: (await crumbsOf(l)).map((c) => c.name).join(' › '), isRoot: sameLoc(l, root) };
+}
+
 // Links about the customer: their Google Sheet, Docs, Facebook page… Only http(s) URLs are kept.
 function cleanLinks(v: any) {
   if (!Array.isArray(v)) throw new HttpError(400, 'Danh sách link không hợp lệ');
@@ -329,31 +372,19 @@ export function registerWorkspace(api: Router) {
       const a = await G.finishLogin(req.query.get('code') || '', state);
       if (a.purpose === 'signin') { finishGoogleSignin(req, res, a.email); return redirect(res, '/'); }
       if (!currentUser(req)) throw new Error('Hãy đăng nhập DM Studio trước');
-      redirect(res, `/#workspace?google=${encodeURIComponent(a.email)}`);
+      redirect(res, `/#admin?google=${encodeURIComponent(a.email)}`);
     } catch (e: any) {
-      redirect(res, signin ? `/?auth_error=${encodeURIComponent(e.message)}` : `/#workspace?google_error=${encodeURIComponent(e.message)}`);
+      redirect(res, signin ? `/?auth_error=${encodeURIComponent(e.message)}` : `/#admin?google_error=${encodeURIComponent(e.message)}`);
     }
   });
   api.delete('/api/google/accounts/:email', (req, res) => { G.removeAccount(req.params.email); json(res, 200, { accounts: G.publicAccounts() }); });
 
   // ---------------------------------------------------------------- workspace root & folder browsing
-  // Breadcrumb of the root (each step can become the root); Drive paths are cached since they cost a call per level.
-  const crumbCache = new Map<string, { name: string; loc: Loc }[]>();
-  async function rootCrumbs(l: Loc) {
-    if (l.kind === 'fs') return fsCrumbs(l.dir).crumbs;
-    const k = `${l.account}|${l.id}`;
-    if (!crumbCache.has(k)) {
-      const chain = await G.crumbs(l.account, l.id).catch(() => null);
-      if (!chain) return [{ name: locLabel(l), loc: l }];
-      crumbCache.set(k, chain.map((c) => ({ name: c.name, loc: { kind: 'gdrive', account: l.account, id: c.id } as Loc })));
-    }
-    return crumbCache.get(k)!;
-  }
-  const wsOut = async () => {
-    const l = rootLoc();
-    return { loc: l, storage: storageOf(l), label: locLabel(l), account: locAccount(l), drive: storageOf(l) !== 'local', mounts: driveMounts(), crumbs: await rootCrumbs(l) };
+  const wsOut = async (req: Req) => {
+    const l = rootLoc(), v = await viewOf(req);
+    return { loc: l, storage: storageOf(l), label: locLabel(l), account: locAccount(l), drive: storageOf(l) !== 'local', mounts: driveMounts(), view: v.loc, viewIsRoot: v.isRoot, crumbs: v.crumbs };
   };
-  api.get('/api/workspace', async (_q, res) => json(res, 200, await wsOut()));
+  api.get('/api/workspace', async (req, res) => json(res, 200, await wsOut(req)));
   // Change the root. Existing customers keep their current folders; new customers go to the new root.
   api.put('/api/workspace', async (req, res) => {
     const l = await mustLoc((await readJson(req)).loc);
@@ -364,7 +395,8 @@ export function registerWorkspace(api: Router) {
       }
     }
     setSetting('workspace_root', l);
-    json(res, 200, await wsOut());
+    req.query.delete('at');
+    json(res, 200, await wsOut(req));
   });
   api.get('/api/workspace/places', async (_q, res) => {
     const out: { label: string; account: string | null; kind: string; via: string; loc: Loc }[] = [];
@@ -410,27 +442,29 @@ export function registerWorkspace(api: Router) {
   // ---------------------------------------------------------------- customers
   api.get('/api/customers', async (req, res) => {
     const fresh = req.query.get('fresh') === '1';
-    // Only the folders inside the current root: customers of another root stay saved and come back when that root is chosen again.
-    const inRoot = await syncRoot().catch((e) => { console.warn('workspace sync:', e.message); return null; });
-    const rows = all<any>('SELECT * FROM customers ORDER BY name COLLATE NOCASE').filter((c) => !inRoot || inRoot.has(folderKey(custLoc(c))));
+    // Only the folders inside the folder being viewed; customers elsewhere stay saved for when that folder is opened again.
+    const v = await viewOf(req);
+    const inside = await syncFolder(v.loc, v.label);
+    const rows = all<any>('SELECT * FROM customers ORDER BY name COLLATE NOCASE').filter((c) => inside.has(folderKey(custLoc(c))));
     json(res, 200, await Promise.all(rows.map((c) => customerOut(c, false, fresh))));
   });
   api.post('/api/customers', async (req, res) => {
     const b = await readJson(req);
     const name = safeName(String(b.name || ''));
     if (!name) throw new HttpError(400, 'Hãy nhập tên khách hàng');
-    const root = rootLoc();
+    // Created inside the folder the admin is looking at.
+    const view = await viewOf(req), root = view.loc;
     let folder = name, gloc: string | null = null;
     if (root.kind === 'gdrive') {
       let unique = name;
       for (let k = 2; await G.findChildFolder(root.account, root.id, unique); k++) unique = `${name} (${k})`;
       const f = await G.createFolder(root.account, root.id, unique);
       folder = unique;
-      gloc = JSON.stringify({ account: root.account, id: f.id, label: `${locLabel(root)} › ${unique}`, owned: true });
+      gloc = JSON.stringify({ account: root.account, id: f.id, label: `${view.label} › ${unique}`, owned: true });
     } else {
       fs.mkdirSync(root.dir, { recursive: true });
-      folder = uniqueIn(root.dir, name);
-      fs.mkdirSync(path.join(root.dir, folder), { recursive: true });
+      folder = path.join(root.dir, uniqueIn(root.dir, name));
+      fs.mkdirSync(folder, { recursive: true });
     }
     const id = uid('c_');
     run('INSERT INTO customers(id, name, links, notes, folder, gloc, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)',
@@ -443,6 +477,7 @@ export function registerWorkspace(api: Router) {
     const b = await readJson(req);
     let folder = c.folder, gloc = c.gloc;
     const newName = b.name !== undefined ? String(b.name).trim() : '';
+    if (newName && newName !== c.name && currentUser(req)?.role !== 'admin') throw new HttpError(403, 'Chỉ quản trị viên mới đổi được tên thư mục');
     if (newName && newName !== c.name) {
       // Rename the folder along with the customer when DM Studio created it (Drive keeps the same ID and share links).
       const want = safeName(newName), l = custLoc(c);

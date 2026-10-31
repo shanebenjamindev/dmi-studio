@@ -52,6 +52,10 @@ const ADMIN: [string, RegExp][] = [
   ['*', /^\/api\/users/],
   ['PUT', /^\/api\/google\/config$/], ['GET', /^\/api\/google\/login$/], ['DELETE', /^\/api\/google\/accounts\//],
   ['PUT', /^\/api\/workspace$/], ['PUT', /^\/api\/settings\//], ['POST', /^\/api\/settings\//],
+  // Members browse, upload and keep links/notes; creating, renaming and deleting folders, customers and videos is for admins.
+  ['POST', /^\/api\/customers$/], ['DELETE', /^\/api\/customers\/[^/]+$/], ['PUT', /^\/api\/customers\/[^/]+\/folder$/],
+  ['POST', /^\/api\/customers\/[^/]+\/folders$/], ['PUT', /^\/api\/customers\/[^/]+\/folders\//], ['DELETE', /^\/api\/customers\/[^/]+\/folders\//],
+  ['DELETE', /^\/api\/customers\/[^/]+\/videos\//], ['POST', /^\/api\/workspace\/folders$/],
 ];
 /** Throws unless the request may proceed; returns the signed-in user (null for public endpoints). */
 export function guard(req: Req): User | null {

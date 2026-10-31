@@ -17,6 +17,8 @@ async function req<T>(method: string, url: string, body?: any, headers: Record<s
   return data as T;
 }
 
+const atQ = (at: Loc | null, sep: string) => (at ? `${sep}at=${encodeURIComponent(JSON.stringify(at))}` : '');
+
 export const api = {
   me: () => req<AuthInfo>('GET', '/api/auth/me'),
   setup: (b: { name: string; email: string; password: string; code?: string }) => req<{ user: User }>('POST', '/api/auth/setup', b),
@@ -58,7 +60,8 @@ export const api = {
   renders: (projectId: string) => req<Render[]>('GET', `/api/projects/${projectId}/renders`),
   deleteRender: (id: string) => req('DELETE', `/api/renders/${id}`),
 
-  workspace: () => req<WorkspaceInfo>('GET', '/api/workspace'),
+  /** `at` = the folder this person is browsing (null = the shared root). */
+  workspace: (at: Loc | null = null) => req<WorkspaceInfo>('GET', `/api/workspace${atQ(at, '?')}`),
   setWorkspace: (loc: Loc) => req<WorkspaceInfo>('PUT', '/api/workspace', { loc }),
   drivePlaces: () => req<DrivePlace[]>('GET', '/api/workspace/places'),
   browse: (loc: Loc) => req<FolderListing>('POST', '/api/workspace/browse', { loc }),
@@ -68,9 +71,9 @@ export const api = {
   setGoogleConfig: (clientId: string, clientSecret: string) => req('PUT', '/api/google/config', { clientId, clientSecret }),
   removeGoogleAccount: (email: string) => req<{ accounts: GoogleAccount[] }>('DELETE', `/api/google/accounts/${encodeURIComponent(email)}`),
   shareCustomerVideo: (id: string, key: string) => req<{ url: string }>('POST', `/api/customers/${id}/videos/${encodeURIComponent(key)}/share`),
-  customers: (fresh = false) => req<Customer[]>('GET', `/api/customers${fresh ? '?fresh=1' : ''}`),
+  customers: (fresh = false, at: Loc | null = null) => req<Customer[]>('GET', `/api/customers?fresh=${fresh ? 1 : 0}${atQ(at, '&')}`),
   customer: (id: string, fresh = false) => req<Customer>('GET', `/api/customers/${id}${fresh ? '?fresh=1' : ''}`),
-  createCustomer: (c: Partial<Customer>) => req<Customer>('POST', '/api/customers', c),
+  createCustomer: (c: Partial<Customer>, at: Loc | null = null) => req<Customer>('POST', `/api/customers${atQ(at, '?')}`, c),
   updateCustomer: (id: string, c: Partial<Customer>) => req<Customer>('PUT', `/api/customers/${id}`, c),
   deleteCustomer: (id: string) => req('DELETE', `/api/customers/${id}`),
   revealCustomer: (id: string) => req('POST', `/api/customers/${id}/reveal`),

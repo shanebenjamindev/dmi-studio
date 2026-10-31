@@ -1,22 +1,37 @@
-// User management (admins) + "change my password" sheet.
+// Quản trị (admins only): storage (Google Drive accounts, shared root folder) and users. Also the "change my password" sheet.
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useStore, setState, toast } from '../store';
 import { Sheet } from './Dialogs';
 import { Icon, Menu } from './ui';
-import type { Role, User } from '../types';
+import { FolderPicker } from './FolderPicker';
+import { GoogleConnect, googleLogin } from './GoogleConnect';
+import type { Role, User, WorkspaceInfo, GoogleStatus } from '../types';
 
 const ROLE: Record<Role, string> = { admin: 'Quản trị', member: 'Nhân viên' };
 const when = (t: number | null) => (t ? new Date(t).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Chưa đăng nhập');
 const initial = (u: { name: string; email: string }) => (u.name || u.email).trim().charAt(0).toUpperCase();
 
-export function UsersPage() {
+export function AdminPage() {
   const me = useStore((s) => s.user)!;
   const google = useStore((s) => s.googleSignin);
   const [list, setList] = useState<User[]>([]);
   const [edit, setEdit] = useState<User | 'new' | null>(null);
   const load = () => api.users().then(setList).catch((e) => toast(e.message, true));
-  useEffect(() => { load(); }, []);
+  const [ws, setWs] = useState<WorkspaceInfo | null>(null);
+  const [gs, setGs] = useState<GoogleStatus | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const loadStorage = () => { api.workspace().then(setWs).catch(() => {}); api.googleStatus().then(setGs).catch(() => {}); };
+  useEffect(() => {
+    load(); loadStorage();
+    // Back from Google's consent page: /#admin?google=<email> or ?google_error=<message>
+    const qs = new URLSearchParams(location.hash.split('?')[1] || '');
+    if (qs.get('google')) toast(`Đã kết nối ${qs.get('google')}. Bấm “Đổi” ở Thư mục gốc để dùng Drive này.`);
+    if (qs.get('google_error')) toast(qs.get('google_error')!, true);
+    if (qs.size) history.replaceState(null, '', '#admin');
+  }, []);
+  const addAccount = () => (gs?.configured ? googleLogin() : setConnecting(true));
 
   const patch = async (u: User, p: Parameters<typeof api.updateUser>[1], msg: string) => {
     try { await api.updateUser(u.id, p); toast(msg); load(); } catch (e: any) { toast(e.message, true); }
@@ -28,10 +43,39 @@ export function UsersPage() {
 
   return (
     <main className="users">
+      <h1 className="side-title">Quản trị</h1>
+
+      <section className="adm-sec">
+        <h2 className="side-sub">Lưu trữ</h2>
+        <div className="list users-list">
+          <div className="list-row users-row">
+            <span className="adm-ico"><Icon name="folder" size={17} /></span>
+            <div className="list-main">
+              <b>Thư mục gốc</b>
+              <span>{ws ? `${ws.label}${ws.account ? ` · ${ws.account}` : ''}` : '…'}</span>
+              <span className="tiny">Mọi người bắt đầu từ thư mục này; {ROLE.member.toLowerCase()} chỉ xem được bên trong nó.</span>
+            </div>
+            <div className="list-side"><button className="btn btn-gray btn-sm" onClick={() => setPicking(true)}>Đổi</button></div>
+          </div>
+          <div className="list-row users-row">
+            <span className="adm-ico"><Icon name="key" size={17} /></span>
+            <div className="list-main">
+              <b>Tài khoản Google Drive</b>
+              <span>{gs?.accounts.length ? gs.accounts.map((a) => a.email).join(', ') : 'Chưa kết nối'}</span>
+            </div>
+            <div className="list-side"><button className="btn btn-gray btn-sm" onClick={() => setConnecting(true)}>Quản lý</button></div>
+          </div>
+        </div>
+      </section>
+      <FolderPicker open={picking} title="Thư mục gốc" start={ws?.loc} confirmLabel="Dùng thư mục này" onClose={() => setPicking(false)} onAddAccount={addAccount}
+        onPick={async (loc) => { setWs(await api.setWorkspace(loc)); toast('Đã đổi thư mục gốc'); }} />
+      <GoogleConnect open={connecting} onClose={() => { setConnecting(false); loadStorage(); }} onChanged={loadStorage} />
+
+      <section className="adm-sec">
       <header className="users-h">
         <div>
-          <h1 className="side-title">Người dùng</h1>
-          <p className="note">{ROLE.admin}: quản lý người dùng, tài khoản Google Drive và thư mục gốc. {ROLE.member}: quản lý khách hàng và video.</p>
+          <h2 className="side-sub">Người dùng</h2>
+          <p className="note">{ROLE.admin}: toàn quyền. {ROLE.member}: xem thư mục và video, tải video lên, sửa link và ghi chú; không tạo, đổi tên hay xoá.</p>
         </div>
         <button className="btn btn-primary btn-sm" onClick={() => setEdit('new')}><Icon name="plus" size={14} />Thêm</button>
       </header>
@@ -58,6 +102,7 @@ export function UsersPage() {
           </div>
         ))}
       </div>
+      </section>
       <UserSheet user={edit} google={google} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />
     </main>
   );
@@ -97,7 +142,7 @@ function UserSheet({ user, google, onClose, onSaved }: { user: User | 'new' | nu
         {isNew && (
           <label className="ws-field"><span>Vai trò</span>
             <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as Role })}>
-              <option value="member">{ROLE.member}: khách hàng và video</option>
+              <option value="member">{ROLE.member}: xem, tải video lên</option>
               <option value="admin">{ROLE.admin}: toàn quyền</option>
             </select>
           </label>

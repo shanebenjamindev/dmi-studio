@@ -4,8 +4,7 @@ import { api } from '../api';
 import { useStore, toast } from '../store';
 import { Icon, IconButton, Menu } from './ui';
 import { FolderPicker } from './FolderPicker';
-import { GoogleConnect, googleLogin } from './GoogleConnect';
-import type { Loc, Customer, CustomerLink, CustomerVideo, VideoFolder, WorkspaceInfo, GoogleStatus } from '../types';
+import type { Loc, Customer, CustomerLink, CustomerVideo, VideoFolder, WorkspaceInfo } from '../types';
 
 const LS_SEL = 'dms.customer';
 const ls = {
@@ -16,47 +15,56 @@ const mb = (b: number) => (b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.max(0.
 const date = (t: number) => new Date(t).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
 export function WorkspacePage() {
-  const admin = useStore((s) => s.user?.role === 'admin');
+  const me = useStore((s) => s.user)!;
+  const admin = me.role === 'admin';
   const [info, setInfo] = useState<WorkspaceInfo | null>(null);
   const [list, setList] = useState<Customer[]>([]);
   const [sel, setSel] = useState<string | null>(() => ls.get(LS_SEL));
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
-  const [picking, setPicking] = useState(false);
-  const [google, setGoogle] = useState<GoogleStatus | null>(null);
-  const [connecting, setConnecting] = useState(false);
-
   const [syncing, setSyncing] = useState(false);
+  // The folder this person is browsing (their own; null = the shared root). Kept per account in this browser.
+  const LS_AT = `dms.at.${me.id}`;
+  const [at, setAtState] = useState<Loc | null>(() => { try { return JSON.parse(ls.get(LS_AT) || 'null'); } catch { return null; } });
+  const atRef = useRef(at);
+  atRef.current = at;
+
   // Listing also picks up new customer folders made directly on Drive.
-  const loadList = (fresh = false) => { setSyncing(true); return api.customers(fresh).then(setList).catch((e) => toast(e.message, true)).finally(() => setSyncing(false)); };
-  const loadGoogle = () => api.googleStatus().then(setGoogle).catch(() => {});
+  const load = async (where: Loc | null, fresh = false) => {
+    setSyncing(true);
+    try {
+      const [w, l] = await Promise.all([api.workspace(where), api.customers(fresh, where)]);
+      setInfo(w); setList(l);
+    } catch (e: any) {
+      // A folder that is gone or out of reach: back to the root.
+      if (where) { toast(e.message, true); return go(null); }
+      toast(e.message, true);
+    } finally { setSyncing(false); }
+  };
+  const loadList = (fresh = false) => load(atRef.current, fresh);
+  const go = (loc: Loc | null) => {
+    setAtState(loc); atRef.current = loc; ls.set(LS_AT, JSON.stringify(loc)); setSel(null); setQ('');
+    return load(loc);
+  };
   useEffect(() => {
-    api.workspace().then(setInfo).catch(() => {}); loadList(); loadGoogle();
-    // Back from Google's sign-in page: /#workspace?google=<email> or ?google_error=<message>
-    const qs = new URLSearchParams(location.hash.split('?')[1] || '');
-    if (qs.get('google')) toast(`Đã kết nối ${qs.get('google')}. Chọn ⋯ › Chọn thư mục gốc để dùng Drive này.`);
-    if (qs.get('google_error')) toast(qs.get('google_error')!, true);
-    if (qs.size) history.replaceState(null, '', location.pathname);
+    loadList();
     // Coming back to the tab picks up folders added on Drive meanwhile (at most every 30 s).
     let last = Date.now();
     const onFocus = () => { if (document.visibilityState === 'visible' && Date.now() - last > 30e3) { last = Date.now(); loadList(); } };
     document.addEventListener('visibilitychange', onFocus);
     return () => document.removeEventListener('visibilitychange', onFocus);
-  }, []);
-  // Add a Google account (admins only): sign in directly once OAuth is set up, otherwise show the one-time setup.
-  const addAccount = admin ? () => (google?.configured ? googleLogin() : setConnecting(true)) : undefined;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (sel) ls.set(LS_SEL, sel); }, [sel]);
   useEffect(() => { if (list.length && (!sel || !list.some((c) => c.id === sel))) setSel(list[0].id); }, [list]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Breadcrumb / "open inside": the chosen folder becomes the workspace root and its sub-folders become the list.
-  const goRoot = async (loc: Loc) => {
-    try { setInfo(await api.setWorkspace(loc)); setSel(null); setQ(''); await loadList(); }
-    catch (e: any) { toast(e.message, true); }
+  const makeRoot = async () => {
+    if (!info || !confirm(`Đặt “${info.crumbs.at(-1)?.name}” làm thư mục gốc cho mọi người?`)) return;
+    try { await api.setWorkspace(info.view); toast('Đã đặt làm thư mục gốc'); await go(null); } catch (e: any) { toast(e.message, true); }
   };
   const create = async () => {
     const name = draft.trim(); if (!name) return;
-    try { const c = await api.createCustomer({ name }); setDraft(''); setAdding(false); await loadList(); setSel(c.id); }
+    try { const c = await api.createCustomer({ name }, at); setDraft(''); setAdding(false); await loadList(); setSel(c.id); }
     catch (e: any) { toast(e.message, true); }
   };
   const needle = q.trim().toLowerCase();
@@ -66,19 +74,19 @@ export function WorkspacePage() {
     <main className="ws">
       <aside className="ws-side">
         <header className="ws-side-h">
-          <h1 className="side-title ws-side-title" title={info?.label}>{info?.crumbs.at(-1)?.name || 'Khách hàng'}</h1>
+          <h1 className="side-title ws-side-title" title={info?.crumbs.map((c) => c.name).join(' › ')}>{info?.crumbs.at(-1)?.name || 'Khách hàng'}</h1>
           <Menu label="Tuỳ chọn" items={[
             { label: 'Tải lại từ Drive', icon: 'refresh', onClick: () => loadList(true) },
-            { label: 'Chọn thư mục gốc…', icon: 'folder', onClick: () => setPicking(true), hidden: !admin },
-            { label: 'Tài khoản Google Drive…', icon: 'key', onClick: () => setConnecting(true), hidden: !admin },
+            { label: 'Về thư mục gốc', icon: 'folder', onClick: () => go(null), hidden: !info || info.viewIsRoot },
+            { label: 'Đặt làm thư mục gốc', icon: 'check', onClick: makeRoot, hidden: !admin || !info || info.viewIsRoot },
           ]} />
-          <IconButton icon="plus" label="Khách hàng mới" className={syncing ? 'busy' : ''} onClick={() => setAdding(true)} />
+          {admin && <IconButton icon="plus" label="Khách hàng mới" className={syncing ? 'busy' : ''} onClick={() => setAdding(true)} />}
         </header>
         {info && info.crumbs.length > 1 && (
-          <nav className="ws-root" aria-label="Đường dẫn thư mục gốc">
+          <nav className="ws-root" aria-label="Đường dẫn">
             {info.crumbs.slice(0, -1).map((cr, i) => (
               <span key={i}>
-                {admin ? <button className="link" onClick={() => goRoot(cr.loc)} title={`Xem các thư mục trong “${cr.name}”`}>{cr.name}</button> : <em>{cr.name}</em>}
+                <button className="link" onClick={() => go(cr.loc)} title={`Xem các thư mục trong “${cr.name}”`}>{cr.name}</button>
                 <i>›</i>
               </span>
             ))}
@@ -90,17 +98,17 @@ export function WorkspacePage() {
           </form>
         )}
         {list.length > 5 && (
-          <label className="tpl-field ws-search"><Icon name="search" size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm khách hàng" /></label>
+          <label className="tpl-field ws-search"><Icon name="search" size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm trong thư mục này" /></label>
         )}
         <nav className="ws-list">
-          {!list.length && !adding && !syncing && <p className="empty-note">Thư mục gốc chưa có thư mục khách hàng nào. Bấm ＋ để tạo.</p>}
+          {!list.length && !adding && !syncing && <p className="empty-note">Thư mục này chưa có thư mục con.{admin ? ' Bấm ＋ để tạo.' : ''}</p>}
           {shown.map((c) => (
             <div key={c.id} className={'ws-item' + (c.id === sel ? ' on' : '')}>
               <button className="ws-item-b" onClick={() => setSel(c.id)}>
                 <span className="ws-fico"><Icon name="folder" size={18} /></span>
                 <span className="ws-item-t"><b>{c.name}</b><span>{c.videoCount == null ? 'Không đọc được thư mục' : `${c.folderCount || 0} thư mục · ${c.videoCount} video`}</span></span>
               </button>
-              {admin && <IconButton icon="right" label={`Mở bên trong “${c.name}”`} size={14} className="ws-item-in" onClick={() => goRoot(c.folderLoc)} />}
+              {!!c.folderCount && <IconButton icon="right" label={`Mở bên trong “${c.name}”`} size={14} className="ws-item-in" onClick={() => go(c.folderLoc)} />}
             </div>
           ))}
         </nav>
@@ -110,14 +118,11 @@ export function WorkspacePage() {
             {info.storage === 'google' ? 'Google Drive' : info.storage === 'desktop' ? 'Google Drive (app)' : 'Trên máy'}{info.account ? ` · ${info.account}` : ''}
           </footer>
         )}
-        <FolderPicker open={picking} title="Thư mục gốc của Workspace" start={info?.loc} confirmLabel="Dùng thư mục này" onClose={() => setPicking(false)} onAddAccount={addAccount}
-          onPick={async (loc) => { setInfo(await api.setWorkspace(loc)); toast('Đã đổi thư mục gốc. Các thư mục bên trong hiện thành khách hàng.'); loadList(); }} />
-        <GoogleConnect open={connecting} onClose={() => { setConnecting(false); loadGoogle(); }} onChanged={() => { loadGoogle(); loadList(); api.workspace().then(setInfo).catch(() => {}); }} />
       </aside>
 
       {sel && list.some((c) => c.id === sel)
-        ? <CustomerDetail key={sel} id={sel} onAddAccount={addAccount} onChanged={loadList} onDeleted={() => { setSel(null); loadList(); }} />
-        : <section className="ws-detail ws-empty"><Icon name="folder" size={36} /><p>Chọn một thư mục khách hàng để xem video.</p></section>}
+        ? <CustomerDetail key={sel} id={sel} admin={admin} onChanged={() => loadList()} onDeleted={() => { setSel(null); loadList(); }} />
+        : <section className="ws-detail ws-empty"><Icon name="folder" size={36} /><p>Chọn một thư mục để xem video.</p></section>}
     </main>
   );
 }
@@ -125,7 +130,8 @@ export function WorkspacePage() {
 interface Upload { id: number; name: string; folder: string; progress: number; error?: string }
 const LS_TAB = (id: string) => `dms.tab.${id}`;
 
-function CustomerDetail({ id, onAddAccount, onChanged, onDeleted }: { id: string; onAddAccount?: () => void; onChanged: () => void; onDeleted: () => void }) {
+/** Members browse, upload and edit links/notes; creating, renaming, linking and deleting stay with admins. */
+function CustomerDetail({ id, admin, onChanged, onDeleted }: { id: string; admin: boolean; onChanged: () => void; onDeleted: () => void }) {
   const [c, setC] = useState<Customer | null>(null);
   const [form, setForm] = useState({ name: '', notes: '' });
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -262,17 +268,17 @@ function CustomerDetail({ id, onAddAccount, onChanged, onDeleted }: { id: string
           <p className="ws-crumb" title={c.folderPath || c.folderLabel}>
             {c.folderLabel.split(' › ').slice(0, -1).join(' › ')}{c.account ? ` · ${c.account}` : ''}
           </p>
-          <input className="ws-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} onBlur={() => save('name')}
+          <input className="ws-name" readOnly={!admin} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} onBlur={() => save('name')}
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} aria-label="Tên khách hàng" />
         </div>
         <Menu label="Tuỳ chọn khách hàng" items={[
           { label: 'Mở trên Google Drive', icon: 'share', href: c.driveFolderUrl || undefined, hidden: !c.driveFolderUrl },
           { label: 'Mở trong Finder', icon: 'folder', onClick: () => api.revealCustomer(id).catch((e) => toast(e.message, true)), hidden: c.storage === 'google' },
-          { label: 'Liên kết thư mục khác…', icon: 'layers', onClick: () => setLinking(true) },
-          { label: 'Ẩn khỏi danh sách', icon: 'trash', onClick: del, danger: true },
+          { label: 'Liên kết thư mục khác…', icon: 'layers', onClick: () => setLinking(true), hidden: !admin },
+          { label: 'Ẩn khỏi danh sách', icon: 'trash', onClick: del, danger: true, hidden: !admin },
         ]} />
       </header>
-      <FolderPicker open={linking} title={`Thư mục của ${c.name}`} start={c.folderLoc} confirmLabel="Liên kết thư mục này" onClose={() => setLinking(false)} onAddAccount={onAddAccount}
+      <FolderPicker open={linking} title={`Thư mục của ${c.name}`} start={c.folderLoc} confirmLabel="Liên kết thư mục này" onClose={() => setLinking(false)}
         onPick={async (loc) => { setC(await api.linkCustomerFolder(id, loc)); onChanged(); toast('Đã liên kết thư mục'); }} />
 
       <div className="ws-body">
@@ -283,16 +289,16 @@ function CustomerDetail({ id, onAddAccount, onChanged, onDeleted }: { id: string
           {tabs.map((t) => (
             <button key={t.key || '_'} role="tab" aria-selected={t.key === cur?.key} className={'ws-tab' + (t.key === cur?.key ? ' on' : '')}
               onClick={() => { setTab(t.key); setNaming(null); }}
-              onDoubleClick={() => t.key && setNaming({ mode: 'rename', value: t.name })}>
+              onDoubleClick={() => admin && t.key && setNaming({ mode: 'rename', value: t.name })}>
               <Icon name={t.key ? 'folder' : 'film'} size={14} />{t.name}<em>{t.videos.length}</em>
             </button>
           ))}
-          {naming?.mode !== 'new' && <button className="ws-tab ws-tab-add" onClick={() => setNaming({ mode: 'new', value: '' })} title="Thư mục mới" aria-label="Thư mục mới"><Icon name="plus" size={14} /></button>}
+          {admin && naming?.mode !== 'new' && <button className="ws-tab ws-tab-add" onClick={() => setNaming({ mode: 'new', value: '' })} title="Thư mục mới" aria-label="Thư mục mới"><Icon name="plus" size={14} /></button>}
         </div>
         {cur && <Menu label="Tuỳ chọn thư mục" items={[
           { label: 'Mở trên Google Drive', icon: 'share', href: cur.driveUrl || undefined, hidden: !cur.driveUrl },
-          { label: 'Đổi tên', icon: 'text', onClick: () => setNaming({ mode: 'rename', value: cur.name }), hidden: !cur.key },
-          { label: 'Xoá thư mục', icon: 'trash', onClick: removeFolder, danger: true, hidden: !cur.key || !!cur.videos.length },
+          { label: 'Đổi tên', icon: 'text', onClick: () => setNaming({ mode: 'rename', value: cur.name }), hidden: !admin || !cur.key },
+          { label: 'Xoá thư mục', icon: 'trash', onClick: removeFolder, danger: true, hidden: !admin || !cur.key || !!cur.videos.length },
         ]} />}
         <button className="btn btn-primary btn-sm" onClick={() => fileRef.current?.click()}><Icon name="plus" size={14} />Tải lên</button>
         <input ref={fileRef} type="file" accept="video/*" multiple hidden onChange={(e) => { upload(e.target.files); e.target.value = ''; }} />
@@ -338,7 +344,7 @@ function CustomerDetail({ id, onAddAccount, onChanged, onDeleted }: { id: string
       <aside className={'ws-aside' + (shown ? ' viewing' : '')}>
         {shown && cur ? (
           <Viewer key={shown.key} v={shown} list={cur.videos} storage={c.storage} folder={cur.key ? cur.name : c.name}
-            onPick={setViewing} onClose={() => setViewing(null)} onCopy={copyLink} onShare={share} onDelete={remove} />
+            onPick={setViewing} onClose={() => setViewing(null)} onCopy={copyLink} onShare={share} onDelete={admin ? remove : undefined} />
         ) : <>
         <Links links={c.links} onSave={saveLinks} />
         <label className="ws-field ws-notes"><span>Ghi chú</span>
@@ -412,7 +418,7 @@ function Links({ links, onSave }: { links: CustomerLink[]; onSave: (l: CustomerL
 // ---------------------------------------------------------------- viewer panel
 function Viewer({ v, list, storage, folder, onPick, onClose, onCopy, onShare, onDelete }: {
   v: CustomerVideo; list: CustomerVideo[]; storage: Customer['storage']; folder: string;
-  onPick: (key: string) => void; onClose: () => void; onCopy: (v: CustomerVideo) => void; onShare: (v: CustomerVideo) => void; onDelete: (v: CustomerVideo) => void;
+  onPick: (key: string) => void; onClose: () => void; onCopy: (v: CustomerVideo) => void; onShare: (v: CustomerVideo) => void; onDelete?: (v: CustomerVideo) => void;
 }) {
   const k = list.findIndex((x) => x.key === v.key);
   const prev = list[k - 1], next = list[k + 1];
@@ -460,7 +466,7 @@ function Viewer({ v, list, storage, folder, onPick, onClose, onCopy, onShare, on
         <Menu label="Tuỳ chọn video" className="up" items={[
           { label: 'Mở trên Google Drive', icon: 'share', href: v.driveUrl || undefined, hidden: !v.driveUrl },
           { label: 'Tải về', icon: 'download', onClick: () => { const a = document.createElement('a'); a.href = v.url; a.download = v.name; a.click(); } },
-          { label: 'Xoá video', icon: 'trash', onClick: () => onDelete(v), danger: true },
+          { label: 'Xoá video', icon: 'trash', onClick: () => onDelete?.(v), danger: true, hidden: !onDelete },
         ]} />
       </div>
     </div>

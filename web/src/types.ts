@@ -60,7 +60,7 @@ export interface Customer {
   videoCount?: number | null; folderCount?: number | null; projectCount?: number;
   videos?: CustomerVideo[]; folders?: VideoFolder[]; projects?: { id: string; title: string; aspect: Aspect; updatedAt: number }[]; driveFolderUrl?: string | null;
 }
-export interface WorkspaceInfo { loc: Loc; storage: Storage; label: string; account: string | null; drive: boolean; mounts: { account: string; dir: string }[]; crumbs: { name: string; loc: Loc }[] }
+export interface WorkspaceInfo { loc: Loc; storage: Storage; label: string; account: string | null; drive: boolean; mounts: { account: string; dir: string }[]; view: Loc; viewIsRoot: boolean; crumbs: { name: string; loc: Loc }[] }
 export interface DrivePlace { label: string; account: string | null; kind: 'my' | 'shared' | 'local'; via: 'google' | 'desktop' | 'local'; loc: Loc }
 export interface FolderListing { loc: Loc; account: string | null; crumbs: { name: string; loc: Loc }[]; dirs: { name: string; loc: Loc }[] }
 export interface GoogleAccount { email: string; name: string; picture: string }

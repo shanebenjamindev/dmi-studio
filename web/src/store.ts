@@ -8,7 +8,7 @@ import type { User, Project, Provider, Defaults, Job, Storyboard, Scene, Aspect,
 
 export type Tab = 'scene' | 'global' | 'brand' | 'renders';
 // 'editor', 'templates' and 'analyze' are hidden for now (pages kept in the code, not reachable from the UI).
-export type View = 'workspace' | 'users' | 'editor' | 'templates' | 'analyze';
+export type View = 'workspace' | 'admin' | 'editor' | 'templates' | 'analyze';
 export interface ExportState { phase: 'idle' | 'setup' | 'recording' | 'uploading' | 'done' | 'error'; progress: number; text: string; url?: string; download?: string; error?: string }
 export interface AppState {
   ready: boolean;
@@ -42,7 +42,7 @@ export interface AppState {
 }
 
 let state: AppState = {
-  ready: false, user: null, setup: false, setupCode: false, googleSignin: false, view: (location.hash === '#users' ? 'users' : 'workspace') as View, tplFocus: null, analyzeSrc: null, mock: false, ffmpeg: false, providers: [], defaults: {}, project: null, sel: 0, tab: 'scene',
+  ready: false, user: null, setup: false, setupCode: false, googleSignin: false, view: (location.hash.startsWith('#admin') ? 'admin' : 'workspace') as View, tplFocus: null, analyzeSrc: null, mock: false, ffmpeg: false, providers: [], defaults: {}, project: null, sel: 0, tab: 'scene',
   save: 'saved', busy: null, jobs: [], renders: [], undo: [], redo: [],
   opts: { captions: true, logo: true, music: true, voice: true }, dialog: null, toast: null,
   exp: { phase: 'idle', progress: 0, text: '' }, brandMode: true,

@@ -827,3 +827,11 @@ button.ws-vmeta { padding: 8px 2px 4px; }
 @media (max-width: 1100px) {
   .ws-aside.viewing { max-height: 92vh; overflow-y: auto; border-radius: 18px 18px 0 0; }
 }
+
+/* ================================================================ Quản trị */
+.adm-sec { display: flex; flex-direction: column; gap: 10px; }
+.adm-sec .users-h { align-items: flex-end; }
+.adm-ico { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: var(--tint-soft); color: var(--tint); flex: none; }
+.users > .side-title { margin-bottom: -4px; }
+.ws-name[readonly] { cursor: default; }
+.ws-name[readonly]:hover { background: transparent; }

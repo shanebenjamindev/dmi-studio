@@ -4,7 +4,7 @@ import { Icon, Segmented } from './ui';
 import { PasswordSheet } from './Users';
 import type { View } from '../store';
 
-// Trình dựng, Template and Phân tích are hidden for now; Workspace and (for admins) Người dùng remain.
+// Trình dựng, Template and Phân tích are hidden for now; Khách hàng and (for admins) Quản trị remain.
 export function TopBar() {
   const mock = useStore((s) => s.mock);
   const view = useStore((s) => s.view);
@@ -18,7 +18,7 @@ export function TopBar() {
     document.addEventListener('mousedown', off);
     return () => document.removeEventListener('mousedown', off);
   }, [menu]);
-  const pages: [View, string][] = [['workspace', 'Khách hàng'], ...(user.role === 'admin' ? [['users', 'Người dùng'] as [View, string]] : [])];
+  const pages: [View, string][] = [['workspace', 'Khách hàng'], ...(user.role === 'admin' ? [['admin', 'Quản trị'] as [View, string]] : [])];
 
   return (
     <header className="toolbar">

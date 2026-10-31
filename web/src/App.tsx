@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useStore, init } from './store';
 import { TopBar } from './components/TopBar';
 import { WorkspacePage } from './components/Workspace';
-import { UsersPage } from './components/Users';
+import { AdminPage } from './components/Users';
 import { LoginPage } from './components/Login';
 
 // Trình dựng, Template and Phân tích are hidden for now; their components stay in src/components.
@@ -19,7 +19,7 @@ export function App() {
       {ready && (user ? (
         <>
           <TopBar />
-          {view === 'users' && user.role === 'admin' ? <UsersPage /> : <WorkspacePage />}
+          {view === 'admin' && user.role === 'admin' ? <AdminPage /> : <WorkspacePage />}
         </>
       ) : <LoginPage />)}
       {toast && <div className={'toast' + (toast.err ? ' err' : '')}>{toast.text}</div>}
