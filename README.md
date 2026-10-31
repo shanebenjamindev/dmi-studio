@@ -63,3 +63,4 @@ data/                   studio.db + assets/ (tự tạo, đã nằm trong .gitig
 - Video AI tính phí theo từng nhà cung cấp và thường mất 1–5 phút mỗi clip. Job chạy nền trên server, bạn có thể đóng trang.
 - API key được lưu dạng văn bản trong `data/studio.db` trên máy bạn. Đừng chia sẻ thư mục `data/`.
 - Mặc định server chỉ nghe trên `127.0.0.1`. Muốn mở cho máy khác trong mạng thì đặt `HOST=0.0.0.0`, nhưng app **chưa có đăng nhập**.
+# dmi-studio
