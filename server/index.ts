@@ -64,6 +64,10 @@ const server = http.createServer(async (req0, res) => {
   }
 });
 
+// A stray stream error (a dropped Google download, a client gone mid-file) must not take every user offline.
+process.on('uncaughtException', (e) => console.error('✖ Lỗi không xử lý (server vẫn chạy):', e?.message || e));
+process.on('unhandledRejection', (e: any) => console.error('✖ Promise lỗi (server vẫn chạy):', e?.message || e));
+
 // Large video uploads can take longer than Node's default 5-minute request timeout.
 server.requestTimeout = 0;
 await startWorker();

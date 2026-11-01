@@ -10,6 +10,7 @@ import { get, run, getSetting, setSetting } from './db';
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/drive';
 const DRIVE = 'https://www.googleapis.com/drive/v3';
 export const FOLDER_MIME = 'application/vnd.google-apps.folder';
+export const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
 
 export interface GAccount { email: string; name: string; picture: string; refresh: string; access?: string; expiry?: number }
 export async function oauthConfig() {
@@ -75,7 +76,7 @@ export async function finishLogin(code: string, state: string) {
   await saveAccounts([...(await accounts()).filter((a) => a.email !== acc.email), acc]);
   return { purpose: p.purpose, email: acc.email, name: acc.name, picture: acc.picture };
 }
-async function accessToken(email: string, force = false) {
+export async function accessToken(email: string, force = false) {
   const list = await accounts();
   const a = list.find((x) => x.email === email);
   if (!a) throw new HttpError(401, `Tài khoản Google ${email} chưa được kết nối, hãy đăng nhập lại`);
@@ -103,18 +104,18 @@ async function gjson<T = any>(email: string, url: string, init: RequestInit = {}
 // ---------------------------------------------------------------- Drive
 const ALL = 'supportsAllDrives=true&includeItemsFromAllDrives=true';
 const q = (s: string) => encodeURIComponent(s);
-export interface GFile { id: string; name: string; mimeType: string; size?: string; modifiedTime?: string; webViewLink?: string; thumbnailLink?: string; parents?: string[]; driveId?: string; shared?: boolean }
+export interface GFile { id: string; name: string; mimeType: string; size?: string; modifiedTime?: string; webViewLink?: string; thumbnailLink?: string; parents?: string[]; driveId?: string; shared?: boolean; videoMediaMetadata?: { durationMillis?: string }; shortcutDetails?: { targetId: string; targetMimeType: string } }
 
 export async function sharedDrives(email: string) {
   const j = await gjson<{ drives: { id: string; name: string }[] }>(email, `${DRIVE}/drives?pageSize=100`);
   return j.drives || [];
 }
-async function listAll(email: string, query: string, fields: string) {
+async function listAll(email: string, query: string, fields: string, corpora = '') {
   const out: GFile[] = [];
   let page = '';
   do {
     const j = await gjson<{ files: GFile[]; nextPageToken?: string }>(email,
-      `${DRIVE}/files?q=${q(query)}&fields=${q(`nextPageToken,files(${fields})`)}&orderBy=${q('folder,name')}&pageSize=200&${ALL}${page ? `&pageToken=${page}` : ''}`);
+      `${DRIVE}/files?q=${q(query)}&fields=${q(`nextPageToken,files(${fields})`)}&orderBy=${q('folder,name')}&pageSize=200&${ALL}${corpora ? `&corpora=${corpora}` : ''}${page ? `&pageToken=${page}` : ''}`);
     out.push(...j.files); page = j.nextPageToken || '';
   } while (page && out.length < 2000);
   return out;
@@ -131,6 +132,51 @@ export async function listVideosIn(email: string, parents: string[]) {
     out.push(...await listAll(email, `(${q}) and mimeType contains 'video/' and trashed=false`, 'id,name,size,mimeType,modifiedTime,webViewLink,thumbnailLink,shared,parents'));
   }
   return out;
+}
+// Shortcuts ("Add shortcut to Drive") are followed to their target: the target's id, thumbnail and duration are used,
+// the shortcut's name is kept because that is what people see in the folder.
+const MEDIA_FIELDS = 'id,name,mimeType,size,modifiedTime,thumbnailLink,parents,videoMediaMetadata(durationMillis),shortcutDetails(targetId,targetMimeType)';
+const isMedia = (mime = '') => /^(video|image)\//.test(mime);
+export async function resolveShortcuts(email: string, files: GFile[]) {
+  const out: GFile[] = [];
+  for (const f of files) {
+    if (f.mimeType !== SHORTCUT_MIME) { out.push(f); continue; }
+    const t = f.shortcutDetails;
+    if (!t) continue;
+    if (t.targetMimeType === FOLDER_MIME) { out.push({ id: t.targetId, name: f.name, mimeType: FOLDER_MIME, parents: f.parents }); continue; }
+    if (!isMedia(t.targetMimeType)) continue;
+    try { out.push({ ...await meta(email, t.targetId, MEDIA_FIELDS) as GFile, name: f.name, parents: f.parents }); } catch { /* target deleted or not shared */ }
+  }
+  return out;
+}
+/** Sub-folders of `parent`, including shortcuts to folders (as their target). */
+export async function listFoldersDeep(email: string, parent: string) {
+  return await resolveShortcuts(email, await listAll(email,
+    `'${parent}' in parents and (mimeType='${FOLDER_MIME}' or mimeType='${SHORTCUT_MIME}') and trashed=false`, 'id,name,mimeType,shortcutDetails(targetId,targetMimeType)', 'allDrives'))
+    .then((l) => l.filter((f) => f.mimeType === FOLDER_MIME));
+}
+/** Videos and images directly inside any of `parents` (shortcuts followed), with what a source picker needs (duration, thumbnail). */
+export async function listMediaIn(email: string, parents: string[]) {
+  const out: GFile[] = [];
+  for (let i = 0; i < parents.length; i += 40) {
+    const q = parents.slice(i, i + 40).map((p) => `'${p}' in parents`).join(' or ');
+    // Parents may sit in different shared drives; Drive returns nothing for such a query unless corpora=allDrives.
+    out.push(...await listAll(email, `(${q}) and (mimeType contains 'video/' or mimeType contains 'image/' or mimeType='${SHORTCUT_MIME}') and trashed=false`, MEDIA_FIELDS, 'allDrives'));
+  }
+  return (await resolveShortcuts(email, out)).filter((f) => isMedia(f.mimeType));
+}
+/** Files and folders whose name contains `term`, across My Drive, shared items and shared drives (shortcuts followed). */
+export async function searchByName(email: string, term: string, limit = 20) {
+  const query = `name contains '${term.replace(/['\\]/g, '\\$&')}' and trashed=false and (mimeType contains 'video/' or mimeType contains 'image/' or mimeType='${FOLDER_MIME}' or mimeType='${SHORTCUT_MIME}')`;
+  const j = await gjson<{ files: GFile[] }>(email,
+    `${DRIVE}/files?q=${q(query)}&fields=${q(`files(${MEDIA_FIELDS})`)}&pageSize=${limit}&corpora=allDrives&${ALL}`);
+  return await resolveShortcuts(email, j.files || []);
+}
+/** One tab of a Google Sheet as CSV or XLSX (works with the Drive scope; the Sheets API need not be enabled). */
+export async function sheetExport(email: string, id: string, gid: string, format: 'csv' | 'xlsx') {
+  const r = await gfetch(email, `https://docs.google.com/spreadsheets/d/${q(id)}/export?format=${format}${gid ? `&gid=${q(gid)}` : ''}`);
+  if (!r.ok) throw new HttpError(r.status === 404 ? 404 : 502, `Google Sheets: không đọc được sheet (${r.status})`);
+  return Buffer.from(await r.arrayBuffer());
 }
 export const meta = async (email: string, id: string, fields = 'id,name,mimeType,parents,driveId,webViewLink') =>
   await gjson<GFile>(email, `${DRIVE}/files/${q(id)}?fields=${q(fields)}&supportsAllDrives=true`);
@@ -220,13 +266,17 @@ export async function streamFile(email: string, id: string, req: http.IncomingMe
   if (!r.body) return res.end();
   const s = Readable.fromWeb(r.body as any);
   res.on('close', () => s.destroy());
+  // Google drops a stream the browser stopped reading (e.g. a paused video, 5 min idle): end this response
+  // instead of letting the unhandled stream error take the whole server down.
+  s.on('error', () => res.destroy());
   s.pipe(res);
 }
 // Thumbnails: the link comes from the folder listing (no extra API call) and the image bytes are kept in memory.
 const thumbLinks = new Map<string, string>();
 export const rememberThumb = (id: string, link?: string) => { if (link) thumbLinks.set(id, link.replace(/=s\d+$/, '=s480')); };
 const thumbBytes = new Map<string, { type: string; body: Buffer }>();
-export async function streamThumb(email: string, id: string, res: http.ServerResponse) {
+/** Thumbnail bytes (480 px), cached in memory. */
+export async function thumbBuffer(email: string, id: string) {
   let hit = thumbBytes.get(id);
   if (!hit) {
     let link = thumbLinks.get(id);
@@ -242,6 +292,10 @@ export async function streamThumb(email: string, id: string, res: http.ServerRes
     thumbBytes.set(id, hit);
     if (thumbBytes.size > 500) thumbBytes.delete(thumbBytes.keys().next().value!);
   }
+  return hit;
+}
+export async function streamThumb(email: string, id: string, res: http.ServerResponse) {
+  const hit = await thumbBuffer(email, id);
   // The URL carries the file's modified time, so it can be cached for long.
   res.writeHead(200, { 'content-type': hit.type, 'content-length': hit.body.length, 'cache-control': 'private, max-age=604800, immutable' });
   res.end(hit.body);

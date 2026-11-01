@@ -1,5 +1,5 @@
 // Typed client for the DM Studio REST API.
-import type { Project, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User } from './types';
+import type { Project, ProjectItem, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, Source, Picked, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User } from './types';
 
 /** Called when the session has ended (401) so the app can show the sign-in page. */
 export const auth = { onSignedOut: () => {} };
@@ -30,24 +30,29 @@ export const api = {
   createUser: (u: { name: string; email: string; password?: string; role: string }) => req<User>('POST', '/api/users', u),
   updateUser: (id: string, u: Partial<{ name: string; email: string; role: string; disabled: boolean; password: string }>) => req<User>('PUT', `/api/users/${id}`, u),
   deleteUser: (id: string) => req('DELETE', `/api/users/${id}`),
-  health: () => req<{ ok: boolean; mock: boolean; ffmpeg: boolean }>('GET', '/api/health'),
+  health: () => req<{ ok: boolean; mock: boolean; ffmpeg: boolean; editor: boolean }>('GET', '/api/health'),
   providers: () => req<{ providers: Provider[]; defaults: Defaults }>('GET', '/api/providers'),
   settings: () => req<{ keys: { env: string; source: 'saved' | 'env' | 'none'; masked: string }[]; defaults: Defaults; ffmpeg: boolean }>('GET', '/api/settings'),
   setKey: (env: string, value: string) => req('PUT', '/api/settings/keys', { env, value }),
   setDefaults: (d: Defaults) => req<Defaults>('PUT', '/api/settings/defaults', d),
   addCustomModel: (provider: string, model: string, remove = false) => req('POST', '/api/settings/custom-models', { provider, model, remove }),
 
-  listProjects: () => req<Project[]>('GET', '/api/projects'),
+  listProjects: () => req<ProjectItem[]>('GET', '/api/projects'),
   createProject: (p: Partial<Project>) => req<Project>('POST', '/api/projects', p),
   getProject: (id: string) => req<Project>('GET', `/api/projects/${id}`),
-  saveProject: (id: string, p: { title?: string; aspect?: Aspect; storyboard?: Storyboard | null; chat?: ChatMsg[] }) => req<Project>('PUT', `/api/projects/${id}`, p),
+  saveProject: (id: string, p: { title?: string; aspect?: Aspect; storyboard?: Storyboard | null; chat?: ChatMsg[]; sources?: Source[]; sheet?: Sheet | null }) => req<Project>('PUT', `/api/projects/${id}`, p),
   duplicateProject: (id: string) => req<Project>('POST', `/api/projects/${id}/duplicate`),
   deleteProject: (id: string) => req('DELETE', `/api/projects/${id}`),
 
-  storyboard: (b: { provider: string; model: string; prompt: string; seconds: number; aspect: Aspect; style: string; brand: boolean; projectId?: string }) =>
-    req<{ storyboard: Storyboard }>('POST', '/api/ai/storyboard', b),
-  refine: (b: { provider: string; model: string; storyboard: Storyboard; instruction: string; brand: boolean; projectId?: string }) =>
-    req<{ storyboard: Storyboard }>('POST', '/api/ai/refine', b),
+  storyboard: (b: { provider: string; model: string; prompt: string; seconds: number; aspect: Aspect; style: string; brand: boolean; projectId?: string; sources?: Source[]; sheet?: Sheet | null }) =>
+    req<{ storyboard: Storyboard; picked: Picked[] | null }>('POST', '/api/ai/storyboard', b),
+  refine: (b: { provider: string; model: string; storyboard: Storyboard; instruction: string; brand: boolean; projectId?: string; sources?: Source[]; sheet?: Sheet | null }) =>
+    req<{ storyboard: Storyboard; picked: Picked[] | null }>('POST', '/api/ai/refine', b),
+  capcutStart: (projectId: string) => req<{ job: string }>('POST', `/api/projects/${projectId}/capcut`),
+  capcutStatus: (job: string) => req<{ phase: 'media' | 'pack' | 'done' | 'error'; done: number; total: number; error: string | null; bytes: number }>('GET', `/api/capcut/${job}`),
+  sheetProgress: (token: string) => req<{ text: string }>('GET', `/api/sheets/progress/${token}`),
+  readSheet: (link: string, token?: string) => req<{ sheet: Sheet; sources: Source[]; missing: string[]; links: number; storyboard: Storyboard | null }>('POST', '/api/sheets/read', { link, token }),
+  scanSources: (link: string) => req<{ folder: string; account: string; total: number; sources: Source[] }>('POST', '/api/sources/scan', { link }),
 
   createJobs: (jobs: any[]) => req<Job[]>('POST', '/api/jobs', { jobs }),
   jobs: (projectId: string) => req<Job[]>('GET', `/api/jobs?projectId=${encodeURIComponent(projectId)}`),

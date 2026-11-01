@@ -9,27 +9,39 @@ Yêu cầu **Node.js 22.13+**: `node -v` (nâng cấp bằng `brew install node`
 ```bash
 cd ~/DMIStudio
 npm install
-cp .env.example .env        # điền key (hoặc nhập sau trong ⚙︎ Cài đặt)
 npm start                   # build giao diện + chạy server → http://localhost:5173
 ```
 
 - `npm run demo`: chạy với nhà cung cấp **demo** (không cần key), để thử toàn bộ quy trình.
 - `npm run dev`: chế độ phát triển, tự build lại khi sửa code.
 
-## Nền tảng AI được hỗ trợ
+## Sửa video nhanh từ terminal (CLI)
 
-| Việc | Nền tảng | Biến môi trường |
-|---|---|---|
-| Viết kịch bản | **Claude** (Sonnet/Opus/Haiku 5.5, Fable 5.1) | `ANTHROPIC_API_KEY` |
-| | **GPT** (GPT-5.5, GPT-6.1 Sol, GPT-6 Astra, 5.4 mini) | `OPENAI_API_KEY` |
-| | **OpenRouter**: Gemini, DeepSeek, Llama… (dán model ID) | `OPENROUTER_API_KEY` |
-| Clip video | **Seedance** 1.0 Pro/Lite (BytePlus ModelArk) | `ARK_API_KEY` |
-| | **Higgsfield** (endpoint ID, vd. `alibaba/happy-horse/text-to-video`) | `HIGGSFIELD_API_KEY` = `KEY_ID:KEY_SECRET` |
-| | **fal.ai**: Kling 2.1, Veo 3, Seedance… | `FAL_KEY` |
-| Ảnh tĩnh | **GPT Image 2 / 1.5**, **FLUX** (fal.ai) | `OPENAI_API_KEY`, `FAL_KEY` |
-| Giọng đọc | **OpenAI TTS** `gpt-4o-mini-tts` (11 giọng) | `OPENAI_API_KEY` |
+Khi server đang chạy, có thể sửa dự án mà không cần mở trình duyệt:
 
-Mỗi nền tảng đều có mục **„＋ Model khác…“** để dán model hoặc endpoint ID mới, không cần sửa code. Ví dụ: Seedance 2.x, các endpoint khác của Higgsfield, hay model mới trên fal.ai và OpenRouter. Danh sách mặc định nằm trong `server/providers/registry.ts`.
+```bash
+npm run -s dms -- login                         # đăng nhập 1 lần (lưu ở ~/.dms)
+npm run -s dms -- projects                      # danh sách dự án
+npm run -s dms -- show 1                        # xem các cảnh của dự án số 1
+npm run -s dms -- set 1 3 headline="Bóng như gương" duration=4
+npm run -s dms -- set 1 all animation=zoom      # áp cho mọi cảnh
+npm run -s dms -- refine 1 "rút còn 15 giây, CTA mạnh hơn"
+npm run -s dms -- undo 1                        # hoàn tác lần ghi gần nhất
+```
+
+`npm run -s dms -- help` liệt kê đủ lệnh. Đặt `DMS_URL` để sửa trên server khác (vd. bản cloud). Đóng dự án trên trình duyệt trong lúc sửa bằng CLI, vì trình soạn thảo tự lưu có thể ghi đè.
+
+**Dùng với Claude Code:** skill [`.claude/skills/dms-edit`](.claude/skills/dms-edit/SKILL.md) dạy Claude Code dùng CLI này, nên bạn chỉ cần nói kiểu *"dự án ceramic: rút cảnh 2 còn 3 giây, viết lại lời thoại cho tự nhiên hơn rồi tạo lại giọng đọc"*.
+
+## Lọc source từ Google Drive
+
+Trong **Trình dựng**, dán link thư mục Google Drive vào ô "Source từ Google Drive" rồi bấm **Quét**. App lấy mọi video và ảnh, kể cả trong thư mục con (tối đa 150 file). Khi bấm **Tạo video**, Claude xem thumbnail từng file, chỉ giữ những file khớp với mô tả và đặt mỗi clip làm nền cho cảnh phù hợp. Chat chỉnh sửa (ví dụ "cảnh kết dùng clip xe đang chạy") cũng lọc lại theo yêu cầu. Ở cột phải có thể chọn tay source cho từng cảnh.
+
+Thư mục phải được chia sẻ cho một tài khoản Google đã kết nối trong trang Khách hàng. File được phát thẳng từ Drive qua server, không tải về máy, và mọi link đều có chữ ký. CLI: `npm run -s dms -- new "ý tưởng" --drive <link>` hoặc `npm run -s dms -- drive <dự án> <link>`.
+
+## AI: chỉ dùng Claude CLI, không cần API key
+
+Viết và chỉnh kịch bản chạy qua lệnh `claude` (Claude Code) bằng tài khoản Claude đã đăng nhập trên máy chủ. Model: Sonnet, Opus, Haiku. Server tự tìm `claude` trong PATH, `~/.claude/local` hoặc extension VS Code. Nếu không tìm thấy, đặt `CLAUDE_CLI_PATH`. Không có tạo clip, ảnh hay giọng đọc bằng AI, vì các dịch vụ đó đều cần API trả phí. Video dùng nền động, chữ chuyển động, logo, phụ đề và nhạc nền.
 
 ## Kiến trúc
 
@@ -42,9 +54,9 @@ server/                 Node + TypeScript (chạy bằng tsx), không framework
   jobs.ts               Worker nền: gửi job → poll → tải file về → gắn vào cảnh (vẫn chạy khi đóng trình duyệt)
   storyboard.ts         Schema JSON chung cho mọi model + bộ nhận diện thương hiệu Detailers Movement
   providers/
-    registry.ts         Danh mục nền tảng/model, quản lý API key (không bao giờ gửi về trình duyệt)
-    llm.ts              Claude (tool use) + chuẩn OpenAI (GPT, OpenRouter): buộc trả JSON
-    media.ts            Seedance, Higgsfield, fal.ai, GPT Image, OpenAI TTS
+    registry.ts         Danh mục model (Claude CLI + bộ demo offline)
+    llm.ts              Claude Code CLI (claude -p --json-schema): buộc trả JSON
+    media.ts            Hàng đợi media, chỉ còn bộ demo offline
     mock.ts             Nhà cung cấp demo (ffmpeg)
 web/                    React 19, đóng gói bằng esbuild → web/dist
   src/engine/           renderer (canvas), player (đồng bộ clip AI), audio (nhạc + giọng), exporter (MediaRecorder)
@@ -62,6 +74,6 @@ data/                   studio.db + assets/ (tự tạo, đã nằm trong .gitig
 
 ## Lưu ý
 - Video AI tính phí theo từng nhà cung cấp và thường mất 1–5 phút mỗi clip. Job chạy nền trên server, bạn có thể đóng trang.
-- API key được lưu trong database (Cloudflare D1 trên bản cloud, hoặc `data/studio.db` khi chạy local). Đừng chia sẻ thư mục `data/`.
+- Dữ liệu được lưu trong database (Cloudflare D1 trên bản cloud, hoặc `data/studio.db` khi chạy local). Đừng chia sẻ thư mục `data/`.
 - Mặc định server chỉ nghe trên `127.0.0.1`. Muốn mở cho máy khác trong mạng thì đặt `HOST=0.0.0.0`, mọi người vẫn phải đăng nhập và tuân theo quyền admin/member.
 # dmi-studio

@@ -19,6 +19,8 @@ export function Stage() {
   const sb = project?.storyboard || null;
   const playing = usePlayer(() => player.playing);
   const time = usePlayer(() => Math.round(player.time * 10) / 10);
+  const assembly = sb?.mode === 'edit';
+  const waiting = usePlayer(() => player.waiting);
   const total = player.total;
 
   useEffect(() => {
@@ -52,14 +54,15 @@ export function Stage() {
         {!sb && !busy && (
           <div className="welcome">
             <img src="/brand/mark.png" alt="" />
-            <h2>Từ một câu mô tả<br />thành video hoàn chỉnh.</h2>
-            <p>Kịch bản, hình ảnh, giọng đọc và nhạc — do AI tạo, bạn chỉnh theo ý.</p>
+            <h2>Dán link sheet<br />là có bản ghép source.</h2>
+            <p>Các video source được xếp đúng thứ tự trong sheet; chỉnh tiếp trên timeline.</p>
           </div>
         )}
         {busy && <div className="hud"><div className="spinner" /><span>{busy}</span></div>}
+        {!busy && waiting && <div className="hud small"><div className="spinner" /><span>Đang tải clip từ Drive…</span></div>}
       </div>
 
-      <div className="transport">
+      {!assembly && <div className="transport">
         <span className="time mono">{fmt(time)}<em> / {fmt(total)}</em></span>
         <div className="controls">
           <IconButton icon="back" label="Cảnh trước" onClick={() => jump(-1)} disabled={!sb} />
@@ -68,15 +71,15 @@ export function Stage() {
           </button>
           <IconButton icon="fwd" label="Cảnh sau" onClick={() => jump(1)} disabled={!sb} />
         </div>
-        <div className="toggles">
+        <div className="toggles">{!assembly && <>
           <IconButton icon="cc" label="Phụ đề" active={opts.captions} onClick={() => setOpts({ captions: !opts.captions })} />
           <IconButton icon="badge" label="Logo" active={opts.logo} onClick={() => setOpts({ logo: !opts.logo })} />
           <IconButton icon="music" label="Nhạc nền" active={opts.music} onClick={() => setOpts({ music: !opts.music })} />
           <IconButton icon="mic" label="Giọng đọc" active={opts.voice} onClick={() => setOpts({ voice: !opts.voice })} />
-        </div>
-      </div>
+        </>}</div>
+      </div>}
 
-      <div className="timeline">
+      {!assembly && <div className="timeline">
         <div className="track" ref={trackRef}
           onPointerDown={(e) => { if ((e.target as HTMLElement).closest('.clip')) return; setDrag(true); (e.target as HTMLElement).setPointerCapture(e.pointerId); seekFromEvent(e); }}
           onPointerMove={(e) => drag && seekFromEvent(e)} onPointerUp={() => setDrag(false)}>
@@ -99,7 +102,7 @@ export function Stage() {
           {sb && <div className="playhead" style={{ left: `${total ? (time / total) * 100 : 0}%` }} />}
         </div>
         {sb && <IconButton icon="plus" label="Thêm cảnh" className="add-scene" onClick={() => sceneOp('add')} />}
-      </div>
+      </div>}
     </section>
   );
 }

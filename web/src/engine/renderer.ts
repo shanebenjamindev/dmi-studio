@@ -1,11 +1,17 @@
 // Canvas renderer: a pure function of (storyboard, time) → frame.
 // Layers per scene: background (AI video/image or procedural) → text layout → brand logo → captions.
-import type { Storyboard, Scene } from '../types';
+import type { Storyboard, Scene, Shot, TextOverlay, MediaRef } from '../types';
 
 export interface RenderOpts {
   captions?: boolean;
   logo?: boolean;
   getMedia?: (scene: Scene) => CanvasImageSource | null;
+  /** Any media by reference (edit mode: shots and the client logo). */
+  getRef?: (m: MediaRef) => CanvasImageSource | null;
+  /** A still of the clip (Drive thumbnail) to show while the video itself is still loading. */
+  getThumb?: (m: MediaRef) => CanvasImageSource | null;
+  /** What to draw for a shot (its proxy when there is one). */
+  getShot?: (sh: Shot) => CanvasImageSource | null;
   brand?: { full?: HTMLImageElement; white?: HTMLImageElement; mark?: HTMLImageElement };
 }
 
@@ -320,6 +326,119 @@ function drawScene(ctx: CanvasRenderingContext2D, W: number, H: number, sb: Stor
   }
 }
 
+// ------------------------------------------------------------------ edit mode (footage-first, from a request form)
+/** The shot showing `t` seconds into the scene, and how far into it we are. */
+export function shotAt(scene: Scene, t: number): { shot: Shot; i: number; local: number } | null {
+  const shots = scene.shots || [];
+  let start = 0;
+  for (let i = 0; i < shots.length; i++) {
+    const d = Math.max(0.2, shots[i].dur);
+    if (t < start + d || i === shots.length - 1) return { shot: shots[i], i, local: Math.max(0, t - start) };
+    start += d;
+  }
+  return null;
+}
+function drawCover(ctx: CanvasRenderingContext2D, W: number, H: number, src: CanvasImageSource, move: string, p: number) {
+  const [sw, sh] = sourceSize(src);
+  const k = { 'push-in': 1 + 0.1 * p, 'pull-out': 1.1 - 0.1 * p, 'pan-left': 1.12, 'pan-right': 1.12 }[move] || 1;
+  const s = Math.max(W / sw, H / sh) * k, dw = sw * s, dh = sh * s;
+  const slack = dw - W;
+  const x = move === 'pan-left' ? -slack * p : move === 'pan-right' ? -slack * (1 - p) : (W - dw) / 2;
+  try { ctx.drawImage(src, x, (H - dh) / 2, dw, dh); } catch { /* frame not ready */ }
+}
+function drawOverlay(ctx: CanvasRenderingContext2D, W: number, H: number, sb: Storyboard, o: TextOverlay, t: number) {
+  const M = Math.min(W, H), p = sb.palette;
+  const inP = clamp((t - o.at) / 0.35), outP = clamp((o.at + o.dur - t) / 0.25);
+  if (inP <= 0 || outP <= 0) return;
+  const pop = easeBack(inP), a = Math.min(easeOut(inP), outP);
+  const y = { top: H * 0.2, center: H * 0.45, bottom: H * 0.66 }[o.pos] || H * 0.45;
+  const maxW = W * 0.84;
+  const rows = String(o.text || '').split('\n').filter((r) => r.trim());
+  ctx.save(); ctx.globalAlpha *= a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (o.style === 'price' || o.style === 'title') {
+    const big = o.style === 'price' ? M * 0.15 : M * 0.085;
+    let yy = y - ((rows.length - 1) * big * 1.05) / 2;
+    ctx.translate(W / 2, 0); ctx.scale(o.style === 'price' ? pop : 1, 1);
+    for (const r of rows) {
+      const f = fit(ctx, sb, r.toUpperCase(), 'head', big, maxW, 2);
+      ctx.font = font(sb, 'head', f.size);
+      for (const l of f.lines) {
+        ctx.lineJoin = 'round'; ctx.lineWidth = f.size * 0.12; ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.strokeText(l, 0, yy + (1 - easeOut(inP)) * M * 0.04);
+        ctx.fillStyle = o.style === 'price' ? p.accent : '#ffffff'; ctx.fillText(l, 0, yy + (1 - easeOut(inP)) * M * 0.04);
+        yy += f.size * 1.05;
+      }
+    }
+  } else if (o.style === 'tag' || o.style === 'cta') {
+    const size = o.style === 'cta' ? M * 0.05 : M * 0.042;
+    let yy = y - ((rows.length - 1) * size * 2) / 2;
+    for (const r of rows) {
+      ctx.font = font(sb, 'head', size);
+      const tw = Math.min(maxW, ctx.measureText(r.toUpperCase()).width + size * 1.4), th = size * 1.7;
+      ctx.save(); ctx.translate(W / 2, yy); ctx.scale(pop, pop);
+      ctx.fillStyle = o.style === 'cta' ? p.accent : 'rgba(0,0,0,0.6)'; roundRect(ctx, -tw / 2, -th / 2, tw, th, th / 2); ctx.fill();
+      if (o.style === 'tag') { ctx.strokeStyle = p.accent; ctx.lineWidth = Math.max(2, size * 0.08); ctx.stroke(); }
+      ctx.fillStyle = o.style === 'cta' ? (lum(p.accent) > 0.55 ? '#0a0a0a' : '#ffffff') : '#ffffff';
+      ctx.fillText(r.toUpperCase(), 0, 0, maxW - size);
+      ctx.restore();
+      yy += size * 2;
+    }
+  } else { // lower third: left-aligned bar
+    const size = M * 0.045, x = W * 0.07;
+    let yy = y;
+    ctx.textAlign = 'left';
+    for (const r of rows) {
+      ctx.font = font(sb, 'head', size);
+      const tw = Math.min(maxW, ctx.measureText(r).width) + size, th = size * 1.6;
+      const slide = (1 - easeOut(inP)) * -W * 0.2;
+      ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(x + slide, yy - th / 2, tw, th);
+      ctx.fillStyle = p.accent; ctx.fillRect(x + slide, yy - th / 2, Math.max(4, size * 0.14), th);
+      ctx.fillStyle = '#ffffff'; ctx.fillText(r, x + slide + size * 0.5, yy, maxW);
+      yy += th * 1.15;
+    }
+  }
+  ctx.restore();
+}
+/** Social-style subtitles: the voice-over in short chunks spread over the scene, bold white with an outline. */
+function drawSubtitle(ctx: CanvasRenderingContext2D, W: number, H: number, scene: Scene, t: number) {
+  const words = String(scene.caption || '').split(/\s+/).filter(Boolean);
+  if (!words.length) return;
+  const M = Math.min(W, H), per = W < H ? 4 : 7;
+  const chunks: string[] = [];
+  for (let i = 0; i < words.length; i += per) chunks.push(words.slice(i, i + per).join(' '));
+  const i = Math.min(chunks.length - 1, Math.floor((t / Math.max(0.5, scene.duration)) * chunks.length));
+  const size = M * 0.048;
+  ctx.save(); ctx.font = `800 ${Math.round(size)}px "Montserrat", "Inter", system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const ls = wrap(ctx, chunks[i], W * 0.86).slice(0, 2);
+  ls.forEach((l, k) => {
+    const y = H * 0.8 + k * size * 1.25;
+    ctx.lineJoin = 'round'; ctx.lineWidth = size * 0.2; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.strokeText(l, W / 2, y);
+    ctx.fillStyle = '#ffffff'; ctx.fillText(l, W / 2, y);
+  });
+  ctx.restore();
+}
+function drawEditScene(ctx: CanvasRenderingContext2D, W: number, H: number, sb: Storyboard, scene: Scene, t: number, opts: RenderOpts) {
+  const M = Math.min(W, H);
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  const at = shotAt(scene, t);
+  const src = at && ((opts.getShot ? opts.getShot(at.shot) : opts.getRef?.(at.shot.media)) || opts.getThumb?.(at.shot.media));
+  if (at && src) drawCover(ctx, W, H, src, at.shot.move || (at.shot.media.type === 'image' ? 'push-in' : 'none'), clamp(at.local / Math.max(0.2, at.shot.dur)));
+  else if (!at) drawBackground(ctx, W, H, sb, scene, t, 0, opts);
+  // An assembly is the footage alone; text, logo and subtitles only appear if someone added them.
+  const texts = scene.texts || [];
+  if (texts.length) {
+    const bot = ctx.createLinearGradient(0, H * 0.62, 0, H); bot.addColorStop(0, 'rgba(0,0,0,0)'); bot.addColorStop(1, 'rgba(0,0,0,0.6)');
+    ctx.fillStyle = bot; ctx.fillRect(0, H * 0.62, W, H * 0.38);
+  }
+  for (const o of texts) drawOverlay(ctx, W, H, sb, o, t);
+  const logo = opts.logo && sb.logo ? opts.getRef?.(sb.logo) : null;
+  if (logo) {
+    const [lw0, lh0] = sourceSize(logo);
+    const lh = M * 0.09, lw = Math.min(W * 0.3, (lh * lw0) / lh0), pad = M * 0.045;
+    try { ctx.drawImage(logo, pad, pad, lw, (lw * lh0) / lw0); } catch { /* not ready */ }
+  }
+  if (opts.captions && texts.length) drawSubtitle(ctx, W, H, scene, t);
+}
+
 export const XF = 0.45; // crossfade seconds
 export function renderFrame(ctx: CanvasRenderingContext2D, W: number, H: number, sb: Storyboard | null, time: number, opts: RenderOpts = {}) {
   const tl = timeline(sb);
@@ -329,14 +448,17 @@ export function renderFrame(ctx: CanvasRenderingContext2D, W: number, H: number,
   const total = tl[tl.length - 1].end;
   const tt = clamp(time, 0, total - 0.0001);
   const cur = tl.find((s) => tt >= s.start && tt < s.end) || tl[tl.length - 1];
-  drawScene(ctx, W, H, sb, cur.scene, tt - cur.start, cur.i, opts);
+  const edit = sb.mode === 'edit';
+  const draw = (seg: Segment, t: number) => (edit ? drawEditScene(ctx, W, H, sb, seg.scene, t, opts) : drawScene(ctx, W, H, sb, seg.scene, t, seg.i, opts));
+  draw(cur, tt - cur.start);
   const next = tl[cur.i + 1];
-  if (next && cur.end - tt < XF) {
-    ctx.globalAlpha = 1 - (cur.end - tt) / XF;
-    drawScene(ctx, W, H, sb, next.scene, 0, next.i, opts);
+  const xf = edit ? 0 : XF; // an edit cuts between scenes, it doesn't dissolve
+  if (next && cur.end - tt < xf) {
+    ctx.globalAlpha = 1 - (cur.end - tt) / xf;
+    draw(next, 0);
     ctx.globalAlpha = 1;
   }
-  const edge = Math.min(clamp(tt / 0.4), clamp((total - tt) / 0.5));
+  const edge = edit ? 1 : Math.min(clamp(tt / 0.4), clamp((total - tt) / 0.5)); // an assembly has no fade from/to black
   if (edge < 1) { ctx.fillStyle = `rgba(0,0,0,${1 - edge})`; ctx.fillRect(0, 0, W, H); }
   ctx.restore();
 }

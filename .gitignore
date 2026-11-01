@@ -8,3 +8,7 @@ data/
 .dev.vars*
 .env.*
 !.env.example
+
+# Downloaded skill bundles and the repos unpacked from them (large, not part of DM Studio)
+.claude/skills/*.zip
+claude-remotion-skill/

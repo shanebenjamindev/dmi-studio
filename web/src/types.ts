@@ -3,6 +3,11 @@ export type Kind = 'llm' | 'video' | 'image' | 'tts';
 
 export interface MediaRef { type: 'video' | 'image' | 'audio'; assetId: string; url: string; mime?: string; provider?: string; model?: string; prompt?: string; text?: string; duration?: number }
 
+/** One cut inside a scene: a clip (from `from` seconds) or a photo, held for `dur` seconds with an optional camera move. */
+export interface Shot { media: MediaRef; from?: number; dur: number; move?: 'none' | 'push-in' | 'pull-out' | 'pan-left' | 'pan-right' }
+/** On-screen text timed inside its scene (seconds from the scene start). */
+export interface TextOverlay { text: string; at: number; dur: number; style: 'title' | 'price' | 'tag' | 'lower' | 'cta'; pos: 'top' | 'center' | 'bottom' }
+
 export interface Scene {
   id: string;
   layout: Layout;
@@ -19,6 +24,9 @@ export interface Scene {
   background: string;
   media?: MediaRef | null;
   voice?: MediaRef | null;
+  /** Edit mode: the cuts and timed text of this scene. */
+  shots?: Shot[];
+  texts?: TextOverlay[];
 }
 
 export interface Palette { bg1: string; bg2: string; accent: string; text: string }
@@ -28,11 +36,25 @@ export interface Storyboard {
   font: string;
   music: { mood: 'calm' | 'upbeat' | 'epic' | 'none'; bpm: number };
   voice_style?: string;
+  /** 'edit' = footage-first cut built from a request form (shots + timed text), not text-card layouts. */
+  mode?: 'edit';
+  /** The client's logo, shown in a corner for the whole video (edit mode). */
+  logo?: MediaRef | null;
   scenes: Scene[];
 }
 
+/** A clip or photo in the client's Google Drive, streamed through the server (signed URL). */
+export interface Source { id: string; account: string; sig: string; name: string; kind: 'video' | 'image'; mime: string; duration?: number; folder: string; url: string; thumb: string; row?: string }
+export interface Picked { name: string; reason: string }
+/** A video request form read from Google Sheets; the video follows its script table. */
+/** One scene of the request sheet's script, cells copied as written. */
+export interface ScriptRow { row: string; meaning: string; voice_over: string; visual: string; on_screen: string; source: string; duration: string; note: string }
+export interface Sheet { title: string; link: string; csv: string; missing?: string[]; form: { customer: string; aspect: Aspect; seconds: number; sequence: { row: string; ref: string }[]; ignored_rows: string; script?: ScriptRow[] } }
+
 export interface ChatMsg { who: 'user' | 'ai' | 'err'; text: string; at: number }
-export interface Project { id: string; title: string; aspect: Aspect; customerId?: string | null; storyboard: Storyboard | null; chat: ChatMsg[]; updatedAt: number; createdAt: number; scenes?: number; duration?: number; palette?: Palette }
+export interface Project { id: string; title: string; aspect: Aspect; customerId?: string | null; storyboard: Storyboard | null; chat: ChatMsg[]; sources?: Source[]; sheet?: Sheet | null; updatedAt: number; createdAt: number; scenes?: number; duration?: number; palette?: Palette }
+/** A row of the project list (no storyboard). */
+export interface ProjectItem { id: string; title: string; aspect: Aspect; updatedAt: number; createdAt: number; duration: number; clips: number; thumb: string | null; sheet: { title: string; link: string; customer: string } | null; palette?: Palette }
 export type Aspect = '16:9' | '9:16' | '1:1';
 
 export interface ProviderModel { id: string; label: string; note?: string; custom?: boolean }

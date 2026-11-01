@@ -4,10 +4,10 @@ import { api, auth } from './api';
 import { player, type PlayerOpts } from './engine/player';
 import { audio } from './engine/audio';
 import { exportVideo } from './engine/exporter';
-import type { User, Project, Provider, Defaults, Job, Storyboard, Scene, Aspect, ChatMsg, ModelChoice, Kind, Render } from './types';
+import type { User, Project, Provider, Defaults, Job, Storyboard, Scene, Aspect, ChatMsg, ModelChoice, Kind, Render, Source, Picked, MediaRef } from './types';
 
 export type Tab = 'scene' | 'global' | 'brand' | 'renders';
-// 'editor', 'templates' and 'analyze' are hidden for now (pages kept in the code, not reachable from the UI).
+// 'templates' and 'analyze' are hidden for now (pages kept in the code, not reachable from the UI).
 export type View = 'workspace' | 'admin' | 'editor' | 'templates' | 'analyze';
 export interface ExportState { phase: 'idle' | 'setup' | 'recording' | 'uploading' | 'done' | 'error'; progress: number; text: string; url?: string; download?: string; error?: string }
 export interface AppState {
@@ -23,10 +23,14 @@ export interface AppState {
   analyzeSrc: { url: string; name: string } | null;
   mock: boolean;
   ffmpeg: boolean;
+  /** This server can run the editor (Claude CLI + ffmpeg + local disk); false on the cloud Worker. */
+  editorAvailable: boolean;
   providers: Provider[];
   defaults: Defaults;
   project: Project | null;
   sel: number;
+  /** Assembly: the selected clip (position on the timeline), shared by the timeline and the properties panel. */
+  clip: number | null;
   tab: Tab;
   save: 'saved' | 'saving' | 'dirty' | 'error';
   busy: string | null;
@@ -35,14 +39,14 @@ export interface AppState {
   undo: string[];
   redo: string[];
   opts: PlayerOpts;
-  dialog: null | 'settings' | 'projects' | 'export';
+  dialog: null | 'projects' | 'export';
   toast: { text: string; err?: boolean; id: number } | null;
   exp: ExportState;
   brandMode: boolean;
 }
 
 let state: AppState = {
-  ready: false, user: null, setup: false, setupCode: false, googleSignin: false, view: (location.hash.startsWith('#admin') ? 'admin' : 'workspace') as View, tplFocus: null, analyzeSrc: null, mock: false, ffmpeg: false, providers: [], defaults: {}, project: null, sel: 0, tab: 'scene',
+  ready: false, user: null, setup: false, setupCode: false, googleSignin: false, view: (location.hash.startsWith('#admin') ? 'admin' : location.hash.startsWith('#editor') ? 'editor' : 'workspace') as View, tplFocus: null, analyzeSrc: null, mock: false, ffmpeg: false, editorAvailable: false, providers: [], defaults: {}, project: null, sel: 0, clip: null, tab: 'scene',
   save: 'saved', busy: null, jobs: [], renders: [], undo: [], redo: [],
   opts: { captions: true, logo: true, music: true, voice: true }, dialog: null, toast: null,
   exp: { phase: 'idle', progress: 0, text: '' }, brandMode: true,
@@ -79,7 +83,7 @@ export const providersOf = (kind: Kind) => state.providers.filter((p) => p.kind 
 export function choice(kind: Kind): ModelChoice | null {
   const d = (state.defaults as any)[kind] as ModelChoice | undefined;
   const list = providersOf(kind);
-  if (d && list.some((p) => p.id === d.provider)) return d;
+  if (d && list.some((p) => p.id === d.provider && p.configured)) return d;
   const p = list.find((x) => x.configured && !x.mock) || list.find((x) => x.configured) || list[0];
   return p ? { provider: p.id, model: p.models[0]?.id || '', voice: p.voices?.[0] } : null;
 }
@@ -119,12 +123,12 @@ async function loadApp() {
     if (typeof prefs.brandMode === 'boolean') setState({ brandMode: prefs.brandMode });
     player.setOpts(state.opts);
     const [h, pv] = await Promise.all([api.health(), api.providers()]);
-    setState({ mock: h.mock, ffmpeg: h.ffmpeg, providers: pv.providers, defaults: pv.defaults });
-    const last = ls.get(LS_LAST);
-    let p: Project | null = null;
-    if (last) p = await api.getProject(last).catch(() => null);
-    if (!p) { const list = await api.listProjects(); if (list[0]) p = await api.getProject(list[0].id); }
-    if (p) loadProject(p);
+    setState({ mock: h.mock, ffmpeg: h.ffmpeg, editorAvailable: !!h.editor, providers: pv.providers, defaults: pv.defaults });
+    if (!h.editor && state.view === 'editor') setState({ view: 'workspace' });
+    // The editor opens on the project list; a reload inside a project (#editor/<id>) reopens that project.
+    const id = location.hash.match(/^#editor\/(p_\w+)/)?.[1];
+    const p = id ? await api.getProject(id).catch(() => null) : null;
+    if (p) { loadProject(p); setState({ view: 'editor' }); }
   } catch (e: any) {
     toast('Không kết nối được server: ' + e.message, true);
   }
@@ -139,16 +143,25 @@ export function setOpts(o: Partial<PlayerOpts>) { setState({ opts: { ...state.op
 function loadProject(p: Project) {
   player.pause();
   player.time = 0;
-  setState({ project: p, sel: 0, undo: [], redo: [], save: 'saved', jobs: [], renders: [] });
+  setState({ project: p, sel: 0, clip: null, undo: [], redo: [], save: 'saved', jobs: [], renders: [] });
   player.setStoryboard(p.storyboard);
   ls.set(LS_LAST, p.id);
   pollJobs(true);
   loadRenders();
 }
-export async function openProject(id: string) { loadProject(await api.getProject(id)); setState({ dialog: null, view: 'editor' }); }
+export async function openProject(id: string) { loadProject(await api.getProject(id)); setState({ dialog: null, view: 'editor' }); history.replaceState(null, '', `#editor/${id}`); }
+/** Back to the project list. */
+export async function closeProject() {
+  player.pause();
+  await flushSave().catch(() => {});
+  player.setStoryboard(null);
+  setState({ project: null, sel: 0, undo: [], redo: [] });
+  history.replaceState(null, '', '#editor');
+}
 export async function newProject(customerId?: string, title = 'Dự án mới') {
   const p = await api.createProject({ title, aspect: state.project?.aspect || '16:9', customerId });
   loadProject(p); setState({ dialog: null, view: 'editor' });
+  history.replaceState(null, '', `#editor/${p.id}`);
   return p;
 }
 async function ensureProject() { return state.project || (await newProject()); }
@@ -249,16 +262,18 @@ export async function generate(o: { prompt: string; seconds: number; aspect: Asp
   player.pause();
   setState({ busy: `${providerName(c.provider)} · ${c.model} đang viết kịch bản…` });
   try {
-    const { storyboard } = await api.storyboard({ ...c, ...o, brand: state.brandMode, projectId: p.id });
+    const sources = state.project?.sources || [];
+    const sheet = state.project?.sheet || null;
+    if (sources.length) setState({ busy: `Claude đang xem ${sources.length} source và ${sheet ? 'dựng theo form' : 'viết kịch bản'}…` });
+    const { storyboard, picked } = await api.storyboard({ ...c, ...o, ...(sheet ? { seconds: sheet.form.seconds, aspect: sheet.form.aspect } : {}), brand: state.brandMode, projectId: p.id, sources, sheet });
     setState({ project: { ...state.project!, aspect: o.aspect, title: storyboard.title }, sel: 0 });
     player.time = 0;
     setStoryboard(storyboard);
-    addChat({ who: 'ai', text: `✓ ${providerName(c.provider)} (${c.model}) đã tạo “${storyboard.title}” — ${storyboard.scenes.length} cảnh, ${Math.round(player.total)} giây.` });
+    addChat({ who: 'ai', text: `✓ ${providerName(c.provider)} (${c.model}) đã tạo “${storyboard.title}” — ${storyboard.scenes.length} cảnh, ${Math.round(player.total)} giây.${pickedNote(picked, sources.length)}` });
     await flushSave();
     player.play();
   } catch (e: any) {
     toast(e.message, true);
-    if (/key/i.test(e.message)) setState({ dialog: 'settings' });
   } finally { setState({ busy: null }); }
 }
 export async function refine(instruction: string) {
@@ -269,45 +284,175 @@ export async function refine(instruction: string) {
   player.pause();
   setState({ busy: `${providerName(c.provider)} đang chỉnh sửa…` });
   try {
-    const { storyboard } = await api.refine({ ...c, storyboard: p.storyboard, instruction, brand: state.brandMode, projectId: p.id });
+    const sources = p.sources || [];
+    const { storyboard, picked } = await api.refine({ ...c, storyboard: p.storyboard, instruction, brand: state.brandMode, projectId: p.id, sources, sheet: p.sheet || null });
     setStoryboard(storyboard);
     setTitle(storyboard.title);
-    addChat({ who: 'ai', text: `✓ Đã cập nhật (${storyboard.scenes.length} cảnh). ⌘/Ctrl+Z để hoàn tác.` });
+    addChat({ who: 'ai', text: `✓ Đã cập nhật (${storyboard.scenes.length} cảnh). ⌘/Ctrl+Z để hoàn tác.${pickedNote(picked, sources.length)}` });
     player.seek(0); player.play();
   } catch (e: any) { addChat({ who: 'err', text: e.message }); } finally { setState({ busy: null }); }
+}
+
+const pickedNote = (picked: Picked[] | null, total: number) =>
+  picked ? `\nĐã chọn ${picked.length}/${total} source:${picked.map((x) => `\n• ${x.name}: ${x.reason}`).join('')}` : '';
+
+// ------------------------------------------------------------------ Drive sources
+export async function scanSources(link: string) {
+  if (/docs\.google\.com\/spreadsheets\//.test(link)) return await buildFromSheet(link);
+  setState({ busy: 'Đang quét thư mục Google Drive…' });
+  try {
+    const r = await api.scanSources(link);
+    if (!r.sources.length) return toast('Không có video nào trong link này.', true);
+    const p = await ensureProject();
+    setState({ project: { ...state.project!, sources: r.sources } });
+    await api.saveProject(p.id, { sources: r.sources });
+    toast(`Đã quét “${r.folder}”: ${r.sources.length} file${r.total > r.sources.length ? ` (giới hạn ${r.sources.length}/${r.total})` : ''}.`);
+  } catch (e: any) { toast(e.message, true); } finally { setState({ busy: null }); }
+}
+export async function clearSources() {
+  const p = state.project; if (!p) return;
+  setState({ project: { ...p, sources: [], sheet: null } });
+  await api.saveProject(p.id, { sources: [], sheet: null }).catch((e) => toast(e.message, true));
+}
+/**
+ * From a request form in Google Sheets to an assembly: the server reads the form and its source links and lays the
+ * videos it lists end to end, in the sheet's order, whole clips. No AI cut; editing is left to the editor.
+ * Opens a new project unless the current one is still empty (or `here` asks to rebuild the current one).
+ */
+export async function buildFromSheet(link: string, here = false) {
+  player.pause();
+  setState({ busy: 'Đang đọc sheet…' });
+  // Show the server's current step while the sheet is read (it takes a minute or two).
+  const token = crypto.randomUUID();
+  let polling = true;
+  (async () => {
+    while (polling) {
+      await new Promise((r) => setTimeout(r, 1200));
+      const t = polling && await api.sheetProgress(token).then((x) => x.text, () => '');
+      if (polling && t) setState({ busy: t });
+    }
+  })();
+  try {
+    const r = await api.readSheet(link, token).finally(() => { polling = false; });
+    // Each sheet is its own project: a new one, unless this is "read the sheet again" inside its project.
+    const p = here && state.project ? state.project : await newProject(undefined, r.sheet.title);
+    setState({ project: { ...state.project!, title: r.sheet.title, sources: r.sources, sheet: r.sheet, aspect: r.sheet.form.aspect }, sel: 0 });
+    await api.saveProject(p.id, { title: r.sheet.title, sources: r.sources, sheet: r.sheet, aspect: r.sheet.form.aspect });
+    if (r.storyboard) { player.time = 0; setStoryboard(r.storyboard); await flushSave(); }
+    const clips = r.storyboard?.scenes.reduce((a, s) => a + (s.shots?.length || 0), 0) || 0;
+    if (r.storyboard) toast(`Đã ghép ${clips} clip theo thứ tự trong sheet${r.missing.length ? ` · ${r.missing.length} file không tìm thấy` : ''}.`);
+    else toast('Không tìm thấy video nào từ sheet này.', true);
+  } catch (e: any) { toast(e.message, true); } finally { setState({ busy: null }); }
+}
+/** Read the current project's sheet again (it may have changed) and rebuild the assembly in place. */
+export async function rebuildFromSheet() {
+  const sheet = state.project?.sheet;
+  if (sheet) await buildFromSheet(sheet.link, true);
+}
+// ------------------------------------------------------------------ clip timeline (edit mode)
+const r2 = (n: number) => Math.round(n * 100) / 100;
+/** Re-derive a scene's length and preview media from its shots. */
+function fixScene(sc: Scene) {
+  sc.duration = r2((sc.shots || []).reduce((a, x) => a + x.dur, 0)) || 1;
+  sc.media = sc.shots?.[0]?.media ?? null;
+}
+/**
+ * Trim one clip: `edge` 'end' moves its out-point, 'start' its in-point (the clip shortens from the left).
+ * `orig` is the shot as it was when the drag began; `dt` the seconds dragged. Stays inside the source clip.
+ */
+export function trimShot(si: number, k: number, edge: 'start' | 'end', orig: { from: number; dur: number }, dt: number) {
+  updateSb((sb) => {
+    const sc = sb.scenes[si], sh = sc?.shots?.[k]; if (!sh) return;
+    const len = sh.media.type === 'video' && sh.media.duration ? sh.media.duration : Infinity;
+    if (edge === 'end') sh.dur = r2(Math.max(0.3, Math.min(orig.dur + dt, len - orig.from)));
+    else {
+      const from = Math.max(0, Math.min(orig.from + dt, orig.from + orig.dur - 0.3));
+      sh.from = r2(from); sh.dur = r2(orig.dur - (from - orig.from));
+    }
+    fixScene(sc);
+  }, true);
+}
+/** All shots in play order with the scene they belong to. */
+export const flatShots = (sb: Storyboard) => sb.scenes.flatMap((sc, si) => (sc.shots || []).map((sh, k) => ({ si, k, sh })));
+function rebuild(sb: Storyboard, flat: { si: number; sh: NonNullable<Scene['shots']>[number] }[]) {
+  sb.scenes.forEach((sc) => (sc.shots = []));
+  for (const x of flat) sb.scenes[x.si].shots!.push(x.sh);
+  sb.scenes = sb.scenes.filter((sc) => sc.shots!.length || sb.scenes.length === 1);
+  sb.scenes.forEach(fixScene);
+}
+/** Move the clip at flat position `from` to position `to`; it joins the row (scene) of the clip it lands after. */
+export function moveShot(from: number, to: number) {
+  if (from === to) return;
+  updateSb((sb) => {
+    const flat = flatShots(sb);
+    const [it] = flat.splice(from, 1);
+    const at = Math.max(0, Math.min(flat.length, to));
+    flat.splice(at, 0, { ...it, si: (flat[at - 1] || flat[at + 1] || it).si });
+    rebuild(sb, flat);
+  });
+}
+/** Set a clip's in-point and/or length (seconds), kept inside the source clip. */
+export function setShot(index: number, patch: { from?: number; dur?: number }) {
+  updateSb((sb) => {
+    const x = flatShots(sb)[index]; if (!x) return;
+    const sh = sb.scenes[x.si].shots![x.k];
+    const len = sh.media.type === 'video' && sh.media.duration ? sh.media.duration : Infinity;
+    if (patch.from !== undefined) sh.from = r2(Math.max(0, Math.min(patch.from, len - 0.3)));
+    if (patch.dur !== undefined || patch.from !== undefined) sh.dur = r2(Math.max(0.3, Math.min(patch.dur ?? sh.dur, len - (sh.from || 0))));
+    fixScene(sb.scenes[x.si]);
+  });
+}
+/** Split the clip under `t` (seconds on the timeline) into two at that point, like CapCut's split (⌘B). */
+export function splitAt(t: number) {
+  const sb = state.project?.storyboard; if (!sb) return -1;
+  const flat = flatShots(sb);
+  let start = 0, idx = -1;
+  for (let i = 0; i < flat.length; i++) { if (t > start && t < start + flat[i].sh.dur) { idx = i; break; } start += flat[i].sh.dur; }
+  if (idx < 0) return -1;
+  const local = t - start;
+  if (local < 0.2 || flat[idx].sh.dur - local < 0.2) return -1;
+  updateSb((sb2) => {
+    const f = flatShots(sb2);
+    const { si, sh } = f[idx];
+    f.splice(idx, 1, { si, k: 0, sh: { ...sh, dur: r2(local) } }, { si, k: 0, sh: { ...sh, from: r2((sh.from || 0) + local), dur: r2(sh.dur - local) } });
+    rebuild(sb2, f);
+  });
+  return idx + 1;
+}
+/** Put a source on the timeline right after the clip under the playhead (5 s from its start, like the assembly). */
+export function addSourceAtPlayhead(src: Source) {
+  const sb = state.project?.storyboard; if (!sb) return;
+  const flat = flatShots(sb);
+  let start = 0, at = flat.length;
+  for (let i = 0; i < flat.length; i++) { start += flat[i].sh.dur; if (player.time < start) { at = i + 1; break; } }
+  const media: MediaRef = { type: src.kind, assetId: src.id, url: src.url, mime: src.mime, provider: 'drive', prompt: src.name, ...(src.duration ? { duration: src.duration } : {}) };
+  updateSb((sb2) => {
+    const f = flatShots(sb2);
+    const si = (f[at - 1] || f[0])?.si ?? 0;
+    f.splice(at, 0, { si, k: 0, sh: { media, from: 0, dur: Math.min(5, src.duration || 5), move: 'none' } });
+    rebuild(sb2, f);
+  });
+  player.seek(start + 0.01);
+}
+export function deleteShot(index: number) {
+  updateSb((sb) => {
+    const flat = flatShots(sb);
+    if (flat.length < 2) return;
+    flat.splice(index, 1);
+    rebuild(sb, flat);
+  });
+  setState({ sel: Math.min(state.sel, (state.project?.storyboard?.scenes.length || 1) - 1) });
+}
+
+/** Manually put a source (or nothing) behind scene `i`. */
+export function setSceneSource(i: number, s: Source | null) {
+  updateScene(i, { media: s ? { type: s.kind, assetId: s.id, url: s.url, mime: s.mime, provider: 'drive', prompt: s.name, ...(s.duration ? { duration: s.duration } : {}) } : null });
 }
 
 // ------------------------------------------------------------------ AI: media & voice jobs
 export const activeJob = (sceneId: string, kinds: string[]) =>
   state.jobs.find((j) => j.sceneId === sceneId && kinds.includes(j.kind) && (j.status === 'queued' || j.status === 'running'));
 
-export async function queueMedia(indices: number[], kind: 'video' | 'image') {
-  const p = state.project; const c = choice(kind);
-  if (!p?.storyboard || !c) return;
-  const jobs = indices.map((i) => p.storyboard!.scenes[i]).filter((s) => s.visual_prompt?.trim() && !activeJob(s.id, ['video', 'image']))
-    .map((s) => ({ projectId: p.id, sceneId: s.id, kind, provider: c.provider, model: c.model, prompt: s.visual_prompt, aspect: p.aspect, duration: s.duration }));
-  if (!jobs.length) return toast('Không có cảnh nào cần tạo (thiếu mô tả hình ảnh hoặc đang chạy).', true);
-  await flushSave();
-  try {
-    const created = await api.createJobs(jobs);
-    setState({ jobs: [...created, ...state.jobs] });
-    toast(`Đã gửi ${created.length} yêu cầu tới ${providerName(c.provider)}.`);
-    pollJobs(true);
-  } catch (e: any) { toast(e.message, true); if (/key/i.test(e.message)) setState({ dialog: 'settings' }); }
-}
-export async function queueVoice(indices: number[]) {
-  const p = state.project; const c = choice('tts');
-  if (!p?.storyboard || !c) return;
-  const jobs = indices.map((i) => p.storyboard!.scenes[i]).filter((s) => s.caption?.trim() && !activeJob(s.id, ['tts']))
-    .map((s) => ({ projectId: p.id, sceneId: s.id, kind: 'tts', provider: c.provider, model: c.model, voice: c.voice, prompt: s.caption, instructions: p.storyboard!.voice_style }));
-  if (!jobs.length) return toast('Không có lời thoại nào để đọc.', true);
-  await flushSave();
-  try {
-    const created = await api.createJobs(jobs);
-    setState({ jobs: [...created, ...state.jobs] });
-    pollJobs(true);
-  } catch (e: any) { toast(e.message, true); if (/key/i.test(e.message)) setState({ dialog: 'settings' }); }
-}
 export async function cancelJob(id: string) { const j = await api.cancelJob(id); setState({ jobs: state.jobs.map((x) => (x.id === id ? j : x)) }); }
 
 let pollTimer: any;
@@ -345,14 +490,6 @@ async function measureVoice(sceneId: string, url: string) {
   if (i < 0) return;
   const s = state.project!.storyboard!.scenes[i];
   if (s.voice) updateScene(i, { voice: { ...s.voice, duration: Math.round(buf.duration * 100) / 100 } }, true);
-}
-export function fitToVoice(indices: number[]) {
-  updateSb((sb) => {
-    for (const i of indices) {
-      const s = sb.scenes[i];
-      if (s.voice?.duration) s.duration = Math.min(15, Math.max(2, Math.ceil((s.voice.duration + 0.8) * 2) / 2));
-    }
-  });
 }
 
 // ------------------------------------------------------------------ export & renders

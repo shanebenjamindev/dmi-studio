@@ -87,10 +87,10 @@ export function sendFile(req: http.IncomingMessage, res: Res, root: string, rel:
     const end = range[1] && range[2] ? Math.min(Number(range[2]), st.size - 1) : st.size - 1;
     if (start >= st.size || start > end) { res.writeHead(416, { 'content-range': `bytes */${st.size}` }); res.end(); return true; }
     res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${st.size}`, 'content-length': end - start + 1 });
-    fs.createReadStream(file, { start, end }).pipe(res);
+    fs.createReadStream(file, { start, end }).on('error', () => res.destroy()).pipe(res);
   } else {
     res.writeHead(200, { ...headers, 'content-length': st.size });
-    if (req.method === 'HEAD') res.end(); else fs.createReadStream(file).pipe(res);
+    if (req.method === 'HEAD') res.end(); else fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
   }
   return true;
 }

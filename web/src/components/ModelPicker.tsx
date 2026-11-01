@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
-import { useStore, choice, setChoice, refreshProviders, toast, setState } from '../store';
+import { useStore, choice, setChoice, refreshProviders, toast } from '../store';
 import type { Kind } from '../types';
 import { Icon, Popup } from './ui';
 
@@ -21,7 +21,6 @@ export function ModelPicker({ kind, id }: { kind: Kind; id?: string }) {
     const [provider, model] = v.split(SEP);
     const p = providers.find((x) => x.id === provider);
     setChoice(kind, { provider, model, voice: p?.voices?.includes(cur?.voice || '') ? cur?.voice : p?.voices?.[0] });
-    if (p && !p.configured) toast(`${p.name} chưa có API key — mở Cài đặt để thêm.`, true);
   };
   const saveCustom = async () => {
     const mid = custom.trim(); if (!mid || !adding) return;
@@ -51,7 +50,7 @@ export function ModelPicker({ kind, id }: { kind: Kind; id?: string }) {
       <span className="picker-ico"><Icon name={KIND_ICON[kind]} size={15} /></span>
       <Popup id={id} className="picker-popup" value={cur ? cur.provider + SEP + cur.model : ''} onChange={onChange} title="Chọn nền tảng & model">
         {providers.map((p) => (
-          <optgroup key={p.id} label={`${p.name} · ${p.vendor}${p.configured ? '' : ' — chưa có key'}`}>
+          <optgroup key={p.id} label={`${p.name} · ${p.vendor}${p.configured ? '' : ' — chưa sẵn sàng'}`}>
             {p.models.map((m) => (
               <option key={m.id} value={p.id + SEP + m.id}>{p.mock ? m.label : `${p.name} · ${m.label}`}{p.configured ? '' : ' 🔒'}</option>
             ))}
@@ -64,9 +63,7 @@ export function ModelPicker({ kind, id }: { kind: Kind; id?: string }) {
           {curP.voices.map((v) => <option key={v} value={v}>{v}</option>)}
         </Popup>
       )}
-      {curP && !curP.configured && (
-        <button className="link" onClick={() => setState({ dialog: 'settings' })}><Icon name="key" size={13} />Thêm key</button>
-      )}
+      {curP && !curP.configured && <span className="tiny">Không tìm thấy lệnh claude trên máy chủ</span>}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 // Runtime configuration: paths, .env loading, feature flags.
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
@@ -34,4 +35,27 @@ if (!IS_CLOUDFLARE) fs.mkdirSync(ASSET_DIR, { recursive: true });
 function hasBin(bin: string) {
   try { execFileSync(bin, ['-version'], { stdio: 'ignore' }); return true; } catch { return false; }
 }
-export const FFMPEG = IS_CLOUDFLARE ? '' : process.env.FFMPEG_PATH || (hasBin('ffmpeg') ? 'ffmpeg' : '');
+// ffmpeg: FFMPEG_PATH, then one on PATH, then the copy the ffmpeg-static package downloaded into node_modules.
+const bundledFfmpeg = () => { const p = path.join(ROOT, 'node_modules', 'ffmpeg-static', 'ffmpeg'); return fs.existsSync(p) ? p : ''; };
+export const FFMPEG = IS_CLOUDFLARE ? '' : process.env.FFMPEG_PATH || (hasBin('ffmpeg') ? 'ffmpeg' : bundledFfmpeg());
+
+// Claude Code CLI: writes scripts with the signed-in Claude account instead of an API key.
+// Not on PATH when it only came with the VS Code extension, so look there too (newest version first).
+function findClaude() {
+  if (process.env.CLAUDE_CLI_PATH) return process.env.CLAUDE_CLI_PATH;
+  if (hasBin('claude')) return 'claude';
+  const home = os.homedir();
+  const local = path.join(home, '.claude', 'local', 'claude');
+  if (fs.existsSync(local)) return local;
+  for (const dir of [path.join(home, '.vscode', 'extensions'), path.join(home, '.cursor', 'extensions')]) {
+    let names: string[] = [];
+    try { names = fs.readdirSync(dir).filter((n) => n.startsWith('anthropic.claude-code-')); } catch { continue; }
+    names.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    for (const n of names) {
+      const bin = path.join(dir, n, 'resources', 'native-binary', 'claude');
+      if (fs.existsSync(bin)) return bin;
+    }
+  }
+  return '';
+}
+export const CLAUDE_CLI = IS_CLOUDFLARE ? '' : findClaude();

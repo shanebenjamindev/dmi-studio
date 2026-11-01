@@ -1,9 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { useStore, setState, updateScene, updateSb, sceneOp, queueMedia, queueVoice, activeJob, cancelJob, fitToVoice, providerName, getState, toast } from '../store';
-import { ModelPicker } from './ModelPicker';
+import { useStore, setState, updateScene, updateSb, sceneOp, getState, toast, setSceneSource } from '../store';
 import { api } from '../api';
 import { Group, Row, Segmented, Popup, Icon, IconButton } from './ui';
-import type { Scene, Palette, Layout } from '../types';
+import type { Scene, Palette, Layout, TextOverlay } from '../types';
 
 const LAYOUTS: [Layout, string, string][] = [
   ['title', 'Tiêu đề', 'M4 9h16M7 13h10'], ['bullets', 'Danh sách', 'M5 7h.01M9 7h10M5 12h.01M9 12h10M5 17h.01M9 17h10'],
@@ -52,17 +51,11 @@ const Empty = ({ children }: { children: any }) => <div className="insp-empty">{
 function SceneTab() {
   const project = useStore((s) => s.project);
   const sel = useStore((s) => s.sel);
-  const jobs = useStore((s) => s.jobs);
-  const mediaKind = useStore((s) => s.defaults.mediaKind) || 'video';
   const sb = project?.storyboard;
   if (!sb?.scenes.length) return <Empty><Icon name="layers" size={28} /><p>Chưa có cảnh nào.<br />Mô tả video ở cột bên trái để bắt đầu.</p></Empty>;
   const s = sb.scenes[sel] as Scene;
+  const sources = project?.sources || [];
   const set = (patch: Partial<Scene>) => updateScene(sel, patch);
-  const mJob = activeJob(s.id, ['video', 'image']);
-  const vJob = activeJob(s.id, ['tts']);
-  const lastFail = jobs.find((j) => j.sceneId === s.id && j.status === 'failed');
-  const voiceStale = s.voice?.text && s.voice.text !== s.caption;
-  const setKind = (k: 'video' | 'image') => { setState({ defaults: { ...getState().defaults, mediaKind: k } }); api.setDefaults({ mediaKind: k }).catch(() => {}); };
 
   return (
     <>
@@ -79,6 +72,7 @@ function SceneTab() {
         </div>
       </div>
 
+      {sb.mode === 'edit' ? <EditScene s={s} set={set} /> : <>
       <Group title="Bố cục">
         <div className="layouts">
           {LAYOUTS.map(([v, l, d]) => (
@@ -116,41 +110,72 @@ function SceneTab() {
         </Row>
       </Group>
 
-      <Group title="Hình nền AI" action={s.media ? <span className="badge-soft">{providerName(s.media.provider || '')}</span> : null}>
+      <Group title="Hình nền">
+        {sources.length > 0 && (
+          <Row label="Source">
+            <Popup value={s.media?.provider === 'drive' ? s.media.assetId : ''} onChange={(v) => setSceneSource(sel, sources.find((x) => x.id === v) || null)}>
+              <option value="">Không dùng</option>
+              {sources.map((x) => <option key={x.id} value={x.id}>{x.kind === 'video' ? '🎬' : '🖼'} {x.folder ? x.folder + '/' : ''}{x.name}</option>)}
+            </Popup>
+          </Row>
+        )}
         {s.media && (
           <div className="media-prev">
             {s.media.type === 'video' ? <video src={s.media.url} muted loop autoPlay playsInline /> : <img src={s.media.url} alt="" />}
             <button className="media-x" onClick={() => set({ media: null })} aria-label="Bỏ hình nền" title="Bỏ hình nền"><Icon name="x" size={14} /></button>
           </div>
         )}
-        <textarea className="field" rows={3} value={s.visual_prompt || ''} onChange={(e) => set({ visual_prompt: e.target.value })}
-          placeholder="Mô tả cảnh bằng tiếng Anh, vd. glossy black car, foam, blue rim light, slow dolly-in" aria-label="Mô tả hình ảnh" />
-        <Segmented<'video' | 'image'> full small value={mediaKind} onChange={setKind} options={[['video', <><Icon name="film" size={14} />Video</>], ['image', <><Icon name="photo" size={14} />Ảnh</>]]} />
-        <ModelPicker kind={mediaKind} />
-        {mJob ? (
-          <div className="progress-row"><div className="spinner sm" /><span>{providerName(mJob.provider)} đang tạo… thường mất 1–5 phút</span><button className="link" onClick={() => cancelJob(mJob.id)}>Huỷ</button></div>
-        ) : (
-          <button id="btnMedia" className="btn btn-tinted" disabled={!s.visual_prompt?.trim()} onClick={() => queueMedia([sel], mediaKind)}>
-            <Icon name="wand" size={16} />{s.media ? 'Tạo lại' : mediaKind === 'video' ? 'Tạo clip video' : 'Tạo ảnh'}
-          </button>
-        )}
-        {lastFail && !mJob && lastFail.kind !== 'tts' && <p className="note err">{lastFail.error}</p>}
-        <Row label="Khi không có hình AI">
+        <Row label="Nền động">
           <Popup value={s.background} onChange={(v) => set({ background: v })}>{BGS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Popup>
         </Row>
       </Group>
 
-      <Group title="Lời thoại" action={s.voice?.duration ? <span className="badge-soft">{s.voice.duration.toFixed(1)}s</span> : null}>
-        <textarea className="field" rows={3} value={s.caption || ''} onChange={(e) => set({ caption: e.target.value })} placeholder="Câu thuyết minh — cũng dùng làm phụ đề" aria-label="Lời thoại" />
-        {voiceStale && <p className="note warn">Lời thoại đã đổi — hãy đọc lại.</p>}
-        {vJob ? (
-          <div className="progress-row"><div className="spinner sm" /><span>Đang tạo giọng đọc…</span></div>
-        ) : (
-          <div className="btn-row">
-            <button className="btn btn-tinted" disabled={!s.caption?.trim()} onClick={() => queueVoice([sel])}><Icon name="mic" size={16} />{s.voice ? 'Đọc lại' : 'Tạo giọng đọc'}</button>
-            {s.voice && <button className="btn btn-gray" onClick={() => fitToVoice([sel])} title="Đặt thời lượng cảnh theo giọng đọc">Khớp thời lượng</button>}
+      <Group title="Lời thoại" footer="Hiện thành phụ đề trong video.">
+        <textarea className="field" rows={3} value={s.caption || ''} onChange={(e) => set({ caption: e.target.value })} placeholder="Câu thuyết minh / phụ đề" aria-label="Lời thoại" />
+      </Group>
+      </>}
+    </>
+  );
+}
+
+const TEXT_STYLES: [TextOverlay['style'], string][] = [['price', 'Giá / offer'], ['title', 'Tiêu đề'], ['tag', 'Tag'], ['cta', 'CTA'], ['lower', 'Dòng dưới']];
+
+/** Edit mode: the cuts of this beat and its timed on-screen text. */
+function EditScene({ s, set }: { s: Scene; set: (patch: Partial<Scene>) => void }) {
+  const shots = s.shots || [], texts = s.texts || [];
+  const setText = (i: number, patch: Partial<TextOverlay>) => set({ texts: texts.map((t, k) => (k === i ? { ...t, ...patch } : t)) });
+  const setShot = (i: number, dur: number) => {
+    const next = shots.map((x, k) => (k === i ? { ...x, dur } : x));
+    set({ shots: next, duration: Math.round(next.reduce((a, x) => a + x.dur, 0) * 100) / 100 });
+  };
+  return (
+    <>
+      <Group title={`Cảnh quay · ${shots.length} shot · ${s.duration.toFixed(1)}s`} footer={s.visual_prompt || undefined}>
+        {shots.map((x, i) => (
+          <div key={i} className="shot-row">
+            <span className="shot-n">{i + 1}</span>
+            <span className="shot-name" title={x.media.prompt}>{x.media.type === 'video' ? '🎬' : '🖼'} {x.media.prompt}{x.from ? ` · từ ${x.from}s` : ''}</span>
+            <div className="stepper sm">
+              <button onClick={() => setShot(i, Math.max(0.3, Math.round((x.dur - 0.2) * 10) / 10))} aria-label="Ngắn hơn">−</button>
+              <span className="mono">{x.dur.toFixed(1)}s</span>
+              <button onClick={() => setShot(i, Math.round((x.dur + 0.2) * 10) / 10)} aria-label="Dài hơn">+</button>
+            </div>
           </div>
-        )}
+        ))}
+      </Group>
+      {texts.length > 0 && <Group title="Chữ trên hình">
+        {texts.map((t, i) => (
+          <div key={i} className="text-row">
+            <textarea className="field" rows={2} value={t.text} onChange={(e) => setText(i, { text: e.target.value })} aria-label="Chữ trên hình" />
+            <div className="text-meta">
+              <Popup value={t.style} onChange={(v) => setText(i, { style: v as TextOverlay['style'] })}>{TEXT_STYLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Popup>
+              <span className="mono">{t.at.toFixed(1)}s → {(t.at + t.dur).toFixed(1)}s</span>
+            </div>
+          </div>
+        ))}
+      </Group>}
+      <Group title="Voice-over (tham khảo)" footer="Lời thoại trong sheet của nhịp này, để editor khớp hình với giọng.">
+        <textarea className="field" rows={3} value={s.caption || ''} onChange={(e) => set({ caption: e.target.value })} aria-label="Voice-over" />
       </Group>
     </>
   );
@@ -158,13 +183,8 @@ function SceneTab() {
 
 function GlobalTab() {
   const project = useStore((s) => s.project);
-  const jobs = useStore((s) => s.jobs);
-  const mediaKind = useStore((s) => s.defaults.mediaKind) || 'video';
   const sb = project?.storyboard;
   if (!sb) return <Empty><Icon name="film" size={28} /><p>Chưa có video.</p></Empty>;
-  const all = sb.scenes.map((_, i) => i);
-  const missing = all.filter((i) => !sb.scenes[i].media);
-  const running = jobs.filter((j) => j.status === 'queued' || j.status === 'running');
   return (
     <>
       <Group title="Màu sắc">
@@ -209,24 +229,6 @@ function GlobalTab() {
         </Row>
       </Group>
 
-      <Group title="Hình nền AI cho cả video" footer="Mỗi cảnh dùng mô tả hình ảnh của nó. Video AI thường mất 1–5 phút mỗi clip và tính phí theo nền tảng.">
-        <Segmented<'video' | 'image'> full small value={mediaKind} onChange={(k) => { setState({ defaults: { ...getState().defaults, mediaKind: k } }); api.setDefaults({ mediaKind: k }).catch(() => {}); }}
-          options={[['video', <><Icon name="film" size={14} />Video</>], ['image', <><Icon name="photo" size={14} />Ảnh</>]]} />
-        <ModelPicker kind={mediaKind} id="batchMediaPicker" />
-        <button id="btnAllMedia" className="btn btn-tinted" disabled={!missing.length} onClick={() => queueMedia(missing, mediaKind)}>
-          <Icon name="wand" size={16} />{missing.length ? `Tạo cho ${missing.length} cảnh còn trống` : 'Mọi cảnh đã có hình nền'}
-        </button>
-      </Group>
-
-      <Group title="Giọng đọc">
-        <ModelPicker kind="tts" id="ttsPicker" />
-        <input className="field" value={sb.voice_style || ''} onChange={(e) => updateSb((x) => { x.voice_style = e.target.value; }, true)} placeholder="Phong cách đọc: ấm áp, năng lượng…" aria-label="Phong cách đọc" />
-        <div className="btn-row">
-          <button id="btnAllVoice" className="btn btn-tinted" onClick={() => queueVoice(all)}><Icon name="mic" size={16} />Đọc tất cả</button>
-          <button className="btn btn-gray" onClick={() => fitToVoice(all)}>Khớp thời lượng</button>
-        </div>
-      </Group>
-      {running.length > 0 && <p className="note"><span className="dotspin" /> {running.length} tác vụ đang chạy trên máy chủ — có thể đóng trang, kết quả vẫn được lưu.</p>}
     </>
   );
 }
