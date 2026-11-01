@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useStore, toast } from '../store';
 import { Icon, IconButton, Menu } from './ui';
 import { FolderPicker } from './FolderPicker';
+import { Dashboard } from './Dashboard';
 import type { Loc, Customer, CustomerLink, CustomerVideo, VideoFolder, WorkspaceInfo } from '../types';
 
 const LS_SEL = 'dms.customer';
@@ -20,6 +21,9 @@ export function WorkspacePage() {
   const [info, setInfo] = useState<WorkspaceInfo | null>(null);
   const [list, setList] = useState<Customer[]>([]);
   const [sel, setSel] = useState<string | null>(() => ls.get(LS_SEL));
+  // Tổng quan: the work dashboard (opened from "My Drive" in the path or the header button) instead of one folder.
+  const [dash, setDashState] = useState(() => ls.get('dms.dash') === '1');
+  const setDash = (v: boolean) => { setDashState(v); ls.set('dms.dash', v ? '1' : '0'); };
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
@@ -80,13 +84,15 @@ export function WorkspacePage() {
             { label: 'Về thư mục gốc', icon: 'folder', onClick: () => go(null), hidden: !info || info.viewIsRoot },
             { label: 'Đặt làm thư mục gốc', icon: 'check', onClick: makeRoot, hidden: !admin || !info || info.viewIsRoot },
           ]} />
+          <IconButton icon="grid" label="Tổng quan công việc" active={dash} onClick={() => setDash(!dash)} />
           {admin && <IconButton icon="plus" label="Khách hàng mới" className={syncing ? 'busy' : ''} onClick={() => setAdding(true)} />}
         </header>
         {info && info.crumbs.length > 1 && (
           <nav className="ws-root" aria-label="Đường dẫn">
             {info.crumbs.slice(0, -1).map((cr, i) => (
               <span key={i}>
-                <button className="link" onClick={() => go(cr.loc)} title={`Xem các thư mục trong “${cr.name}”`}>{cr.name}</button>
+                {/* The drive's root ("My Drive") opens the work dashboard; deeper folders are browsed as before. */}
+                <button className="link" onClick={() => (i === 0 ? setDash(true) : go(cr.loc))} title={i === 0 ? 'Tổng quan công việc' : `Xem các thư mục trong “${cr.name}”`}>{cr.name}</button>
                 <i>›</i>
               </span>
             ))}
@@ -103,8 +109,8 @@ export function WorkspacePage() {
         <nav className="ws-list">
           {!list.length && !adding && !syncing && <p className="empty-note">Thư mục này chưa có thư mục con.{admin ? ' Bấm ＋ để tạo.' : ''}</p>}
           {shown.map((c) => (
-            <div key={c.id} className={'ws-item' + (c.id === sel ? ' on' : '')}>
-              <button className="ws-item-b" onClick={() => setSel(c.id)}>
+            <div key={c.id} className={'ws-item' + (c.id === sel && !dash ? ' on' : '')}>
+              <button className="ws-item-b" onClick={() => { setSel(c.id); setDash(false); }}>
                 <span className="ws-fico"><Icon name="folder" size={18} /></span>
                 <span className="ws-item-t"><b>{c.name}</b><span>{c.videoCount == null ? 'Không đọc được thư mục' : `${c.folderCount || 0} thư mục · ${c.videoCount} video`}</span></span>
               </button>
@@ -120,7 +126,9 @@ export function WorkspacePage() {
         )}
       </aside>
 
-      {sel && list.some((c) => c.id === sel)
+      {dash
+        ? <Dashboard customers={list} onOpenCustomer={(id) => { setSel(id); setDash(false); }} />
+        : sel && list.some((c) => c.id === sel)
         ? <CustomerDetail key={sel} id={sel} admin={admin} onChanged={() => loadList()} onDeleted={() => { setSel(null); loadList(); }} />
         : <section className="ws-detail ws-empty"><Icon name="folder" size={36} /><p>Chọn một thư mục để xem video.</p></section>}
     </main>

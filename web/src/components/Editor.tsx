@@ -114,6 +114,7 @@ function MediaPanel() {
               <dt>Độ dài yêu cầu</dt><dd>~{project.sheet.form.seconds}s</dd>
               <dt>Source tìm được</dt><dd>{sources.length}</dd>
             </dl>
+            {project.sheet.warning && <div className="ed-warn"><b>⚠ Chế độ dự phòng</b><ul><li>{project.sheet.warning}</li><li>Bấm “Đọc lại sheet” khi Claude dùng lại được để xếp clip theo nội dung.</li></ul></div>}
             {missing.length > 0 && <div className="ed-warn"><b>⚠ {missing.length} file trong sheet không tìm thấy trên Drive</b><ul>{missing.map((m) => <li key={m}>{m}</li>)}</ul></div>}
             {project.sheet.form.ignored_rows && <div className="ed-note"><b>Bỏ qua</b><p>{project.sheet.form.ignored_rows}</p></div>}
             <button className="ed-btn" disabled={!!busy} onClick={rebuildFromSheet} title="Đọc lại sheet (nếu đã sửa) và ghép lại từ đầu; các chỉnh sửa trên timeline sẽ mất"><Icon name="refresh" size={14} />Đọc lại sheet và ghép lại</button>
@@ -176,6 +177,7 @@ function ScenesTab() {
   const rows = script.length ? script : sb.scenes.map((sc) => ({ row: sc.headline, meaning: '', voice_over: '', visual: '', on_screen: '', source: '', duration: '', note: '' }));
   return (
     <div className="ed-scenes" ref={listRef}>
+      {project.sheet?.warning && <p className="ed-hint-box">⚠ {project.sheet.warning} Bấm “Đọc lại sheet” (tab Sheet) khi Claude dùng lại được.</p>}
       {!script.length && <p className="ed-hint-box">Dự án này được ghép trước khi tool đọc đầy đủ kịch bản. Mở tab <b>Sheet</b> bên trái và bấm “Đọc lại sheet” để hiện voice-over, nội dung, chữ trên hình của từng cảnh.</p>}
       {rows.map((r, i) => {
         const pos = at.get(norm(r.row));

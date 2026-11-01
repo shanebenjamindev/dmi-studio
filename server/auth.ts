@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import type http from 'node:http';
 import { Router, HttpError, json, readJson, publicOrigin, type Req, type Res } from './http';
-import { all, get, run, uid, now } from './db';
+import { all, get, run, uid, now, getSetting, setSetting } from './db';
 import * as G from './google';
 import { turnstileConfig, verifyTurnstile } from './turnstile';
 
@@ -52,7 +52,7 @@ export async function currentUser(req: http.IncomingMessage): Promise<User | nul
 const PUBLIC = [/^\/api\/auth\//, /^\/api\/health$/, /^\/api\/google\/callback$/];
 // Settings that affect everyone: who can sign in, which Google accounts and root folder the workspace uses, AI keys.
 const ADMIN: [string, RegExp][] = [
-  ['*', /^\/api\/users/],
+  ['*', /^\/api\/users/], ['PUT', /^\/api\/access$/],
   ['PUT', /^\/api\/google\/config$/], ['GET', /^\/api\/google\/login$/], ['DELETE', /^\/api\/google\/accounts\//],
   ['PUT', /^\/api\/workspace$/], ['PUT', /^\/api\/settings\//], ['POST', /^\/api\/settings\//],
   // Members browse, upload and keep links/notes; creating, renaming and deleting folders, customers and videos is for admins.
@@ -60,12 +60,28 @@ const ADMIN: [string, RegExp][] = [
   ['POST', /^\/api\/customers\/[^/]+\/folders$/], ['PUT', /^\/api\/customers\/[^/]+\/folders\//], ['DELETE', /^\/api\/customers\/[^/]+\/folders\//],
   ['DELETE', /^\/api\/customers\/[^/]+\/videos\//], ['POST', /^\/api\/workspace\/folders$/],
 ];
+// ---------------------------------------------------------------- pages each role may open
+// Admins always reach every page; which pages members see is set in Quản trị and enforced on the API as well.
+export type Page = 'workspace' | 'editor';
+export const PAGES: Page[] = ['workspace', 'editor'];
+export async function pageAccess(): Promise<Record<Role, Page[]>> {
+  const v = await getSetting<{ member?: Page[] } | null>('page_access', null);
+  const member = Array.isArray(v?.member) ? v!.member.filter((p) => PAGES.includes(p)) : PAGES;
+  return { admin: PAGES, member };
+}
+const PAGE_OF: [RegExp, Page][] = [
+  [/^\/api\/(customers|workspace)(\/|$)/, 'workspace'],
+  [/^\/api\/(projects|sheets|sources|proxies|capcut|ai|jobs|renders|templates)(\/|$)/, 'editor'],
+];
+
 /** Throws unless the request may proceed; returns the signed-in user (null for public endpoints). */
 export async function guard(req: Req): Promise<User | null> {
   if (PUBLIC.some((r) => r.test(req.path))) return await currentUser(req);
   const u = await currentUser(req);
   if (!u) throw new HttpError(401, 'Hãy đăng nhập');
   if (u.role !== 'admin' && ADMIN.some(([m, r]) => (m === '*' || m === req.method) && r.test(req.path))) throw new HttpError(403, 'Chỉ quản trị viên mới làm được việc này');
+  const page = u.role === 'admin' ? null : PAGE_OF.find(([r]) => r.test(req.path))?.[1];
+  if (page && !(await pageAccess())[u.role].includes(page)) throw new HttpError(403, 'Tài khoản của bạn chưa được cấp quyền vào trang này');
   return u;
 }
 
@@ -106,7 +122,16 @@ export function registerAuth(api: Router) {
   api.get('/api/auth/me', async (req, res) => {
     const u = await currentUser(req);
     const c = await G.oauthConfig();
-    json(res, 200, { user: u ? userOut(u) : null, setup: await userCount() === 0, setupCode: !!process.env.SETUP_CODE, google: !!(c.clientId && c.clientSecret) });
+    json(res, 200, { user: u ? userOut(u) : null, pages: u ? (await pageAccess())[u.role] : [], setup: await userCount() === 0, setupCode: !!process.env.SETUP_CODE, google: !!(c.clientId && c.clientSecret) });
+  });
+  // Which pages each role may open (members' list is editable by admins; at least one page stays open).
+  api.get('/api/access', async (_req, res) => json(res, 200, await pageAccess()));
+  api.put('/api/access', async (req, res) => {
+    const b = await readJson(req);
+    const member = (Array.isArray(b.member) ? b.member : []).filter((p: any) => PAGES.includes(p));
+    if (!member.length) throw new HttpError(400, 'Nhân viên cần được vào ít nhất một trang');
+    await setSetting('page_access', { member });
+    json(res, 200, await pageAccess());
   });
   // First run only: whoever opens DM Studio first creates the admin account.
   api.post('/api/auth/setup', async (req, res) => {

@@ -27,7 +27,11 @@ const projectOut = (r: any, full = true) => {
     // For the project list: first clip's thumbnail, number of clips, and the request sheet the project belongs to.
     thumb: (() => { const m = sb?.scenes?.find((x: any) => x.media)?.media; return m?.provider === 'drive' ? String(m.url).replace('?', '/thumb?') : null; })(),
     clips: (sb?.scenes || []).reduce((a: number, s: any) => a + (s.shots?.length || (s.media ? 1 : 0)), 0),
-    sheet: data.sheet ? { title: data.sheet.title, link: data.sheet.link, customer: data.sheet.form?.customer || '' } : null,
+    sheet: data.sheet ? {
+      title: data.sheet.title, link: data.sheet.link, customer: data.sheet.form?.customer || '', tab: data.sheet.tab || '',
+      deadline: data.sheet.form?.deadline || '', urgent: !!data.sheet.form?.urgent, missing: (data.sheet.missing || []).length,
+      scenes: (data.sheet.form?.script || []).length,
+    } : null,
   };
   if (full) Object.assign(out, { storyboard: sb, chat: data.chat || [], sources: data.sources || [], sheet: data.sheet || null });
   return out;

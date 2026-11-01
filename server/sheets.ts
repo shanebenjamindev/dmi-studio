@@ -18,14 +18,16 @@ const MAX_SOURCES = 400;
 const PER_FOLDER = 120; // every video of a linked folder goes on the timeline (by name), up to this many
 
 export interface ScriptRow { row: string; meaning: string; voice_over: string; visual: string; on_screen: string; source: string; duration: string; note: string }
-export interface SheetForm { customer: string; aspect: string; seconds: number; sequence: { row: string; ref: string }[]; ignored_rows: string; script?: ScriptRow[] }
-export interface Sheet { title: string; link: string; csv: string; form: SheetForm; missing?: string[] }
+export interface SheetForm { customer: string; aspect: string; seconds: number; sequence: { row: string; ref: string }[]; ignored_rows: string; script?: ScriptRow[]; deadline?: string; urgent?: boolean }
+export interface Sheet { title: string; link: string; csv: string; form: SheetForm; missing?: string[]; /** The tab this project was built from, for multi-tab sheets. */ tab?: string; /** Set when Claude couldn't be used and the form was read by its template. */ warning?: string }
 
 const FORM_SYSTEM = 'You read video request forms (CSV exported from Google Sheets) for a video editing team. Extract facts exactly as written; never invent.';
 const FORM_SCHEMA = {
   type: 'object',
   properties: {
     customer: { type: 'string', description: 'Client / brand the video is for.' },
+    deadline: { type: 'string', description: 'When the final cut is due ("Ngày cần bản final" or similar) as dd/mm/yyyy, or "" if the form has none.' },
+    urgent: { type: 'boolean', description: 'True when the form marks the request as urgent ("Gấp").' },
     aspect: { type: 'string', enum: ['16:9', '9:16', '1:1'] },
     seconds: { type: 'number', description: 'Target total length in seconds (middle of a range like 30s-60s).' },
     script: {
@@ -60,7 +62,7 @@ const FORM_SCHEMA = {
     },
     ignored_rows: { type: 'string', description: 'Short note on script rows that clearly belong to another client or offer (different brand, price or narrator than the overview) and must be ignored; "" if none.' },
   },
-  required: ['customer', 'aspect', 'seconds', 'script', 'sequence', 'ignored_rows'],
+  required: ['customer', 'deadline', 'urgent', 'aspect', 'seconds', 'script', 'sequence', 'ignored_rows'],
 };
 
 /** Spreadsheet id and tab (gid) from a docs.google.com/spreadsheets link. */
@@ -90,40 +92,85 @@ function unzip(buf: Buffer) {
   }
   return files;
 }
-const unxml = (s: string) => s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-/** Cell ref (e.g. "I26") → URL, from cell hyperlinks and HYPERLINK() formulas of the exported tab. */
-function xlsxLinks(buf: Buffer) {
+const unxml = (s: string) => s
+  .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d))
+  .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+const texts = (xml: string) => [...xml.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) => unxml(m[1])).join('');
+
+/**
+ * An exported workbook: its tabs (name → worksheet file), shared strings and which cell styles are dates.
+ * Read directly instead of a CSV export because the XLSX keeps every tab and each cell's link.
+ */
+export function workbook(buf: Buffer) {
   const files = unzip(buf);
-  const sheetName = [...files.keys()].find((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n));
-  const links = new Map<string, string>();
-  if (!sheetName) return links;
-  const xml = files.get(sheetName)!.toString('utf8');
-  const rels = files.get(sheetName.replace('worksheets/', 'worksheets/_rels/') + '.rels')?.toString('utf8') || '';
+  const str = (n: string) => files.get(n)?.toString('utf8') || '';
+  const rels = new Map([...str('xl/_rels/workbook.xml.rels').matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"/g)]
+    .map((m) => [m[1], m[2].replace(/^\/?(xl\/)?/, 'xl/')]));
+  // Hidden tabs (state="hidden" / "veryHidden") are left out: only the tabs people see in the sheet count.
+  const tabs = [...str('xl/workbook.xml').matchAll(/<sheet\b([^>]*)\/?>/g)].map((m) => ({
+    name: unxml(m[1].match(/\bname="([^"]*)"/)?.[1] || ''), file: rels.get(m[1].match(/\br:id="([^"]+)"/)?.[1] || '') || '',
+    hidden: /\bstate="(hidden|veryHidden)"/.test(m[1]),
+  })).filter((t) => files.has(t.file) && !t.hidden);
+  const shared = [...str('xl/sharedStrings.xml').matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => texts(m[1]));
+  // Cell styles whose number format is a date, so serial numbers can be shown as dd/mm/yyyy.
+  const styles = str('xl/styles.xml');
+  const custom = new Map([...styles.matchAll(/<numFmt\b[^>]*numFmtId="(\d+)"[^>]*formatCode="([^"]*)"/g)].map((m) => [+m[1], unxml(m[2])]));
+  const isDate = (id: number) => (id >= 14 && id <= 22) || (id >= 45 && id <= 47) || /[dy]/i.test((custom.get(id) || '').replace(/\[[^\]]*\]|"[^"]*"/g, ''));
+  const xfs = (styles.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/)?.[1] || '').match(/<xf\b[^>]*>/g) || [];
+  const dates = new Set(xfs.map((x, i) => (isDate(+(x.match(/numFmtId="(\d+)"/)?.[1] || 0)) ? i : -1)).filter((i) => i >= 0));
+  return { files, tabs, shared, dates };
+}
+const colIndex = (letters: string) => [...letters].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+
+/** One tab as a grid of cell texts plus its cell links (ref → URL, from hyperlinks and HYPERLINK() formulas). */
+export function tabData(wb: ReturnType<typeof workbook>, file: string) {
+  const xml = wb.files.get(file)!.toString('utf8');
+  const rows: string[][] = [];
+  for (const m of xml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    const attrs = m[1], body = m[2] || '';
+    const ref = attrs.match(/\br="([A-Z]+)(\d+)"/); if (!ref) continue;
+    const t = attrs.match(/\bt="(\w+)"/)?.[1], st = +(attrs.match(/\bs="(\d+)"/)?.[1] || -1);
+    const v = body.match(/<v>([\s\S]*?)<\/v>/)?.[1];
+    let text = '';
+    if (t === 's') text = wb.shared[+(v || 0)] || '';
+    else if (t === 'inlineStr') text = texts(body);
+    else if (t === 'b') text = v === '1' ? 'TRUE' : 'FALSE';
+    else if (v !== undefined) {
+      text = unxml(v);
+      if (t !== 'str' && t !== 'e' && /^-?\d+\.0+$/.test(text)) text = text.replace(/\.0+$/, ''); // "1.0" → "1"
+      if (t !== 'str' && t !== 'e' && wb.dates.has(st) && isFinite(+text)) {
+        const d = new Date(Math.round((+text - 25569) * 864e5)); // Excel serial day → date
+        text = `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
+      }
+    }
+    if (!text) continue;
+    const r = +ref[2] - 1, c = colIndex(ref[1]);
+    while (rows.length <= r) rows.push([]);
+    while (rows[r].length < c) rows[r].push('');
+    rows[r][c] = text;
+  }
+  const rels = wb.files.get(file.replace('worksheets/', 'worksheets/_rels/') + '.rels')?.toString('utf8') || '';
   const target = new Map([...rels.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"/g)].map((m) => [m[1], unxml(m[2])]));
+  const links = new Map<string, string>();
   for (const m of xml.matchAll(/<hyperlink\b[^>]*\bref="([A-Z]+\d+)"[^>]*\br:id="([^"]+)"|<hyperlink\b[^>]*\br:id="([^"]+)"[^>]*\bref="([A-Z]+\d+)"/g)) {
     const url = target.get(m[2] || m[3]);
     if (url && /^https?:/.test(url)) links.set(m[1] || m[4], url);
   }
   for (const m of xml.matchAll(/<c\b[^>]*\br="([A-Z]+\d+)"[^>]*>\s*<f>HYPERLINK\(&quot;(.*?)&quot;/g)) links.set(m[1], unxml(m[2]));
-  return links;
+  return { rows, links };
+}
+
+/** The tabs of a spreadsheet, with how many filled cells each has (empty tabs are not worth a project). */
+export async function sheetTabs(link: string) {
+  const { id } = sheetRef(link);
+  if (!id) throw new HttpError(400, 'Link Google Sheet không hợp lệ');
+  const { account, file } = await locate(id);
+  if (file.mimeType !== SHEET_MIME) throw new HttpError(400, 'Link này không phải Google Sheet');
+  const wb = workbook(await G.sheetExport(account, file.id, '', 'xlsx'));
+  return { title: file.name, tabs: wb.tabs.map((t) => ({ name: t.name, cells: tabData(wb, t.file).rows.flat().filter((c) => c.trim()).length })) };
 }
 
 // ---------------------------------------------------------------- CSV with links written into their cells
-function parseCsv(text: string) {
-  const rows: string[][] = [];
-  let row: string[] = [], cell = '', quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (quoted) {
-      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (c === '"') quoted = false; else cell += c;
-    } else if (c === '"') quoted = true;
-    else if (c === ',') { row.push(cell); cell = ''; }
-    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
-    else cell += c;
-  }
-  if (cell || row.length) { row.push(cell); rows.push(row); }
-  return rows;
-}
 const toCsv = (rows: string[][]) => rows
   .map((r) => { let end = r.length - 1; while (end >= 0 && !r[end].trim()) end--; return r.slice(0, end + 1).map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(','); })
   .join('\n').replace(/\n{3,}/g, '\n\n');
@@ -218,6 +265,64 @@ async function candidates(account: string, seq: SheetForm['sequence'], p: Pool) 
     rows.set(key, have);
   }
   return { rows, missing };
+}
+
+// ---------------------------------------------------------------- the form read by its template (no Claude)
+const fold = (x: string) => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/\s+/g, ' ').trim();
+const STOCK = /pexels|adobe|storyblocks|shutterstock|envato|youtube|tiktok|facebook|instagram/i;
+const GENERIC = new Set(['ceramic', 'coating', 'coat', 'exterior', 'interior', 'hook', 'hooks', 'intro', 'outro', 'logo', 'brand', 'gloss', 'source', 'original', 'video', 'cta', 'offer', 'promo', 'promotion', 'shop', 'branding', 'beading', 'water']);
+
+/**
+ * "FORM YÊU CẦU DỰNG VIDEO" read by its fixed layout: overview labels in one column with the value to their right,
+ * then the script table under a header row (Sence · Ý Nghĩa · Voice Over · Nội dung · Thời lượng · Text on Visual ·
+ * Source · Ghi chú). Used when Claude can't be reached; it can't tell another client's leftover rows apart.
+ */
+export function readFormLayout(title: string, rows: string[][]): SheetForm {
+  const valueOf = (re: RegExp) => {
+    for (const r of rows) {
+      const i = r.findIndex((c) => re.test(fold(c)));
+      if (i >= 0) { const v = r.slice(i + 1).find((c) => c && c.trim()); if (v) return v.trim(); }
+    }
+    return '';
+  };
+  const aspectRaw = valueOf(/^ty le khung hinh/);
+  const aspect = /16\s*:\s*9/.test(aspectRaw) ? '16:9' : /1\s*:\s*1/.test(aspectRaw) ? '1:1' : '9:16';
+  const nums = (valueOf(/^do dai mong muon/).match(/\d+/g) || []).map(Number);
+  const seconds = nums.length >= 2 ? Math.round((nums[0] + nums[1]) / 2) : nums[0] || 30;
+  const customer = title.split('|').map((x) => x.trim()).filter(Boolean)[1] || title;
+  const form: SheetForm = { customer, aspect, seconds, deadline: valueOf(/^ngay can ban final/), urgent: /gap|^co\b/.test(fold(valueOf(/^co yeu cau gap/))), script: [], sequence: [], ignored_rows: '' };
+
+  const hi = rows.findIndex((r) => r.some((c) => /^voice ?over/.test(fold(c))) && r.some((c) => /^noi dung/.test(fold(c))));
+  if (hi < 0) return form;
+  const H = rows[hi].map(fold);
+  const col = (re: RegExp) => H.findIndex((h) => re.test(h));
+  const c = { num: col(/^(s[ce]n[ce]e|scene|canh|stt)/), mean: col(/^y nghia/), vo: col(/^voice ?over/), vis: col(/^noi dung/), dur: col(/^thoi luong/), txt: col(/^text on/), src: col(/^source/), note: col(/^ghi chu/) };
+  const cell = (r: string[], i: number) => (i >= 0 ? String(r[i] || '').trim() : '');
+  const seen = new Map<string, number>();
+  for (const r of rows.slice(hi + 1)) {
+    const vo = cell(r, c.vo), vis = cell(r, c.vis), src = cell(r, c.src);
+    if (!vo && !vis && !src) continue;
+    const num = cell(r, c.num), mean = cell(r, c.mean);
+    let row = num && mean ? `${num} · ${mean}` : num ? `Cảnh ${num}` : mean || `Cảnh ${form.script!.length + 1}`;
+    const n = (seen.get(row) || 0) + 1; seen.set(row, n);
+    if (n > 1) row = `${row} (${n})`;
+    const plain = src.replace(/\[link[^\]]*\]/g, '').trim();
+    form.script!.push({ row, meaning: mean, voice_over: vo, visual: vis, on_screen: cell(r, c.txt), source: plain, duration: cell(r, c.dur), note: cell(r, c.note) });
+    // Footage for this row: link labels from the cell notes, file names, and short names split on "/" or new lines.
+    const refs: string[] = [];
+    for (const m of src.matchAll(/\[link →[^\]]*?(s\d+(?:–s\d+)?)\]/g)) refs.push(m[1]);
+    const files = [...plain.matchAll(/([A-Za-z0-9][\w\- ]*?\.(?:mov|mp4|m4v|avi|mkv))\b/gi)].map((m) => m[1].trim());
+    refs.push(...files);
+    for (const part of plain.replace(/https?:\/\/\S+/g, '').split(/[\/\n,]+/)) {
+      const t = part.replace(/[🎬•*\-–:]+/g, ' ').replace(/\s+/g, ' ').trim();
+      if (t.length < 3 || t.length > 30 || t.split(' ').length > 4 || !/[A-Z0-9]/.test(t) || STOCK.test(t) || /\.(mov|mp4|m4v)$/i.test(t)) continue;
+      // Descriptions and generic words ("Source gloss", "dùng source VCC", "Exterior") would match random folders.
+      if (/^(source|d[uù]ng|n[eế]u|em|anh|c[oó]|kh[aá]ch)\b/i.test(t) || t.split(' ').every((w) => GENERIC.has(fold(w)))) continue;
+      if (!files.some((f) => f.toLowerCase().startsWith(t.toLowerCase()))) refs.push(t);
+    }
+    for (const ref of [...new Set(refs)]) form.sequence.push({ row, ref });
+  }
+  return form;
 }
 
 /** Seconds a row should last: its duration cell ("4-8s" → 4, "5s" → 5), else the voice-over read at ~2.6 words/s. */
@@ -342,15 +447,18 @@ function evenCut(script: ScriptRow[], rows: Map<string, Source[]>) {
   });
 }
 
-export async function readSheet(link: string, step: (text: string) => void = () => {}) {
+/** Read one tab (`tab` by name; otherwise the tab in the link, or the first) and lay out its cut. */
+export async function readSheet(link: string, step: (text: string) => void = () => {}, tab?: string) {
   const { id, gid } = sheetRef(link);
   if (!id) throw new HttpError(400, 'Link Google Sheet không hợp lệ');
   const { account, file } = await locate(id);
   if (file.mimeType !== SHEET_MIME) throw new HttpError(400, 'Link này không phải Google Sheet');
   step('Đang đọc sheet và các link trong sheet…');
-  const [csvBuf, xlsx] = await Promise.all([G.sheetExport(account, file.id, gid, 'csv'), G.sheetExport(account, file.id, gid, 'xlsx').catch(() => null)]);
-  const rows = parseCsv(csvBuf.toString('utf8'));
-  const links = xlsx ? xlsxLinks(xlsx) : new Map<string, string>();
+  // A named tab comes from the whole workbook; otherwise the export of the tab in the link (gid) holds just that tab.
+  const wb = workbook(await G.sheetExport(account, file.id, tab ? '' : gid, 'xlsx'));
+  const pick = tab ? wb.tabs.find((t) => t.name === tab) : wb.tabs[0];
+  if (!pick) throw new HttpError(404, `Không thấy tab “${tab}” trong sheet`);
+  const { rows, links } = tabData(wb, pick.file);
   // Links first, in row order, so s1, s2… follow the script; each cell then shows which labels it points at.
   const p = pool(account);
   const notes = await linkedFootage(account, driveRefs(rows, links), p);
@@ -366,7 +474,16 @@ export async function readSheet(link: string, step: (text: string) => void = () 
   }
   const csv = toCsv(rows).slice(0, MAX_CSV);
   step('Đang đọc kịch bản từng cảnh…');
-  const form: SheetForm = await askClaude('haiku', FORM_SYSTEM, `Form "${file.name}":\n${csv}`, FORM_SCHEMA);
+  // Claude reads any layout; when it can't be reached (quota spent, no CLI) the form is read by its fixed template.
+  let warning = '';
+  let form: SheetForm;
+  try { form = await askClaude('haiku', FORM_SYSTEM, `Form "${file.name}":\n${csv}`, FORM_SCHEMA); }
+  catch (e: any) {
+    form = readFormLayout(file.name, rows);
+    if (!form.script?.length) throw e;
+    warning = `Claude chưa dùng được (${String(e?.message || e).replace(/^Claude CLI:\s*/, '').slice(0, 120)}): kịch bản đọc theo mẫu form, clip xếp theo thứ tự trong sheet.`;
+    step('Claude chưa dùng được, đang đọc theo mẫu form…');
+  }
   // A row without a purpose comes back as "3 · ": call it "Cảnh 3" everywhere (script and timeline rows match on it).
   const label = (r: string) => { const t = String(r || '').trim().replace(/\s*·\s*$/, ''); return /^\d+$/.test(t) ? `Cảnh ${t}` : t; };
   form.script = (form.script || []).map((r) => ({ ...r, row: label(r.row) }));
@@ -378,12 +495,17 @@ export async function readSheet(link: string, step: (text: string) => void = () 
   const script = [...(form.script || [])];
   for (const row of byRow.keys()) if (!script.some((r) => r.row === row)) script.push({ row, meaning: '', voice_over: '', visual: '', on_screen: '', source: '', duration: '', note: '' });
   let scenes: any[] = [];
-  try { scenes = await cutByContent(script, byRow, [...p.out.values()], step); }
-  catch (e: any) { console.error('✖ Xếp clip theo nội dung thất bại, dùng thứ tự trong sheet:', e?.message || e); }
+  if (!warning) {
+    try { scenes = await cutByContent(script, byRow, [...p.out.values()], step); }
+    catch (e: any) {
+      console.error('✖ Xếp clip theo nội dung thất bại, dùng thứ tự trong sheet:', e?.message || e);
+      warning = `Claude chưa xếp được clip (${String(e?.message || e).replace(/^Claude CLI:\s*/, '').slice(0, 120)}): clip xếp theo thứ tự trong sheet, chia đều thời lượng mỗi cảnh.`;
+    }
+  }
   if (!scenes.length) scenes = evenCut(script, byRow);
-  const sheet: Sheet = { title: file.name, link, csv, form, missing };
+  const sheet: Sheet = { title: tab ? `${pick.name}` : file.name, link, csv, form, missing, ...(tab ? { tab } : {}), ...(warning ? { warning } : {}) };
   const storyboard = scenes.length ? normalizeStoryboard({ title: file.name, mode: 'edit', font: 'sans', music: { mood: 'none', bpm: 96 }, logo: null, scenes }) : null;
-  return { sheet, sources: [...p.out.values()], missing, links: notes.size, storyboard };
+  return { sheet, sources: [...p.out.values()], missing, links: notes.size, storyboard, warning };
 }
 
 // ---------------------------------------------------------------- the assembly (sources in script order; editing is left to the editor)
@@ -437,11 +559,14 @@ export function checkSheet(v: any): Sheet | null {
   return {
     title: String(v.title || '').slice(0, 300), link: String(v.link || '').slice(0, 500), csv: v.csv.slice(0, MAX_CSV),
     missing: Array.isArray(v.missing) ? v.missing.map(String).slice(0, 100) : [],
+    ...(typeof v.tab === 'string' && v.tab ? { tab: v.tab.slice(0, 200) } : {}),
+    ...(typeof v.warning === 'string' && v.warning ? { warning: v.warning.slice(0, 400) } : {}),
     form: {
       customer: String(f.customer || '').slice(0, 200), aspect: ['16:9', '9:16', '1:1'].includes(f.aspect) ? f.aspect : '16:9',
       seconds: Math.min(180, Math.max(5, Number(f.seconds) || 30)),
       sequence: Array.isArray(f.sequence) ? f.sequence.slice(0, 200).map((x: any) => ({ row: String(x?.row || '').slice(0, 200), ref: String(x?.ref || '').slice(0, 300) })) : [],
       ignored_rows: String(f.ignored_rows || '').slice(0, 500),
+      deadline: String(f.deadline || '').slice(0, 40), urgent: !!f.urgent,
       script: Array.isArray(f.script) ? f.script.slice(0, 60).map((r: any) => Object.fromEntries(
         ['row', 'meaning', 'voice_over', 'visual', 'on_screen', 'source', 'duration', 'note'].map((k) => [k, String(r?.[k] ?? '').slice(0, 2000)]))) as ScriptRow[] : [],
     },
@@ -453,11 +578,16 @@ const progress = new Map<string, { text: string; at: number }>();
 export function registerSheets(api: Router) {
   // Reading a sheet takes a minute or two; the page polls /progress with the token it chose to show each step.
   api.post('/api/sheets/read', async (req, res) => {
-    const { link, token } = await readJson(req);
+    const { link, token, tab } = await readJson(req);
     if (!isSheetLink(link)) throw new HttpError(400, 'Hãy dán link Google Sheet (docs.google.com/spreadsheets/…)');
     const key = typeof token === 'string' && /^[\w-]{8,64}$/.test(token) ? token : '';
-    try { json(res, 200, await readSheet(link, (t) => { if (key) progress.set(key, { text: t, at: Date.now() }); })); }
+    try { json(res, 200, await readSheet(link, (t) => { if (key) progress.set(key, { text: t, at: Date.now() }); }, typeof tab === 'string' && tab ? tab : undefined)); }
     finally { if (key) progress.delete(key); }
+  });
+  api.post('/api/sheets/tabs', async (req, res) => {
+    const { link } = await readJson(req);
+    if (!isSheetLink(link)) throw new HttpError(400, 'Hãy dán link Google Sheet (docs.google.com/spreadsheets/…)');
+    json(res, 200, await sheetTabs(link));
   });
   api.get('/api/sheets/progress/:token', async (req, res) => json(res, 200, { text: progress.get(req.params.token)?.text || '' }));
 }

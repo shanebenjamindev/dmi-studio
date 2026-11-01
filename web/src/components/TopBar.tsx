@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useStore, setState, signOut } from '../store';
+import { useStore, setState, signOut, openPages } from '../store';
 import { Icon, Segmented } from './ui';
 import { PasswordSheet } from './Users';
 import type { View } from '../store';
@@ -19,8 +19,9 @@ export function TopBar() {
     document.addEventListener('mousedown', off);
     return () => document.removeEventListener('mousedown', off);
   }, [menu]);
-  const editor = useStore((s) => s.editorAvailable);
-  const pages: [View, string][] = [['workspace', 'Khách hàng'], ...(editor ? [['editor', 'Trình dựng'] as [View, string]] : []), ...(user.role === 'admin' ? [['admin', 'Quản trị'] as [View, string]] : [])];
+  useStore((s) => s.pages); useStore((s) => s.editorAvailable); // re-render when access changes
+  const LABEL: Record<View, string> = { workspace: 'Drive', editor: 'Trình dựng', admin: 'Quản trị', templates: '', analyze: '' };
+  const pages: [View, string][] = openPages().map((v) => [v, LABEL[v]]);
 
   return (
     <header className="toolbar">

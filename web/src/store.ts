@@ -4,7 +4,7 @@ import { api, auth } from './api';
 import { player, type PlayerOpts } from './engine/player';
 import { audio } from './engine/audio';
 import { exportVideo } from './engine/exporter';
-import type { User, Project, Provider, Defaults, Job, Storyboard, Scene, Aspect, ChatMsg, ModelChoice, Kind, Render, Source, Picked, MediaRef } from './types';
+import type { User, Project, Provider, Defaults, Job, Storyboard, Scene, Aspect, ChatMsg, ModelChoice, Kind, Render, Source, Picked, MediaRef, Page } from './types';
 
 export type Tab = 'scene' | 'global' | 'brand' | 'renders';
 // 'templates' and 'analyze' are hidden for now (pages kept in the code, not reachable from the UI).
@@ -25,6 +25,10 @@ export interface AppState {
   ffmpeg: boolean;
   /** This server can run the editor (Claude CLI + ffmpeg + local disk); false on the cloud Worker. */
   editorAvailable: boolean;
+  /** Pages the signed-in account may open (admins: all). */
+  pages: Page[];
+  /** Bumped when projects are added in the background, so the project list reloads. */
+  homeVersion: number;
   providers: Provider[];
   defaults: Defaults;
   project: Project | null;
@@ -46,7 +50,7 @@ export interface AppState {
 }
 
 let state: AppState = {
-  ready: false, user: null, setup: false, setupCode: false, googleSignin: false, view: (location.hash.startsWith('#admin') ? 'admin' : location.hash.startsWith('#editor') ? 'editor' : 'workspace') as View, tplFocus: null, analyzeSrc: null, mock: false, ffmpeg: false, editorAvailable: false, providers: [], defaults: {}, project: null, sel: 0, clip: null, tab: 'scene',
+  ready: false, user: null, setup: false, setupCode: false, googleSignin: false, view: (location.hash.startsWith('#admin') ? 'admin' : location.hash.startsWith('#editor') ? 'editor' : 'workspace') as View, tplFocus: null, analyzeSrc: null, mock: false, ffmpeg: false, editorAvailable: false, pages: [], homeVersion: 0, providers: [], defaults: {}, project: null, sel: 0, clip: null, tab: 'scene',
   save: 'saved', busy: null, jobs: [], renders: [], undo: [], redo: [],
   opts: { captions: true, logo: true, music: true, voice: true }, dialog: null, toast: null,
   exp: { phase: 'idle', progress: 0, text: '' }, brandMode: true,
@@ -98,7 +102,21 @@ export const providerName = (id: string) => state.providers.find((p) => p.id ===
 auth.onSignedOut = () => { if (state.user) setState({ user: null }); };
 export async function signedIn(user: User) {
   setState({ user, setup: false });
+  await api.me().then((m) => setState({ pages: m.pages || [] })).catch(() => {});
   await loadApp();
+}
+/** Pages this account can open here: the editor also needs a server that can run it. */
+export function openPages(): View[] {
+  const out: View[] = [];
+  if (state.pages.includes('workspace')) out.push('workspace');
+  if (state.pages.includes('editor') && state.editorAvailable) out.push('editor');
+  if (state.user?.role === 'admin') out.push('admin');
+  return out;
+}
+/** Leave a page this account may not open for the first one it may. */
+export function fixView() {
+  const ok = openPages();
+  if (ok.length && !ok.includes(state.view)) setState({ view: ok[0] });
 }
 export async function signOut() {
   await api.logout().catch(() => {});
@@ -108,7 +126,7 @@ export async function signOut() {
 export async function init() {
   try {
     const me = await api.me();
-    setState({ user: me.user, setup: me.setup, setupCode: !!me.setupCode, googleSignin: me.google });
+    setState({ user: me.user, pages: me.pages || [], setup: me.setup, setupCode: !!me.setupCode, googleSignin: me.google });
     if (me.user) await loadApp();
   } catch (e: any) {
     toast('Không kết nối được server: ' + e.message, true);
@@ -124,7 +142,7 @@ async function loadApp() {
     player.setOpts(state.opts);
     const [h, pv] = await Promise.all([api.health(), api.providers()]);
     setState({ mock: h.mock, ffmpeg: h.ffmpeg, editorAvailable: !!h.editor, providers: pv.providers, defaults: pv.defaults });
-    if (!h.editor && state.view === 'editor') setState({ view: 'workspace' });
+    fixView();
     // The editor opens on the project list; a reload inside a project (#editor/<id>) reopens that project.
     const id = location.hash.match(/^#editor\/(p_\w+)/)?.[1];
     const p = id ? await api.getProject(id).catch(() => null) : null;
@@ -319,35 +337,62 @@ export async function clearSources() {
  * videos it lists end to end, in the sheet's order, whole clips. No AI cut; editing is left to the editor.
  * Opens a new project unless the current one is still empty (or `here` asks to rebuild the current one).
  */
-export async function buildFromSheet(link: string, here = false) {
-  player.pause();
-  setState({ busy: 'Đang đọc sheet…' });
-  // Show the server's current step while the sheet is read (it takes a minute or two).
+/** Read one tab of a sheet on the server, showing its current step (prefixed) as the busy text; it takes a minute or two. */
+async function readWithProgress(link: string, tab: string | undefined, prefix = '') {
   const token = crypto.randomUUID();
   let polling = true;
   (async () => {
     while (polling) {
       await new Promise((r) => setTimeout(r, 1200));
       const t = polling && await api.sheetProgress(token).then((x) => x.text, () => '');
-      if (polling && t) setState({ busy: t });
+      if (polling && t) setState({ busy: prefix + t });
     }
   })();
+  try { return await api.readSheet(link, token, tab); } finally { polling = false; }
+}
+export async function buildFromSheet(link: string, here = false, tab = here ? state.project?.sheet?.tab : undefined) {
+  player.pause();
+  setState({ busy: 'Đang đọc sheet…' });
   try {
-    const r = await api.readSheet(link, token).finally(() => { polling = false; });
-    // Each sheet is its own project: a new one, unless this is "read the sheet again" inside its project.
+    const r = await readWithProgress(link, tab);
+    // Each sheet (or tab) is its own project: a new one, unless this is "read the sheet again" inside its project.
     const p = here && state.project ? state.project : await newProject(undefined, r.sheet.title);
     setState({ project: { ...state.project!, title: r.sheet.title, sources: r.sources, sheet: r.sheet, aspect: r.sheet.form.aspect }, sel: 0 });
     await api.saveProject(p.id, { title: r.sheet.title, sources: r.sources, sheet: r.sheet, aspect: r.sheet.form.aspect });
     if (r.storyboard) { player.time = 0; setStoryboard(r.storyboard); await flushSave(); }
     const clips = r.storyboard?.scenes.reduce((a, s) => a + (s.shots?.length || 0), 0) || 0;
-    if (r.storyboard) toast(`Đã ghép ${clips} clip theo thứ tự trong sheet${r.missing.length ? ` · ${r.missing.length} file không tìm thấy` : ''}.`);
+    if (r.sheet.warning) toast(r.sheet.warning, true);
+    else if (r.storyboard) toast(`Đã ghép ${clips} clip theo nội dung sheet${r.missing.length ? ` · ${r.missing.length} file không tìm thấy` : ''}.`);
     else toast('Không tìm thấy video nào từ sheet này.', true);
   } catch (e: any) { toast(e.message, true); } finally { setState({ busy: null }); }
+}
+/**
+ * A sheet with several tabs: one project per chosen tab, named after the tab, built one after another while the
+ * project list stays open. Returns how many were made.
+ */
+export async function buildTabs(link: string, tabs: string[]) {
+  let made = 0, fallback = false;
+  const failed: string[] = [];
+  for (const [i, tab] of tabs.entries()) {
+    const prefix = `Tab ${i + 1}/${tabs.length} · ${tab} — `;
+    setState({ busy: prefix + 'Đang đọc…' });
+    try {
+      const r = await readWithProgress(link, tab, prefix);
+      if (!r.storyboard) { failed.push(tab); continue; }
+      if (r.sheet.warning) fallback = true;
+      await api.createProject({ title: r.sheet.title, aspect: r.sheet.form.aspect, storyboard: r.storyboard, sources: r.sources, sheet: r.sheet });
+      made++;
+      setState({ homeVersion: state.homeVersion + 1 }); // show it in the list right away
+    } catch { failed.push(tab); }
+  }
+  setState({ busy: null });
+  toast(`Đã tạo ${made} dự án từ ${tabs.length} tab${failed.length ? ` · không ghép được: ${failed.join(', ')}` : ''}${fallback ? ' · Claude chưa dùng được nên đọc theo mẫu form' : ''}.`, (!!failed.length && !made) || fallback);
+  return made;
 }
 /** Read the current project's sheet again (it may have changed) and rebuild the assembly in place. */
 export async function rebuildFromSheet() {
   const sheet = state.project?.sheet;
-  if (sheet) await buildFromSheet(sheet.link, true);
+  if (sheet) await buildFromSheet(sheet.link, true, sheet.tab);
 }
 // ------------------------------------------------------------------ clip timeline (edit mode)
 const r2 = (n: number) => Math.round(n * 100) / 100;

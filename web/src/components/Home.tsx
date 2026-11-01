@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { useStore, openProject, buildFromSheet, toast, fmt } from '../store';
+import { useStore, setState, openProject, buildFromSheet, buildTabs, toast, fmt } from '../store';
 import { Icon, IconButton } from './ui';
 import type { ProjectItem } from '../types';
 
@@ -22,12 +22,32 @@ export function Home() {
   const [view, setView] = useState<'list' | 'grid'>(() => { try { return localStorage.getItem(LS_VIEW) === 'grid' ? 'grid' : 'list'; } catch { return 'list'; } });
   const [creating, setCreating] = useState(false);
   const [link, setLink] = useState('');
+  const homeVersion = useStore((s) => s.homeVersion);
+  // A sheet with several visible tabs: pick which tabs become projects.
+  const [tabs, setTabs] = useState<{ title: string; list: { name: string; cells: number }[]; pick: Set<string> } | null>(null);
   const load = () => api.listProjects().then(setList).catch((e) => toast(e.message, true));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [homeVersion]);
   const setV = (v: 'list' | 'grid') => { setView(v); try { localStorage.setItem(LS_VIEW, v); } catch { /* private mode */ } };
 
   const valid = SHEET.test(link);
-  const create = () => { if (valid && !busy) buildFromSheet(link.trim()); };
+  const create = async () => {
+    if (!valid || busy) return;
+    setState({ busy: 'Đang đọc danh sách tab…' });
+    try {
+      const r = await api.sheetTabs(link.trim());
+      const list = r.tabs.filter((t) => t.cells >= 15); // nearly empty tabs are not request forms
+      setState({ busy: null });
+      if (list.length > 1) setTabs({ title: r.title, list, pick: new Set(list.map((t) => t.name)) });
+      else buildFromSheet(link.trim(), false, list[0]?.name);
+    } catch (e: any) { setState({ busy: null }); toast(e.message, true); }
+  };
+  const runTabs = async () => {
+    if (!tabs?.pick.size) return;
+    const chosen = tabs.list.map((t) => t.name).filter((n) => tabs.pick.has(n));
+    setTabs(null);
+    if (await buildTabs(link.trim(), chosen)) { setCreating(false); setLink(''); }
+  };
+  const flip = (n: string) => setTabs((t) => t && { ...t, pick: new Set(t.pick.has(n) ? [...t.pick].filter((x) => x !== n) : [...t.pick, n]) });
   const shown = (list || []).filter((p) => !q.trim() || `${p.title} ${p.sheet?.customer || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
   const dup = async (p: ProjectItem) => { await api.duplicateProject(p.id); load(); };
   const del = async (p: ProjectItem) => { if (!confirm(`Xoá dự án “${p.title}”? Video gốc trên Drive không bị ảnh hưởng.`)) return; await api.deleteProject(p.id); load(); };
@@ -38,6 +58,22 @@ export function Home() {
         <section className={'home-hero' + (creating ? ' open' : '')} onClick={() => !creating && setCreating(true)}>
           {busy ? (
             <div className="hero-busy"><span className="spinner" /><span>{busy}</span></div>
+          ) : tabs ? (
+            <div className="hero-form hero-tabs" onClick={(e) => e.stopPropagation()}>
+              <label>“{tabs.title}” có {tabs.list.length} tab. Chọn tab để tạo dự án (mỗi tab một dự án, đặt theo tên tab):</label>
+              <div className="hero-tab-list">
+                {tabs.list.map((t) => (
+                  <label key={t.name} className={'hero-tab' + (tabs.pick.has(t.name) ? ' on' : '')}>
+                    <input type="checkbox" checked={tabs.pick.has(t.name)} onChange={() => flip(t.name)} />{t.name}
+                  </label>
+                ))}
+              </div>
+              <div className="hero-row">
+                <button className="btn btn-primary btn-lg" disabled={!tabs.pick.size} onClick={runTabs}><Icon name="sparkle" size={16} />Ghép {tabs.pick.size} dự án</button>
+                <button className="btn btn-lg hero-cancel" onClick={() => setTabs(null)}>Huỷ</button>
+              </div>
+              <p>Mỗi tab mất khoảng 1–3 phút; các dự án hiện dần trong danh sách bên dưới. Tab bị ẩn trong sheet không được tính.</p>
+            </div>
           ) : !creating ? (
             <div className="hero-cta"><span className="hero-plus"><Icon name="plus" size={20} /></span>Tạo dự án</div>
           ) : (

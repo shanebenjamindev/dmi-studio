@@ -1,5 +1,5 @@
 // Typed client for the DM Studio REST API.
-import type { Project, ProjectItem, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, Source, Picked, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User } from './types';
+import type { Project, ProjectItem, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, Source, Picked, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page } from './types';
 
 /** Called when the session has ended (401) so the app can show the sign-in page. */
 export const auth = { onSignedOut: () => {} };
@@ -21,6 +21,8 @@ const atQ = (at: Loc | null, sep: string) => (at ? `${sep}at=${encodeURIComponen
 
 export const api = {
   me: () => req<AuthInfo>('GET', '/api/auth/me'),
+  access: () => req<Record<Role, Page[]>>('GET', '/api/access'),
+  setAccess: (member: Page[]) => req<Record<Role, Page[]>>('PUT', '/api/access', { member }),
   authConfig: () => req<{ turnstile: { siteKey: string; required: boolean } }>('GET', '/api/auth/config'),
   setup: (b: { name: string; email: string; password: string; code?: string }) => req<{ user: User }>('POST', '/api/auth/setup', b),
   login: (email: string, password: string, turnstileToken?: string) => req<{ user: User }>('POST', '/api/auth/login', { email, password, turnstileToken }),
@@ -51,7 +53,8 @@ export const api = {
   capcutStart: (projectId: string) => req<{ job: string }>('POST', `/api/projects/${projectId}/capcut`),
   capcutStatus: (job: string) => req<{ phase: 'media' | 'pack' | 'done' | 'error'; done: number; total: number; error: string | null; bytes: number }>('GET', `/api/capcut/${job}`),
   sheetProgress: (token: string) => req<{ text: string }>('GET', `/api/sheets/progress/${token}`),
-  readSheet: (link: string, token?: string) => req<{ sheet: Sheet; sources: Source[]; missing: string[]; links: number; storyboard: Storyboard | null }>('POST', '/api/sheets/read', { link, token }),
+  sheetTabs: (link: string) => req<{ title: string; tabs: { name: string; cells: number }[] }>('POST', '/api/sheets/tabs', { link }),
+  readSheet: (link: string, token?: string, tab?: string) => req<{ sheet: Sheet; sources: Source[]; missing: string[]; links: number; storyboard: Storyboard | null }>('POST', '/api/sheets/read', { link, token, tab }),
   scanSources: (link: string) => req<{ folder: string; account: string; total: number; sources: Source[] }>('POST', '/api/sources/scan', { link }),
 
   createJobs: (jobs: any[]) => req<Job[]>('POST', '/api/jobs', { jobs }),

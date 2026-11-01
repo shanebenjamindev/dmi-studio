@@ -6,7 +6,7 @@ import { Sheet } from './Dialogs';
 import { Icon, Menu } from './ui';
 import { FolderPicker } from './FolderPicker';
 import { GoogleConnect, googleLogin } from './GoogleConnect';
-import type { Role, User, WorkspaceInfo, GoogleStatus } from '../types';
+import type { Role, User, WorkspaceInfo, GoogleStatus, Page } from '../types';
 
 const ROLE: Record<Role, string> = { admin: 'Quản trị', member: 'Nhân viên' };
 const when = (t: number | null) => (t ? new Date(t).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Chưa đăng nhập');
@@ -70,6 +70,8 @@ export function AdminPage() {
       <FolderPicker open={picking} title="Thư mục gốc" start={ws?.loc} confirmLabel="Dùng thư mục này" onClose={() => setPicking(false)} onAddAccount={addAccount}
         onPick={async (loc) => { setWs(await api.setWorkspace(loc)); toast('Đã đổi thư mục gốc'); }} />
       <GoogleConnect open={connecting} onClose={() => { setConnecting(false); loadStorage(); }} onChanged={loadStorage} />
+
+      <AccessCard />
 
       <section className="adm-sec">
       <header className="users-h">
@@ -176,5 +178,48 @@ export function PasswordSheet({ open, onClose }: { open: boolean; onClose: () =>
         <button hidden />
       </form>
     </Sheet>
+  );
+}
+
+const PAGE_LABEL: [Page, string, string][] = [
+  ['workspace', 'Drive', 'Thư mục khách hàng, video, link và ghi chú'],
+  ['editor', 'Trình dựng', 'Dự án dựng từ sheet, timeline, xuất CapCut'],
+];
+/** Which pages each kind of account may open. Admins always have every page; members' pages are switched here. */
+function AccessCard() {
+  const [acc, setAcc] = useState<Record<Role, Page[]> | null>(null);
+  useEffect(() => { api.access().then(setAcc).catch((e) => toast(e.message, true)); }, []);
+  const toggle = async (p: Page) => {
+    if (!acc) return;
+    const member = acc.member.includes(p) ? acc.member.filter((x) => x !== p) : [...acc.member, p];
+    try { setAcc(await api.setAccess(member)); toast('Đã lưu quyền truy cập'); } catch (e: any) { toast(e.message, true); }
+  };
+  return (
+    <section className="adm-sec">
+      <header className="users-h">
+        <div>
+          <h2 className="side-sub">Quyền truy cập trang</h2>
+          <p className="note">Chọn trang mỗi loại tài khoản được mở. Thay đổi có hiệu lực khi người đó tải lại trang; quyền được kiểm tra cả trên máy chủ.</p>
+        </div>
+      </header>
+      <div className="access-table">
+        <div className="access-tr head"><span>Trang</span><span>{ROLE.admin}</span><span>{ROLE.member}</span></div>
+        {PAGE_LABEL.map(([p, label, hint]) => (
+          <div key={p} className="access-tr">
+            <span><b>{label}</b><em>{hint}</em></span>
+            <span><span className="access-on locked" title="Quản trị luôn có mọi quyền"><Icon name="check" size={14} /></span></span>
+            <span>
+              <button className={'access-sw' + (acc?.member.includes(p) ? ' on' : '')} role="switch" aria-checked={!!acc?.member.includes(p)}
+                aria-label={`${ROLE.member} được mở ${label}`} disabled={!acc} onClick={() => toggle(p)}><i /></button>
+            </span>
+          </div>
+        ))}
+        <div className="access-tr">
+          <span><b>Quản trị</b><em>Người dùng, lưu trữ, kết nối Google, phân quyền</em></span>
+          <span><span className="access-on locked"><Icon name="check" size={14} /></span></span>
+          <span><span className="access-off">Không</span></span>
+        </div>
+      </div>
+    </section>
   );
 }

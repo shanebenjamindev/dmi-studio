@@ -49,12 +49,12 @@ export interface Picked { name: string; reason: string }
 /** A video request form read from Google Sheets; the video follows its script table. */
 /** One scene of the request sheet's script, cells copied as written. */
 export interface ScriptRow { row: string; meaning: string; voice_over: string; visual: string; on_screen: string; source: string; duration: string; note: string }
-export interface Sheet { title: string; link: string; csv: string; missing?: string[]; form: { customer: string; aspect: Aspect; seconds: number; sequence: { row: string; ref: string }[]; ignored_rows: string; script?: ScriptRow[] } }
+export interface Sheet { title: string; link: string; csv: string; missing?: string[]; tab?: string; warning?: string; form: { customer: string; aspect: Aspect; seconds: number; sequence: { row: string; ref: string }[]; ignored_rows: string; script?: ScriptRow[]; deadline?: string; urgent?: boolean } }
 
 export interface ChatMsg { who: 'user' | 'ai' | 'err'; text: string; at: number }
 export interface Project { id: string; title: string; aspect: Aspect; customerId?: string | null; storyboard: Storyboard | null; chat: ChatMsg[]; sources?: Source[]; sheet?: Sheet | null; updatedAt: number; createdAt: number; scenes?: number; duration?: number; palette?: Palette }
 /** A row of the project list (no storyboard). */
-export interface ProjectItem { id: string; title: string; aspect: Aspect; updatedAt: number; createdAt: number; duration: number; clips: number; thumb: string | null; sheet: { title: string; link: string; customer: string } | null; palette?: Palette }
+export interface ProjectItem { id: string; title: string; aspect: Aspect; updatedAt: number; createdAt: number; duration: number; clips: number; thumb: string | null; sheet: { title: string; link: string; customer: string; tab?: string; deadline?: string; urgent?: boolean; missing?: number; scenes?: number } | null; palette?: Palette }
 export type Aspect = '16:9' | '9:16' | '1:1';
 
 export interface ProviderModel { id: string; label: string; note?: string; custom?: boolean }
@@ -89,4 +89,6 @@ export interface GoogleAccount { email: string; name: string; picture: string }
 export interface GoogleStatus { configured: boolean; clientId: string; redirectUri: string; accounts: GoogleAccount[] }
 export type Role = 'admin' | 'member';
 export interface User { id: string; email: string; name: string; role: Role; disabled: boolean; hasPassword: boolean; lastLogin: number | null; createdAt: number }
-export interface AuthInfo { user: User | null; setup: boolean; setupCode?: boolean; google: boolean }
+/** A top-level page whose access admins can grant or withhold per role. */
+export type Page = 'workspace' | 'editor';
+export interface AuthInfo { user: User | null; pages?: Page[]; setup: boolean; setupCode?: boolean; google: boolean }
