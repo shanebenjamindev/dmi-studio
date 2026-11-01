@@ -35,7 +35,7 @@ export class Router {
 
 /** Origin the browser sees: PUBLIC_URL when set, else the proxy's forwarded scheme (https on cloud hosts) + Host. */
 export function publicOrigin(req: http.IncomingMessage) {
-  if (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL) return (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL)!.replace(/\/+$/, '');
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/+$/, '');
   const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https' ? 'https' : 'http';
   return `${proto}://${req.headers.host}`;
 }

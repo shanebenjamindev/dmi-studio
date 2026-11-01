@@ -7,11 +7,15 @@ import '../server/config';
 const url = process.env.TURSO_DATABASE_URL?.trim();
 const token = process.env.TURSO_AUTH_TOKEN?.trim();
 if (!url || !token) throw new Error('Điền TURSO_DATABASE_URL và TURSO_AUTH_TOKEN trong .env trước');
-const secrets = {
+const secrets: Record<string, string> = {
   TURSO_DATABASE_URL: url,
   TURSO_AUTH_TOKEN: token,
   SETUP_CODE: process.env.SETUP_CODE || crypto.randomBytes(32).toString('hex'),
 };
+for (const key of ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY']) {
+  const value = process.env[key]?.trim();
+  if (value) secrets[key] = value;
+}
 const result = spawnSync('npx', ['wrangler', 'secret', 'bulk'], {
   input: JSON.stringify(secrets), stdio: ['pipe', 'inherit', 'inherit'],
   env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },

@@ -8,6 +8,7 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 // No production secrets or databases are used by these tests.
 const bundle = '.wrangler/test-bundle/worker.js';
 function databaseTransport(db) {
+  const usedTokens = new Set();
   const decode = v => v.type === 'null' ? null : v.type === 'blob' ? Buffer.from(v.base64, 'base64') : v.type === 'integer' ? Number(v.value) : v.value;
   const encode = v => v === null ? { type: 'null' } : typeof v === 'number' ? { type: Number.isInteger(v) ? 'integer' : 'float', value: Number.isInteger(v) ? String(v) : v } : typeof v === 'string' ? { type: 'text', value: v } : { type: 'blob', base64: Buffer.from(v).toString('base64') };
   function execute(stmt) {
@@ -26,6 +27,14 @@ function databaseTransport(db) {
   }
   return async request => {
     const url = new URL(request.url);
+    if (url.hostname === 'challenges.cloudflare.com') {
+      const data = new URLSearchParams(await request.text());
+      const token = data.get('response');
+      if (token === 'unavailable') return new Response('', { status: 503 });
+      const success = !['invalid', 'expired', ''].includes(token) && !(token === 'single-use' && usedTokens.has(token));
+      usedTokens.add(token);
+      return Response.json({ success, hostname: token === 'wrong-host' ? 'other.example.test' : 'studio.example.test', action: token === 'fixture-setup-token' ? 'setup' : token === 'wrong-action' ? 'other' : 'login' });
+    }
     if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'fixture-access', expires_in: 3600 });
     if (url.hostname === 'openidconnect.googleapis.com') return Response.json({ email: 'admin@example.test', email_verified: true });
     if (url.hostname !== 'fixture.turso.io') return new Response('Unexpected outbound request', { status: 500 });
@@ -48,12 +57,15 @@ function worker(transport, extra = {}) {
   return new Miniflare(convertV4MiniflareOptions({
     modules: true, scriptPath: bundle,
     compatibilityDate: '2026-10-01', compatibilityFlags: ['nodejs_compat', 'enable_nodejs_http_server_modules'],
-    bindings: { DMS_RUNTIME: 'cloudflare', CLOUD_STORAGE_ONLY: '1', TURSO_DATABASE_URL: 'https://fixture.turso.io', TURSO_AUTH_TOKEN: 'test-only', SETUP_CODE: 'fixture-setup', ...extra },
+    bindings: { DMS_RUNTIME: 'cloudflare', CLOUD_STORAGE_ONLY: '1', TURSO_DATABASE_URL: 'https://fixture.turso.io', TURSO_AUTH_TOKEN: 'test-only', SETUP_CODE: 'fixture-setup', TURNSTILE_SITE_KEY: 'fixture-site-key', TURNSTILE_SECRET_KEY: 'fixture-secret-key', ...extra },
     outboundService: transport,
     serviceBindings: { ASSETS: () => new Response('<html>DM Studio</html>', { headers: { 'content-type': 'text/html' } }) },
   }));
 }
 async function call(mf, method, pathname, body, cookie, headers = {}) {
+  if (method === 'POST' && ['/api/auth/setup', '/api/auth/login'].includes(pathname)) {
+    body = { turnstileToken: pathname.endsWith('setup') ? 'fixture-setup-token' : 'fixture-valid-token', ...body };
+  }
   const res = await mf.dispatchFetch('https://studio.example.test' + pathname, {
     method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}), ...headers },
     body: body === undefined ? undefined : JSON.stringify(body), redirect: 'manual',
@@ -67,12 +79,25 @@ test('Workers: accounts, cookies, cross-isolate Google state, permissions and or
   const a = worker(transport), b = worker(transport);
   try {
     assert.equal((await call(a, 'GET', '/')).status, 200);
+    const config = await call(a, 'GET', '/api/auth/config');
+    assert.deepEqual(config.data.turnstile, { siteKey: 'fixture-site-key', required: true });
+    assert.equal(JSON.stringify(config.data).includes('fixture-secret-key'), false);
+    for (const [token, status] of [['', 400], ['invalid', 403], ['expired', 403], ['wrong-host', 403], ['wrong-action', 403], ['unavailable', 503]]) {
+      const denied = await call(a, 'POST', '/api/auth/login', { email: 'admin@example.test', password: 'test-password', turnstileToken: token });
+      assert.equal(denied.status, status, token);
+      assert.equal(denied.cookie, undefined);
+    }
     const setup = await call(a, 'POST', '/api/auth/setup', { code: 'fixture-setup', email: 'admin@example.test', password: 'test-password' });
     assert.equal(setup.status, 201, JSON.stringify(setup.data));
     assert.ok(setup.headers.get('set-cookie').includes('Secure'));
     assert.equal((await call(b, 'GET', '/api/auth/me', undefined, setup.cookie)).data.user.email, 'admin@example.test');
     const login = await call(b, 'POST', '/api/auth/login', { email: 'admin@example.test', password: 'test-password' });
     assert.equal(login.status, 200, JSON.stringify(login.data));
+    const first = await call(a, 'POST', '/api/auth/login', { email: 'admin@example.test', password: 'test-password', turnstileToken: 'single-use' });
+    assert.equal(first.status, 200);
+    const replayToken = await call(b, 'POST', '/api/auth/login', { email: 'admin@example.test', password: 'test-password', turnstileToken: 'single-use' });
+    assert.equal(replayToken.status, 403);
+    assert.equal(replayToken.cookie, undefined);
     assert.equal((await call(a, 'GET', '/api/users')).status, 401);
     assert.equal((await call(a, 'POST', '/api/auth/logout', {}, login.cookie, { origin: 'https://other.test' })).status, 403);
     assert.equal((await call(a, 'POST', '/api/customers', { name: 'No temporary files' }, login.cookie)).status, 400);
@@ -100,4 +125,17 @@ test('Workers: missing secrets return 503 while static UI remains available', { 
     assert.equal((await call(mf, 'GET', '/')).status, 200);
     assert.equal((await call(mf, 'GET', '/api/auth/me')).status, 503);
   } finally { await mf.dispose(); }
+});
+
+
+test('Workers: Turnstile configuration cannot silently disable verification', { skip: !existsSync(bundle) }, async () => {
+  const db = new DatabaseSync(':memory:');
+  const mf = worker(databaseTransport(db), { TURNSTILE_SITE_KEY: '', TURNSTILE_SECRET_KEY: '' });
+  try {
+    const config = await call(mf, 'GET', '/api/auth/config');
+    assert.equal(config.data.turnstile.required, true);
+    const login = await call(mf, 'POST', '/api/auth/login', { email: 'test@example.test', password: 'test-password' });
+    assert.equal(login.status, 503);
+    assert.equal(login.cookie, undefined);
+  } finally { await mf.dispose(); db.close(); }
 });

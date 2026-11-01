@@ -21,8 +21,9 @@ const atQ = (at: Loc | null, sep: string) => (at ? `${sep}at=${encodeURIComponen
 
 export const api = {
   me: () => req<AuthInfo>('GET', '/api/auth/me'),
+  authConfig: () => req<{ turnstile: { siteKey: string; required: boolean } }>('GET', '/api/auth/config'),
   setup: (b: { name: string; email: string; password: string; code?: string }) => req<{ user: User }>('POST', '/api/auth/setup', b),
-  login: (email: string, password: string) => req<{ user: User }>('POST', '/api/auth/login', { email, password }),
+  login: (email: string, password: string, turnstileToken?: string) => req<{ user: User }>('POST', '/api/auth/login', { email, password, turnstileToken }),
   logout: () => req('POST', '/api/auth/logout'),
   changePassword: (current: string, next: string) => req('PUT', '/api/auth/password', { current, next }),
   users: () => req<User[]>('GET', '/api/users'),

@@ -17,7 +17,7 @@ async function start(dataDir, extra = {}) {
   await new Promise(resolve => listener.close(resolve));
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
     cwd: root,
-    env: { ...process.env, DATA_DIR: dataDir, PORT: String(port), HOST: '127.0.0.1', PUBLIC_URL: '', RENDER_EXTERNAL_URL: '', RENDER: '', TURSO_DATABASE_URL: '', TURSO_AUTH_TOKEN: '', CLOUD_STORAGE_ONLY: '', SETUP_CODE: 'test-setup-only', ...extra },
+    env: { ...process.env, DATA_DIR: dataDir, PORT: String(port), HOST: '127.0.0.1', PUBLIC_URL: '', TURSO_DATABASE_URL: '', TURSO_AUTH_TOKEN: '', TURNSTILE_SITE_KEY: '', TURNSTILE_SECRET_KEY: '', DMS_RUNTIME: '', CLOUD_STORAGE_ONLY: '', SETUP_CODE: 'test-setup-only', ...extra },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const origin = `http://127.0.0.1:${port}`;
@@ -119,7 +119,7 @@ test('incomplete or unavailable cloud configuration fails instead of falling bac
     for (const config of [
       { TURSO_DATABASE_URL: 'libsql://example.invalid' },
       { TURSO_AUTH_TOKEN: 'test-token' },
-      { RENDER: 'true' },
+      { DMS_RUNTIME: 'cloudflare', TURSO_AUTH_TOKEN: '' },
       { TURSO_DATABASE_URL: 'https://127.0.0.1:1', TURSO_AUTH_TOKEN: 'test-token' },
     ]) {
       await assert.rejects(start(dir, config));

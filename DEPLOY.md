@@ -24,16 +24,16 @@ npm run cf:deploy
 
 Nếu cấu hình secrets bằng dashboard: **Workers & Pages → dmi-studio → Settings → Variables and Secrets**, thêm `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` dưới loại Secret. Deploy lại sau khi lưu.
 
-## Chuyển từ Render
+## Xác minh không phải người máy
 
-1. Dùng lại đúng database Turso của Render. Không tạo database thứ hai.
-2. Deploy Worker và cấu hình Secrets.
-3. Mở URL Workers, đăng nhập bằng tài khoản cũ, kiểm tra danh sách khách hàng và ghi chú.
-4. Thêm `https://dmi-studio.vophonggiang0205.workers.dev/api/google/callback` vào Authorized redirect URIs trong Google Cloud Console cho OAuth client đang dùng. Với custom domain, thêm callback của domain đó nữa.
-5. Kết nối lại Google nếu cần và kiểm tra upload/xem video.
-6. Sau khi xác nhận đầy đủ, mới ngừng service Render. Quá trình chuyển này không tự xóa dịch vụ hoặc ổ dữ liệu Render.
+1. Cloudflare Dashboard → Turnstile → Add widget, chọn **Managed**.
+2. Hostname: `dmi-studio.detailersmovement.workers.dev` (không kèm https hoặc đường dẫn).
+3. Lưu Site Key vào `TURNSTILE_SITE_KEY` và Secret Key vào `TURNSTILE_SECRET_KEY` trong `.env`.
+4. Chạy `npm run cf:secrets`, rồi `npm run cf:deploy`.
 
-Mật khẩu cũ giữ nguyên định dạng scrypt. Cookie phiên thuộc từng domain nên cần đăng nhập lại trên domain Cloudflare. Trạng thái OAuth và giới hạn thử mật khẩu nằm trong Turso để hoạt động qua nhiều Worker.
+Trang đăng nhập chờ xác minh Turnstile trước khi gửi mật khẩu. Backend gọi Siteverify và kiểm tra hostname + action, không tin vào trạng thái checkbox từ trình duyệt. Token hết hạn hoặc đã dùng phải xác minh lại. Trên Cloudflare, thiếu key sẽ chặn đăng nhập; local không cấu hình Turnstile vẫn dùng được để phát triển.
+
+Để dùng Google Drive, thêm callback `https://dmi-studio.detailersmovement.workers.dev/api/google/callback` vào Google OAuth client đang dùng.
 
 ## Nếu dữ liệu vẫn chỉ nằm ở SQLite local
 
@@ -63,4 +63,4 @@ Nếu khách hàng cũ dùng đường dẫn trên Mac/Drive for desktop, cần 
 - Database được khởi tạo trong request đầu tiên, không thực hiện network I/O khi nạp module. Thiếu secrets hoặc mất kết nối Turso trả HTTP 503, không tạo database local thay thế.
 - Static assets được Cloudflare phục vụ trực tiếp. `/api/*` luôn qua Worker và kiểm tra đăng nhập/phân quyền; không dùng SPA fallback cho API.
 
-Cấu hình Render cũ được giữ trong `render.yaml`; hướng dẫn cũ ở [DEPLOY-RENDER.md](DEPLOY-RENDER.md).
+Cloudflare là nền tảng triển khai duy nhất của dự án. Cấu hình hosting cũ đã được bỏ khỏi repository. Việc này không tự dừng hoặc xóa dịch vụ cũ trong tài khoản hosting của bạn.

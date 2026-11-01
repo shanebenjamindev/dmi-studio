@@ -14,7 +14,7 @@ import { cloudDatabase } from './db';
 // Hostnames this server answers to. Checking Host blocks DNS rebinding; checking Origin on writes
 // blocks other websites from driving the API (and spending API credit) through the user's browser.
 const ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', ...(process.env.ALLOWED_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean)]);
-// Deployed: the public hostname (PUBLIC_URL / Render's) is trusted too.
+// Deployed: the configured public hostname is trusted too.
 if (PUBLIC_URL) ALLOWED_HOSTS.add(new URL(PUBLIC_URL).hostname.toLowerCase());
 if (!['127.0.0.1', 'localhost', '::1'].includes(HOST)) {
   const name = os.hostname().toLowerCase();

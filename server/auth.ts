@@ -6,6 +6,7 @@ import type http from 'node:http';
 import { Router, HttpError, json, readJson, publicOrigin, type Req, type Res } from './http';
 import { all, get, run, uid, now } from './db';
 import * as G from './google';
+import { turnstileConfig, verifyTurnstile } from './turnstile';
 
 export type Role = 'admin' | 'member';
 export interface User { id: string; email: string; name: string; role: Role; disabled: number; pass: string | null; last_login: number | null; created_at: number }
@@ -101,6 +102,7 @@ async function throttle(key: string, failed?: boolean) {
 
 // ---------------------------------------------------------------- routes
 export function registerAuth(api: Router) {
+  api.get('/api/auth/config', (_req, res) => json(res, 200, { turnstile: turnstileConfig() }));
   api.get('/api/auth/me', async (req, res) => {
     const u = await currentUser(req);
     const c = await G.oauthConfig();
@@ -110,6 +112,7 @@ export function registerAuth(api: Router) {
   api.post('/api/auth/setup', async (req, res) => {
     if (await userCount() > 0) throw new HttpError(409, 'Đã có tài khoản quản trị, hãy đăng nhập');
     const b = await readJson(req);
+    await verifyTurnstile(req, b.turnstileToken, 'setup');
     // On a public server SETUP_CODE keeps strangers from claiming the admin account before you do.
     const code = process.env.SETUP_CODE || '';
     if (code && !(typeof b.code === 'string' && b.code.length === code.length && crypto.timingSafeEqual(Buffer.from(b.code), Buffer.from(code)))) {
@@ -126,6 +129,7 @@ export function registerAuth(api: Router) {
   });
   api.post('/api/auth/login', async (req, res) => {
     const b = await readJson(req);
+    await verifyTurnstile(req, b.turnstileToken, 'login');
     const email = normEmail(b.email), key = `${email}|${req.socket.remoteAddress}`;
     await throttle(key);
     const u = await get<User>('SELECT * FROM users WHERE email = ?', email);

@@ -18,8 +18,8 @@ if (!IS_CLOUDFLARE && fs.existsSync(envFile)) {
 }
 
 export const PORT = Number(process.env.PORT || 5173);
-/** Public address when deployed behind https (PUBLIC_URL, or the one Render provides). Empty when running locally. */
-export const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
+/** Optional public HTTPS address; otherwise the trusted proxy request determines it. */
+export const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 export const HOST = process.env.HOST || '127.0.0.1';
 export const DATA_DIR = path.resolve(ROOT, process.env.DATA_DIR || 'data');
 export const ASSET_DIR = path.join(DATA_DIR, 'assets');

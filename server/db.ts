@@ -12,7 +12,7 @@ function connect() {
   const token = process.env.TURSO_AUTH_TOKEN?.trim();
   if (!!url !== !!token) throw new Error('Cần đặt cả TURSO_DATABASE_URL và TURSO_AUTH_TOKEN');
   if (url && !/^(libsql|https):\/\//.test(url)) throw new Error('TURSO_DATABASE_URL phải dùng libsql:// hoặc https://');
-  if ((process.env.RENDER || IS_CLOUDFLARE) && !url) throw new Error('Cloud cần TURSO_DATABASE_URL và TURSO_AUTH_TOKEN');
+  if (IS_CLOUDFLARE && !url) throw new Error('Cloud cần TURSO_DATABASE_URL và TURSO_AUTH_TOKEN');
   return createClient({ url: url || pathToFileURL(path.join(DATA_DIR, 'studio.db')).href, authToken: token });
 }
 
