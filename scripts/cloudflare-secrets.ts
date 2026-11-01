@@ -4,12 +4,7 @@ import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import '../server/config';
 
-const url = process.env.TURSO_DATABASE_URL?.trim();
-const token = process.env.TURSO_AUTH_TOKEN?.trim();
-if (!url || !token) throw new Error('Điền TURSO_DATABASE_URL và TURSO_AUTH_TOKEN trong .env trước');
 const secrets: Record<string, string> = {
-  TURSO_DATABASE_URL: url,
-  TURSO_AUTH_TOKEN: token,
   SETUP_CODE: process.env.SETUP_CODE || crypto.randomBytes(32).toString('hex'),
 };
 for (const key of ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY']) {

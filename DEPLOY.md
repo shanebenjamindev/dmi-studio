@@ -1,66 +1,77 @@
-# DM Studio trên Cloudflare Workers + Turso
+# DM Studio trên Cloudflare Workers + D1
 
-URL đang triển khai: https://dmi-studio.vophonggiang0205.workers.dev
+App: https://dmi-studio.detailersmovement.workers.dev
 
-Một Worker phục vụ cả React và API tại cùng một URL `https://dmi-studio.<subdomain>.workers.dev`. Turso lưu tài khoản, phiên đăng nhập, khách hàng, ghi chú và cấu hình. Video lưu trên Google Drive. Không cần backend Render.
+- **Cloudflare Workers** phục vụ giao diện React và API tại cùng một URL.
+- **Cloudflare D1** lưu tài khoản, phiên đăng nhập, khách hàng, ghi chú và cấu hình.
+- Video tiếp tục lưu trên **Google Drive**.
+- Production không dùng Render, Turso hoặc database token bên ngoài Cloudflare.
 
-## Triển khai từ máy này
+## Database hiện tại
+
+Binding: `DB` · database: `dmi-studio-db`.
+
+Database đã được chuyển và kiểm tra toàn bộ giá trị từ bản cũ. Bản sao trước khi chuyển và bản export D1 nằm trong `data/backups/`, đã được loại khỏi Git. Các file này chứa dữ liệu riêng và có thể chứa token Google: không chia sẻ hoặc commit.
+
+Xem tài khoản: Cloudflare Dashboard → Storage & databases → D1 → dmi-studio-db → Console:
+
+```sql
+SELECT id, email, name, role, disabled FROM users;
+```
+
+Mật khẩu được lưu dưới dạng băm scrypt, không thể xem lại mật khẩu gốc.
+
+## Triển khai
 
 ```sh
 npm ci
 npm run cf:login
 npm run typecheck
-npm test
 npm run test:worker
-npm run cf:secrets
+npm test
 npm run cf:deploy
 ```
 
-- `cf:login` mở luồng đăng nhập Cloudflare nếu chưa có phiên đăng nhập.
-- Điền `TURSO_DATABASE_URL` và `TURSO_AUTH_TOKEN` trong `.env` trước khi chạy `cf:secrets`.
-- `cf:secrets` gửi hai giá trị đó dưới dạng Cloudflare Secrets, cùng mã bảo vệ khởi tạo admin. Nếu Worker chưa tồn tại, Wrangler có thể hỏi tạo Worker; chọn tạo. Không in token và không đưa `.env` vào Git.
-- `cf:deploy` build React, tải static assets và API lên Worker. Wrangler in URL sau khi hoàn tất.
-- Không đặt token trong `wrangler.jsonc`, frontend hay GitHub. `.env` chỉ được Wrangler đọc khi phát triển local; production dùng Secrets riêng.
+`wrangler.jsonc` đã khai báo D1 binding và database ID. Không cần URL hoặc auth token để Worker kết nối D1.
 
-Nếu cấu hình secrets bằng dashboard: **Workers & Pages → dmi-studio → Settings → Variables and Secrets**, thêm `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` dưới loại Secret. Deploy lại sau khi lưu.
+## Sao lưu
 
-## Xác minh không phải người máy
+```sh
+npm run db:backup
+```
 
-1. Cloudflare Dashboard → Turnstile → Add widget, chọn **Managed**.
-2. Hostname: `dmi-studio.detailersmovement.workers.dev` (không kèm https hoặc đường dẫn).
+Lệnh tạo bản export remote tại `data/backups/d1-latest.sql`. Đổi tên file để giữ các phiên bản trước nếu cần. Với máy mới, tạo thư mục `data/backups` trước khi sao lưu.
+
+## Turnstile — xác minh không phải người máy
+
+1. Cloudflare → Turnstile → Add widget → **Managed**.
+2. Hostname: `dmi-studio.detailersmovement.workers.dev`.
 3. Lưu Site Key vào `TURNSTILE_SITE_KEY` và Secret Key vào `TURNSTILE_SECRET_KEY` trong `.env`.
 4. Chạy `npm run cf:secrets`, rồi `npm run cf:deploy`.
 
-Trang đăng nhập chờ xác minh Turnstile trước khi gửi mật khẩu. Backend gọi Siteverify và kiểm tra hostname + action, không tin vào trạng thái checkbox từ trình duyệt. Token hết hạn hoặc đã dùng phải xác minh lại. Trên Cloudflare, thiếu key sẽ chặn đăng nhập; local không cấu hình Turnstile vẫn dùng được để phát triển.
+Hai key hiện chưa được cung cấp. `TURNSTILE_REQUIRED=0` giữ luồng đăng nhập hiện có trong lần chuyển database. Khi có key, xác minh tự bật và backend yêu cầu token hợp lệ; có thể đặt `TURNSTILE_REQUIRED=1` để bắt buộc cấu hình trước khi cho đăng nhập. Không dùng key thử nghiệm trên production.
 
-Để dùng Google Drive, thêm callback `https://dmi-studio.detailersmovement.workers.dev/api/google/callback` vào Google OAuth client đang dùng.
+Backend xác minh token qua Siteverify, kiểm tra hostname và action. Token hết hạn hoặc đã dùng phải xác minh lại. Secret chỉ ở backend, không đưa vào Git hay frontend.
 
-## Nếu dữ liệu vẫn chỉ nằm ở SQLite local
+## Google Drive
 
-Dừng ghi dữ liệu local, sao lưu `data/` rồi điền hai biến Turso vào `.env` và chạy:
+Google OAuth client cần Authorized redirect URI:
 
-```sh
-npm run db:migrate:turso
+```text
+https://dmi-studio.detailersmovement.workers.dev/api/google/callback
 ```
 
-Script chỉ nhập vào database trống, không ghi đè hoặc trộn dữ liệu đã có. Chuyển tài khoản, mật khẩu đã băm, ghi chú và cấu hình; không chuyển phiên đăng nhập và file video local. Giao diện chỉ có đăng nhập nên cần tài khoản được nhập sẵn hoặc được quản trị viên cấp.
+Cookie thuộc từng domain. Người dùng đăng nhập bằng email và mật khẩu; kết nối Google Drive nằm trong trang Quản trị.
 
-Nếu khách hàng cũ dùng đường dẫn trên Mac/Drive for desktop, cần liên kết lại với Google Drive API. Không thể truy cập file trên máy Mac từ Workers. Các bản ghi dùng đường dẫn local vẫn được giữ trong database nhưng bị ẩn trên bản cloud.
+## Phát triển
 
-## Phát triển và kiểm tra
-
-- `npm run dev`: Node.js + SQLite local nếu chưa cấu hình Turso; nếu có hai biến Turso, dùng database cloud đó.
-- `npm run cf:dev`: chạy Workers runtime local, đọc Secrets từ `.env`. Dùng database Turso riêng để thử nếu không muốn tác động dữ liệu thật.
-- `npm run cf:check`: kiểm tra build/bundle Workers, không deploy.
-- `npm test`: kiểm tra database và backend Node; worker tests chạy nếu đã có bundle test.
-- `npm run test:worker`: build bundle mới và chạy kiểm tra Workers với database giả lập riêng, không dùng credentials production. Kiểm tra cookie HTTPS, đăng nhập, callback Google qua hai isolate, chống callback dùng lại, giới hạn thử mật khẩu và Origin.
+- `npm run dev`: backend Node + database SQLite riêng tại `data/studio.db`, không tác động D1 production.
+- `npm run cf:dev`: Worker + D1 local do Wrangler quản lý, không dùng dữ liệu production.
+- `npm run cf:check`: kiểm tra bundle, không deploy.
+- `npm run test:worker`: kiểm tra D1 thật trong Miniflare riêng, không gửi dữ liệu vào database production.
 
 ## Giới hạn
 
-- Workers Free có hạn mức request/CPU và Turso Free có hạn mức dung lượng/đọc/ghi; theo dõi dashboard khi dùng thực tế. [Cloudflare Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/), [Turso pricing](https://turso.tech/pricing).
-- Workers không có ổ lưu trữ local bền vững hoặc ffmpeg. `CLOUD_STORAGE_ONLY=1` được bật bắt buộc: video khách hàng đi qua Google Drive; các tính năng tạo media nền và lưu render vào `/assets` bị tắt.
-- Dùng upload trực tiếp lên Google Drive cho video lớn. Đường upload dự phòng qua Worker chịu giới hạn request của Cloudflare.
-- Database được khởi tạo trong request đầu tiên, không thực hiện network I/O khi nạp module. Thiếu secrets hoặc mất kết nối Turso trả HTTP 503, không tạo database local thay thế.
-- Static assets được Cloudflare phục vụ trực tiếp. `/api/*` luôn qua Worker và kiểm tra đăng nhập/phân quyền; không dùng SPA fallback cho API.
+Workers không có ổ lưu trữ local bền vững hoặc ffmpeg. Video khách hàng đi thẳng tới Google Drive; tính năng lưu media/render trên ổ server bị tắt.
 
-Cloudflare là nền tảng triển khai duy nhất của dự án. Cấu hình hosting cũ đã được bỏ khỏi repository. Việc này không tự dừng hoặc xóa dịch vụ cũ trong tài khoản hosting của bạn.
+Gói D1 Free hiện giới hạn **500 MB cho mỗi database**, tối đa 5 GB tổng mỗi tài khoản. Xem [giới hạn D1](https://developers.cloudflare.com/d1/platform/limits/) và [hạn mức Workers](https://developers.cloudflare.com/workers/platform/limits/). Dữ liệu tài khoản/ghi chú của app hiện rất nhỏ; video không được lưu trong D1.

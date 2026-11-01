@@ -70,7 +70,7 @@ await startWorker();
 const ready = (await publicCatalog()).filter((p) => p.configured && !p.mock).map((p) => p.name);
 server.listen(PORT, HOST, () => {
   console.log(`\n  ▶ DM Studio  ${PUBLIC_URL || `http://localhost:${PORT}`}`);
-  console.log(`    Database: ${cloudDatabase ? 'Turso cloud (dùng chung)' : 'SQLite local'}`);
+  console.log(`    Database: ${cloudDatabase ? 'Cloudflare D1 (dùng chung)' : 'SQLite local'}`);
   console.log(`    Nền tảng đã có key: ${ready.length ? [...new Set(ready)].join(', ') : 'chưa có — thêm trong ⚙︎ Cài đặt hoặc file .env'}`);
   console.log(`    ffmpeg: ${FFMPEG ? 'có (xuất MP4)' : 'không có (xuất WebM/MP4 tuỳ trình duyệt)'}${MOCK ? '   · CHẾ ĐỘ DEMO' : ''}\n`);
 });

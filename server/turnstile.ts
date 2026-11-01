@@ -5,7 +5,7 @@ import { HttpError, publicOrigin } from './http';
 export function turnstileConfig() {
   const siteKey = process.env.TURNSTILE_SITE_KEY?.trim() || '';
   const secret = process.env.TURNSTILE_SECRET_KEY?.trim() || '';
-  return { siteKey, required: IS_CLOUDFLARE || !!siteKey || !!secret };
+  return { siteKey, required: !!siteKey || !!secret || (IS_CLOUDFLARE && process.env.TURNSTILE_REQUIRED !== '0') };
 }
 
 export async function verifyTurnstile(req: IncomingMessage, token: unknown, action: 'login' | 'setup') {

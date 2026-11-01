@@ -113,76 +113,13 @@ test('existing SQLite data survives schema upgrades', async () => {
   } finally { if (server) await server.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
-test('incomplete or unavailable cloud configuration fails instead of falling back to SQLite', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'dmi-invalid-cloud-'));
+test('local Node development uses SQLite independently of retired Turso variables', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'dmi-local-'));
+  let server;
   try {
-    for (const config of [
-      { TURSO_DATABASE_URL: 'libsql://example.invalid' },
-      { TURSO_AUTH_TOKEN: 'test-token' },
-      { DMS_RUNTIME: 'cloudflare', TURSO_AUTH_TOKEN: '' },
-      { TURSO_DATABASE_URL: 'https://127.0.0.1:1', TURSO_AUTH_TOKEN: 'test-token' },
-    ]) {
-      await assert.rejects(start(dir, config));
-    }
+    server = await start(dir, { TURSO_DATABASE_URL: 'https://not-used.invalid', TURSO_AUTH_TOKEN: 'not-used' });
+    assert.equal((await server.call('GET', '/api/auth/me')).status, 200);
     const { existsSync } = await import('node:fs');
-    assert.equal(existsSync(path.join(dir, 'studio.db')), false);
-  } finally { await rm(dir, { recursive: true, force: true }); }
-});
-
-test('data migration preserves rows and source, omits sessions, and refuses a populated target', async () => {
-  const { createClient } = await import('@libsql/client');
-  const { migrateData } = await import('../scripts/migrate-data.ts');
-  const source = createClient({ url: ':memory:' });
-  const target = createClient({ url: ':memory:' });
-  try {
-    for (const client of [source, target]) {
-      await client.executeMultiple(`
-        CREATE TABLE users(id TEXT PRIMARY KEY, email TEXT, pass TEXT);
-        CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT);
-        CREATE TABLE customers(id TEXT PRIMARY KEY, notes TEXT);
-        CREATE TABLE projects(id TEXT PRIMARY KEY);
-        CREATE TABLE assets(id TEXT PRIMARY KEY);
-        CREATE TABLE jobs(id TEXT PRIMARY KEY);
-        CREATE TABLE renders(id TEXT PRIMARY KEY);
-        CREATE TABLE ai_calls(id INTEGER PRIMARY KEY);
-        CREATE TABLE sessions(id TEXT PRIMARY KEY);
-      `);
-    }
-    await source.batch([
-      { sql: 'INSERT INTO users VALUES(?,?,?)', args: ['u1', 'test@example.test', 'hashed-password'] },
-      { sql: 'INSERT INTO settings VALUES(?,?)', args: ['key:test', 'private-value'] },
-      { sql: 'INSERT INTO customers VALUES(?,?)', args: ['c1', 'Keep this note'] },
-      "INSERT INTO sessions VALUES('old-session')",
-    ], 'write');
-    const counts = await migrateData(source, target);
-    assert.equal(counts.users, 1);
-    assert.equal((await target.execute('SELECT pass FROM users')).rows[0].pass, 'hashed-password');
-    assert.equal((await target.execute('SELECT notes FROM customers')).rows[0].notes, 'Keep this note');
-    assert.equal((await target.execute('SELECT * FROM sessions')).rows.length, 0);
-    assert.equal((await source.execute('SELECT * FROM sessions')).rows.length, 1);
-    await assert.rejects(migrateData(source, target), /đã có dữ liệu/);
-    assert.equal((await target.execute('SELECT * FROM users')).rows.length, 1);
-  } finally { source.close(); target.close(); }
-});
-
-test('migration rolls back all copied rows if a later table fails', async () => {
-  const { createClient } = await import('@libsql/client');
-  const { migrateData } = await import('../scripts/migrate-data.ts');
-  const source = createClient({ url: ':memory:' });
-  const target = createClient({ url: ':memory:' });
-  try {
-    for (const client of [source, target]) {
-      await client.executeMultiple(`
-        CREATE TABLE users(id TEXT PRIMARY KEY);
-        CREATE TABLE settings(key TEXT PRIMARY KEY);
-        CREATE TABLE customers(id TEXT PRIMARY KEY ${client === target ? "CHECK(id <> 'bad')" : ''});
-        CREATE TABLE projects(id TEXT); CREATE TABLE assets(id TEXT); CREATE TABLE jobs(id TEXT);
-        CREATE TABLE renders(id TEXT); CREATE TABLE ai_calls(id INTEGER); CREATE TABLE sessions(id TEXT);
-      `);
-    }
-    await source.executeMultiple("INSERT INTO users VALUES('u1'); INSERT INTO customers VALUES('bad');");
-    await assert.rejects(migrateData(source, target));
-    assert.equal((await target.execute('SELECT * FROM users')).rows.length, 0);
-    assert.equal((await source.execute('SELECT * FROM users')).rows.length, 1);
-  } finally { source.close(); target.close(); }
+    assert.equal(existsSync(path.join(dir, 'studio.db')), true);
+  } finally { if (server) await server.close(); await rm(dir, { recursive: true, force: true }); }
 });

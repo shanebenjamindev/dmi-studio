@@ -1,78 +1,78 @@
-// One async SQL interface for local SQLite and the shared Turso cloud database.
+// Cloudflare D1 in production; built-in SQLite for local Node development.
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import crypto from 'node:crypto';
-import { createClient, type Client, type InValue } from '@libsql/client';
 import { DATA_DIR, IS_CLOUDFLARE } from './config';
+import { SCHEMA } from './schema';
 
-export const cloudDatabase = IS_CLOUDFLARE || !!process.env.TURSO_DATABASE_URL?.trim();
-export let db: Client;
-function connect() {
-  const url = process.env.TURSO_DATABASE_URL?.trim();
-  const token = process.env.TURSO_AUTH_TOKEN?.trim();
-  if (!!url !== !!token) throw new Error('Cần đặt cả TURSO_DATABASE_URL và TURSO_AUTH_TOKEN');
-  if (url && !/^(libsql|https):\/\//.test(url)) throw new Error('TURSO_DATABASE_URL phải dùng libsql:// hoặc https://');
-  if (IS_CLOUDFLARE && !url) throw new Error('Cloud cần TURSO_DATABASE_URL và TURSO_AUTH_TOKEN');
-  return createClient({ url: url || pathToFileURL(path.join(DATA_DIR, 'studio.db')).href, authToken: token });
+export type SqlValue = string | number | bigint | null | ArrayBuffer | Uint8Array;
+export interface SqlResult { rows: any[]; rowsAffected: number; lastInsertRowid?: number | bigint }
+export interface SqlClient {
+  execute(statement: string | { sql: string; args?: SqlValue[] }): Promise<SqlResult>;
+  executeMultiple(sql: string): Promise<void>;
+  close(): void;
 }
-
-// Workers cannot perform network I/O at module scope. Initialize inside the first request.
+interface D1Result { results?: any[]; meta: { changes?: number; last_row_id?: number } }
+interface D1Statement {
+  bind(...args: any[]): D1Statement;
+  all(): Promise<D1Result>;
+}
+export interface D1Binding {
+  prepare(sql: string): D1Statement;
+  batch(statements: D1Statement[]): Promise<D1Result[]>;
+}
+export const cloudDatabase = IS_CLOUDFLARE;
+export let db: SqlClient;
+function d1Client(binding: D1Binding): SqlClient {
+  return {
+    async execute(statement) {
+      const { sql, args = [] } = typeof statement === 'string' ? { sql: statement } : statement;
+      const normalized = args.map(value => typeof value === 'bigint' ? Number(value) : value);
+      const stmt = binding.prepare(sql);
+      const result = await (normalized.length ? stmt.bind(...normalized) : stmt).all();
+      return { rows: result.results || [], rowsAffected: result.meta.changes || 0, lastInsertRowid: result.meta.last_row_id };
+    },
+    async executeMultiple(sql) {
+      // Only used for the static application schema, never user-provided SQL.
+      await binding.batch(sql.split(';').map(s => s.trim()).filter(Boolean).map(s => binding.prepare(s)));
+    },
+    close() {},
+  };
+}
+async function localClient(): Promise<SqlClient> {
+  const { DatabaseSync } = await import('node:sqlite');
+  const local = new DatabaseSync(path.join(DATA_DIR, 'studio.db'));
+  return {
+    async execute(statement) {
+      const { sql, args = [] } = typeof statement === 'string' ? { sql: statement } : statement;
+      const stmt = local.prepare(sql);
+      const normalized = args.map(value => value instanceof ArrayBuffer ? new Uint8Array(value) : value);
+      if (stmt.columns().length) {
+        const rows = stmt.all(...normalized);
+        const meta = local.prepare('SELECT changes() n, last_insert_rowid() id').get() as any;
+        return { rows, rowsAffected: /^(INSERT|UPDATE|DELETE)/i.test(sql.trim()) ? Number(meta.n) : 0, lastInsertRowid: meta.id };
+      }
+      const result = stmt.run(...normalized);
+      return { rows: [], rowsAffected: Number(result.changes), lastInsertRowid: result.lastInsertRowid };
+    },
+    async executeMultiple(sql) { local.exec(sql); },
+    close() { local.close(); },
+  };
+}
 let initialized: Promise<void> | undefined;
-export function initDatabase(): Promise<void> {
-  return initialized ||= initialize().catch((error) => { initialized = undefined; throw error; });
+export function initDatabase(binding?: D1Binding): Promise<void> {
+  return initialized ||= initialize(binding).catch(error => { initialized = undefined; throw error; });
 }
-async function initialize() {
-  db ||= connect();
-  await db.execute('SELECT 1');
-  if (!cloudDatabase) await db.execute('PRAGMA journal_mode = WAL');
-  await db.execute('PRAGMA foreign_keys = ON');
-  await db.executeMultiple(`
-CREATE TABLE IF NOT EXISTS projects (
-  id TEXT PRIMARY KEY, title TEXT NOT NULL, aspect TEXT NOT NULL DEFAULT '16:9',
-  data TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS assets (
-  id TEXT PRIMARY KEY, project_id TEXT, kind TEXT NOT NULL, mime TEXT, file TEXT NOT NULL,
-  bytes INTEGER, source TEXT, meta TEXT, created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS jobs (
-  id TEXT PRIMARY KEY, project_id TEXT, scene_id TEXT, kind TEXT NOT NULL,
-  provider TEXT NOT NULL, model TEXT, input TEXT NOT NULL, status TEXT NOT NULL,
-  remote_id TEXT, remote_meta TEXT, result TEXT, error TEXT,
-  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, polled_at INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS jobs_project ON jobs(project_id, created_at);
-CREATE TABLE IF NOT EXISTS renders (
-  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, asset_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ready',
-  created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS ai_calls (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, provider TEXT, model TEXT, kind TEXT,
-  ms INTEGER, ok INTEGER, error TEXT, created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS customers (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, contact TEXT, phone TEXT, email TEXT, notes TEXT,
-  folder TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member',
-  pass TEXT, disabled INTEGER NOT NULL DEFAULT 0, last_login INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS oauth_states (
-  id TEXT PRIMARY KEY, redirect TEXT NOT NULL, purpose TEXT NOT NULL, expires_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS login_attempts (
-  id TEXT PRIMARY KEY, n INTEGER NOT NULL, expires_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL
-);
-`);
-  // Upgrade existing local or cloud databases without changing their data.
+async function initialize(binding?: D1Binding) {
+  if (IS_CLOUDFLARE && !binding) throw new Error('Thiếu Cloudflare D1 binding DB');
+  db ||= IS_CLOUDFLARE ? d1Client(binding!) : await localClient();
+  if (!IS_CLOUDFLARE) {
+    await db.execute('PRAGMA journal_mode=WAL');
+    await db.execute('PRAGMA foreign_keys=ON');
+  }
+  await db.executeMultiple(SCHEMA);
   for (const [table, column] of [['projects', 'customer_id'], ['customers', 'gloc'], ['customers', 'links']]) {
     const info = await db.execute(`PRAGMA table_info(${table})`);
-    if (!info.rows.some((c) => c.name === column)) await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
+    if (!info.rows.some(c => c.name === column)) await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
   }
 }
 if (!IS_CLOUDFLARE) await initDatabase();
@@ -80,13 +80,13 @@ if (!IS_CLOUDFLARE) await initDatabase();
 export const uid = (p = '') => p + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 export const now = () => Date.now();
 
-export async function all<T = any>(sql: string, ...args: InValue[]): Promise<T[]> {
+export async function all<T = any>(sql: string, ...args: SqlValue[]): Promise<T[]> {
   return (await db.execute({ sql, args })).rows as unknown as T[];
 }
-export async function get<T = any>(sql: string, ...args: InValue[]): Promise<T | undefined> {
+export async function get<T = any>(sql: string, ...args: SqlValue[]): Promise<T | undefined> {
   return (await all<T>(sql, ...args))[0];
 }
-export async function run(sql: string, ...args: InValue[]) {
+export async function run(sql: string, ...args: SqlValue[]) {
   const result = await db.execute({ sql, args });
   return { changes: result.rowsAffected, lastInsertRowid: result.lastInsertRowid };
 }
