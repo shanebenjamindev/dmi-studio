@@ -2445,8 +2445,6 @@ const EN: Record<string, string> = {
   "Hãy đăng nhập lại": "Please sign in again",
   "Tuỳ chọn giao diện không hợp lệ": "Invalid interface setting",
   "Hình nền không hợp lệ": "Invalid background",
-  "Công việc mới trong dự án của bạn": "New task in your project",
-  "Công việc trong dự án của bạn được cập nhật": "A task in your project was updated",
   "Mở trang công việc": "Open task page",
   "Chỉ người sửa được công việc (người được giao, người tạo, thành viên dự án, quản trị viên) xem được kết quả.": "Only people who can edit the task (assignees, creator, project members, admins) can see the result.",
   "Chỉ người được giao, người tạo, thành viên dự án hoặc quản trị viên mới sửa được công việc này": "Only assignees, the creator, project members or admins can edit this task",

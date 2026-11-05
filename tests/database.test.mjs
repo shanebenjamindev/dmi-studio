@@ -1151,22 +1151,19 @@ test('project followers follow each new task, task followers follow each new sub
   const asWatcher=(await server.call('GET',`/api/tasks/${child.id}`,undefined,watcher.cookie)).data;
   assert.equal(asWatcher.canEdit,false);
   const inbox=async who=>(await server.call('GET','/api/notifications/inbox',undefined,who.cookie)).data.items;
-  // A member of the project hears of each new task in it, as a follower once they follow it.
-  assert.deepEqual((await inbox(reviewer)).filter(i=>i.taskId).map(i=>[i.taskId,i.title]),[[child.id,'Có công việc con mới bạn đang theo dõi'],[parent.id,'Bạn được thêm theo dõi công việc'],[parent.id,'Công việc mới trong dự án của bạn']]);
+  assert.deepEqual((await inbox(reviewer)).filter(i=>i.taskId).map(i=>[i.taskId,i.title]),[[child.id,'Có công việc con mới bạn đang theo dõi'],[parent.id,'Bạn được thêm theo dõi công việc']]);
   assert.ok((await inbox(watcher)).some(i=>i.taskId===parent.id&&i.title==='Công việc mới bạn đang theo dõi'));
   assert.equal((await server.call('PUT',`/api/tasks/${child.id}`,{status:'Đang thực hiện'},ac)).status,200);
   assert.equal((await inbox(watcher))[0].title,'Công việc bạn theo dõi được cập nhật');
-  assert.deepEqual([(await inbox(helper))[0].taskId,(await inbox(helper))[0].title],[child.id,'Công việc trong dự án của bạn được cập nhật']);
-  // Whoever makes the change is not told, and a viewer of the project hears nothing of its tasks.
+  // Only the tasks someone does or follows reach them: not every task of a project they are on, nor their own changes.
+  assert.equal((await inbox(helper)).some(i=>i.taskId),false);
   assert.equal((await inbox({cookie:ac})).some(i=>i.taskId),false);
-  assert.equal((await inbox(outsider)).some(i=>/dự án của bạn/.test(i.title)),false);
   assert.equal((await server.call('DELETE',`/api/tasks/${child.id}`,undefined,ac)).status,200);
   // Giving someone a task makes them a member of its project and customer, so they can work on it.
   const given=(await server.call('POST','/api/tasks',{title:'Given task',projectId:project.id,assigneeUserIds:[doer.id]},ac)).data;
   assert.equal((await server.call('GET',`/api/task-projects/${project.id}/members`,undefined,ac)).data.members.find(m=>m.id===doer.id).level,'normal');
   assert.equal((await server.call('PUT',`/api/tasks/${given.id}`,{status:'Đang thực hiện'},doer.cookie)).status,200);
-  assert.deepEqual([(await inbox({cookie:ac}))[0].taskId,(await inbox({cookie:ac}))[0].title],[given.id,'Công việc trong dự án của bạn được cập nhật']);
-  assert.equal((await inbox(doer)).some(i=>i.taskId===given.id&&i.title==='Công việc trong dự án của bạn được cập nhật'),false);
+  assert.equal((await inbox({cookie:ac})).some(i=>i.taskId===given.id),false);
   // "Công việc của tôi": what is given to the account or followed by it, nothing else.
   const mine=async who=>(await server.call('GET','/api/tasks',undefined,who.cookie)).data.tasks.map(t=>t.id);
   assert.ok((await mine(watcher)).includes(parent.id));

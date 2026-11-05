@@ -12,15 +12,11 @@ export async function notificationSnapshot(taskId:string):Promise<Snapshot>{
  const task=await get<any>('SELECT status,due_at FROM tasks WHERE id=?',taskId);
  return {status:task?.status||'',due_at:task?.due_at??null,users:(await all<any>('SELECT DISTINCT p.user_id FROM task_assignees a JOIN task_people p ON p.id=a.person_id WHERE a.task_id=? AND p.user_id IS NOT NULL',taskId)).map(r=>r.user_id),followers:(await all<any>('SELECT user_id FROM task_followers WHERE task_id=?',taskId)).map(r=>r.user_id)};
 }
-const TITLES:Record<string,string>={assigned:'Bạn được giao công việc',updated:'Công việc được cập nhật',followed:'Bạn được thêm theo dõi công việc',created:'Công việc mới bạn đang theo dõi',subtask:'Có công việc con mới bạn đang theo dõi',followed_updated:'Công việc bạn theo dõi được cập nhật',project_created:'Công việc mới trong dự án của bạn',project_updated:'Công việc trong dự án của bạn được cập nhật'};
-/** A task's project's owner, admins, members and followers; a viewer (an observer who does not follow) only looks. */
-const PROJECT_AUDIENCE="SELECT created_by user_id FROM task_projects WHERE id=? AND created_by IS NOT NULL UNION SELECT user_id FROM task_project_members WHERE project_id=? AND (role<>'observer' OR follows=1)";
-/** Whether a task still concerns someone (so its notifications stay theirs): they do it, follow it, or are on its project. */
+const TITLES:Record<string,string>={assigned:'Bạn được giao công việc',updated:'Công việc được cập nhật',followed:'Bạn được thêm theo dõi công việc',created:'Công việc mới bạn đang theo dõi',subtask:'Có công việc con mới bạn đang theo dõi',followed_updated:'Công việc bạn theo dõi được cập nhật'};
+/** Whether a task still concerns someone (so its notifications stay theirs): only the tasks they do or follow. */
 async function concerns(userId:string,taskId:string){
- const t=await get<any>('SELECT project_id FROM tasks WHERE id=?',taskId);
- if(!t)return false;
- if(await get('SELECT 1 FROM task_assignees a JOIN task_people p ON p.id=a.person_id WHERE a.task_id=? AND p.user_id=?',taskId,userId)||await get('SELECT 1 FROM task_followers WHERE task_id=? AND user_id=?',taskId,userId))return true;
- return !!t.project_id&&(await all<any>(PROJECT_AUDIENCE,t.project_id,t.project_id)).some(r=>r.user_id===userId);
+ if(!await get('SELECT 1 FROM tasks WHERE id=?',taskId))return false;
+ return !!(await get('SELECT 1 FROM task_assignees a JOIN task_people p ON p.id=a.person_id WHERE a.task_id=? AND p.user_id=?',taskId,userId)||await get('SELECT 1 FROM task_followers WHERE task_id=? AND user_id=?',taskId,userId));
 }
 /** Only task name, status, deadline and an authenticated app link enter emails, never results or descriptions.
  *  Whoever made the change (`actorId`) is not told. */
@@ -34,9 +30,6 @@ export async function queueTaskNotifications(taskId:string,before?:Snapshot,acto
  const recipients=new Map<string,string|null>();
  for(const userId of after.users)recipients.set(userId,!before?.users.includes(userId)?'assigned':changed?'updated':null);
  for(const userId of after.followers)if(!recipients.has(userId))recipients.set(userId,!before?.followers.includes(userId)?(before?'followed':task.parent_id?'subtask':'created'):changed?'followed_updated':null);
- // Then everyone else on its project hears of a new task and of its status or deadline changing.
- if(task.project_id)for(const {user_id} of await all<any>(PROJECT_AUDIENCE,task.project_id,task.project_id))
-  if(!recipients.has(user_id))recipients.set(user_id,!before?'project_created':changed?'project_updated':null);
  for(const [userId,kind] of recipients){
   if(userId===actorId)continue;
   if(task.project_id&&!(await projectLevels(userId)).has(task.project_id))continue;
