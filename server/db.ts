@@ -81,7 +81,6 @@ async function initialize(binding?: D1Binding) {
   }
   await db.execute("UPDATE task_projects SET created_by=COALESCE((SELECT c.created_by FROM customers c WHERE c.id=task_projects.customer_id),(SELECT i.user_id FROM task_imports i JOIN tasks t ON t.import_id=i.id WHERE t.project_id=task_projects.id ORDER BY i.created_at LIMIT 1),(SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1)) WHERE created_by IS NULL");
   await db.execute("UPDATE customers SET created_by=(SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1) WHERE created_by IS NULL AND EXISTS(SELECT 1 FROM users WHERE role='admin' AND disabled=0)");
-  await db.execute("UPDATE notification_preferences SET enabled=0 WHERE enabled=1 AND (email IS NULL OR verified_at IS NULL)");
   await db.execute("UPDATE mail_outbox SET state='cancelled',error='Cần xác minh email cá nhân để nhận thư' WHERE state='pending' AND user_id IN(SELECT user_id FROM notification_preferences WHERE email IS NULL OR verified_at IS NULL)");
   // Existing ownerless starter boards belong to the original administrator; no implicit admin access remains.
   await db.execute("UPDATE boards SET created_by=(SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1) WHERE created_by IS NULL AND EXISTS(SELECT 1 FROM users WHERE role='admin' AND disabled=0)");

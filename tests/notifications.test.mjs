@@ -19,7 +19,9 @@ test('email notifications opt in, deduplicate, send only public task fields and 
   await run("INSERT INTO tasks(id,title,status,description,result,created_at,updated_at) VALUES('tk_fixture','A public task','Chưa thực hiện','private description','private-result-secret',1,1)");
   await run("INSERT INTO task_assignees(task_id,person_id) VALUES('tk_fixture','tp_fixture')");
   await queueTaskNotifications('tk_fixture');assert.equal((await get('SELECT COUNT(*) n FROM mail_outbox')).n,0);
-  await run("INSERT INTO notification_preferences(user_id,enabled,email,verified_at,updated_at) VALUES('u_fixture',1,'personal@example.test',1,1)");
+  await run("INSERT INTO notification_preferences(user_id,enabled,pending_email,updated_at) VALUES('u_fixture',1,'personal@example.test',1)");
+  await queueTaskNotifications('tk_fixture');assert.equal((await get('SELECT COUNT(*) n FROM mail_outbox')).n,0);
+  await run("UPDATE notification_preferences SET email=pending_email,pending_email=NULL,verified_at=1 WHERE user_id='u_fixture'");
   await setSetting('notification_site_url','https://studio.example.test');
   await queueTaskNotifications('tk_fixture');await queueTaskNotifications('tk_fixture');
   assert.equal((await get('SELECT COUNT(*) n FROM mail_outbox')).n,1);

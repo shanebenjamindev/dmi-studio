@@ -97,7 +97,7 @@ export function registerNotifications(api:Router){
  api.put('/api/notifications',async(req,res)=>{
   const user=(await currentUser(req))!,body=await readJson(req);
   if(typeof body.enabled!=='boolean')throw new HttpError(400,'Hãy chọn bật hoặc tắt nhận email');
-  if(body.enabled&&!await get('SELECT 1 FROM notification_preferences WHERE user_id=? AND email IS NOT NULL AND verified_at IS NOT NULL',user.id))throw new HttpError(400,'Hãy xác minh email cá nhân trước khi bật nhận thư');
+  // Only the wish to get mail: nothing is sent until the personal email is verified as well.
   await run('INSERT INTO notification_preferences(user_id,enabled,updated_at) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled,updated_at=excluded.updated_at',user.id,body.enabled?1:0,now());
   if(!body.enabled)await run("UPDATE mail_outbox SET state='cancelled' WHERE user_id=? AND state='pending'",user.id);
   json(res,200,{ok:true});

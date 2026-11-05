@@ -1015,9 +1015,10 @@ test('notification preferences and mail connection are private, opt in, and admi
   assert.equal((await server.call('GET','/api/notifications',undefined,member)).data.enabled,false);
   assert.equal((await server.call('GET','/api/notifications/mail/connect',undefined,member)).status,403);
   assert.equal((await server.call('DELETE','/api/notifications/mail',undefined,member)).status,403);
-  assert.equal((await server.call('PUT','/api/notifications',{enabled:true,email:'other@example.test',userId:setup.data.user.id},member)).status,400);
+  // Ticking before any email is verified is allowed, and only ever changes the caller's own choice.
+  assert.equal((await server.call('PUT','/api/notifications',{enabled:true,email:'other@example.test',userId:setup.data.user.id},member)).status,200);
   const own=(await server.call('GET','/api/notifications',undefined,member)).data;
-  assert.equal(own.email,null);assert.equal(own.loginEmail,user.data.email);assert.equal(own.enabled,false);
+  assert.equal(own.email,null);assert.equal(own.loginEmail,user.data.email);assert.equal(own.enabled,true);assert.equal(own.verified,false);
   assert.equal((await server.call('GET','/api/notifications',undefined,cookie)).data.enabled,false);
   assert.equal((await server.call('POST','/api/notifications/test',{},member)).status,400);
   assert.equal((await server.call('PUT','/api/notifications',{enabled:false},member)).status,200);

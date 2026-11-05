@@ -99,7 +99,7 @@ test('Workers: accounts, cookies, cross-isolate Google state, permissions and or
     assert.equal(notificationStatus.data.sender,'admin@example.test');
     assert.equal(JSON.stringify(notificationStatus.data).includes('fixture-refresh'),false);
     assert.equal((await call(a,'GET','/api/google/status',undefined,setup.cookie)).data.accounts.length,0);
-    assert.equal((await call(a,'PUT','/api/notifications',{enabled:true},setup.cookie)).status,400);
+    assert.equal((await call(a,'PUT','/api/notifications',{enabled:true},setup.cookie)).status,200);
     await db.prepare('INSERT INTO notification_preferences(user_id,enabled,email,verified_at,updated_at) VALUES(?,1,?,1,1) ON CONFLICT(user_id) DO UPDATE SET email=excluded.email,verified_at=1,enabled=1').bind(setup.data.user.id,'personal@example.test').run();
     assert.equal((await call(a,'PUT','/api/notifications',{enabled:true},setup.cookie)).status,200);
 
