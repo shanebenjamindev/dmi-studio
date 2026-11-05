@@ -15,6 +15,7 @@ import { Icon, Segmented } from './ui';
 import { SheetGrid } from './SheetGrid';
 import { Rich } from './boardkit';
 import { readTaskExport, readTaskSheet } from '../../../server/taskimport';
+import { CardModal } from './CardModal';
 import type { Board, BoardItem, TaskWrite, TaskDetail, TaskImportResult, TaskItem, TaskMeta, TaskState } from '../types';
 
 const STATE: Record<TaskState, [string, string, string]> = {
@@ -151,9 +152,10 @@ export function TaskPanel({ id, meta, statuses, page = false, onOpen, onClose, o
   const [show, setShow] = useState(false);
   const [linking, setLinking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [asCard, setAsCard] = useState(true);
   const activeId = useRef(id); activeId.current = id;
   const load = () => api.task(id).then((value) => { if (activeId.current === id) setT(value); }, (e) => { if (activeId.current === id) { toast(e.message, true); onClose(); } });
-  useEffect(() => { setT(null); setShow(false); setLinking(false); load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setT(null); setShow(false); setLinking(false); setAsCard(true); load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (page) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !linking && !document.querySelector('dialog.qc-dialog[open]')) onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose, linking, page]);
   const setStatus = async (s: string) => { if (busy) return; setBusy(true); try { await api.setTaskStatus(id, s); await load(); onChanged(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); } };
   const head = t && <>
@@ -190,10 +192,10 @@ export function TaskPanel({ id, meta, statuses, page = false, onOpen, onClose, o
           </dl>
   </>;
   const main = t && <>
-          {(t.description||t.canEdit)&&<section className="tk-sec"><h3>Mô tả</h3><TaskInlineField task={t} field="description" label="Mô tả" value={t.description} multiline onSaved={()=>{void load();onChanged();}}><div className="tk-rich">{t.description?<Rich text={t.description}/>:<span className="note">Thêm mô tả…</span>}</div></TaskInlineField></section>}
+          {(t.description||t.canEditDescription)&&<section className="tk-sec"><h3>Mô tả</h3><TaskInlineField task={t} field="description" label="Mô tả" value={t.description} multiline editable={t.canEditDescription} onSaved={()=>{void load();onChanged();}}><div className="tk-rich">{t.description?<Rich text={t.description}/>:<span className="note">Thêm mô tả…</span>}</div></TaskInlineField></section>}
           {(t.result || t.resultHidden || t.canEdit&&t.result!==null) && (
             <section className="tk-sec"><h3>Kết quả công việc</h3>
-              {t.result === null ? <p className="note">Chỉ người được giao, người tạo và quản trị viên xem được kết quả.</p>
+              {t.result === null ? <p className="note">Chỉ người sửa được công việc (người được giao, người tạo, thành viên dự án, quản trị viên) xem được kết quả.</p>
                 : show ? <><div className="tk-result"><TaskInlineField task={t} field="result" label="Kết quả công việc" value={t.result} multiline onSaved={()=>{void load();onChanged();}}>{t.result?<Rich text={t.result}/>:<span className="note">Thêm kết quả…</span>}</TaskInlineField></div><button className="bk-link" onClick={() => setShow(false)}>Ẩn đi</button></>
                 : <button className="btn btn-gray btn-sm" onClick={() => setShow(true)}><Icon name="key" size={13} />Hiện kết quả (có thể chứa thông tin đăng nhập)</button>}
             </section>
@@ -205,6 +207,7 @@ export function TaskPanel({ id, meta, statuses, page = false, onOpen, onClose, o
           </section>
   </>;
   const linkDialog = linking && t && <TaskBoardLink task={t} onClose={() => setLinking(false)} onLinked={() => { setLinking(false); load(); onChanged(); }} />;
+  if (!page && asCard && t?.boardLink) return <LinkedCard link={t.boardLink} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onFail={() => setAsCard(false)} />;
   if (page) return (
     <div className="ad-page tk-page tk-detail-page">
       <header className="tk-detail-top"><button className="btn btn-gray btn-sm" onClick={onClose}><Icon name="left" size={14} />Danh sách công việc</button>{t?.externalId && <span>#{t.externalId}</span>}</header>
@@ -224,10 +227,19 @@ export function TaskPanel({ id, meta, statuses, page = false, onOpen, onClose, o
 
 const localDateTime = (ms: number | null | undefined) => ms == null ? '' : new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString().slice(0,16);
 
-function TaskInlineField({task,field,label,value,multiline=false,meta,children,onSaved}:{task:TaskDetail;field:'title'|'description'|'result'|'labels'|'startAt'|'dueAt'|'projectId'|'campaignId';label:string;value:string;multiline?:boolean;meta?:TaskMeta|null;children:ReactNode;onSaved:()=>void}){
+/** A task on a board card opens as that card, as the board shows it: one piece of work, one window. When the board
+ *  cannot be read, the task's own panel shows instead. */
+function LinkedCard({ link, onClose, onChanged, onFail }: { link: { boardId: string; cardId: string }; onClose: () => void; onChanged: () => void; onFail: () => void }) {
+  const me = useStore((s) => s.user)!;
+  const [board, setBoard] = useState<Board | null>(null);
+  const load = () => api.board(link.boardId).then(setBoard, onFail);
+  useEffect(() => { void load(); }, [link.boardId]); // eslint-disable-line react-hooks/exhaustive-deps
+  return board ? <CardModal id={link.cardId} board={board} me={me} onClose={onClose} onChanged={() => { void load(); onChanged(); }} /> : null;
+}
+function TaskInlineField({task,field,label,value,multiline=false,meta,children,onSaved,editable=task.canEdit}:{editable?:boolean;task:TaskDetail;field:'title'|'description'|'result'|'labels'|'startAt'|'dueAt'|'projectId'|'campaignId';label:string;value:string;multiline?:boolean;meta?:TaskMeta|null;children:ReactNode;onSaved:()=>void}){
  const[editing,setEditing]=useState(false),[draft,setDraft]=useState(value),[busy,setBusy]=useState(false),[error,setError]=useState('');
  useEffect(()=>{setEditing(false);setDraft(value);setError('');},[task.id,value]);
- if(!task.canEdit)return <>{children}</>;
+ if(!editable)return <>{children}</>;
  const save=async(e:React.FormEvent)=>{e.preventDefault();if(busy)return;setBusy(true);setError('');try{const body:TaskWrite={};if(field==='startAt'||field==='dueAt')body[field]=draft?new Date(draft).getTime():null;else if(field==='projectId'){body.projectId=draft||null;body.campaignId=null;}else if(field==='campaignId')body.campaignId=draft||null;else if(field==='labels')body.labels=draft.split(',').map(s=>s.trim()).filter(Boolean);else body[field]=draft;await api.updateTask(task.id,body);setEditing(false);onSaved();}catch(e:any){setError(e.message);}finally{setBusy(false);}};
  return editing?<form className="tk-field-editor" onSubmit={save} onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();e.preventDefault();if(!busy)setEditing(false);}}}>
  <fieldset disabled={busy}>{field==='projectId'||field==='campaignId'?<select autoFocus aria-label={label} value={draft} onChange={e=>setDraft(e.target.value)}><option value="">{field==='projectId'?'Không có dự án':'Công việc hiện có'}</option>{field==='projectId'?meta?.projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>):meta?.campaigns.filter(c=>c.projectId===task.project?.id).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>:multiline?<textarea autoFocus aria-label={label} rows={Math.min(16,Math.max(5,draft.split('\n').length))} maxLength={20000} value={draft} onChange={e=>setDraft(e.target.value)}/>:<input autoFocus aria-label={label} type={field==='startAt'||field==='dueAt'?'datetime-local':'text'} required={field==='title'} maxLength={field==='title'?500:undefined} value={draft} onChange={e=>setDraft(e.target.value)}/>}
@@ -289,7 +301,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       <label>Chiến dịch<EntitySelect kind="campaign" context={{projectId:project}} value={campaign} onCreated={reloadMeta} onChange={setCampaign} disabled={!project}><option value="">Công việc hiện có</option>{meta.campaigns.filter(c=>c.projectId===project).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</EntitySelect></label>
       <label>Ngày bắt đầu<input type="datetime-local" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Thời hạn<input type="datetime-local" value={due} onChange={e=>setDue(e.target.value)}/></label></div>
       <label>Công việc cha<EntitySelect kind="task" context={{projectId:project,campaignId:campaign}} value={parent} onCreated={async()=>setParents((await api.tasks({scope:'all'})).tasks)} onChange={setParent}><option value="">Không có</option>{task?.parent&&!parents.some(p=>p.id===task.parent!.id)&&<option value={task.parent.id}>{task.parent.title}</option>}{parents.filter(p=>p.id!==task?.id&&(!project||p.project?.id===project)&&(!campaign||p.campaign?.id===campaign)).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</EntitySelect></label>
-      <label>Mô tả<textarea rows={4} value={description} onChange={e=>setDescription(e.target.value)} maxLength={20000}/></label>
+      <label>Mô tả<textarea rows={4} value={description} onChange={e=>setDescription(e.target.value)} maxLength={20000} readOnly={task?task.canEditDescription===false:false} title={task?.canEditDescription===false?'Chỉ người viết mô tả mới sửa được mô tả':undefined}/></label>
       {(!task || task.result !== null) && <label>Kết quả công việc<textarea rows={3} value={result} onChange={e=>setResult(e.target.value)} maxLength={20000}/></label>}
       <label>Nhãn<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label>
       <div className="tk-staff-picker"><EmployeePicker users={meta.users} selected={users} onChange={setUsers} legacy={task?.assignees.filter(p=>people.includes(p.id)) || []} onLegacyChange={setPeople}/></div>
@@ -417,6 +429,6 @@ function TaskImportTable({ text }: { text: string }) {
 }
 
 function openLinkedBoard(link:{boardId:string;cardId?:string}){
-  history.replaceState(null,'',`#boards/${link.boardId}${link.cardId?`/c/${link.cardId}`:''}`);
   goto('boards');
+  history.replaceState(null,'',`#boards/${link.boardId}${link.cardId?`/c/${link.cardId}`:''}`);
 }

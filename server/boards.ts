@@ -15,7 +15,7 @@ import {customerLevels,customerAccessSql,requireCustomer,visibleCardIds} from '.
 import { Router, HttpError, json, readJson } from './http';
 import type { Req } from './http';
 import { all, get, run, uid, now } from './db';
-import { assertLinkedTaskEditable, syncCardToTask } from './tasklinks';
+import { assertLinkedTaskEditable, syncCardToTask, cardDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
 import { notifyPeople } from './notifications';
 import { currentUser, PAGES, pagesOf, deptLevel, USER_SQL, type Level } from './auth';
 import { customerFile, clientCustomers } from './workspace';
@@ -145,10 +145,11 @@ export async function mustCard(req: Req, id: string, need: Level = 'normal') {
   for(const id of new Set([c.customer_id,customer].filter(Boolean)))await requireCustomer((await me(req)).id,String(id),need==='observer'?'observer':'normal');
   return c;
 }
-/** Only whoever made a card archives or deletes it (cards from before makers were kept: the board's admins). */
-const isOwner = (c: { created_by: string | null }, u: any, level: Level) => (c.created_by ? c.created_by === u.id : level === 'admin');
+/** Only whoever made a card, or a company admin, archives or deletes it (cards from before makers were kept: the board's
+ *  admins). */
+const isOwner = (c: { created_by: string | null }, u: any, level: Level) => u.role === 'admin' || (c.created_by ? c.created_by === u.id : level === 'admin');
 function ownCard(c: any, u: any) {
-  if (!isOwner(c, u, c.level)) throw new HttpError(403, 'Chỉ người tạo thẻ mới lưu trữ hay xoá được thẻ này');
+  if (!isOwner(c, u, c.level)) throw new HttpError(403, 'Chỉ người tạo thẻ hoặc quản trị viên mới lưu trữ hay xoá được thẻ này');
 }
 /** A row of a card's part (checklist, item, comment, attachment) with the card it belongs to, checked. */
 async function mustPart(req: Req, table: string, id: string, need: Level = 'normal') {
@@ -180,8 +181,11 @@ async function place(table: 'board_lists' | 'board_cards' | 'inbox_cards', rows:
     else await run(`UPDATE ${table} SET pos = ? WHERE id = ?`, i + 1, x);
   }
 }
+/** Boards with the background this account chose for each (`my_bg`), which only it sees. */
+const BOARDS_SQL = 'SELECT b.*, (SELECT x.bg FROM board_backgrounds x WHERE x.board_id = b.id AND x.user_id = ?) my_bg FROM boards b';
+const bgOf = (b: any) => b.my_bg || b.bg;
 const boardOut = (b: any, starred: boolean, cards = 0, level: Level | null = b.level || null) => ({
-  id: b.id, name: b.name, bg: b.bg, roleId: b.role_id || null, workspaceId: b.workspace_id || COMPANY, private: true,
+  id: b.id, name: b.name, bg: bgOf(b), sharedBg: b.bg, roleId: b.role_id || null, workspaceId: b.workspace_id || COMPANY, private: true,
   createdBy: b.created_by || null, starred, cards, updatedAt: b.updated_at, level,
 });
 /** Everyone who sees the board (who can be put on its cards), with their level; `added`: given it on the board itself. */
@@ -200,7 +204,7 @@ async function membersOf(b: any) {
 async function dropBoards(where: string, ...args: any[]) {
   for (const b of await all<any>(`SELECT id FROM boards WHERE ${where}`, ...args)) {
     await dropCards('board_id = ?', b.id);
-    for (const t of ['board_lists', 'board_stars', 'board_labels', 'board_activity', 'board_members']) await run(`DELETE FROM ${t} WHERE board_id = ?`, b.id);
+    for (const t of ['board_lists', 'board_stars', 'board_backgrounds', 'board_labels', 'board_activity', 'board_members']) await run(`DELETE FROM ${t} WHERE board_id = ?`, b.id);
     await run('DELETE FROM boards WHERE id = ?', b.id);
   }
 }
@@ -227,7 +231,8 @@ async function fronts(boardId: string, archived = 0,userId?:string) {
 /** A card's attachment: a link, or a video of its customer's folder (`key`, with the customer it came from). */
 const attachmentOut = (a: any) => ({ id: a.id, name: a.name, url: a.url, createdAt: a.created_at, userId: a.user_id, customerId: a.customer_id || null, key: a.file_key || null });
 /** Everything about one card (its back). */
-async function cardOut(c: any) {
+/** `canEditDescription`: may `u` change its description (only its writer once written, see tasklinks). */
+async function cardOut(c: any, u: any) {
   const checklists = await all<any>('SELECT * FROM card_checklists WHERE card_id = ? ORDER BY pos', c.id);
   const items = await all<any>('SELECT * FROM checklist_items WHERE card_id = ? ORDER BY pos', c.id);
   const list = await get<any>('SELECT name FROM board_lists WHERE id = ?', c.list_id);
@@ -243,6 +248,7 @@ async function cardOut(c: any) {
     comments: (await all<any>('SELECT k.*, u.name FROM card_comments k LEFT JOIN users u ON u.id = k.user_id WHERE k.card_id = ? ORDER BY k.created_at DESC', c.id))
       .map((k) => ({ id: k.id, userId: k.user_id, userName: k.name || 'Ai đó', text: k.text, createdAt: k.created_at, edited: k.updated_at > k.created_at })),
     linkedTask: (await get<any>('SELECT task_id id FROM task_board_links WHERE card_id=?', c.id)) || null,
+    canEditDescription: c.level !== 'observer' && mayWriteDescription(u, c.description, await cardDescriptionWriter(c)),
     activity: await activityOf('card_id', c.id, 50),
   };
 }
@@ -401,7 +407,7 @@ export function registerBoards(api: Router) {
     await seed();
     const u = await me(req), level = await levels(u);
     const stars = new Set((await all<any>('SELECT board_id FROM board_stars WHERE user_id = ?', u.id)).map((r) => r.board_id));
-    const rows = await all<any>('SELECT b.*, (SELECT COUNT(*) FROM board_cards c WHERE c.board_id = b.id AND c.archived = 0) cards FROM boards b ORDER BY b.pos');
+    const rows = await all<any>('SELECT b.*, (SELECT COUNT(*) FROM board_cards c WHERE c.board_id = b.id AND c.archived = 0) cards, (SELECT x.bg FROM board_backgrounds x WHERE x.board_id = b.id AND x.user_id = ?) my_bg FROM boards b ORDER BY b.pos', u.id);
     json(res, 200, rows.map((b) => [b, level(b)] as const).filter(([, l]) => l).map(([b, l]) => boardOut(b, stars.has(b.id), b.cards, l)));
   });
   /** A workspace boards may go to: the company's (null) or one this account edits in. */
@@ -429,6 +435,7 @@ export function registerBoards(api: Router) {
     const lists = await all<any>('SELECT id, name FROM board_lists WHERE board_id = ? AND archived = 0 ORDER BY pos', b.id);
     const cards = await fronts(b.id,0,(await me(req)).id);
     const starred = !!(await get('SELECT 1 x FROM board_stars WHERE user_id = ? AND board_id = ?', u.id, b.id));
+    b.my_bg = (await get<any>('SELECT bg FROM board_backgrounds WHERE user_id = ? AND board_id = ?', u.id, b.id))?.bg;
     json(res, 200, {
       ...boardOut(b, starred, cards.length), about: b.about || '',
       labels: await all<any>('SELECT id, name, color FROM board_labels WHERE board_id = ? ORDER BY pos', b.id),
@@ -463,6 +470,14 @@ export function registerBoards(api: Router) {
     const b = await mustBoard(req, req.params.id, 'observer'), u = await me(req);
     if ((await readJson(req)).on) await run('INSERT OR IGNORE INTO board_stars(user_id, board_id) VALUES(?,?)', u.id, b.id);
     else await run('DELETE FROM board_stars WHERE user_id = ? AND board_id = ?', u.id, b.id);
+    json(res, 200, { ok: true });
+  });
+  // A background only this account sees; none (null) goes back to the board's own.
+  api.put('/api/boards/:id/background', async (req, res) => {
+    const b = await mustBoard(req, req.params.id, 'observer'), u = await me(req), bg = (await readJson(req)).bg;
+    if (bg === null) await run('DELETE FROM board_backgrounds WHERE user_id = ? AND board_id = ?', u.id, b.id);
+    else if (BGS.includes(bg)) await run('INSERT INTO board_backgrounds(user_id, board_id, bg) VALUES(?,?,?) ON CONFLICT(user_id, board_id) DO UPDATE SET bg = excluded.bg', u.id, b.id, bg);
+    else throw new HttpError(400, 'Hình nền không hợp lệ');
     json(res, 200, { ok: true });
   });
   // People given a level on the board itself, on top of who sees it through its workspace or role.
@@ -543,7 +558,7 @@ export function registerBoards(api: Router) {
       const cards=await all<any>('SELECT id FROM board_cards WHERE list_id=?',l.id);
       for(const c of cards) await assertLinkedTaskEditable(c.id,u.id);
       await run('UPDATE board_lists SET name = ? WHERE id = ?',text(b.name,80,'tên danh sách'),l.id);
-      for(const c of cards) await syncCardToTask(c.id,true);
+      for(const c of cards) await syncCardToTask(c.id,true,u.id);
     }
     if (b.index !== undefined) await place('board_lists', await all<any>('SELECT id FROM board_lists WHERE board_id = ? AND archived = 0 ORDER BY pos', l.board_id), l.id, Number(b.index) || 0);
     if (b.archived !== undefined) {
@@ -586,7 +601,7 @@ export function registerBoards(api: Router) {
     for(const c of cards) await assertLinkedTaskEditable(c.id,u.id);
     for (const [i,c] of cards.entries()) {
       await run('UPDATE board_cards SET list_id = ?, pos = ? WHERE id = ?',to.id,base+i+1,c.id);
-      if(to.id!==l.id) await syncCardToTask(c.id,true);
+      if(to.id!==l.id) await syncCardToTask(c.id,true,u.id);
     }
     await touch(l.board_id);
     json(res, 200, { ok: true });
@@ -627,7 +642,7 @@ export function registerBoards(api: Router) {
     await touch(l.board_id);
     json(res, 201, (await fronts(l.board_id,0,(await me(req)).id)).find((c) => c.id === id));
   });
-  api.get('/api/cards/:id', async (req, res) => json(res, 200, await cardOut(await mustCard(req, req.params.id, 'observer'))));
+  api.get('/api/cards/:id', async (req, res) => json(res, 200, await cardOut(await mustCard(req, req.params.id, 'observer'), await me(req))));
   // Any of: title, description, startAt, dueAt (ms or null), done, cover (colour or null), archived, customerId (the
   // customer the task is for, or null); or a move to `listId` (same board) at `index`.
   api.put('/api/cards/:id', async (req, res) => {
@@ -635,7 +650,11 @@ export function registerBoards(api: Router) {
     if (['title', 'description', 'startAt', 'dueAt', 'done', 'listId'].some((k) => b[k] !== undefined)) await assertLinkedTaskEditable(c.id, u.id);
     const set: [string, any][] = [], news: string[] = [];
     if (b.title !== undefined) set.push(['title', text(b.title, 500, 'tên thẻ')]);
-    if (b.description !== undefined) set.push(['description', long(b.description, 20000)]);
+    if (b.description !== undefined && long(b.description, 20000) !== (c.description || '')) {
+      const writer = await cardDescriptionWriter(c), next = long(b.description, 20000);
+      await assertDescriptionWriter(u, c.description, writer);
+      set.push(['description', next], ['description_by', nextDescriptionWriter(u, c.description, next, writer)]);
+    }
     if (b.startAt !== undefined) set.push(['start_at', time(b.startAt)]);
     if (b.dueAt !== undefined) { set.push(['due_at', time(b.dueAt)]); if (time(b.dueAt) !== c.due_at) { await log(c.board_id, c.id, u.id, 'card.due', { due: time(b.dueAt) }); news.push('due'); } }
     if (b.done !== undefined && !!b.done !== !!c.done) { set.push(['done', b.done ? 1 : 0]); await log(c.board_id, c.id, u.id, 'card.done', { done: !!b.done }); news.push(b.done ? 'done' : 'undone'); }
@@ -668,8 +687,8 @@ export function registerBoards(api: Router) {
       await notifyPeople((await all<any>('SELECT user_id FROM card_members WHERE card_id = ?', c.id)).map((r) => r.user_id).filter((id) => !told.has(id)), u.id,
         { title, body: move ? `${c.title} → ${move.slice(5)}` : c.title, link: `#boards/${c.board_id}/c/${c.id}`, cardId: c.id });
     }
-    if (['title', 'description', 'startAt', 'dueAt', 'done', 'listId'].some((k) => b[k] !== undefined)) await syncCardToTask(c.id, b.listId !== undefined && b.listId !== c.list_id);
-    json(res, 200, await cardOut(await get('SELECT * FROM board_cards WHERE id = ?', c.id)));
+    if (['title', 'description', 'startAt', 'dueAt', 'done', 'listId'].some((k) => b[k] !== undefined)) await syncCardToTask(c.id, b.listId !== undefined && b.listId !== c.list_id, u.id);
+    json(res, 200, await cardOut({ ...await get<any>('SELECT * FROM board_cards WHERE id = ?', c.id), level: c.level }, u));
   });
   api.delete('/api/cards/:id', async (req, res) => {
     const c = await mustCard(req, req.params.id);
@@ -884,14 +903,14 @@ export function registerBoards(api: Router) {
     const u = await me(req), level = await levels(u);
     const from = Number(req.query.get('from')) || 0, to = Number(req.query.get('to')) || 0;
     if (!from || to <= from || to - from > 62 * 864e5) throw new HttpError(400, 'Khoảng ngày không hợp lệ');
-    const boards = new Map((await all<any>('SELECT * FROM boards')).map((b) => [b.id, b] as const).filter(([, b]) => (b.level = level(b))));
+    const boards = new Map((await all<any>(BOARDS_SQL, u.id)).map((b) => [b.id, b] as const).filter(([, b]) => (b.level = level(b))));
     const rows = await all<any>(`SELECT c.id, c.title, c.board_id, c.due_at, c.start_at, c.done, l.name list FROM board_cards c JOIN board_lists l ON l.id = c.list_id
       WHERE c.archived = 0 AND l.archived = 0 AND (c.created_by = ? OR c.id IN (SELECT card_id FROM card_members WHERE user_id = ?))
       AND ((c.due_at >= ? AND c.due_at < ?) OR (c.start_at >= ? AND c.start_at < ?)) ORDER BY COALESCE(c.due_at, c.start_at)`, u.id, u.id, from, to, from, to);
     const visible=await visibleCardIds(u.id);
     json(res, 200, rows.filter((c) => boards.has(c.board_id)&&visible.has(c.id)).map((c) => {
       const b = boards.get(c.board_id);
-      return { id: c.id, title: c.title, boardId: b.id, boardName: b.name, boardBg: b.bg, listName: c.list, dueAt: c.due_at ?? null, startAt: c.start_at ?? null, done: !!c.done, canEdit: b.level !== 'observer' };
+      return { id: c.id, title: c.title, boardId: b.id, boardName: b.name, boardBg: bgOf(b), listName: c.list, dueAt: c.due_at ?? null, startAt: c.start_at ?? null, done: !!c.done, canEdit: b.level !== 'observer' };
     }));
   });
 
@@ -900,9 +919,9 @@ export function registerBoards(api: Router) {
   api.get('/api/boards-customers',async(req,res)=>{const u=await me(req);json(res,200,await all(`SELECT c.id,c.name FROM customers c WHERE ${customerAccessSql()} ORDER BY c.name`,u.id,u.id,u.id));});
   // The overview on the Drive page: every card for a customer on the boards this account sees, with its videos.
   api.get('/api/customer-tasks', async (req, res) => {
-    const level = await levels(await me(req));
-    const visible=await visibleCardIds((await me(req)).id);
-    const boards = new Map((await all<any>('SELECT * FROM boards')).filter((b) => level(b)).map((b) => [b.id, b]));
+    const u = await me(req), level = await levels(u);
+    const visible=await visibleCardIds(u.id);
+    const boards = new Map((await all<any>(BOARDS_SQL, u.id)).filter((b) => level(b)).map((b) => [b.id, b]));
     const cards = (await all<any>(`SELECT c.id, c.title, c.board_id, c.customer_id, c.done, c.due_at, c.updated_at, l.name list FROM board_cards c JOIN board_lists l ON l.id = c.list_id
       WHERE c.customer_id IS NOT NULL AND c.archived = 0 AND l.archived = 0 ORDER BY c.updated_at DESC`)).filter((c) => boards.has(c.board_id)&&visible.has(c.id));
     const ids = new Set(cards.map((c) => c.id)), videos = new Map<string, any[]>();
@@ -913,7 +932,7 @@ export function registerBoards(api: Router) {
     }
     json(res, 200, cards.map((c) => {
       const b = boards.get(c.board_id);
-      return { id: c.id, title: c.title, customerId: c.customer_id, boardId: b.id, boardName: b.name, boardBg: b.bg, listName: c.list, done: !!c.done, dueAt: c.due_at ?? null, updatedAt: c.updated_at, videos: videos.get(c.id) || [] };
+      return { id: c.id, title: c.title, customerId: c.customer_id, boardId: b.id, boardName: b.name, boardBg: bgOf(b), listName: c.list, done: !!c.done, dueAt: c.due_at ?? null, updatedAt: c.updated_at, videos: videos.get(c.id) || [] };
     }));
   });
 
@@ -923,7 +942,7 @@ export function registerBoards(api: Router) {
     if (q.length < 2) return json(res, 200, { boards: [], cards: [] });
     const level = await levels(u);
     const visible=await visibleCardIds(u.id);
-    const boards = (await all<any>('SELECT * FROM boards')).filter((b) => (b.level = level(b)));
+    const boards = (await all<any>(BOARDS_SQL, u.id)).filter((b) => (b.level = level(b)));
     const ids = new Set(boards.map((b) => b.id)), names = new Map(boards.map((b) => [b.id, b]));
     const like = `%${q.replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
     const cards = (await all<any>(`SELECT c.id, c.title, c.board_id, l.name list FROM board_cards c JOIN board_lists l ON l.id = c.list_id
@@ -931,7 +950,7 @@ export function registerBoards(api: Router) {
       .filter((c) => ids.has(c.board_id)&&visible.has(c.id)).slice(0, 20);
     json(res, 200, {
       boards: boards.filter((b) => b.name.toLowerCase().includes(q)).slice(0, 8).map((b) => boardOut(b, false)),
-      cards: cards.map((c) => ({ id: c.id, title: c.title, boardId: c.board_id, boardName: names.get(c.board_id)?.name || '', boardBg: names.get(c.board_id)?.bg || 'ocean', listName: c.list })),
+      cards: cards.map((c) => ({ id: c.id, title: c.title, boardId: c.board_id, boardName: names.get(c.board_id)?.name || '', boardBg: bgOf(names.get(c.board_id) || { bg: 'ocean' }), listName: c.list })),
     });
   });
 }

@@ -135,7 +135,8 @@ export interface Workspace { id: string; name: string; about: string; kind: 'com
 export interface Person { id: string; name: string; email: string }
 export interface WorkspaceMember extends Person { level: Level; owner: boolean }
 export interface BoardItem {
-  id: string; name: string; bg: string; roleId: string | null; workspaceId: string; private: boolean; createdBy: string | null;
+  /** `bg`: what this account sees (its own choice, else `sharedBg`, the board's). */
+  id: string; name: string; bg: string; sharedBg?: string; roleId: string | null; workspaceId: string; private: boolean; createdBy: string | null;
   starred: boolean; cards: number; updatedAt: number; level: Level;
 }
 export interface BoardLabel { id: string; name: string; color: string }
@@ -165,7 +166,7 @@ export interface TaskItem {
 }
 export interface TaskDetail extends TaskItem {
   statuses?: string[];
-  description: string; result: string | null; resultHidden: boolean; canEdit: boolean; canDelete: boolean; hasBoardLink: boolean; boardLink: { cardId: string; boardId: string; listId: string; boardName: string; listName: string } | null; path: { id: string; title: string }[]; childTasks: TaskItem[];
+  description: string; result: string | null; resultHidden: boolean; canEdit: boolean; canEditDescription: boolean; canDelete: boolean; hasBoardLink: boolean; boardLink: { cardId: string; boardId: string; listId: string; boardName: string; listName: string } | null; path: { id: string; title: string }[]; childTasks: TaskItem[];
 }
 export interface TaskMeta {
   campaigns:TaskCampaign[]; teams:{id:string;name:string;color:string}[];
@@ -210,6 +211,8 @@ export interface CustomerTask {
 /** Everything on a card (its back). */
 export interface CardDetail {
   linkedTask?: { id: string } | null;
+  /** Once written, a description is changed only by whoever wrote it (and admins). */
+  canEditDescription: boolean;
   id: string; boardId: string; listId: string; listName: string; title: string; description: string; cover: string | null;
   startAt: number | null; dueAt: number | null; done: boolean; archived: boolean; createdAt: number; createdBy: string | null; labels: string[]; members: string[];
   /** The customer the task is for. */
@@ -221,7 +224,7 @@ export interface CardDetail {
 }
 /** A top-level page whose access admins can grant or withhold per role. */
 export type Page = 'workspace' | 'editor' | 'ads';
-export interface AuthInfo { user: User | null; pages?: Page[]; setup: boolean; setupCode?: boolean; google: boolean }
+export interface AuthInfo { user: User | null; pages?: Page[]; prefs?: Record<string, string> | null; setup: boolean; setupCode?: boolean; google: boolean }
 
 /** A Meta Ads campaign report (see server/reports.ts): every field of the page sent to the client; images are file names. */
 export interface ReportKV { label: string; value: string }

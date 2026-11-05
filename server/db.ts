@@ -75,7 +75,7 @@ async function initialize(binding?: D1Binding) {
     ['board_lists', 'archived', 'INTEGER NOT NULL DEFAULT 0'], ['board_cards', 'description'], ['board_cards', 'start_at', 'INTEGER'], ['board_cards', 'due_at', 'INTEGER'],
     ['board_cards', 'done', 'INTEGER NOT NULL DEFAULT 0'], ['board_cards', 'cover'], ['board_cards', 'archived', 'INTEGER NOT NULL DEFAULT 0'],
     ['boards', 'workspace_id'], ['boards', 'private', 'INTEGER NOT NULL DEFAULT 0'], ['workspaces', 'visibility', "TEXT NOT NULL DEFAULT 'private'"], ['users', 'dept_role'],
-    ['oauth_states','owner_id'], ['tasks','campaign_id'], ['task_project_members','follows','INTEGER NOT NULL DEFAULT 1'], ['board_cards', 'customer_id'], ['card_attachments', 'customer_id'], ['card_attachments', 'file_key']]) {
+    ['oauth_states','owner_id'], ['tasks','campaign_id'], ['task_project_members','follows','INTEGER NOT NULL DEFAULT 1'], ['board_cards', 'customer_id'], ['card_attachments', 'customer_id'], ['card_attachments', 'file_key'], ['tasks', 'description_by'], ['board_cards', 'description_by']]) {
     const info = await db.execute(`PRAGMA table_info(${table})`);
     if (!info.rows.some(c => c.name === column)) await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }

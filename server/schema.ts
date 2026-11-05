@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS board_cards (
   description TEXT, start_at INTEGER, due_at INTEGER, done INTEGER NOT NULL DEFAULT 0, cover TEXT, archived INTEGER NOT NULL DEFAULT 0, customer_id TEXT
 );
 CREATE TABLE IF NOT EXISTS board_stars (user_id TEXT NOT NULL, board_id TEXT NOT NULL, PRIMARY KEY (user_id, board_id));
+CREATE TABLE IF NOT EXISTS user_prefs (user_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS board_backgrounds (user_id TEXT NOT NULL, board_id TEXT NOT NULL, bg TEXT NOT NULL, PRIMARY KEY (user_id, board_id));
 CREATE TABLE IF NOT EXISTS board_members (
   board_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (board_id, user_id)
 );

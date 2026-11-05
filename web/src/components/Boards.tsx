@@ -9,6 +9,7 @@ import {EntitySelect,QuickCreateButton,useEntityRefresh} from './QuickCreate';
 // (about, activity, archived items, background, labels). People who only view a board read it and comment.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
+import { remember } from '../prefs';
 import { useStore, toast } from '../store';
 import { Icon } from './ui';
 import { CardModal } from './CardModal';
@@ -34,7 +35,7 @@ export const BG: Record<string, string> = {
 const bg = (k: string) => BG[k] || BG.ocean;
 const ls = {
   get: <T,>(k: string, d: T): T => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
-  set: (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
+  set: (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } remember(k, JSON.stringify(v)); },
 };
 const LS_RECENT = 'dms.recentBoards', LS_LABELS = 'dms.labelText', LS_FOLDED = 'dms.foldedLists', LS_WS = 'dms.ws', LS_PANELS = 'dms.panels';
 /** Phones show one panel at a time. */
@@ -800,7 +801,7 @@ function ListColumn(p: ListProps) {
 function ListMenu({ anchor, board, list, onClose, onAdd, onFold, mut, act }: { anchor: HTMLElement; board: Board; list: Board['lists'][number]; onClose: () => void; onAdd: () => void; onFold: () => void; mut: (fn: (x: Board) => void) => void; act: (fn: () => Promise<unknown>) => Promise<void> }) {
   const me = useStore((s) => s.user)!;
   // Each card stays with whoever made it (cards from before makers were kept: the board's admins).
-  const mine = list.cards.filter((c) => (c.createdBy ? c.createdBy === me.id : board.level === 'admin'));
+  const mine = list.cards.filter((c) => me.role === 'admin' || (c.createdBy ? c.createdBy === me.id : board.level === 'admin'));
   const [view, setView] = useState<'main' | 'copy' | 'move' | 'sort' | 'cards'>('main');
   const [copyName, setCopyName] = useState(list.name);
   const [pos, setPos] = useState(board.lists.findIndex((l) => l.id === list.id));
@@ -909,11 +910,9 @@ function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { 
           <button onClick={() => setView('activity')}><Icon name="activity" size={16} />Hoạt động</button>
           <button onClick={() => setView('archived')}><Icon name="archive" size={16} />Mục đã lưu trữ</button>
           <button onClick={() => { onClose(); onShare(); }}><Icon name="users" size={16} />Chia sẻ và quyền</button>
-          {canEdit && <>
-            <hr />
-            <button onClick={() => setView('bg')}><span className="bd-bg-dot" style={{ background: bg(board.bg) }} />Đổi hình nền</button>
-            <button onClick={() => setView('labels')}><Icon name="tag" size={16} />Nhãn</button>
-          </>}
+          <hr />
+          <button onClick={() => setView('bg')}><span className="bd-bg-dot" style={{ background: bg(board.bg) }} />Đổi hình nền</button>
+          {canEdit && <button onClick={() => setView('labels')}><Icon name="tag" size={16} />Nhãn</button>}
           {board.members.some((m) => m.id === me.id && m.added) && board.level !== 'admin' && <><hr /><button onClick={async () => { if (!confirm(`Rời board “${board.name}”?`)) return; try { await api.removeBoardMember(board.id, me.id); onGone(); } catch (e: any) { toast(e.message, true); } }}><Icon name="user" size={16} />Rời board</button></>}
           {canDelete && <><hr /><button className="bk-danger" onClick={async () => { if (!confirm(`Xoá vĩnh viễn board “${board.name}” cùng mọi danh sách và thẻ?`)) return; try { await api.deleteBoard(board.id); onGone(); } catch (e: any) { toast(e.message, true); } }}><Icon name="trash" size={16} />Xoá board</button></>}
         </div>}
@@ -934,14 +933,18 @@ function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { 
             <div key={c.id} className="bd-arch">
               <button className="bd-arch-card" onClick={() => onOpen(c.id)}><b>{c.title}</b><small>trong {c.listName}</small></button>
               {canEdit && <div className="cm-row"><button className="bk-link" onClick={async () => { await act(() => api.updateCard(c.id, { archived: false })); reloadArch(); }}>Khôi phục</button>
-                {(c.createdBy ? c.createdBy === me.id : canDelete) && <>·<button className="bk-link bk-danger" onClick={async () => { if (!confirm('Xoá hẳn thẻ này?')) return; await act(() => api.deleteCard(c.id)); reloadArch(); }}>Xoá</button></>}</div>}
+                {(me.role === 'admin' || (c.createdBy ? c.createdBy === me.id : canDelete)) && <>·<button className="bk-link bk-danger" onClick={async () => { if (!confirm('Xoá hẳn thẻ này?')) return; await act(() => api.deleteCard(c.id)); reloadArch(); }}>Xoá</button></>}</div>}
             </div>
           )) : <p className="note">Không có thẻ nào được lưu trữ.</p>) : (arch.lists.length ? arch.lists.map((l) => (
             <div key={l.id} className="bd-arch"><b>{l.name}</b>{canEdit && <div className="cm-row"><button className="bk-link" onClick={async () => { await act(() => api.updateList(l.id, { archived: false })); reloadArch(); }}>Khôi phục</button>
               {canDelete && <>·<button className="bk-link bk-danger" onClick={async () => { if (!confirm('Xoá hẳn danh sách và các thẻ trong đó?')) return; await act(() => api.deleteList(l.id)); reloadArch(); }}>Xoá</button></>}</div>}</div>
           )) : <p className="note">Không có danh sách nào được lưu trữ.</p>)}
         </>}
-        {view === 'bg' && <div className="bd-bgs">{Object.keys(BG).map((k) => <button key={k} className={k === board.bg ? 'on' : ''} style={{ background: BG[k] }} aria-label={`Nền ${k}`} onClick={() => { mut((x) => { x.bg = k; }); act(() => api.updateBoard(board.id, { bg: k })); }} />)}</div>}
+        {view === 'bg' && <>
+          <p className="note">Chỉ mình bạn thấy hình nền này; người khác vẫn thấy hình nền của họ.</p>
+          <div className="bd-bgs">{Object.keys(BG).map((k) => <button key={k} className={k === board.bg ? 'on' : ''} style={{ background: BG[k] }} aria-label={`Nền ${k}`} onClick={() => { mut((x) => { x.bg = k; }); act(() => api.boardBackground(board.id, k)); }} />)}</div>
+          {board.sharedBg && board.bg !== board.sharedBg && <button className="btn btn-gray btn-sm" onClick={() => { mut((x) => { x.bg = x.sharedBg || x.bg; }); act(() => api.boardBackground(board.id, null)); }}><span className="bd-bg-dot" style={{ background: bg(board.sharedBg) }} />Dùng hình nền chung của board</button>}
+        </>}
         {view === 'labels' && <>
           {board.labels.map((l) => (
             <div key={l.id} className="bk-label-row">

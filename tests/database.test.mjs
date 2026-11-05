@@ -375,16 +375,17 @@ test('a card is archived or deleted only by whoever made it; a new workspace is 
     const list = (await server.call('GET', `/api/boards/${board.id}`, undefined, ed.cookie)).data.lists[0];
     const eds = (await server.call('POST', `/api/lists/${list.id}/cards`, { title: 'Của Ed' }, ed.cookie)).data;
     const sams = (await server.call('POST', `/api/lists/${list.id}/cards`, { title: 'Của Sam' }, sam.cookie)).data;
-    // Others edit a card but do not archive or delete it, the company admin included.
+    // Others edit a card but do not archive or delete it; its maker and the company admin do.
     assert.equal((await server.call('PUT', `/api/cards/${eds.id}`, { title: 'Của Ed (sửa)' }, sam.cookie)).status, 200);
     assert.equal((await server.call('PUT', `/api/cards/${eds.id}`, { archived: true }, sam.cookie)).status, 403);
     assert.equal((await server.call('DELETE', `/api/cards/${eds.id}`, undefined, sam.cookie)).status, 403);
-    assert.equal((await server.call('DELETE', `/api/cards/${eds.id}`, undefined, ac)).status, 403);
+    assert.equal((await server.call('PUT', `/api/cards/${eds.id}`, { archived: true }, ac)).status, 200);
+    assert.equal((await server.call('PUT', `/api/cards/${eds.id}`, { archived: false }, ac)).status, 200);
     assert.equal((await server.call('GET', `/api/cards/${eds.id}`, undefined, sam.cookie)).data.createdBy, ed.id);
     // "Archive every card" takes only the asker's own; a list with others' cards is not deleted.
     const r = (await server.call('POST', `/api/lists/${list.id}/archive-cards`, undefined, ed.cookie)).data;
     assert.deepEqual(r, { archived: [eds.id], kept: 1 });
-    assert.equal((await server.call('DELETE', `/api/lists/${list.id}`, undefined, ac)).status, 403);
+    assert.equal((await server.call('DELETE', `/api/lists/${list.id}`, undefined, sam.cookie)).status, 403);
     assert.equal((await server.call('DELETE', `/api/cards/${eds.id}`, undefined, ed.cookie)).status, 200);
     assert.equal((await server.call('DELETE', `/api/cards/${sams.id}`, undefined, sam.cookie)).status, 200);
     // A new workspace is private; opened to the company, everyone views it and only its people edit.
@@ -469,7 +470,7 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
       const login = await server.call('POST','/api/auth/login',{email:`${name}@example.test`,password:'test-password'});
       return {id:u.data.id,cookie:login.cookie};
     };
-    const ed = await account('Editor'), other = await account('Other');
+    const ed = await account('Editor'), other = await account('Other'), mate = await account('Mate');
     const imported = await server.call('POST','/api/tasks/import',{text:'Tên công việc\tTrạng thái\tDự án\tGiao cho\tTạo bởi\tKết quả\tMã công việc\nImported task\tChưa thực hiện\tLaunch\tEditor\tAdmin\tprivate-result\t123'},ac);
     assert.equal(imported.status,200,JSON.stringify(imported.data));
     const importedPeople=(await server.call('GET','/api/tasks/meta',undefined,ac)).data.people;
@@ -478,8 +479,10 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     await server.call('PUT',`/api/task-people/${editorName.id}`,{userId:ed.id},ac);
     const task = (await server.call('GET','/api/tasks?scope=all',undefined,ac)).data.tasks.find(t => t.externalId==='123');
     const id = task.id;
-    for(const who of [ed,other])assert.equal((await server.call('PUT',`/api/task-projects/${task.project.id}/members/${who.id}`,{level:'normal'},ac)).status,200);
+    // The project's members change its tasks; a follower of the project ('observer') only looks.
+    for(const [who,level] of [[ed,'normal'],[mate,'normal'],[other,'observer']])assert.equal((await server.call('PUT',`/api/task-projects/${task.project.id}/members/${who.id}`,{level},ac)).status,200);
     assert.equal((await server.call('PUT',`/api/tasks/${id}`,{title:'Denied'},other.cookie)).status,403);
+    assert.equal((await server.call('PUT',`/api/tasks/${id}`,{title:'From a project member'},mate.cookie)).status,200);
     assert.equal((await server.call('GET',`/api/tasks/${id}`,undefined,other.cookie)).data.result,null);
     assert.equal((await server.call('PUT',`/api/tasks/${id}`,{title:'Edited task',description:'Working description',labels:['Urgent']},ed.cookie)).status,200);
     let detail = (await server.call('GET',`/api/tasks/${id}`,undefined,ac)).data;
@@ -533,7 +536,9 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     assert.equal((await server.call('PUT',`/api/tasks/${id}`,{title:'Invalid change',parentId:id},ed.cookie)).status,400);
     assert.equal((await server.call('GET',`/api/tasks/${id}`,undefined,ac)).data.title,'Board edit');
     await server.call('DELETE',`/api/boards/${b.id}/members/${ed.id}`,undefined,ac);
-    assert.equal((await server.call('PUT',`/api/tasks/${id}`,{title:'No board access'},ed.cookie)).status,404);
+    // The task and its card are one piece of work: whoever may change the task still does without the board, and the card follows.
+    assert.equal((await server.call('PUT',`/api/tasks/${id}`,{title:'No board access'},ed.cookie)).status,200);
+    assert.equal((await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data.title,'No board access');
     detail=(await server.call('GET',`/api/tasks/${id}`,undefined,ed.cookie)).data;
     const hiddenBoard=(await server.call('GET','/api/tasks?scope=all',undefined,ed.cookie)).data.tasks.find(task=>task.id===id);
     assert.equal(hiddenBoard.boardLink,null);assert.equal(hiddenBoard.hasBoardLink,true);
@@ -541,7 +546,7 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     assert.equal(detail.boardLink,null); assert.equal(detail.hasBoardLink,true);
     assert.equal((await server.call('DELETE',`/api/tasks/${id}/card`,undefined,ed.cookie)).status,200);
     await server.call('PUT',`/api/tasks/${id}`,{title:'Task only'},ed.cookie);
-    assert.equal((await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data.title,'Board edit');
+    assert.equal((await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data.title,'No board access');
     // Relink an existing card, import updates it, then deleting the card leaves the task intact.
     assert.equal((await server.call('POST',`/api/tasks/${id}/card`,{cardId},ac)).status,201);
     await server.call('POST','/api/tasks/import',{text:'Tên công việc\tMã công việc\tGiao cho\tTạo bởi\nReimported\t123\tEditor\tAdmin'},ac);
@@ -1146,15 +1151,22 @@ test('project followers follow each new task, task followers follow each new sub
   const asWatcher=(await server.call('GET',`/api/tasks/${child.id}`,undefined,watcher.cookie)).data;
   assert.equal(asWatcher.canEdit,false);
   const inbox=async who=>(await server.call('GET','/api/notifications/inbox',undefined,who.cookie)).data.items;
-  assert.deepEqual((await inbox(reviewer)).filter(i=>i.taskId).map(i=>[i.taskId,i.title]),[[child.id,'Có công việc con mới bạn đang theo dõi'],[parent.id,'Bạn được thêm theo dõi công việc']]);
+  // A member of the project hears of each new task in it, as a follower once they follow it.
+  assert.deepEqual((await inbox(reviewer)).filter(i=>i.taskId).map(i=>[i.taskId,i.title]),[[child.id,'Có công việc con mới bạn đang theo dõi'],[parent.id,'Bạn được thêm theo dõi công việc'],[parent.id,'Công việc mới trong dự án của bạn']]);
   assert.ok((await inbox(watcher)).some(i=>i.taskId===parent.id&&i.title==='Công việc mới bạn đang theo dõi'));
   assert.equal((await server.call('PUT',`/api/tasks/${child.id}`,{status:'Đang thực hiện'},ac)).status,200);
   assert.equal((await inbox(watcher))[0].title,'Công việc bạn theo dõi được cập nhật');
+  assert.deepEqual([(await inbox(helper))[0].taskId,(await inbox(helper))[0].title],[child.id,'Công việc trong dự án của bạn được cập nhật']);
+  // Whoever makes the change is not told, and a viewer of the project hears nothing of its tasks.
+  assert.equal((await inbox({cookie:ac})).some(i=>i.taskId),false);
+  assert.equal((await inbox(outsider)).some(i=>/dự án của bạn/.test(i.title)),false);
   assert.equal((await server.call('DELETE',`/api/tasks/${child.id}`,undefined,ac)).status,200);
   // Giving someone a task makes them a member of its project and customer, so they can work on it.
   const given=(await server.call('POST','/api/tasks',{title:'Given task',projectId:project.id,assigneeUserIds:[doer.id]},ac)).data;
   assert.equal((await server.call('GET',`/api/task-projects/${project.id}/members`,undefined,ac)).data.members.find(m=>m.id===doer.id).level,'normal');
   assert.equal((await server.call('PUT',`/api/tasks/${given.id}`,{status:'Đang thực hiện'},doer.cookie)).status,200);
+  assert.deepEqual([(await inbox({cookie:ac}))[0].taskId,(await inbox({cookie:ac}))[0].title],[given.id,'Công việc trong dự án của bạn được cập nhật']);
+  assert.equal((await inbox(doer)).some(i=>i.taskId===given.id&&i.title==='Công việc trong dự án của bạn được cập nhật'),false);
   // "Công việc của tôi": what is given to the account or followed by it, nothing else.
   const mine=async who=>(await server.call('GET','/api/tasks',undefined,who.cookie)).data.tasks.map(t=>t.id);
   assert.ok((await mine(watcher)).includes(parent.id));
@@ -1215,5 +1227,74 @@ test('each account has its own notification email, and whatever concerns that pe
   const queued=db.prepare('SELECT payload FROM mail_outbox WHERE user_id=?').all(dylan.id).map(r=>JSON.parse(r.payload));db.close();
   assert.equal(queued.length,3);assert.ok(queued.every(p=>!JSON.stringify(p).includes('Xem lại bản 2')));
   assert.equal((await server.call('PUT',`/api/users/${dylan.id}`,{notifyEmail:''},ac)).data.notifyEmail,null);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('board backgrounds and interface choices belong to each account',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-personal-'));let server;
+ try{
+  server=await start(dir);
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'personal-boss@example.test',password:'test-password'})).cookie;
+  const made=(await server.call('POST','/api/users',{name:'Mia',email:'mia@example.test',password:'test-password',role:'member'},ac)).data;
+  const mia=(await server.call('POST','/api/auth/login',{email:'mia@example.test',password:'test-password'})).cookie;
+  const board=(await server.call('POST','/api/boards',{name:'Nền riêng',bg:'ocean'},ac)).data;
+  await server.call('PUT',`/api/boards/${board.id}/members/${made.id}`,{level:'observer'},ac);
+  // Even someone who only looks picks their own background; nobody else sees it, and none brings back the board's.
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}/background`,{bg:'forest'},mia)).status,200);
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}/background`,{bg:'nope'},mia)).status,400);
+  const seen=async who=>{const b=(await server.call('GET',`/api/boards/${board.id}`,undefined,who)).data;const l=(await server.call('GET','/api/boards',undefined,who)).data.find(x=>x.id===board.id);return[b.bg,b.sharedBg,l.bg];};
+  assert.deepEqual(await seen(mia),['forest','ocean','forest']);
+  assert.deepEqual(await seen(ac),['ocean','ocean','ocean']);
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}/background`,{bg:null},mia)).status,200);
+  assert.deepEqual(await seen(mia),['ocean','ocean','ocean']);
+  // Theme, language and layout are kept with the account: merged, forgotten with null, only known keys.
+  assert.equal((await server.call('GET','/api/auth/me',undefined,mia)).data.prefs,null);
+  assert.equal((await server.call('PUT','/api/auth/prefs',{'dms.theme':'dark','dms.lang':'en'},mia)).status,200);
+  assert.equal((await server.call('PUT','/api/auth/prefs',{'dms.lang':null,'dms.panels':'{"inbox":false}'},mia)).status,200);
+  assert.deepEqual((await server.call('GET','/api/auth/me',undefined,mia)).data.prefs,{'dms.theme':'dark','dms.panels':'{"inbox":false}'});
+  assert.equal((await server.call('GET','/api/auth/me',undefined,ac)).data.prefs,null);
+  assert.equal((await server.call('PUT','/api/auth/prefs',{'dms.lastProject':'p_1'},mia)).status,400);
+  assert.equal((await server.call('PUT','/api/auth/prefs',{'dms.theme':'dark'})).status,401);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('project members update its tasks and their cards; followers only look',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-task-editors-'));let server;
+ try{
+  server=await start(dir);
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'editors-boss@example.test',password:'test-password'})).cookie;
+  const account=async name=>{const u=(await server.call('POST','/api/users',{name,email:`${name}@example.test`,password:'test-password',role:'member'},ac)).data;return{...u,cookie:(await server.call('POST','/api/auth/login',{email:`${name}@example.test`,password:'test-password'})).cookie};};
+  const member=await account('editor-member'),watcher=await account('editor-watcher'),doer=await account('editor-doer');
+  const customer=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Editors Client'},ac)).data;
+  const project=(await server.call('POST',`/api/customers/${customer.id}/projects`,{name:'Editors Project'},ac)).data;
+  await server.call('PUT',`/api/task-projects/${project.id}/members/${member.id}`,{level:'normal'},ac);
+  await server.call('PUT',`/api/task-projects/${project.id}/members/${watcher.id}`,{level:'observer'},ac);
+  const task=(await server.call('POST','/api/tasks',{title:'Shared work',projectId:project.id,assigneeUserIds:[doer.id],result:'Draft link'},ac)).data;
+  const detail=async who=>(await server.call('GET',`/api/tasks/${task.id}`,undefined,who.cookie)).data;
+  assert.equal((await detail(member)).canEdit,true);assert.equal((await detail(member)).result,'Draft link');
+  assert.equal((await detail(watcher)).canEdit,false);assert.equal((await detail(watcher)).result,null);
+  assert.equal((await server.call('PUT',`/api/tasks/${task.id}`,{status:'Đang thực hiện'},member.cookie)).status,200);
+  assert.equal((await server.call('PUT',`/api/tasks/${task.id}`,{status:'Hoàn thành'},watcher.cookie)).status,403);
+  // On a card the task is the same work: the project's member changes it from the board as well.
+  const board=(await server.call('POST','/api/boards',{name:'Editors Board'},ac)).data;
+  const lists=(await server.call('GET',`/api/boards/${board.id}`,undefined,ac)).data.lists;
+  const linked=await server.call('POST',`/api/tasks/${task.id}/card`,{listId:lists[0].id},ac);
+  assert.equal(linked.status,201,JSON.stringify(linked.data));
+  await server.call('PUT',`/api/boards/${board.id}/members/${member.id}`,{level:'normal'},ac);
+  assert.equal((await server.call('PUT',`/api/cards/${linked.data.cardId}`,{title:'Shared work v2'},member.cookie)).status,200);
+  assert.equal((await detail(doer)).title,'Shared work v2');
+  assert.equal((await server.call('PUT',`/api/tasks/${task.id}`,{dueAt:Date.now()+864e5},member.cookie)).status,200);
+  // A written description stays its writer's: others who edit the work leave it as it is, on the task and on its card.
+  assert.equal((await detail(member)).canEditDescription,true);
+  assert.equal((await server.call('PUT',`/api/tasks/${task.id}`,{description:'Brief by the member'},member.cookie)).status,200);
+  assert.equal((await detail(doer)).canEditDescription,false);
+  assert.equal((await server.call('PUT',`/api/tasks/${task.id}`,{description:'Rewritten'},doer.cookie)).status,403);
+  await server.call('PUT',`/api/boards/${board.id}/members/${doer.id}`,{level:'normal'},ac);
+  assert.equal((await server.call('PUT',`/api/cards/${linked.data.cardId}`,{description:'Rewritten on the board'},doer.cookie)).status,403);
+  assert.equal((await server.call('PUT',`/api/tasks/${task.id}`,{status:'Hoàn thành',description:'Brief by the member'},doer.cookie)).status,200);
+  assert.equal((await server.call('GET',`/api/cards/${linked.data.cardId}`,undefined,member.cookie)).data.canEditDescription,true);
+  assert.equal((await server.call('PUT',`/api/cards/${linked.data.cardId}`,{description:'Brief v2'},member.cookie)).status,200);
+  assert.equal((await detail(member)).description,'Brief v2');
+  assert.equal((await server.call('PUT',`/api/tasks/${task.id}`,{description:'Admin note'},ac)).status,200);
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });

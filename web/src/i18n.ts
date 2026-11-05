@@ -1,6 +1,7 @@
 // English for the interface. Components keep their Vietnamese text; when English is chosen, what is drawn on screen
 // (text, placeholders, tooltips, confirm boxes, messages from the server) is swapped for its English as it appears,
-// from a dictionary loaded only then. The choice is remembered per browser, like the theme.
+// from a dictionary loaded only then. The choice is kept with the account, like the theme.
+import { remember, flushPrefs } from './prefs';
 export type Lang = 'vi' | 'en';
 const KEY = 'dms.lang';
 const VI = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
@@ -11,7 +12,8 @@ export function langPref(): Lang {
 /** Switching reloads the page, so every screen is drawn again in the new language. */
 export function setLang(lang: Lang) {
   try { localStorage.setItem(KEY, lang); } catch { /* private mode: nothing to remember */ }
-  location.reload();
+  remember(KEY, lang);
+  void flushPrefs().finally(() => location.reload());
 }
 
 const exact = new Map<string, string>();

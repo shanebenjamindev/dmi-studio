@@ -9,6 +9,7 @@ import { Router, HttpError, json, readJson, publicOrigin, type Req, type Res } f
 import { all, get, run, uid, now, getSetting, setSetting } from './db';
 import * as G from './google';
 import { turnstileConfig, verifyTurnstile } from './turnstile';
+import { ACCOUNT_PREFS } from '../shared/account-prefs';
 
 export type Role = 'admin' | 'member';
 /** `team_role`: the person's department (phòng ban); `dept_role`: their role in it, whose level (`dept_level`) says what
@@ -175,6 +176,11 @@ async function setNotifyEmail(userId: string, value: unknown) {
     ON CONFLICT(user_id) DO UPDATE SET email = excluded.email, verified_at = excluded.verified_at, enabled = 1, pending_email = NULL, verification_hash = NULL, updated_at = excluded.updated_at`,
     userId, now(), validEmail(email), now());
 }
+/** The account's saved interface choices, or null before it has any. */
+async function prefsOf(userId: string): Promise<Record<string, string> | null> {
+  const row = await get<any>('SELECT data FROM user_prefs WHERE user_id = ?', userId);
+  try { return row ? JSON.parse(row.data) : null; } catch { return null; }
+}
 const notifyEmails = async () => new Map((await all<any>('SELECT user_id, email FROM notification_preferences WHERE email IS NOT NULL AND verified_at IS NOT NULL')).map((r) => [r.user_id, r.email as string]));
 function validPass(p: any) { const s = String(p || ''); if (s.length < 8) throw new HttpError(400, 'Mật khẩu cần ít nhất 8 ký tự'); return s; }
 const userCount = async () => (await get<any>('SELECT COUNT(*) n FROM users'))?.n || 0;
@@ -207,7 +213,19 @@ export function registerAuth(api: Router) {
   api.get('/api/auth/me', async (req, res) => {
     const u = await currentUser(req);
     const c = await G.oauthConfig();
-    json(res, 200, { user: u ? userOut(u) : null, pages: u ? await pagesOf(u) : [], setup: await userCount() === 0, setupCode: !!process.env.SETUP_CODE, google: !!(c.clientId && c.clientSecret) });
+    json(res, 200, { user: u ? userOut(u) : null, pages: u ? await pagesOf(u) : [], prefs: u ? await prefsOf(u.id) : null, setup: await userCount() === 0, setupCode: !!process.env.SETUP_CODE, google: !!(c.clientId && c.clientSecret) });
+  });
+  // Merges into the account's interface choices; null forgets one.
+  api.put('/api/auth/prefs', async (req, res) => {
+    const user = await currentUser(req);
+    if (!user) throw new HttpError(401, 'Hãy đăng nhập lại');
+    const body = await readJson(req), prefs = await prefsOf(user.id) || {};
+    for (const [k, v] of Object.entries(body)) {
+      if (!ACCOUNT_PREFS.includes(k) || (v !== null && (typeof v !== 'string' || v.length > 20000))) throw new HttpError(400, 'Tuỳ chọn giao diện không hợp lệ');
+      if (v === null) delete prefs[k]; else prefs[k] = v;
+    }
+    await run('INSERT INTO user_prefs(user_id, data) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET data = excluded.data', user.id, JSON.stringify(prefs));
+    json(res, 200, { ok: true });
   });
   api.get('/api/profiles/:id',async(req,res)=>{
     const viewer=(await currentUser(req))!;
@@ -326,6 +344,7 @@ export function registerAuth(api: Router) {
     if (u.id === (await currentUser(req))!.id) throw new HttpError(400, 'Bạn không thể xoá chính mình');
     if (u.role === 'admin' && !u.disabled && await activeAdmins() <= 1) throw new HttpError(400, 'Cần giữ ít nhất một quản trị viên');
     await run('DELETE FROM users WHERE id = ?', u.id);
+    for (const t of ['user_prefs', 'board_backgrounds']) await run(`DELETE FROM ${t} WHERE user_id = ?`, u.id);
     json(res, 200, { ok: true });
   });
 }

@@ -12,9 +12,19 @@ export async function notificationSnapshot(taskId:string):Promise<Snapshot>{
  const task=await get<any>('SELECT status,due_at FROM tasks WHERE id=?',taskId);
  return {status:task?.status||'',due_at:task?.due_at??null,users:(await all<any>('SELECT DISTINCT p.user_id FROM task_assignees a JOIN task_people p ON p.id=a.person_id WHERE a.task_id=? AND p.user_id IS NOT NULL',taskId)).map(r=>r.user_id),followers:(await all<any>('SELECT user_id FROM task_followers WHERE task_id=?',taskId)).map(r=>r.user_id)};
 }
-const TITLES:Record<string,string>={assigned:'Bạn được giao công việc',updated:'Công việc được cập nhật',followed:'Bạn được thêm theo dõi công việc',created:'Công việc mới bạn đang theo dõi',subtask:'Có công việc con mới bạn đang theo dõi',followed_updated:'Công việc bạn theo dõi được cập nhật'};
-/** Only task name, status, deadline and an authenticated app link enter emails, never results or descriptions. */
-export async function queueTaskNotifications(taskId:string,before?:Snapshot){
+const TITLES:Record<string,string>={assigned:'Bạn được giao công việc',updated:'Công việc được cập nhật',followed:'Bạn được thêm theo dõi công việc',created:'Công việc mới bạn đang theo dõi',subtask:'Có công việc con mới bạn đang theo dõi',followed_updated:'Công việc bạn theo dõi được cập nhật',project_created:'Công việc mới trong dự án của bạn',project_updated:'Công việc trong dự án của bạn được cập nhật'};
+/** A task's project's owner, admins, members and followers; a viewer (an observer who does not follow) only looks. */
+const PROJECT_AUDIENCE="SELECT created_by user_id FROM task_projects WHERE id=? AND created_by IS NOT NULL UNION SELECT user_id FROM task_project_members WHERE project_id=? AND (role<>'observer' OR follows=1)";
+/** Whether a task still concerns someone (so its notifications stay theirs): they do it, follow it, or are on its project. */
+async function concerns(userId:string,taskId:string){
+ const t=await get<any>('SELECT project_id FROM tasks WHERE id=?',taskId);
+ if(!t)return false;
+ if(await get('SELECT 1 FROM task_assignees a JOIN task_people p ON p.id=a.person_id WHERE a.task_id=? AND p.user_id=?',taskId,userId)||await get('SELECT 1 FROM task_followers WHERE task_id=? AND user_id=?',taskId,userId))return true;
+ return !!t.project_id&&(await all<any>(PROJECT_AUDIENCE,t.project_id,t.project_id)).some(r=>r.user_id===userId);
+}
+/** Only task name, status, deadline and an authenticated app link enter emails, never results or descriptions.
+ *  Whoever made the change (`actorId`) is not told. */
+export async function queueTaskNotifications(taskId:string,before?:Snapshot,actorId?:string){
  const task=await get<any>('SELECT t.id,t.title,t.status,t.due_at,t.updated_at,t.project_id,t.parent_id,p.customer_id FROM tasks t LEFT JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',taskId);
  if(!task)return;
  const after=await notificationSnapshot(taskId);
@@ -24,7 +34,11 @@ export async function queueTaskNotifications(taskId:string,before?:Snapshot){
  const recipients=new Map<string,string|null>();
  for(const userId of after.users)recipients.set(userId,!before?.users.includes(userId)?'assigned':changed?'updated':null);
  for(const userId of after.followers)if(!recipients.has(userId))recipients.set(userId,!before?.followers.includes(userId)?(before?'followed':task.parent_id?'subtask':'created'):changed?'followed_updated':null);
+ // Then everyone else on its project hears of a new task and of its status or deadline changing.
+ if(task.project_id)for(const {user_id} of await all<any>(PROJECT_AUDIENCE,task.project_id,task.project_id))
+  if(!recipients.has(user_id))recipients.set(user_id,!before?'project_created':changed?'project_updated':null);
  for(const [userId,kind] of recipients){
+  if(userId===actorId)continue;
   if(task.project_id&&!(await projectLevels(userId)).has(task.project_id))continue;
   if(!kind||task.customer_id&&!await customerLevel(userId,task.customer_id))continue;
   const id='mail_'+createHash('sha256').update(JSON.stringify([task.id,userId,kind,task.updated_at,task.status,task.due_at])).digest('hex').slice(0,32);
@@ -69,7 +83,7 @@ export async function drainNotifications(limit=10){
   if(!user){await run("UPDATE mail_outbox SET state='cancelled',locked_until=0 WHERE id=?",row.id);return;}
   try{
    const body=JSON.parse(row.payload);
-   if(body.taskId&&!await get('SELECT 1 FROM tasks t JOIN task_assignees a ON a.task_id=t.id JOIN task_people p ON p.id=a.person_id WHERE t.id=? AND p.user_id=?',body.taskId,row.user_id)&&!await get('SELECT 1 FROM task_followers WHERE task_id=? AND user_id=?',body.taskId,row.user_id)){await run("UPDATE mail_outbox SET state='cancelled',locked_until=0 WHERE id=?",row.id);return;}
+   if(body.taskId&&!await concerns(row.user_id,body.taskId)){await run("UPDATE mail_outbox SET state='cancelled',locked_until=0 WHERE id=?",row.id);return;}
    if(body.taskId){const task=await get<any>('SELECT t.project_id,p.customer_id FROM tasks t LEFT JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',body.taskId);if(task?.project_id&&!(await projectLevels(row.user_id)).has(task.project_id)||task?.customer_id&&!await customerLevel(row.user_id,task.customer_id)){await run("UPDATE mail_outbox SET state='cancelled',locked_until=0 WHERE id=?",row.id);return;}}
    if(body.cardId&&!await get('SELECT 1 FROM board_cards WHERE id=?',body.cardId)){await run("UPDATE mail_outbox SET state='cancelled',locked_until=0 WHERE id=?",row.id);return;}
    const due=body.due?new Date(body.due).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'}):'Chưa có thời hạn';
@@ -152,7 +166,7 @@ export function registerNotifications(api:Router){
   let projects:Map<string,string>|null=null,cards:Set<string>|null=null;
   const seesCard=async(id:string)=>(cards??=await visibleCardIds(user.id)).has(id);
   for(const row of rows){
-   if(row.task_id){const task=await get<any>('SELECT t.project_id,p.customer_id FROM tasks t LEFT JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',row.task_id);if(!task||task.project_id&&!(projects??=await projectLevels(user.id)).has(task.project_id)||task.customer_id&&!await customerLevel(user.id,task.customer_id))continue;const own=await get('SELECT 1 FROM task_assignees a JOIN task_people p ON p.id=a.person_id WHERE a.task_id=? AND p.user_id=?',row.task_id,user.id)||await get('SELECT 1 FROM task_followers WHERE task_id=? AND user_id=?',row.task_id,user.id);if(!own)continue;}
+   if(row.task_id){const task=await get<any>('SELECT t.project_id,p.customer_id FROM tasks t LEFT JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',row.task_id);if(!task||task.project_id&&!(projects??=await projectLevels(user.id)).has(task.project_id)||task.customer_id&&!await customerLevel(user.id,task.customer_id))continue;if(!await concerns(user.id,row.task_id))continue;}
    const p=JSON.parse(row.payload);if(p.cardId&&!await get('SELECT 1 FROM board_cards WHERE id=?',p.cardId))continue;
    // The newest ones show what they are about, read now, so never more than the person may still see.
    items.push({id:row.id,taskId:row.task_id,link:p.link||null,title:p.title,body:p.task||'',createdAt:row.created_at,read:!!row.read_at,detail:items.length<30?await detailOf(row.task_id,p,user.id,seesCard):null});

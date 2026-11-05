@@ -14,7 +14,7 @@ import type { Req } from './http';
 import { all, get, run, uid, now } from './db';
 import { currentUser } from './auth';
 import { mustBoard, mustCard, mustList, boardLevelForUser } from './boards';
-import { syncTaskToCard } from './tasklinks';
+import { syncTaskToCard, taskDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
 import { readTaskExport, readTaskSheet, statusKey, normName, type TaskRow } from './taskimport';
 
 const me = async (req: Req) => (await currentUser(req))!;
@@ -189,10 +189,17 @@ function taskOut(t: any, l: Awaited<ReturnType<typeof links>>) {
     sourceUpdatedAt: t.source_updated_at ?? null, stub: !!t.stub, updatedAt: t.updated_at,
   };
 }
-/** May this account see a task's result and change it: admins, and the task's own people. */
+/** May this account see a task's result and change it: admins, the task's own people, its project's managers and
+ *  members (its followers and viewers only look) and, for a task outside projects, whoever edits its card on a board:
+ *  the task and its card are one piece of work, so both sides follow the same rule. */
 async function mine(req: Req, t: any) {
   const u = await me(req);
   if (u.role === 'admin') return true;
+  if (t.project_id) { if (['admin', 'normal'].includes((await projectLevels(u.id)).get(t.project_id) || '')) return true; }
+  else {
+    const board = await get<any>('SELECT b.* FROM task_board_links l JOIN board_cards c ON c.id = l.card_id JOIN boards b ON b.id = c.board_id WHERE l.task_id = ?', t.id);
+    if (board && ['admin', 'normal'].includes(await boardLevelForUser(u, board) || '')) return true;
+  }
   const ids = await myPeople(u.id);
   if (!ids.length) return false;
   if (ids.includes(t.created_by)) return true;
@@ -216,7 +223,7 @@ async function canDelete(req: Req, t: any) {
 async function writable(req: Req) {
   const t = await get<any>('SELECT * FROM tasks WHERE id=?', req.params.id);
   if (!t) throw new HttpError(404, 'Không tìm thấy công việc');
-  if (!await mine(req, t)) throw new HttpError(403, 'Chỉ người được giao, người tạo hoặc quản trị viên mới sửa được công việc này');
+  if (!await mine(req, t)) throw new HttpError(403, 'Chỉ người được giao, người tạo, thành viên dự án hoặc quản trị viên mới sửa được công việc này');
   return t;
 }
 async function defaultCampaign(project: string) {
@@ -235,7 +242,7 @@ async function taskInput(b: any, old?: any,userId?:string) {
   if (start !== null && due !== null && start > due) throw new HttpError(400, 'Thời hạn phải sau ngày bắt đầu');
   const project = b.projectId === undefined ? old?.project_id ?? null : b.projectId || null;
   if (project && !await get('SELECT 1 FROM task_projects WHERE id=?', String(project))) throw new HttpError(400, 'Không tìm thấy dự án');
-  if(project&&userId){await requireProject(userId,String(project),'normal');const p=await get<any>('SELECT customer_id FROM task_projects WHERE id=?',project);if(p?.customer_id)await requireCustomer(userId,p.customer_id,'normal');}
+  if(project&&userId&&project!==old?.project_id){await requireProject(userId,String(project),'normal');const p=await get<any>('SELECT customer_id FROM task_projects WHERE id=?',project);if(p?.customer_id)await requireCustomer(userId,p.customer_id,'normal');}
   let campaign = b.campaignId === undefined && project === old?.project_id ? old?.campaign_id || null : b.campaignId || null;
   if (campaign && !await get('SELECT 1 FROM task_campaigns WHERE id=? AND project_id=?',String(campaign),project)) throw new HttpError(400,'Chiến dịch không thuộc dự án đã chọn');
   const parent = b.parentId === undefined ? old?.parent_id ?? null : b.parentId || null;
@@ -455,7 +462,7 @@ export function registerTasks(api: Router) {
     let boardLink: any = null;
     const linked = await get<any>('SELECT c.id cardId, c.board_id boardId, c.list_id listId, b.name boardName, l.name listName FROM task_board_links x JOIN board_cards c ON c.id=x.card_id JOIN boards b ON b.id=c.board_id JOIN board_lists l ON l.id=c.list_id WHERE x.task_id=?', t.id);
     if (linked) { try { await mustBoard(req, linked.boardId, 'observer'); boardLink = linked; } catch (e) { if (!(e instanceof HttpError) || ![403,404].includes(e.status)) throw e; } }
-    json(res, 200, { ...taskOut(t, l), canDelete: own&&await canDelete(req,t), statuses: boardLink ? (await all<any>('SELECT name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',boardLink.boardId)).map(l=>l.name) : STATUSES, boardLink, hasBoardLink: !!linked, description: t.description || '', result: own ? t.result || '' : null, resultHidden: !own && !!t.result, canEdit: own, path: chain, childTasks: kids });
+    json(res, 200, { ...taskOut(t, l), canDelete: own&&await canDelete(req,t), statuses: boardLink ? (await all<any>('SELECT name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',boardLink.boardId)).map(l=>l.name) : STATUSES, boardLink, hasBoardLink: !!linked, description: t.description || '', result: own ? t.result || '' : null, resultHidden: !own && !!t.result, canEdit: own, canEditDescription: own && mayWriteDescription(await me(req), t.description, await taskDescriptionWriter(t)), path: chain, childTasks: kids });
   });
   api.post('/api/tasks', async (req, res) => {
     const u = await me(req), input = await taskInput(await readJson(req),undefined,u.id);
@@ -464,24 +471,29 @@ export function registerTasks(api: Router) {
     if (input.people === undefined && input.userIds === undefined) input.people = [creator.id];
     const id = uid('tk_'), at = now();
     await run('INSERT INTO tasks(id,title,status,start_at,due_at,done_at,project_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)', id,input.title,input.status,input.start,input.due,input.done,input.project,input.parent,input.description,input.result,creator.id,at,at);
-    await run('UPDATE tasks SET campaign_id=? WHERE id=?',input.campaign,id);
+    await run('UPDATE tasks SET campaign_id=?,description_by=? WHERE id=?',input.campaign,input.description?.trim()?u.id:null,id);
     await saveLinks(id,input,u.id);
     await inheritFollowers(id,input.project,input.parent);
     await routeTaskToWorkspace(id,u.id);
-    await queueTaskNotifications(id).catch(()=>console.error('Không xếp được thông báo công việc'));
+    await queueTaskNotifications(id,undefined,u.id).catch(()=>console.error('Không xếp được thông báo công việc'));
     json(res,201,{ id });
   });
   api.put('/api/tasks/:id', async (req, res) => {
     const t = await writable(req), b = await readJson(req), input = await taskInput(b,t,(await me(req)).id);
+    if ((input.description || '') !== (t.description || '')) {
+      const u = await me(req), writer = await taskDescriptionWriter(t);
+      await assertDescriptionWriter(u, t.description, writer);
+      t.description_by = nextDescriptionWriter(u, t.description, input.description, writer);
+    }
     const beforeNotification=await notificationSnapshot(t.id);
+    // Whoever may change the task changes its card with it (writable): they are one piece of work.
     const linked = await get<any>('SELECT card_id FROM task_board_links WHERE task_id=?',t.id);
-    if (linked && ['title','description','startAt','dueAt','status'].some((k) => b[k] !== undefined)) await mustCard(req,linked.card_id);
     await run('UPDATE tasks SET title=?,status=?,start_at=?,due_at=?,done_at=?,project_id=?,parent_id=?,description=?,result=?,updated_at=? WHERE id=?', input.title,input.status,input.start,input.due,input.done,input.project,input.parent,input.description,input.result,now(),t.id);
-    await run('UPDATE tasks SET campaign_id=? WHERE id=?',input.campaign,t.id);
+    await run('UPDATE tasks SET campaign_id=?,description_by=? WHERE id=?',input.campaign,t.description_by ?? null,t.id);
     await saveLinks(t.id,input,(await me(req)).id);
     if (!linked) await routeTaskToWorkspace(t.id,(await me(req)).id);
     if (linked && ['title','description','startAt','dueAt','status'].some((k) => b[k] !== undefined)) await syncTaskToCard(t.id);
-    await queueTaskNotifications(t.id,beforeNotification).catch(()=>console.error('Không xếp được thông báo công việc'));
+    await queueTaskNotifications(t.id,beforeNotification,(await me(req)).id).catch(()=>console.error('Không xếp được thông báo công việc'));
     json(res,200,{ ok:true });
   });
   api.delete('/api/tasks/:id', async (req,res) => {

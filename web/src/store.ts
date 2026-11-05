@@ -1,6 +1,9 @@
 // App state + actions. Tiny external store consumed with useSyncExternalStore.
 import { useSyncExternalStore } from 'react';
 import { api, auth } from './api';
+import { adoptPrefs } from './prefs';
+import { applyTheme } from './theme';
+import { langPref } from './i18n';
 import { player, type PlayerOpts } from './engine/player';
 import { audio } from './engine/audio';
 import { exportVideo } from './engine/exporter';
@@ -107,9 +110,18 @@ auth.onSignedOut = () => { if (state.user) setState({ user: null }); };
 export async function signedIn(user: User) {
   // Signing in starts on all the boards, unless the address names one task or card (a link from a notification).
   if (!/^#(tasks\/tk_|boards\/b_[^/]+\/c\/)/.test(location.hash)) { history.replaceState(null, '', '#boards'); setState({ view: 'boards' }); }
-  setState({ user, setup: false });
-  await api.me().then((m) => setState({ pages: m.pages || [] })).catch(() => {});
+  const m = await api.me().catch(() => null);
+  if (accountPrefs(user.id, m?.prefs)) return;
+  setState({ user, setup: false, ...(m ? { pages: m.pages || [] } : {}) });
   await loadApp();
+}
+/** Puts the account's own theme, language and board layout in place; true when the page reloads to show its language. */
+function accountPrefs(userId: string, saved: Record<string, string> | null | undefined) {
+  adoptPrefs(userId, saved);
+  applyTheme();
+  if (langPref() === document.documentElement.lang) return false;
+  location.reload();
+  return true;
 }
 /** Pages this account can open. On a server that cannot run the editor (the cloud site), its tab says where it runs. */
 export function openPages(): View[] {
@@ -143,6 +155,7 @@ export async function signOut() {
 export async function init() {
   try {
     const me = await api.me();
+    if (me.user && accountPrefs(me.user.id, me.prefs)) return;
     setState({ user: me.user, pages: me.pages || [], setup: me.setup, setupCode: !!me.setupCode, googleSignin: me.google });
     if (me.user) await loadApp();
   } catch (e: any) {
@@ -629,9 +642,10 @@ export function cancelExport() { exportSignal.cancelled = true; }
 export const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 export { sid };
 
+// The view first: changing it rewrites the address to the bare page, which would drop the id.
 export function openProfile(id:string) {
-  history.replaceState(null,'',`#profile/${encodeURIComponent(id)}`);
   setState({view:'profile'});
+  history.replaceState(null,'',`#profile/${encodeURIComponent(id)}`);
   window.dispatchEvent(new HashChangeEvent('hashchange'));
 }
 /** Go to an address inside the app (a board, a card, a project, a customer) from any page. */
@@ -643,7 +657,7 @@ export function openLink(hash: string) {
 }
 /** Open a task's own page, also when the task list is already on screen. */
 export function openTask(id:string) {
-  history.replaceState(null,'',`#tasks/${id}/page`);
   setState({view:'tasks'});
+  history.replaceState(null,'',`#tasks/${id}/page`);
   window.dispatchEvent(new HashChangeEvent('hashchange'));
 }

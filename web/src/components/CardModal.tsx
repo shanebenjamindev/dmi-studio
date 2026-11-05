@@ -6,7 +6,7 @@ import {EntitySelect,QuickCreateButton,useEntityRefresh} from './QuickCreate';
 // delete). Someone who only views the board (observer) reads everything and comments.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import { toast, useStore, goto } from '../store';
+import { toast, useStore, goto, openTask } from '../store';
 import { Icon } from './ui';
 import { MemberChoices } from './EmployeePicker';
 import { MemberAvatar } from './MemberAvatar';
@@ -65,7 +65,7 @@ export function CardModal({ id, board, me, onClose, onChanged }: { id: string; b
           {c.archived && edit && (
             <div className="cm-archived"><Icon name="archive" size={16} />Thẻ này đã được lưu trữ.
               <button className="btn btn-gray btn-sm" onClick={() => act(() => api.updateCard(c.id, { archived: false }))}>Khôi phục</button>
-              {(c.createdBy ? c.createdBy === me.id : board.level === 'admin') && <button className="btn btn-sm cm-danger" onClick={async () => { if (!confirm('Xoá hẳn thẻ này? Không khôi phục được.')) return; try { await api.deleteCard(c.id); onChanged(); onClose(); } catch (e: any) { toast(e.message, true); } }}>Xoá</button>}
+              {(me.role === 'admin' || (c.createdBy ? c.createdBy === me.id : board.level === 'admin')) && <button className="btn btn-sm cm-danger" onClick={async () => { if (!confirm('Xoá hẳn thẻ này? Không khôi phục được.')) return; try { await api.deleteCard(c.id); onChanged(); onClose(); } catch (e: any) { toast(e.message, true); } }}>Xoá</button>}
             </div>
           )}
 
@@ -73,11 +73,12 @@ export function CardModal({ id, board, me, onClose, onChanged }: { id: string; b
         {pending > 0 && <p className="cm-saving" role="status">Đang lưu…</p>}
         <div className="cm-panes">
           <main className="cm-left">
-          <header className="cm-head">
+          <header className={'cm-head' + (c.linkedTask ? ' has-task' : '')}>
             <button className={'cm-done' + (c.done ? ' on' : '')} disabled={!edit} onClick={() => act(() => api.updateCard(c.id, { done: !c.done }))} aria-label={c.done ? 'Bỏ đánh dấu hoàn thành' : 'Đánh dấu hoàn thành'} title={c.done ? 'Bỏ đánh dấu hoàn thành' : 'Đánh dấu hoàn thành'}>
               {c.done ? <Icon name="check" size={14} /> : null}
             </button>
             <Title value={c.title} readOnly={!edit} onSave={(t) => act(() => api.updateCard(c.id, { title: t }))} />
+            {c.linkedTask && <button className="btn btn-gray btn-sm cm-task-open" onClick={() => { const taskId = c.linkedTask!.id; onClose(); openTask(taskId); }}><Icon name="checklist" size={14} />Mở trang công việc</button>}
           </header>
             {edit ? (
               <div className="cm-actions">
@@ -110,8 +111,8 @@ export function CardModal({ id, board, me, onClose, onChanged }: { id: string; b
               </div>
             )}
 
-            {c.linkedTask && <section className="cm-sec"><button className="btn btn-gray btn-sm" onClick={() => { const taskId = c.linkedTask!.id; onClose(); goto('tasks'); history.replaceState(null, '', `#tasks/${taskId}`); }}><Icon name="checklist" size={15} />Mở công việc liên kết</button><p className="note">Tên, mô tả, ngày và trạng thái hoàn thành đồng bộ với công việc.</p></section>}
-            <Description value={c.description} readOnly={!edit} onSave={(t) => act(() => api.updateCard(c.id, { description: t }))} />
+            
+            <Description value={c.description} readOnly={!edit || !c.canEditDescription} onSave={(t) => act(() => api.updateCard(c.id, { description: t }))} />
 
             {videos.length > 0 && (
               <section className="cm-sec">
@@ -346,7 +347,7 @@ export function CardPop({ pop, card, board, me, edit, setPop, act, onGone }: {
     // Trello's card menu: join or leave, move, copy, share the link, archive; only whoever made the card archives or deletes it.
     case 'actions': {
       // Cards from before makers were kept have no maker: the board's admins look after those.
-      const joined = card.members.includes(me.id), mine = card.createdBy ? card.createdBy === me.id : board.level === 'admin';
+      const joined = card.members.includes(me.id), mine = me.role === 'admin' || (card.createdBy ? card.createdBy === me.id : board.level === 'admin');
       const link = `${location.origin}${location.pathname}#boards/${board.id}/c/${card.id}`;
       return (
         <Pop anchor={pop.el} title="Thao tác" onClose={close}>
@@ -364,7 +365,7 @@ export function CardPop({ pop, card, board, me, edit, setPop, act, onGone }: {
                 : <button onClick={() => { close(); act(() => api.updateCard(card.id, { archived: true })); }}><Icon name="archive" size={15} />Lưu trữ</button>}
               {card.archived && <button className="bk-danger" onClick={async () => { if (!confirm('Xoá hẳn thẻ này? Không khôi phục được.')) return; close(); try { await api.deleteCard(card.id); onGone(); } catch (e: any) { toast(e.message, true); } }}><Icon name="trash" size={15} />Xoá thẻ</button>}
             </>}
-            {edit && !mine && <p className="note bk-menu-note">Chỉ người tạo thẻ mới lưu trữ hay xoá được thẻ này.</p>}
+            {edit && !mine && <p className="note bk-menu-note">Chỉ người tạo thẻ hoặc quản trị viên mới lưu trữ hay xoá được thẻ này.</p>}
           </div>
         </Pop>
       );

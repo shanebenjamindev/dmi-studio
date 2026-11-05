@@ -110,7 +110,10 @@ test('Workers: accounts, cookies, cross-isolate Google state, permissions and or
     assert.equal((await call(b,'GET',`/api/task-projects/${project.data.id}/members`,undefined,setup.cookie)).data.ownerId,setup.data.user.id);
 
     // Task CRUD and card synchronisation also run against the real D1 binding.
-    const task = await call(a, 'POST', '/api/tasks', { title: 'D1 task', description: 'Shared working text', result: 'private', assigneeUserIds: [setup.data.user.id] }, setup.cookie);
+    // Someone else follows it: whoever makes a change is not mailed about it, the follower is.
+    const mate = await call(a, 'POST', '/api/users', { name: 'Mail Mate', email: 'mate@example.test', password: 'test-password', role: 'member', notifyEmail: 'mate.personal@example.test' }, setup.cookie);
+    assert.equal(mate.status, 201, JSON.stringify(mate.data));
+    const task = await call(a, 'POST', '/api/tasks', { title: 'D1 task', description: 'Shared working text', result: 'private', assigneeUserIds: [setup.data.user.id], followerUserIds: [mate.data.id] }, setup.cookie);
     assert.equal(task.status, 201, JSON.stringify(task.data));
     const taskId = task.data.id;
     const staff = await call(a, 'POST', '/api/task-people', { userId: setup.data.user.id }, setup.cookie);
