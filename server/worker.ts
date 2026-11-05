@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { createServer } from 'node:http';
 import { httpServerHandler } from 'cloudflare:node';
+import {drainNotifications} from './notifications';
 import { handleApi } from './app';
 import { initDatabase, type D1Binding } from './db';
 
@@ -9,8 +10,15 @@ const nodeHandler = httpServerHandler({ port: 8787 });
 type WorkerRequest = Parameters<NonNullable<typeof nodeHandler.fetch>>[0];
 
 export default {
+  async scheduled(_event:ScheduledEvent,env:{DB?:D1Binding},ctx:ExecutionContext){
+    ctx.waitUntil((async()=>{await initDatabase(env.DB);await drainNotifications();})());
+  },
   async fetch(request: WorkerRequest, env: { ASSETS: Fetcher; DB?: D1Binding }, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    if (url.hostname === 'dmi-studio.detailersmovement.workers.dev' && !url.pathname.startsWith('/api/google/callback')) {
+      url.hostname = 'dmi-workspace.detailersmovement.workers.dev';
+      return Response.redirect(url.toString(), 301);
+    }
     if (url.pathname.startsWith('/assets/')) return Response.json({ error: 'Video được lưu trên Google Drive.' }, { status: 404 });
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
     if (!['GET', 'HEAD'].includes(request.method)) {
@@ -26,6 +34,9 @@ export default {
     const headers = new Headers(request.headers);
     headers.set('host', url.host);
     headers.set('x-forwarded-proto', url.protocol.slice(0, -1));
-    return nodeHandler.fetch!(new Request(request, { headers }) as WorkerRequest, env, ctx);
+    const res = await nodeHandler.fetch!(new Request(request, { headers }) as WorkerRequest, env, ctx);
+    // Mail a change has queued goes out right after it, in the background; the minute's run retries what failed.
+    if (request.method !== 'GET') ctx.waitUntil(drainNotifications().then(() => {}, () => console.error('Chưa xử lý được hàng đợi email')));
+    return res;
   },
 };

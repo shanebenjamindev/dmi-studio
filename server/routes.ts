@@ -1,19 +1,28 @@
+import {customerLevels,requireCustomer} from './customer-access';
 // REST API.
 import fs from 'node:fs';
 import path from 'node:path';
 import { Router, HttpError, json, readJson, readBody, sendFile } from './http';
 import { all, get, run, uid, now, getSetting, setSetting } from './db';
 import { ASSET_DIR, FFMPEG, MAX_UPLOAD, MOCK, CLAUDE_CLI, CLOUD_STORAGE_ONLY } from './config';
+import { FOLDER_MIME } from './google';
 import { publicCatalog, findProvider, KEY_ENVS, getKey, keySource, setKey, mask, customModels } from './providers/registry';
 import { writeStoryboard, ProviderError } from './providers/llm';
 import { generatePrompt, refinePrompt, normalizeStoryboard, BRAND_PALETTES } from './storyboard';
 import { createJob, publicJob, saveAsset } from './jobs';
-import { registerWorkspace } from './workspace';
-import { registerAuth } from './auth';
+import { registerWorkspace, autoLinkCustomer, syncUnlinkedCustomers } from './workspace';
+import {registerNotifications} from './notifications';
+import {currentUser, registerAuth } from './auth';
 import { registerProxies } from './proxies';
 import { registerCapcut } from './capcut';
-import { registerSheets, checkSheet, sheetPrompt, EDIT_SYSTEM, EDIT_SCHEMA } from './sheets';
-import { registerSources, checkSources, sourcePrompt, withSourceLabels, applySources, applyEdit, SOURCE_SCHEMA, FOOTAGE } from './sources';
+import { registerOutro } from './outro';
+import { registerReports } from './reports';
+import { registerAdsSummary } from './ads-summary';
+import { registerAds } from './ads';
+import { registerTasks } from './tasks';
+import { registerBoards } from './boards';
+import { registerSheets, checkSheet, sheetPrompt, ownBrand, EDIT_SYSTEM, EDIT_SCHEMA } from './sheets';
+import { registerSources, driveId, locate, checkSources, sourcePrompt, withSourceLabels, applySources, applyEdit, SOURCE_SCHEMA, FOOTAGE } from './sources';
 
 export const api = new Router();
 
@@ -32,10 +41,25 @@ const projectOut = (r: any, full = true) => {
       deadline: data.sheet.form?.deadline || '', urgent: !!data.sheet.form?.urgent, missing: (data.sheet.missing || []).length,
       scenes: (data.sheet.form?.script || []).length,
     } : null,
+    // For managing the work: where the project stands, whether it has an outro, its last CapCut export.
+    status: data.status || '', outro: !!data.outro, exported: (data.exports || [])[0]?.at || null,
   };
-  if (full) Object.assign(out, { storyboard: sb, chat: data.chat || [], sources: data.sources || [], sheet: data.sheet || null });
+  if (full) Object.assign(out, { storyboard: sb, chat: data.chat || [], sources: data.sources || [], sheet: data.sheet || null, outro: data.outro || null, note: data.note || '', exports: data.exports || [], drive: data.drive || null });
   return out;
 };
+/** A project as its page shows it: with the customer it belongs to (name, folder, link to the folder on Drive). */
+async function withCustomer(out: any) {
+  const c = out.customerId ? await get<any>('SELECT id, name, folder, gloc FROM customers WHERE id = ?', out.customerId) : null;
+  const g = c?.gloc ? JSON.parse(c.gloc) : null;
+  out.customer = c ? { id: c.id, name: c.name, label: g?.label || c.folder, driveUrl: g ? `https://drive.google.com/drive/folders/${g.id}` : null } : null;
+  return out;
+}
+const STATUSES = ['todo', 'doing', 'review', 'fix', 'done'];
+/** An outro made by /api/projects/:id/outro… for this project, as the editor saves it. */
+const checkOutro = (o: any, id: string) => (o && typeof o === 'object' && String(o.media?.url || '').startsWith(`/api/outro/${id}/`)
+  ? { media: o.media, logo: String(o.logo || ''), opts: o.opts || {}, aspect: String(o.aspect || ''), removed: String(o.removed || ''), bg: String(o.bg || ''), small: !!o.small, faint: !!o.faint, at: Number(o.at) || now(),
+    palette: (Array.isArray(o.palette) ? o.palette : []).filter((c: any) => /^#[0-9a-f]{6}$/.test(c)).slice(0, 4), colors: (Array.isArray(o.colors) ? o.colors : []).filter((c: any) => /^#[0-9a-f]{6}$/.test(c)).slice(0, 2) }
+  : null);
 const mustProject = async (id: string) => {
   const r = await get<any>('SELECT * FROM projects WHERE id = ?', id);
   if (!r) throw new HttpError(404, 'Không tìm thấy dự án');
@@ -45,6 +69,35 @@ const mustProject = async (id: string) => {
 // ------------------------------------------------------------------ meta
 // `editor`: the sheet-to-timeline editor needs Claude CLI, ffmpeg and a local disk (the Mac server, not the cloud Worker).
 api.get('/api/health', (_q, res) => json(res, 200, { ok: true, mock: MOCK, ffmpeg: !!FFMPEG, editor: !CLOUD_STORAGE_ONLY && !!FFMPEG && !!CLAUDE_CLI, version: '2.0.0' }));
+
+// Where the cloud site sends people for the editor: the Mac's internet address, entered by an admin (or EDITOR_URL).
+// Signed-in people with the editor page only; the status says whether that Mac answers and can run the editor.
+async function macStatus(url: string) {
+  if (!url) return 'none';
+  try {
+    const r = await fetch(url + '/api/health', { signal: AbortSignal.timeout(6000), redirect: 'error' });
+    const h: any = await r.json().catch(() => null);
+    if (r.status === 403 && /Host/.test(h?.error || '')) return 'blocked'; // the Mac does not accept this hostname yet
+    return h?.ok ? (h.editor ? 'ready' : 'no-editor') : 'offline';
+  } catch { return 'offline'; }
+}
+api.get('/api/editor-link', async (_q, res) => {
+  const url = String(await getSetting('editor_url', '') || process.env.EDITOR_URL || '');
+  json(res, 200, { url, status: await macStatus(url) });
+});
+api.put('/api/settings/editor-link', async (req, res) => {
+  const raw = String((await readJson(req)).url || '').trim();
+  let url = '';
+  if (raw) {
+    // An http(s) address (https:// assumed when left out) whose host is a domain, an IP address or localhost.
+    let u: URL | null = null;
+    if (!/\s/.test(raw) && (/^https?:\/\//i.test(raw) || !raw.includes('://'))) try { u = new URL(/^https?:\/\//i.test(raw) ? raw : 'https://' + raw); } catch { /* below */ }
+    if (!u || !/[.:]/.test(u.hostname) && u.hostname !== 'localhost') throw new HttpError(400, 'Địa chỉ không hợp lệ, ví dụ: https://studio.example.com');
+    url = u.origin;
+  }
+  await setSetting('editor_url', url);
+  json(res, 200, { url, status: await macStatus(url) });
+});
 api.get('/api/providers', async (_q, res) => json(res, 200, { providers: await publicCatalog(), defaults: await getSetting('defaults', {}) }));
 
 // ------------------------------------------------------------------ settings
@@ -79,17 +132,26 @@ api.post('/api/settings/custom-models', async (req, res) => {
 });
 
 // ------------------------------------------------------------------ projects
-api.get('/api/projects', async (_q, res) => json(res, 200, (await all('SELECT * FROM projects ORDER BY updated_at DESC')).map((r) => projectOut(r, false))));
+api.get('/api/projects', async (req, res) => {
+  const levels=await customerLevels((await currentUser(req))!.id);
+  // Projects made from a sheet that have no customer yet look for one by name here (no Drive calls), so the overview
+  // and the customer pages agree.
+  await syncUnlinkedCustomers();
+  const names = new Map((await all<any>('SELECT id, name FROM customers')).map((c) => [c.id, c.name]));
+  json(res, 200, (await all<any>('SELECT * FROM projects ORDER BY updated_at DESC')).filter(r=>!r.customer_id||levels.has(r.customer_id)).map((r) => ({ ...projectOut(r, false), customerName: names.get(r.customer_id) || null })));
+});
 api.post('/api/projects', async (req, res) => {
   const b = await readJson(req);
   const id = uid('p_');
   const sb = b.storyboard ? normalizeStoryboard(b.storyboard) : null;
+  if(b.customerId)await requireCustomer((await currentUser(req))!.id,String(b.customerId),'normal');
   const customer = b.customerId && await get('SELECT id FROM customers WHERE id = ?', b.customerId) ? b.customerId : null;
   await run('INSERT INTO projects(id, title, aspect, data, customer_id, created_at, updated_at) VALUES(?,?,?,?,?,?,?)',
     id, b.title || sb?.title || 'Dự án mới', b.aspect || '16:9', JSON.stringify({ storyboard: sb, chat: b.chat || [], sources: await checkSources(b.sources), sheet: checkSheet(b.sheet) }), customer, now(), now());
-  json(res, 201, projectOut(await mustProject(id)));
+  if (!customer && b.sheet) await autoLinkCustomer(id).catch(() => {});
+  json(res, 201, await withCustomer(projectOut(await mustProject(id))));
 });
-api.get('/api/projects/:id', async (req, res) => json(res, 200, projectOut(await mustProject(req.params.id))));
+api.get('/api/projects/:id', async (req, res) => json(res, 200, await withCustomer(projectOut(await mustProject(req.params.id)))));
 api.put('/api/projects/:id', async (req, res) => {
   const cur = await mustProject(req.params.id);
   const b = await readJson(req);
@@ -98,9 +160,43 @@ api.put('/api/projects/:id', async (req, res) => {
   if (b.chat !== undefined) data.chat = (b.chat || []).slice(-100);
   if (b.sources !== undefined) data.sources = await checkSources(b.sources);
   if (b.sheet !== undefined) data.sheet = checkSheet(b.sheet);
-  await run('UPDATE projects SET title=?, aspect=?, data=?, updated_at=? WHERE id=?',
-    b.title ?? cur.title, b.aspect ?? cur.aspect, JSON.stringify(data), now(), cur.id);
-  json(res, 200, projectOut(await mustProject(cur.id)));
+  if (b.outro !== undefined) data.outro = checkOutro(b.outro, cur.id);
+  if (b.status !== undefined) data.status = STATUSES.includes(b.status) ? b.status : '';
+  if (b.note !== undefined) data.note = String(b.note || '').slice(0, 5000);
+  let customer = cur.customer_id;
+  if (b.customerId !== undefined) {
+    customer = b.customerId || null;
+    if(customer)await requireCustomer((await currentUser(req))!.id,String(customer),'normal');
+    data.customerManual = true;
+    if (customer && !(await get('SELECT id FROM customers WHERE id = ?', customer))) throw new HttpError(404, 'Không tìm thấy khách hàng');
+  }
+  await run('UPDATE projects SET title=?, aspect=?, data=?, customer_id=?, updated_at=? WHERE id=?',
+    b.title ?? cur.title, b.aspect ?? cur.aspect, JSON.stringify(data), customer, now(), cur.id);
+  if (!customer && b.customerId === undefined && (b.sheet || b.sources)) await autoLinkCustomer(cur.id).catch(() => {});
+  json(res, 200, await withCustomer(projectOut(await mustProject(cur.id))));
+});
+// The project's own place on Drive (its folder, or the finished video), pasted as a link; empty removes it. A link
+// inside a customer's folder also tells which customer the project belongs to, if it has none yet.
+api.post('/api/projects/:id/drive', async (req, res) => {
+  const cur = await mustProject(req.params.id);
+  const link = String((await readJson(req)).link || '').trim();
+  const data = JSON.parse(cur.data);
+  if (!link) data.drive = null;
+  else {
+    const id = driveId(link);
+    if (!id) throw new HttpError(400, 'Đây không phải link Google Drive');
+    const { account, file } = await locate(id);
+    const folder = file.mimeType === FOLDER_MIME;
+    data.drive = { id: file.id, name: file.name, folder, account, url: folder ? `https://drive.google.com/drive/folders/${file.id}` : `https://drive.google.com/file/d/${file.id}/view` };
+  }
+  await run('UPDATE projects SET data=?, updated_at=? WHERE id=?', JSON.stringify(data), now(), cur.id);
+  if (data.drive) await autoLinkCustomer(cur.id, { force: true }).catch(() => {});
+  json(res, 200, await withCustomer(projectOut(await mustProject(cur.id))));
+});
+// Look for the project's customer now: on Drive (where its link and footage are), then by the sheet's customer name.
+api.post('/api/projects/:id/customer/auto', async (req, res) => {
+  await autoLinkCustomer((await mustProject(req.params.id)).id, { force: true });
+  json(res, 200, await withCustomer(projectOut(await mustProject(req.params.id))));
 });
 api.post('/api/projects/:id/duplicate', async (req, res) => {
   const cur = await mustProject(req.params.id);
@@ -171,7 +267,8 @@ api.post('/api/ai/refine', async (req, res) => {
   const sources = await checkSources(b.sources);
   const sheet = checkSheet(b.sheet);
   const edit = b.storyboard.mode === 'edit';
-  if (sheet) b.brand = false;
+  // A cut is the client's footage; a video made from a form's script keeps our brand kit only when the form is ours.
+  if (sheet) b.brand = !edit && ownBrand(sheet);
   const current = sources.length ? withSourceLabels(b.storyboard, sources) : b.storyboard;
   const prompt = edit
     ? `${sheet ? sheetPrompt(sheet) + '\n\n' : ''}Current cut (same JSON shape you answer in):\n${JSON.stringify(current)}\n\nApply this change and return the FULL updated cut; keep everything the request does not touch.\nChange: ${b.instruction}`
@@ -278,10 +375,17 @@ api.delete('/api/renders/:id', async (req, res) => {
 });
 
 registerAuth(api);
+registerNotifications(api);
 registerWorkspace(api);
 registerSources(api);
 registerSheets(api);
 registerProxies(api);
 registerCapcut(api);
+registerOutro(api);
+registerReports(api);
+registerAds(api);
+registerAdsSummary(api);
+registerTasks(api);
+registerBoards(api);
 
 export { ProviderError };

@@ -40,7 +40,7 @@ export function LeftPanel() {
               <button type="submit" className="btn btn-primary" disabled={!!busy || !valid}><Icon name="sparkle" size={16} />Ghép source</button>
               {other && <button type="button" className="btn btn-gray" onClick={() => { setOther(false); setLink(''); }}>Huỷ</button>}
             </div>
-            {!sheet && <p className="lp-help">Tool đọc sheet, lấy video theo link và tên file trong cột Source, rồi xếp lên timeline đúng thứ tự từng hàng. Sheet và thư mục source cần chia sẻ cho tài khoản Google đã kết nối.</p>}
+            {!sheet && <p className="lp-help">Tool đọc sheet, lấy video theo link và tên file trong cột Source, rồi xếp lên timeline đúng thứ tự từng hàng. Sheet không có video thì tự tạo video chữ chuyển động từ kịch bản. Sheet và thư mục source cần chia sẻ cho tài khoản Google đã kết nối.</p>}
           </form>
         ) : (
           <div className="sheet-card">
@@ -85,7 +85,7 @@ export function LeftPanel() {
         </section>
       )}
 
-      {sb && !assembly && <LegacyChat />}
+      {sb && !assembly && <ClaudeChat assembly={false} />}
     </aside>
   );
 }
@@ -103,21 +103,35 @@ function SourceTile({ s, uses, onAdd, disabled }: { s: Source; uses: number; onA
   );
 }
 
-/** Older projects made from a written brief keep their chat for edits. */
-function LegacyChat() {
+// Things people often ask of a rough cut from a sheet (a click puts one in the box).
+const ASK = ['Rút ngắn còn khoảng 15 giây', 'Bỏ cảnh cuối', 'Đổi cảnh 2 sang clip khác hợp hơn', 'Đưa cảnh xưởng lên đầu', 'Mỗi shot ngắn lại cho nhịp nhanh hơn'];
+
+/**
+ * Edit by asking Claude: it reads the request sheet and the sources again and returns the whole cut changed as asked
+ * (undoable with ⌘/Ctrl+Z). Projects from a written brief keep the same chat. Claude runs through Claude Code on the
+ * machine that serves the app (no API key), so the cloud version cannot use it.
+ */
+export function ClaudeChat({ assembly }: { assembly: boolean }) {
   const busy = useStore((s) => s.busy);
   const chat = useStore((s) => s.project?.chat || []);
+  const ready = useStore((s) => s.providers.some((p) => p.kind === 'llm' && p.configured && !p.mock));
   const [instr, setInstr] = useState('');
   const logRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLInputElement>(null);
   useEffect(() => { logRef.current?.scrollTo(0, 1e6); }, [chat.length]);
-  const send = () => { if (instr.trim() && !busy) { refine(instr.trim()); setInstr(''); } };
+  const send = () => { if (instr.trim() && !busy && ready) { refine(instr.trim()); setInstr(''); } };
   return (
-    <section className="assistant">
-      <h2 className="side-sub">Chỉnh bằng lời</h2>
-      <div className="chat-log" ref={logRef}>{chat.map((m, i) => <div key={i} className={'bubble ' + m.who}>{m.text}</div>)}</div>
+    <section className={'assistant' + (assembly ? ' assistant-cut' : '')}>
+      <h2 className="side-sub"><Icon name="sparkle" size={15} />{assembly ? 'Chỉnh bằng Claude' : 'Chỉnh bằng lời'}</h2>
+      {assembly && <p className="lp-help">Nói Claude cần đổi gì: Claude đọc lại sheet và xem lại các source rồi sửa bản dựng. Outro logo được giữ ở cuối; ⌘/Ctrl+Z để hoàn tác.</p>}
+      {!ready && <p className="note err">Claude chỉ chạy ở bản trên máy có Claude Code đã đăng nhập (chạy <code>npm run dev</code>); bản web chưa dùng được.</p>}
+      {chat.length > 0 && <div className="chat-log" ref={logRef}>{chat.map((m, i) => <div key={i} className={'bubble ' + m.who}>{m.text}</div>)}</div>}
+      {assembly && ready && !chat.some((m) => m.who === 'user') && (
+        <div className="ask-chips">{ASK.map((a) => <button key={a} type="button" onClick={() => { setInstr(a); boxRef.current?.focus(); }}>{a}</button>)}</div>
+      )}
       <form className="composer" onSubmit={(e) => { e.preventDefault(); send(); }}>
-        <input value={instr} onChange={(e) => setInstr(e.target.value)} placeholder="Ví dụ: đổi cảnh 2…" aria-label="Yêu cầu chỉnh sửa" />
-        <button type="submit" className="send" disabled={!!busy || !instr.trim()} aria-label="Gửi"><Icon name="send" size={16} /></button>
+        <input ref={boxRef} value={instr} onChange={(e) => setInstr(e.target.value)} disabled={!ready} placeholder={assembly ? 'Ví dụ: rút ngắn còn 15 giây…' : 'Ví dụ: đổi cảnh 2…'} aria-label="Yêu cầu chỉnh sửa cho Claude" />
+        <button type="submit" className="send" disabled={!!busy || !instr.trim() || !ready} aria-label="Gửi"><Icon name="send" size={16} /></button>
       </form>
     </section>
   );

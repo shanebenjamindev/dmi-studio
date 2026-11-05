@@ -1,4 +1,4 @@
-# DM Studio — Detailers Movement
+# DM Workspace — Detailers Movement
 
 Ứng dụng **full-stack** làm video bằng AI: gõ ý tưởng, AI viết kịch bản, các model video/ảnh tạo cảnh nền, AI đọc lời thoại. Trình duyệt dựng chữ, chuyển động, logo và nhạc, rồi xuất **MP4**. Bản cloud chạy trên Cloudflare Workers, dùng chung Cloudflare D1 và lưu video khách hàng trên Google Drive; xem [DEPLOY.md](DEPLOY.md). Local vẫn hỗ trợ SQLite.
 

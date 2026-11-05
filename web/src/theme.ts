@@ -6,7 +6,7 @@ const media = typeof matchMedia === 'function' ? matchMedia('(prefers-color-sche
 const listeners = new Set<() => void>();
 
 export function themePref(): ThemePref {
-  try { const v = localStorage.getItem(KEY); return v === 'light' || v === 'dark' ? v : 'system'; } catch { return 'system'; }
+  try { const v = localStorage.getItem(KEY); return v === 'light' || v === 'dark' || v === 'system' ? v : 'light'; } catch { return 'light'; }
 }
 function apply() {
   const pref = themePref();
@@ -16,7 +16,7 @@ function apply() {
   listeners.forEach((f) => f());
 }
 export function setThemePref(p: ThemePref) {
-  try { if (p === 'system') localStorage.removeItem(KEY); else localStorage.setItem(KEY, p); } catch { /* private mode: this tab only */ }
+  try { localStorage.setItem(KEY,p); } catch { /* private mode: this tab only */ }
   apply();
 }
 export function onTheme(f: () => void) { listeners.add(f); return () => { listeners.delete(f); }; }

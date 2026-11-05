@@ -1,89 +1,100 @@
-// Tổng quan (Drive ▸ My Drive): every customer folder and every editing project in one place: counts, what is due or
-// urgent (deadline and "Gấp" read from each request sheet), what is missing footage, and quick ways in.
+// Tổng quan (Drive ▸ the overview button): the customers and their videos, task by task. A task is a card on a board
+// set to a customer (Khách hàng on the card); its videos are the files of that customer's folder put on the card.
+// Editing projects and their reports live in the editor, not here.
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { useStore, setState, openProject, fmt } from '../store';
+import { setState } from '../store';
 import { Icon } from './ui';
-import type { Customer, ProjectItem } from '../types';
+import { dueState, shortDate, videoThumb } from './boardkit';
+import type { Customer, CustomerTask } from '../types';
 
-const fold = (x: string) => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]+/g, ' ').trim();
-/** "30/10/2026" → time, or null. */
-function due(d?: string) {
-  const m = String(d || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  return m ? new Date(+m[3], +m[2] - 1, +m[1]).getTime() : null;
+/** Open a card on its board. Switching pages writes the page's own address (and may show it at once), so the card's
+ *  address goes in after, and the Workspace page is told to read it. */
+function openCard(t: CustomerTask) {
+  setState({ view: 'boards' });
+  history.replaceState(null, '', `#boards/${t.boardId}/c/${t.id}`);
+  setTimeout(() => window.dispatchEvent(new HashChangeEvent('hashchange')), 0);
 }
-const DAY = 864e5;
-const today = () => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime(); };
-const when = (ms: number) => { const d = new Date(ms); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`; };
 
 export function Dashboard({ customers, onOpenCustomer }: { customers: Customer[]; onOpenCustomer: (id: string) => void }) {
-  const editorOk = useStore((s) => s.pages.includes('editor') && s.editorAvailable);
-  const [projects, setProjects] = useState<ProjectItem[] | null>(null);
-  useEffect(() => { if (editorOk) api.listProjects().then(setProjects).catch(() => setProjects([])); else setProjects([]); }, [editorOk]);
+  const [tasks, setTasks] = useState<CustomerTask[] | null>(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setError(false);
+    api.customerTasks().then((t) => { if (active) setTasks(t); }, () => { if (active) setError(true); });
+    return () => { active = false; };
+  }, [customers]);
 
-  const t0 = today();
-  const work = (projects || []).filter((p) => p.sheet).map((p) => {
-    const d = due(p.sheet!.deadline);
-    const late = d !== null && d < t0, soon = d !== null && d >= t0 && d - t0 <= 2 * DAY;
-    return { p, d, late, soon, urgent: !!p.sheet!.urgent, missing: p.sheet!.missing || 0 };
-  }).sort((a, b) => (+b.late - +a.late) || (+b.urgent - +a.urgent) || ((a.d ?? Infinity) - (b.d ?? Infinity)) || b.p.updatedAt - a.p.updatedAt);
-  const videos = customers.reduce((a, c) => a + (c.videoCount || 0), 0);
-  const hot = work.filter((w) => w.late || w.urgent || w.soon).length;
-  const lacking = work.filter((w) => w.missing > 0).length;
-  const projectsOf = (c: Customer) => (projects || []).filter((p) => { const a = fold(p.sheet?.customer || ''), b = fold(c.name); return !!a && (a.includes(b) || b.includes(a)); });
-  const open = async (id: string) => { setState({ view: 'editor' }); await openProject(id); };
+  const of = (c: Customer) => (tasks || []).filter((t) => t.customerId === c.id)
+    .sort((a, b) => +a.done - +b.done || (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || b.updatedAt - a.updatedAt);
+  const rows = customers.map((c) => ({ c, tasks: of(c) }));
+  const busy = rows.filter((r) => r.tasks.length).sort((a, b) => Math.max(...b.tasks.map((t) => t.updatedAt)) - Math.max(...a.tasks.map((t) => t.updatedAt)));
+  const idle = rows.filter((r) => !r.tasks.length);
+  const taskCount = busy.reduce((n, r) => n + r.tasks.length, 0);
+  const videoCount = busy.reduce((n, r) => n + r.tasks.reduce((m, t) => m + t.videos.length, 0), 0);
 
   return (
     <section className="ws-detail dash">
       <header className="dash-h">
-        <h2>Tổng quan công việc</h2>
+        <h2>Tổng quan khách hàng</h2>
         <span>{new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
       </header>
       <div className="dash-stats">
         <div><b>{customers.length}</b><span>Khách hàng</span></div>
-        <div><b>{videos}</b><span>Video trên Drive</span></div>
-        {editorOk && <div><b>{work.length}</b><span>Dự án dựng</span></div>}
-        {editorOk && <div className={hot ? 'warn' : ''}><b>{hot}</b><span>Gấp / sắp đến hạn</span></div>}
-        {editorOk && <div className={lacking ? 'warn' : ''}><b>{lacking}</b><span>Thiếu file source</span></div>}
+        <div><b>{tasks ? taskCount : '…'}</b><span>Task</span></div>
+        <div><b>{tasks ? videoCount : '…'}</b><span>Video trong task</span></div>
       </div>
 
-      {editorOk && (
-        <div className="dash-block">
-          <h3>Việc cần làm</h3>
-          {projects === null ? <p className="note">Đang tải…</p> : !work.length ? <p className="note">Chưa có dự án dựng nào. Vào Trình dựng và dán link sheet để tạo.</p> : (
-            <div className="dash-table">
-              <div className="dash-tr head"><span>Dự án</span><span>Khách</span><span>Deadline</span><span>Clip</span><span>Thiếu file</span><span>Sửa</span></div>
-              {work.map(({ p, d, late, soon, urgent, missing }) => (
-                <button key={p.id} className="dash-tr" onClick={() => open(p.id)} title="Mở trong Trình dựng">
-                  <span className="dash-name">{urgent && <em className="tag hot">Gấp</em>}<b>{p.title}</b></span>
-                  <span>{p.sheet!.customer || '—'}</span>
-                  <span className={late ? 'late' : soon ? 'soon' : ''}>{d ? `${when(d)}${late ? ' · trễ' : soon ? ' · sắp đến' : ''}` : '—'}</span>
-                  <span className="mono">{p.clips} · {fmt(p.duration)}</span>
-                  <span className={missing ? 'soon' : ''}>{missing ? `${missing} file` : '✓'}</span>
-                  <span>{when(p.updatedAt)}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="dash-block">
-        <h3>Khách hàng</h3>
-        <div className="dash-grid">
-          {customers.map((c) => {
-            const ps = editorOk ? projectsOf(c) : [];
+      {error ? <p className="note err">Không tải được task. Hãy tải lại.</p> : tasks === null ? <p className="note">Đang tải task…</p> : !busy.length ? (
+        <p className="note">Chưa có task nào gắn khách hàng. Trên bảng Workspace, mở một thẻ, bấm “Khách hàng” để chọn khách rồi “Video” để gắn video của khách vào thẻ.</p>
+      ) : busy.map(({ c, tasks: list }) => (
+        <div key={c.id} className="dash-block dash-cust">
+          <div className="dash-cust-h">
+            <h3><Icon name="folder" size={17} />{c.name}</h3>
+            <span>{list.length} task · {list.reduce((n, t) => n + t.videos.length, 0)} video</span>
+            <button className="btn btn-gray btn-sm" onClick={() => onOpenCustomer(c.id)}>Mở thư mục</button>
+          </div>
+          {list.map((t) => {
+            const due = dueState(t.dueAt, t.done);
             return (
-              <button key={c.id} className="dash-card" onClick={() => onOpenCustomer(c.id)}>
-                <span className="dash-ico"><Icon name="folder" size={18} /></span>
-                <b>{c.name}</b>
-                <span>{c.videoCount == null ? 'Không đọc được thư mục' : `${c.folderCount || 0} thư mục · ${c.videoCount} video`}</span>
-                {editorOk && <span className={ps.some((p) => p.sheet?.urgent) ? 'hot' : ''}>{ps.length ? `${ps.length} dự án dựng${ps.some((p) => p.sheet?.urgent) ? ' · có việc gấp' : ''}` : 'Chưa có dự án dựng'}</span>}
-              </button>
+              <div key={t.id} className={'dash-task' + (t.done ? ' done' : '')}>
+                <button className="dash-task-h" onClick={() => openCard(t)} title="Mở thẻ trên bảng">
+                  <span className={'dash-task-mark' + (t.done ? ' on' : '')}>{t.done && <Icon name="check" size={11} />}</span>
+                  <b>{t.title}</b>
+                  <span className="dash-task-where">{t.boardName} · {t.listName}</span>
+                  {t.dueAt && <em className={'dash-task-due ' + (due || '')}>{shortDate(t.dueAt)}{due === 'over' ? ' · quá hạn' : due === 'soon' ? ' · sắp đến' : ''}</em>}
+                </button>
+                {t.videos.length ? (
+                  <div className="dash-videos">
+                    {t.videos.map((v) => (
+                      <a key={v.id} className="dash-video" href={v.url} target="_blank" rel="noreferrer" title={v.name}>
+                        <span className="dash-video-pic"><Icon name="film" size={20} /><img src={videoThumb(v)} alt="" loading="lazy" onError={(e) => e.currentTarget.remove()} /></span>
+                        <span className="dash-video-name">{v.name}</span>
+                      </a>
+                    ))}
+                  </div>
+                ) : <p className="note dash-novideo">Chưa gắn video.</p>}
+              </div>
             );
           })}
         </div>
-      </div>
+      ))}
+
+      {tasks && idle.length > 0 && (
+        <div className="dash-block">
+          <h3>Khách chưa có task</h3>
+          <div className="dash-grid">
+            {idle.map(({ c }) => (
+              <button key={c.id} className="dash-card" onClick={() => onOpenCustomer(c.id)}>
+                <span className="dash-ico"><Icon name="folder" size={18} /></span>
+                <b>{c.name}</b>
+                <span>{c.videoCount == null ? 'Không đọc được thư mục' : `${c.videoCount} video trên Drive`}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

@@ -2,6 +2,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 const P: Record<string, ReactNode> = {
+  edit:<path d="m15 4 5 5M4 20l5-1L20 8a2 2 0 0 0-5-5L4 14Z"/>,
+ bell:<><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>,
+  mail:<><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 6 9 7 9-7"/></>,
   play: <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" fill="currentColor" stroke="none" />,
   pause: <><rect x="6.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" stroke="none" /><rect x="13.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" stroke="none" /></>,
   back: <><path d="M11 7 6 12l5 5" /><path d="M18 7l-5 5 5 5" /></>,
@@ -41,6 +44,36 @@ const P: Record<string, ReactNode> = {
   car: <><path d="M5 16.5v-4l1.8-4.6A2 2 0 0 1 8.7 6.5h6.6a2 2 0 0 1 1.9 1.4L19 12.5v4" /><path d="M3.5 12.5h17v4h-17Z" /><circle cx="7.5" cy="17.5" r="1.6" /><circle cx="16.5" cy="17.5" r="1.6" /></>,
   refresh: <><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" /><path d="M19.5 4.5v4h-4" /></>,
   layers: <><path d="m12 4 8.5 4.5L12 13 3.5 8.5Z" /><path d="m3.5 12.5 8.5 4.5 8.5-4.5M3.5 16.5 12 21l8.5-4.5" /></>,
+  // Workspace boards and cards
+  clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>,
+  comment: <path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 3.5V16.5H5A1.5 1.5 0 0 1 3.5 15V7A1.5 1.5 0 0 1 5 5.5Z" />,
+  clip: <path d="m20 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" />,
+  checklist: <><rect x="4" y="4" width="16" height="16" rx="3" /><path d="m8.5 12 2.5 2.5 4.5-5" /></>,
+  tag: <><path d="M3.5 12.6V5a1.5 1.5 0 0 1 1.5-1.5h7.6a1.5 1.5 0 0 1 1 .4l7 7a1.5 1.5 0 0 1 0 2.1l-7.6 7.6a1.5 1.5 0 0 1-2.1 0l-7-7a1.5 1.5 0 0 1-.4-1Z" /><circle cx="8" cy="8" r="1.4" /></>,
+  user: <><circle cx="12" cy="8.5" r="3.5" /><path d="M5 19.5a7 7 0 0 1 14 0" /></>,
+  archive: <><rect x="3.5" y="4.5" width="17" height="4" rx="1" /><path d="M5 8.5v9.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V8.5M10 12.5h4" /></>,
+  filter: <path d="M4 5.5h16l-6.2 7.3v5.4l-3.6 1.8v-7.2Z" />,
+  cover: <><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M3.5 10h17" /></>,
+  lines: <path d="M5 7h14M5 12h14M5 17h9" />,
+  activity: <path d="M5 6.5h14M5 12h14M5 17.5h14M3 6.5h.01M3 12h.01M3 17.5h.01" />,
+  star: <path d="m12 3.8 2.5 5.2 5.7.8-4.1 4 1 5.7L12 16.8l-5.1 2.7 1-5.7-4.1-4 5.7-.8Z" />,
+  info: <><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5.5M12 8h.01" /></>,
+  card: <><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="M7 9.5h6M7 13h9" /></>,
+  arrow: <path d="M5 12h14M13 6l6 6-6 6" />,
+  expand: <path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7" />,
+  calendar: <><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></>,
+  inbox: <><rect x="3.5" y="4" width="17" height="16" rx="2.5" /><path d="M3.5 13.5h4.8l1.4 2.5h4.6l1.4-2.5h4.8" /></>,
+  boards: <><rect x="3.5" y="4" width="17" height="16" rx="2.5" /><path d="M9.5 4v16M15 4v10" /></>,
+  collapse: <path d="M9 5 4 12l5 7M15 5l5 7-5 7" />,
+  users: <><circle cx="9" cy="8.5" r="3.2" /><path d="M3 19.5a6 6 0 0 1 12 0M15.5 5.6a3.2 3.2 0 0 1 0 5.8M17.5 14a6 6 0 0 1 3.5 5.5" /></>,
+  lock: <><rect x="5" y="10.5" width="14" height="10" rx="2" /><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3" /></>,
+  list: <path d="M8.5 6.5H20M8.5 12H20M8.5 17.5H20M4 6.5h.01M4 12h.01M4 17.5h.01" />,
+  // Files on Drive, by kind
+  file: <><path d="M7 3.5h7l4.5 4.5v11.5a1.5 1.5 0 0 1-1.5 1.5H7a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 7 3.5Z" /><path d="M13.5 3.5v5h5" /></>,
+  doc: <><path d="M7 3.5h7l4.5 4.5v11.5a1.5 1.5 0 0 1-1.5 1.5H7a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 7 3.5Z" /><path d="M13.5 3.5v5h5M8.5 12.5h7M8.5 16h7" /></>,
+  sheet: <><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M4 9.5h16M4 14.5h16M10 9.5V20" /></>,
+  slides: <><rect x="3.5" y="5" width="17" height="12" rx="1.5" /><path d="M12 17v3.5M8.5 20.5h7" /></>,
+  zip: <><path d="M7 3.5h7l4.5 4.5v11.5a1.5 1.5 0 0 1-1.5 1.5H7a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 7 3.5Z" /><path d="M11 3.5v2M11 7.5v2M11 11.5v2M10 15.5h2v2.5h-2Z" /></>,
 };
 
 export function Icon({ name, size = 18, className = '' }: { name: keyof typeof P | string; size?: number; className?: string }) {
@@ -98,10 +131,10 @@ export function Row({ label, icon, children, stacked }: { label: ReactNode; icon
 }
 
 /** Native <select> dressed as a macOS pop-up button. */
-export function Popup({ value, onChange, children, title, id, className = '' }: { value: string | number; onChange: (v: string) => void; children: ReactNode; title?: string; id?: string; className?: string }) {
+export function Popup({ value, onChange, children, title, id, className = '', disabled }: { value: string | number; onChange: (v: string) => void; children: ReactNode; title?: string; id?: string; className?: string; disabled?: boolean }) {
   return (
     <span className={'popup ' + className}>
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} title={title}>{children}</select>
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} title={title} disabled={disabled}>{children}</select>
       <Icon name="chevron" size={14} />
     </span>
   );

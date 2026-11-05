@@ -70,10 +70,24 @@ async function initialize(binding?: D1Binding) {
     await db.execute('PRAGMA foreign_keys=ON');
   }
   await db.executeMultiple(SCHEMA);
-  for (const [table, column] of [['projects', 'customer_id'], ['customers', 'gloc'], ['customers', 'links']]) {
+  // Columns added after a table was first made, with their type.
+  for (const [table, column, type = 'TEXT'] of [['task_projects','created_by'],['task_projects','team_id'],['projects', 'customer_id'], ['notification_preferences','email'],['notification_preferences','verified_at','INTEGER'],['notification_preferences','pending_email'],['notification_preferences','verification_hash'],['notification_preferences','verification_expires','INTEGER'],['notification_preferences','verification_attempts','INTEGER NOT NULL DEFAULT 0'],['notification_preferences','verification_sent_at','INTEGER'], ['customers','created_by'], ['customers', 'gloc'], ['customers', 'links'], ['users', 'team_role'], ['boards', 'about'],
+    ['board_lists', 'archived', 'INTEGER NOT NULL DEFAULT 0'], ['board_cards', 'description'], ['board_cards', 'start_at', 'INTEGER'], ['board_cards', 'due_at', 'INTEGER'],
+    ['board_cards', 'done', 'INTEGER NOT NULL DEFAULT 0'], ['board_cards', 'cover'], ['board_cards', 'archived', 'INTEGER NOT NULL DEFAULT 0'],
+    ['boards', 'workspace_id'], ['boards', 'private', 'INTEGER NOT NULL DEFAULT 0'], ['workspaces', 'visibility', "TEXT NOT NULL DEFAULT 'private'"], ['users', 'dept_role'],
+    ['oauth_states','owner_id'], ['tasks','campaign_id'], ['task_project_members','follows','INTEGER NOT NULL DEFAULT 1'], ['board_cards', 'customer_id'], ['card_attachments', 'customer_id'], ['card_attachments', 'file_key']]) {
     const info = await db.execute(`PRAGMA table_info(${table})`);
-    if (!info.rows.some(c => c.name === column)) await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
+    if (!info.rows.some(c => c.name === column)) await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
+  await db.execute("UPDATE task_projects SET created_by=COALESCE((SELECT c.created_by FROM customers c WHERE c.id=task_projects.customer_id),(SELECT i.user_id FROM task_imports i JOIN tasks t ON t.import_id=i.id WHERE t.project_id=task_projects.id ORDER BY i.created_at LIMIT 1),(SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1)) WHERE created_by IS NULL");
+  await db.execute("UPDATE customers SET created_by=(SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1) WHERE created_by IS NULL AND EXISTS(SELECT 1 FROM users WHERE role='admin' AND disabled=0)");
+  await db.execute("UPDATE notification_preferences SET enabled=0 WHERE enabled=1 AND (email IS NULL OR verified_at IS NULL)");
+  await db.execute("UPDATE mail_outbox SET state='cancelled',error='Cần xác minh email cá nhân để nhận thư' WHERE state='pending' AND user_id IN(SELECT user_id FROM notification_preferences WHERE email IS NULL OR verified_at IS NULL)");
+  // Existing ownerless starter boards belong to the original administrator; no implicit admin access remains.
+  await db.execute("UPDATE boards SET created_by=(SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1) WHERE created_by IS NULL AND EXISTS(SELECT 1 FROM users WHERE role='admin' AND disabled=0)");
+  await db.execute('UPDATE boards SET private=1 WHERE private<>1');
+  await db.execute("INSERT OR IGNORE INTO task_campaigns(id,project_id,name,created_at) SELECT 'tc_existing_'||p.id,p.id,'Công việc hiện có',p.created_at FROM task_projects p WHERE EXISTS(SELECT 1 FROM tasks t WHERE t.project_id=p.id AND t.campaign_id IS NULL)");
+  await db.execute("UPDATE tasks SET campaign_id='tc_existing_'||project_id WHERE project_id IS NOT NULL AND campaign_id IS NULL");
 }
 if (!IS_CLOUDFLARE) await initDatabase();
 

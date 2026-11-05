@@ -34,10 +34,10 @@ export const PROVIDERS: ProviderDef[] = [
 
 // Offline providers used for demos and automated tests (DMS_MOCK=1).
 const MOCKS: ProviderDef[] = [
-  { id: 'mock-llm', name: 'Demo (offline)', vendor: 'DM Studio', kind: 'llm', keyEnv: '', mock: true, models: [{ id: 'demo', label: 'Kịch bản mẫu' }] },
-  { id: 'mock-video', name: 'Demo video', vendor: 'DM Studio (ffmpeg)', kind: 'video', keyEnv: '', mock: true, models: [{ id: 'demo', label: 'Clip thử nghiệm' }] },
-  { id: 'mock-image', name: 'Demo image', vendor: 'DM Studio (ffmpeg)', kind: 'image', keyEnv: '', mock: true, models: [{ id: 'demo', label: 'Ảnh thử nghiệm' }] },
-  { id: 'mock-tts', name: 'Demo voice', vendor: 'DM Studio (ffmpeg)', kind: 'tts', keyEnv: '', mock: true, models: [{ id: 'demo', label: 'Âm thử' }], voices: ['beep'] },
+  { id: 'mock-llm', name: 'Demo (offline)', vendor: 'DM Workspace', kind: 'llm', keyEnv: '', mock: true, models: [{ id: 'demo', label: 'Kịch bản mẫu' }] },
+  { id: 'mock-video', name: 'Demo video', vendor: 'DM Workspace (ffmpeg)', kind: 'video', keyEnv: '', mock: true, models: [{ id: 'demo', label: 'Clip thử nghiệm' }] },
+  { id: 'mock-image', name: 'Demo image', vendor: 'DM Workspace (ffmpeg)', kind: 'image', keyEnv: '', mock: true, models: [{ id: 'demo', label: 'Ảnh thử nghiệm' }] },
+  { id: 'mock-tts', name: 'Demo voice', vendor: 'DM Workspace (ffmpeg)', kind: 'tts', keyEnv: '', mock: true, models: [{ id: 'demo', label: 'Âm thử' }], voices: ['beep'] },
 ];
 
 export const allProviders = () => (MOCK ? [...PROVIDERS, ...MOCKS] : PROVIDERS);

@@ -40,6 +40,8 @@ export interface Storyboard {
   mode?: 'edit';
   /** The client's logo, shown in a corner for the whole video (edit mode). */
   logo?: MediaRef | null;
+  /** false: a client's video made from its request form, so the Detailers Movement logo is not drawn on it. */
+  brandLogo?: boolean;
   scenes: Scene[];
 }
 
@@ -51,10 +53,26 @@ export interface Picked { name: string; reason: string }
 export interface ScriptRow { row: string; meaning: string; voice_over: string; visual: string; on_screen: string; source: string; duration: string; note: string }
 export interface Sheet { title: string; link: string; csv: string; missing?: string[]; tab?: string; warning?: string; form: { customer: string; aspect: Aspect; seconds: number; sequence: { row: string; ref: string }[]; ignored_rows: string; script?: ScriptRow[]; deadline?: string; urgent?: boolean } }
 
+/** How the logo outro is made (see server/outro.ts): seconds, background ('auto', 'black', 'white' or '#rrggbb'), size. */
+export interface OutroOpts { dur: number; bg: string; removeBg: boolean; holes: boolean; shine: boolean; size: 'S' | 'M' | 'L' }
+/**
+ * The logo outro at the end of the timeline: its clip, the cut-out logo, how its background was handled. `bg`: 'logo'
+ * (gradient in the logo's colour), 'logo-bg' (in the colour it stood on), 'expand', 'black', 'white' or a chosen '#rrggbb';
+ * `colors`: the gradient's middle and edge; `palette`: the logo's colours, most present first.
+ */
+export interface Outro { media: MediaRef; logo: string; opts: OutroOpts; aspect: Aspect; removed: 'alpha' | 'key' | 'vision' | 'none'; bg: string; small: boolean; faint: boolean; at: number; palette?: string[]; colors?: string[] }
+/** Where a project stands in the work ('' = not set). */
+export type Status = '' | 'todo' | 'doing' | 'review' | 'fix' | 'done';
+export interface ExportRecord { at: number; to: 'zip' | 'capcut'; name: string }
+/** A Drive folder or file pasted on a project (its folder, the finished video…), as a connected account sees it. */
+export interface DriveLink { id: string; name: string; folder: boolean; account: string; url: string }
+/** The customer a project belongs to, with its folder (path, and link when it is on Google Drive). */
+export interface ProjectCustomer { id: string; name: string; label: string; driveUrl: string | null }
+
 export interface ChatMsg { who: 'user' | 'ai' | 'err'; text: string; at: number }
-export interface Project { id: string; title: string; aspect: Aspect; customerId?: string | null; storyboard: Storyboard | null; chat: ChatMsg[]; sources?: Source[]; sheet?: Sheet | null; updatedAt: number; createdAt: number; scenes?: number; duration?: number; palette?: Palette }
+export interface Project { id: string; title: string; aspect: Aspect; customerId?: string | null; storyboard: Storyboard | null; chat: ChatMsg[]; sources?: Source[]; sheet?: Sheet | null; outro?: Outro | null; status?: Status; note?: string; exports?: ExportRecord[]; customer?: ProjectCustomer | null; drive?: DriveLink | null; updatedAt: number; createdAt: number; scenes?: number; duration?: number; palette?: Palette }
 /** A row of the project list (no storyboard). */
-export interface ProjectItem { id: string; title: string; aspect: Aspect; updatedAt: number; createdAt: number; duration: number; clips: number; thumb: string | null; sheet: { title: string; link: string; customer: string; tab?: string; deadline?: string; urgent?: boolean; missing?: number; scenes?: number } | null; palette?: Palette }
+export interface ProjectItem { id: string; title: string; aspect: Aspect; updatedAt: number; createdAt: number; duration: number; clips: number; thumb: string | null; sheet: { title: string; link: string; customer: string; tab?: string; deadline?: string; urgent?: boolean; missing?: number; scenes?: number } | null; palette?: Palette; status: Status; outro: boolean; exported: number | null; customerId: string | null; customerName: string | null }
 export type Aspect = '16:9' | '9:16' | '1:1';
 
 export interface ProviderModel { id: string; label: string; note?: string; custom?: boolean }
@@ -73,14 +91,22 @@ export interface Render { id: string; status: string; url: string; download: str
 
 export type Loc = { kind: 'fs'; dir: string } | { kind: 'gdrive'; account: string; id: string; label?: string; owned?: boolean };
 export type Storage = 'google' | 'desktop' | 'local';
-export interface CustomerVideo { key: string; name: string; bytes: number; modifiedAt: number; url: string; thumb: string | null; driveId: string | null; driveUrl: string | null; shared: boolean }
-export interface VideoFolder { key: string; name: string; driveUrl: string | null; videos: CustomerVideo[] }
+/** What a file in a customer folder is (like Drive's "Type" filter). */
+export type FileKind = 'folder' | 'video' | 'image' | 'audio' | 'pdf' | 'doc' | 'sheet' | 'slides' | 'archive' | 'other';
+/** A file or folder in a customer folder. `url` streams it here (null for folders and Google Docs/Sheets/Slides, which open on Drive). */
+export interface DriveFile {
+  key: string; name: string; kind: FileKind; mime: string; bytes: number; modifiedAt: number;
+  url: string | null; thumb: string | null; driveId: string | null; driveUrl: string | null; shared: boolean; shortcut?: boolean;
+}
+/** A folder of the customer folder, shown as a tab: its files and its own folders. */
+export interface DriveFolder { key: string; name: string; driveUrl: string | null; files: DriveFile[] }
 export interface CustomerLink { label: string; url: string }
+export interface CustomerRecord { createdBy?:string|null;level?:Level;canManage?:boolean;canDelete?:boolean; projects?:number; campaigns?:number; tasks?:number; completed?:number; hasDrive?:boolean; id: string; name: string; contact: string; phone: string; email: string; notes: string }
 export interface Customer {
   id: string; name: string; links: CustomerLink[]; notes: string; createdAt: number; updatedAt: number;
-  storage: Storage; account: string | null; folderLabel: string; folderLoc: Loc; folderPath: string; error?: string;
-  videoCount?: number | null; folderCount?: number | null; projectCount?: number;
-  videos?: CustomerVideo[]; folders?: VideoFolder[]; projects?: { id: string; title: string; aspect: Aspect; updatedAt: number }[]; driveFolderUrl?: string | null;
+  storage: Storage; account: string | null; folderLabel: string; folderLoc: Loc | null; folderPath: string; error?: string;
+  videoCount?: number | null; fileCount?: number | null; folderCount?: number | null; projectCount?: number;
+  files?: DriveFile[]; folders?: DriveFolder[]; projects?: { id: string; title: string; aspect: Aspect; updatedAt: number; status: Status; clips: number; deadline: string; urgent: boolean }[]; driveFolderUrl?: string | null;
 }
 export interface WorkspaceInfo { loc: Loc; storage: Storage; label: string; account: string | null; drive: boolean; mounts: { account: string; dir: string }[]; view: Loc; viewIsRoot: boolean; crumbs: { name: string; loc: Loc }[] }
 export interface DrivePlace { label: string; account: string | null; kind: 'my' | 'shared' | 'local'; via: 'google' | 'desktop' | 'local'; loc: Loc }
@@ -88,7 +114,154 @@ export interface FolderListing { loc: Loc; account: string | null; crumbs: { nam
 export interface GoogleAccount { email: string; name: string; picture: string }
 export interface GoogleStatus { configured: boolean; clientId: string; redirectUri: string; accounts: GoogleAccount[] }
 export type Role = 'admin' | 'member';
-export interface User { id: string; email: string; name: string; role: Role; disabled: boolean; hasPassword: boolean; lastLogin: number | null; createdAt: number }
+/** `role`: 'admin' for the company's admins (everything), else 'member'. `teamRole`: the person's department; `deptRole`:
+ *  their role in it, whose `level` (admin / member / view only) says what they may do in the department. */
+export interface User {
+  id: string; email: string; name: string; role: Role; disabled: boolean; hasPassword: boolean; lastLogin: number | null; createdAt: number;
+  teamRole: string | null; deptRole: string | null; deptRoleName: string | null; level: Level;
+  /** Where this person's notifications are emailed (admins' list only). */
+  notifyEmail?: string | null;
+}
+/** A role in a department (Trưởng phòng, Editor…) and its level. */
+export interface DeptRole { id: string; name: string; level: Level; members: number }
+/** A department (phòng ban: Media Execute, Account / Sale…): the pages its people open, its own board, and its roles. */
+export interface TeamRole { id: string; name: string; color: string; pages: Page[]; members: number; positions?: DeptRole[] }
+/** Workspace: boards of lists of cards (see server/boards.ts); `roleId` null = shared with everyone. */
+/** What someone may do on a board or in a workspace, like Trello: settings and members / edit / view and comment. */
+export type Level = 'admin' | 'normal' | 'observer';
+/** The company's workspace (id 'company': everyone) or one a person made, private until shared. */
+/** `visibility`: 'private' (its people only, the default) or 'company' (everyone in the company may view it). */
+export interface Workspace { id: string; name: string; about: string; kind: 'company' | 'personal'; visibility: 'private' | 'company'; ownerId: string | null; level: Level; members: number }
+export interface Person { id: string; name: string; email: string }
+export interface WorkspaceMember extends Person { level: Level; owner: boolean }
+export interface BoardItem {
+  id: string; name: string; bg: string; roleId: string | null; workspaceId: string; private: boolean; createdBy: string | null;
+  starred: boolean; cards: number; updatedAt: number; level: Level;
+}
+export interface BoardLabel { id: string; name: string; color: string }
+/** Someone who sees the board; `added`: given a level on the board itself (not just through its workspace or role). */
+export interface BoardMember extends Person { level?: Level; added?: boolean }
+/** The front of a card on the board: what it shows (`checks`: [done, total] of its checklist items). */
+export interface BoardCard {
+  id: string; listId: string; title: string; cover: string | null; startAt: number | null; dueAt: number | null; done: boolean; desc: boolean;
+  labels: string[]; members: string[]; comments: number; attachments: number; checks: [number, number] | null; createdAt: number; createdBy: string | null;
+  customerId: string | null; customerName: string | null;
+}
+export interface BoardList { id: string; name: string; cards: BoardCard[] }
+export interface Board extends BoardItem { about: string; labels: BoardLabel[]; members: BoardMember[]; lists: BoardList[] }
+export interface BoardActivity { id: string; cardId: string | null; cardTitle: string; userId: string; userName: string; action: string; data: any; createdAt: number }
+/** A link on a card, or a video of its customer's folder (`key`: the file there, `customerId`: whose folder). */
+export interface CardAttachment { id: string; name: string; url: string; createdAt: number; userId: string; customerId: string | null; key: string | null }
+/** A task of the team (Công việc), imported from their task app or made here. `state`: what its status means now. */
+export type TaskState = 'done' | 'done_late' | 'overdue' | 'doing' | 'todo' | 'paused' | 'cancelled' | 'other';
+export interface TaskPerson { id: string; name: string; userId: string | null }
+export interface TaskCampaign { id:string; name:string; projectId:string; tasks:number }
+export interface TaskItem {
+  campaign: {id:string;name:string;projectId:string} | null;
+  boardLink?:{cardId:string;boardId:string;boardName:string;listName:string;listId:string}|null;hasBoardLink?:boolean;
+  id: string; externalId: string | null; title: string; status: string; state: TaskState; startAt: number | null; dueAt: number | null; doneAt: number | null;
+  project: { id: string; name: string; customerId: string | null } | null; parent: { id: string; title: string } | null; children: number;
+  createdBy: { id: string; name: string } | null; assignees: TaskPerson[]; followers: { id: string; name: string }[]; labels: string[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number;
+}
+export interface TaskDetail extends TaskItem {
+  statuses?: string[];
+  description: string; result: string | null; resultHidden: boolean; canEdit: boolean; canDelete: boolean; hasBoardLink: boolean; boardLink: { cardId: string; boardId: string; listId: string; boardName: string; listName: string } | null; path: { id: string; title: string }[]; childTasks: TaskItem[];
+}
+export interface TaskMeta {
+  campaigns:TaskCampaign[]; teams:{id:string;name:string;color:string}[];
+  people: (TaskPerson & { userName: string | null; tasks: number })[]; projects: { id: string; name: string; customerId: string | null; teamId:string|null;createdBy:string|null;level:Level;tasks: number }[];
+  mine: string[]; statuses: string[]; users: { id: string; name: string; email: string }[];
+  imports: { id: string; rows: number; created: number; updated: number; at: number; by: string; sourceName: string; hasSheet: boolean }[];
+}
+export interface TaskWrite {
+  title?: string; description?: string; result?: string; status?: string; startAt?: number | null; dueAt?: number | null;
+  campaignId?: string | null; projectId?: string | null; parentId?: string | null; assigneeIds?: string[]; assigneeUserIds?: string[]; followerUserIds?: string[]; labels?: string[];
+}
+export interface TaskImportSheet { id: string; name: string; headers: string[]; rows: string[][]; taskIds: (string | null)[]; titleColumn: number; start: number; total: number; page: number; pages: number }
+export interface TaskImportResult { sheetRows: number; sheetColumns: number; importId: string; sourceName: string; rows: number; skipped: number; created: number; updated: number; parents: number; stubs: number; people: number; projects: number; labels: number }
+/** A Meta ad account the token reads. */
+export interface AdAccount { id: string; accountId: string; name: string; currency: string; timezone: string; status: string; active: boolean; business: string }
+/** Sums over a period and the ratios recomputed from them (null: nothing to divide by); results by each campaign's type. */
+export interface AdsTotals {
+  spend: number; impressions: number; reach: number; clicks: number; linkClicks: number; leads: number; messages: number; comments: number;
+  ctr: number | null; cpc: number | null; cpm: number | null; cpl: number | null; cpme: number | null; cplc: number | null; frequency: number | null;
+  primary: number; total: number; costPerTotal: number | null;
+}
+export type AdsConversion = 'LeadForm' | 'Messages' | 'Traffic' | 'Engagement';
+export interface AdsCampaign extends Omit<AdsTotals, 'primary' | 'total' | 'costPerTotal'> {
+  id: string; name: string; objective: string; previousSpend: number | null; previousCostPerTotal: number | null;
+  results: { type: AdsConversion; kpi: string; primary: number | null; total: number | null; costPerPrimary: number | null; costPerTotal: number | null };
+}
+export interface AdsReport {
+  range: { since: string; until: string }; compare: { since: string; until: string }; current: AdsTotals; previous: AdsTotals;
+  daily: { date: string; spend: number; leads: number; messages: number; linkClicks: number; impressions: number; clicks: number }[];
+  campaigns: AdsCampaign[]; lastDataDate: string | null;
+}
+export interface AdsSettings { metaToken: string; metaConnected: boolean; metaVersion: string; who?: { name: string; accounts: number } | null }
+/** A card in someone's own inbox (Workspace ▸ Inbox): jotted down, then dragged onto a board. */
+export interface InboxItem { id: string; title: string; done: boolean; createdAt: number }
+/** One of someone's cards with a date, for the planner (Workspace ▸ Planner). */
+export interface PlannerCard { id: string; title: string; boardId: string; boardName: string; boardBg: string; listName: string; dueAt: number | null; startAt: number | null; done: boolean; canEdit: boolean }
+/** A card for a customer, with its videos (the Drive page's overview). */
+export interface CustomerTask {
+  id: string; title: string; customerId: string; boardId: string; boardName: string; boardBg: string; listName: string; done: boolean; dueAt: number | null; updatedAt: number;
+  videos: CardAttachment[];
+}
+/** Everything on a card (its back). */
+export interface CardDetail {
+  linkedTask?: { id: string } | null;
+  id: string; boardId: string; listId: string; listName: string; title: string; description: string; cover: string | null;
+  startAt: number | null; dueAt: number | null; done: boolean; archived: boolean; createdAt: number; createdBy: string | null; labels: string[]; members: string[];
+  /** The customer the task is for. */
+  customerId: string | null; customerName: string | null;
+  checklists: { id: string; title: string; items: { id: string; text: string; done: boolean }[] }[];
+  attachments: CardAttachment[];
+  comments: { id: string; userId: string; userName: string; text: string; createdAt: number; edited: boolean }[];
+  activity: BoardActivity[];
+}
 /** A top-level page whose access admins can grant or withhold per role. */
-export type Page = 'workspace' | 'editor';
+export type Page = 'workspace' | 'editor' | 'ads';
 export interface AuthInfo { user: User | null; pages?: Page[]; setup: boolean; setupCode?: boolean; google: boolean }
+
+/** A Meta Ads campaign report (see server/reports.ts): every field of the page sent to the client; images are file names. */
+export interface ReportKV { label: string; value: string }
+export interface ReportShot { label: string; image: string }
+export interface ReportData {
+  client: string;
+  hero: { eyebrow: string; title: string; subtitle: string; year: string; month: string; pill: string; agencyLogo: string; clientLogo: string; clientBg: string };
+  budget: { on: boolean; kicker: string; title: string; statLabel: string; amount: string; currency: string; statFoot: string; settingsTitle: string; settings: ReportKV[]; focusTitle: string; focus: ReportKV[]; shots: ReportShot[] };
+  adsets: {
+    on: boolean; kicker: string; title: string; noteTitle: string; note: string;
+    sets: { name: string; desc: string; type: string; details: ReportKV[]; url: string; shots: ReportShot[] }[];
+    form: { on: boolean; eyebrow: string; title: string; desc: string; steps: ReportShot[] };
+  };
+  audience: { on: boolean; kicker: string; title: string; note: string; fields: ReportKV[]; shots: ReportShot[] };
+  creatives: { on: boolean; kicker: string; title: string; previews: { label: string; url: string }[]; caveat: string; folder: { url: string; name: string } | null; items: { type: string; title: string; url: string; thumb: string; captions: { label: string; text: string }[] }[] };
+  copy: { on: boolean; kicker: string; title: string; headlines: string[]; descriptions: string[] };
+  /** Meta Ads results of `account` over [since, until], as taken at `fetchedAt`. */
+  performance: { on: boolean; kicker: string; title: string; note: string; account: { id: string; name: string; currency: string } | null; since: string; until: string; data: ReportPerf | null; fetchedAt: number | null };
+  footer: { brand: string; line: string };
+}
+export interface ReportPerf {
+  compare: { since: string; until: string }; current: AdsTotals; previous: AdsTotals; lastDataDate: string | null;
+  daily: { date: string; spend: number; leads: number; messages: number; linkClicks: number }[];
+  campaigns: { name: string; type: AdsConversion; kpi: string; spend: number; primary: number | null; comments: number; total: number | null; costPerTotal: number | null; previousCostPerTotal: number | null; ctr: number | null; impressions: number; clicks: number; linkClicks: number }[];
+}
+/** A report in a list: whose it is and, when it has them, which Meta Ads numbers it carries. */
+export interface ReportItem {
+  id: string; title: string; customerId: string | null; projectId: string | null; createdAt: number; updatedAt: number;
+  customerName?: string | null; client?: string; meta?: { account: string; since: string; until: string } | null;
+}
+export interface ReportVideo { id:string; account:string; name:string; url:string; seconds:number|null; modifiedAt:string; thumb:string }
+export interface Report extends ReportItem { data: ReportData; autofillWarnings?: string[] }
+
+/** The Mac's internet address for the editor, as the cloud site keeps it, and whether that Mac answers. */
+export interface EditorLink { url: string; status: 'none' | 'ready' | 'no-editor' | 'blocked' | 'offline' }
+
+export interface UserProfile { id:string;name:string;email?:string;role?:Role;level?:Level;department:{id:string;name:string;color:string}|null;position:string|null;createdAt?:number;canEdit:boolean }
+
+export interface NotificationStatus {enabled:boolean;loginEmail:string;email:string|null;verified:boolean;pendingEmail:string|null;codeSent:boolean;sender:string|null;mailReady:boolean;googleConfigured:boolean;gmailSetupUrl?:string;mailIssue?:{code:string;message:string;helpUrl?:string}|null;recent:{id:string;title:string;state:string;createdAt:number;sentAt:number|null;error:string|null}[]}
+
+export interface CustomerMembersData {ownerId:string;level:Level;members:{id:string;name:string;email:string;level:Level}[];people:{id:string;name:string;email:string}[]}
+
+export interface NotificationInbox {unread:number;items:{id:string;taskId:string|null;link:string|null;detail?:{status:string;dueAt:number|null;text:string}|null;title:string;body:string;createdAt:number;read:boolean}[]}

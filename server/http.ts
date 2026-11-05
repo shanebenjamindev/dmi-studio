@@ -69,6 +69,8 @@ const MIME: Record<string, string> = {
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp',
   '.ico': 'image/x-icon', '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
   '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.map': 'application/json', '.woff2': 'font/woff2',
+  '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.avif': 'image/avif', '.bmp': 'image/bmp', '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8',
+  '.csv': 'text/csv; charset=utf-8', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.flac': 'audio/flac', '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo',
 };
 
 // Serves a file inside `root`; honours Range so <video> can seek. Returns false when not found.

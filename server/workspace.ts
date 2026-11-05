@@ -1,3 +1,6 @@
+import {projectLevels,requireProject} from './project-access';
+import {customerLevels,customerLevel,requireCustomer,customerAccessSql,canDeleteCustomer,headedDepartment} from './customer-access';
+import {notifyPeople} from './notifications';
 // Customer workspace. A customer's videos live in a folder that is either
 //  • on Google Drive through "Sign in with Google" (Drive API; uploads stream straight to Google, nothing kept on disk), or
 //  • a folder on this Mac (data/workspace, or a Google Drive for desktop mount that syncs by itself).
@@ -13,10 +16,17 @@ import { HttpError, json, readJson, sendFile, publicOrigin } from './http';
 import { all, get, run, uid, now, getSetting, setSetting } from './db';
 import { DATA_DIR, CLOUD_STORAGE_ONLY, IS_CLOUDFLARE } from './config';
 import * as G from './google';
-import { currentUser, finishGoogleSignin } from './auth';
+import { currentUser, finishGoogleSignin, deptLevel, type User } from './auth';
+
+import { readCustomerImport } from '../shared/customer-import';
+import { normName } from './taskimport';
 
 const pexec = promisify(execFile);
+/** Company admins and department admins create, rename and delete customers, folders and files. */
+const canManage = (u: User | null) => !!u && (u.role === 'admin' || deptLevel(u) === 'admin');
 const VIDEO = /\.(mp4|mov|m4v|webm|mkv|avi)$/i;
+// Not shown: macOS/Windows bookkeeping files and Office lock files.
+const HIDDEN = /^(\.|~\$)|^(Icon\r|desktop\.ini|Thumbs\.db)$/i;
 const WORKSPACE_FOLDER = 'DM Studio Workspace';
 const SPARE = 300 * 1024 * 1024; // keep this much disk free after a local upload
 
@@ -120,6 +130,14 @@ async function mustLoc(raw: any): Promise<Loc> {
 }
 
 // ---------------------------------------------------------------- customers
+const customerRecord = (c: any) => ({ id:c.id, name:c.name, contact:c.contact || '', phone:c.phone || '', email:c.email || '', notes:c.notes || '',createdBy:c.created_by||null });
+function customerFields(b: any, old?: any) {
+  const field = (key: string, max: number) => { const value=String(b[key] ?? old?.[key] ?? '').trim(); if(value.length>max)throw new HttpError(400,`Trường ${key} tối đa ${max} ký tự`);return value; };
+  const name=field('name',200), contact=field('contact',200), phone=field('phone',60), email=field('email',320), notes=field('notes',20000);
+  if(!name)throw new HttpError(400,'Hãy nhập tên khách hàng');
+  if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new HttpError(400,'Email không hợp lệ');
+  return {name,contact,phone,email,notes};
+}
 const mustCustomer = async (id: string) => {
   const c = await get<any>('SELECT * FROM customers WHERE id = ?', id);
   if (!c) throw new HttpError(404, 'Không tìm thấy khách hàng');
@@ -127,6 +145,7 @@ const mustCustomer = async (id: string) => {
 };
 /** gloc set → Google Drive folder; otherwise `folder` is a local path (relative to a local root, or absolute). */
 async function custLoc(c: any): Promise<Loc> {
+  if (!c.gloc && !c.folder) throw new HttpError(400, 'Khách hàng chưa liên kết thư mục. Hãy chọn Liên kết thư mục trước.');
   if (c.gloc) return { kind: 'gdrive', ...JSON.parse(c.gloc) };
   if (CLOUD_STORAGE_ONLY) throw new HttpError(400, 'Khách hàng này dùng thư mục trên máy cũ. Hãy liên kết lại với Google Drive.');
   if (path.isAbsolute(c.folder)) return { kind: 'fs', dir: c.folder };
@@ -134,65 +153,121 @@ async function custLoc(c: any): Promise<Loc> {
   return { kind: 'fs', dir: path.join(r.kind === 'fs' ? r.dir : LOCAL_WS(), c.folder) };
 }
 
-// A customer's folder holds video folders (shown as tabs); videos lying directly in it show under "Chung".
+// A customer's folder holds folders (shown as tabs); files lying directly in it show under "Chung". Every kind of
+// file is listed, like on Drive; folders inside a tab open in place.
 const knownIds = new Map<string, Set<string>>(); // customer → Drive file/folder ids seen under its folder
 function remember(cid: string, ids: string[]) {
   if (!knownIds.has(cid)) knownIds.set(cid, new Set());
   for (const id of ids) knownIds.get(cid)!.add(id);
 }
-/** A Drive video directly in the customer folder or in one of its video folders. */
-async function mustOwnVideo(c: any, l: Extract<Loc, { kind: 'gdrive' }>, key: string) {
+type GLoc = Extract<Loc, { kind: 'gdrive' }>;
+/** A Drive file (or folder) somewhere inside the customer folder: its parents are walked up, at most 10 levels. */
+async function mustOwn(c: any, l: GLoc, key: string, what: 'file' | 'folder') {
   if (knownIds.get(c.id)?.has(key)) return;
-  const f = await G.meta(l.account, key, 'id,parents,mimeType');
-  const parent = f.parents?.[0];
-  let ok = f.mimeType.startsWith('video/') && !!parent;
-  if (ok && parent !== l.id) ok = !!(await G.meta(l.account, parent!, 'id,parents').catch(() => null))?.parents?.includes(l.id);
-  if (!ok) throw new HttpError(404, 'Không tìm thấy video');
-  remember(c.id, [key]);
+  const missing = new HttpError(404, what === 'folder' ? 'Không tìm thấy thư mục' : 'Không tìm thấy file');
+  const f = await G.meta(l.account, key, 'id,parents,mimeType').catch(() => null);
+  if (!f || (f.mimeType === G.FOLDER_MIME) !== (what === 'folder')) throw missing;
+  let parent = f.parents?.[0];
+  for (let k = 0; parent && k < 10; k++) {
+    if (parent === l.id || knownIds.get(c.id)?.has(parent)) { remember(c.id, [key]); return; }
+    parent = (await G.meta(l.account, parent, 'id,parents').catch(() => null))?.parents?.[0];
+  }
+  throw missing;
 }
 const validSub = (n: string) => !!n && !/[\/\\]/.test(n) && !n.startsWith('.');
-/** Video folder `fkey` ('' = the customer folder itself): a Drive folder id inside the customer folder, or a sub-folder name on disk. */
-async function subLoc(c: any, l: Loc, fkey: string): Promise<Loc> {
-  if (!fkey) return l;
-  if (l.kind === 'gdrive') {
-    if (!knownIds.get(c.id)?.has(fkey)) {
-      const f = await G.meta(l.account, fkey, 'id,parents,mimeType').catch(() => null);
-      if (f?.mimeType !== G.FOLDER_MIME || !f.parents?.includes(l.id)) throw new HttpError(404, 'Không tìm thấy thư mục video');
-      remember(c.id, [fkey]);
-    }
-    return { kind: 'gdrive', account: l.account, id: fkey };
-  }
-  if (!validSub(fkey)) throw new HttpError(404, 'Không tìm thấy thư mục video');
-  return { kind: 'fs', dir: path.join(l.dir, fkey) };
-}
-/** Local video keys are "name" or "folder/name". */
-function fsVideoKey(key: string) {
+/** Local keys are paths inside the customer folder: "name", "folder/name", "folder/sub/name"… */
+function fsKey(key: string) {
   const parts = key.split('/');
-  if (parts.length > 2 || !parts.every(validSub) || !VIDEO.test(key)) throw new HttpError(404, 'Không tìm thấy video');
+  if (parts.length > 10 || !parts.every(validSub)) throw new HttpError(404, 'Không tìm thấy file');
   return parts;
 }
-const byNew = (a: any, b: any) => b.modifiedAt - a.modifiedAt;
-const gVideo = (c: any, f: G.GFile) => ({
-  key: f.id, name: f.name, bytes: Number(f.size || 0), modifiedAt: Date.parse(f.modifiedTime || '') || 0,
-  url: `/api/customers/${c.id}/videos/${f.id}`, thumb: f.thumbnailLink ? `/api/customers/${c.id}/videos/${f.id}/thumb?v=${Date.parse(f.modifiedTime || '') || 0}` : null,
-  driveId: f.id, driveUrl: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`, shared: !!f.shared,
-});
-async function fsVideos(c: any, dir: string, prefix: string) {
-  let names: string[] = [];
-  try { names = fs.readdirSync(dir).filter((n) => VIDEO.test(n) && !n.startsWith('.')); } catch { return []; }
+/** A file of a customer's folder, checked to be in it (for a card's videos): its name and where it opens. */
+export async function customerFile(customerId: string, key: string) {
+  const c = await mustCustomer(customerId), l = await custLoc(c);
+  if (l.kind === 'gdrive') {
+    await mustOwn(c, l, key, 'file');
+    const f = await G.meta(l.account, key, 'id,name,mimeType');
+    return { customer: c, name: f.name as string, url: driveLink(key, f.mimeType) };
+  }
+  const p = path.join(l.dir, ...fsKey(key));
+  if (!fs.existsSync(p)) throw new HttpError(404, 'Không tìm thấy file');
+  return { customer: c, name: path.basename(p), url: fileUrl(c.id, key) };
+}
+/** Folder `fkey` ('' = the customer folder itself): a Drive folder id inside the customer folder, or a path on disk. */
+async function subLoc(c: any, l: Loc, fkey: string): Promise<Loc> {
+  if (!fkey) return l;
+  if (l.kind === 'gdrive') { await mustOwn(c, l, fkey, 'folder'); return { kind: 'gdrive', account: l.account, id: fkey }; }
+  return { kind: 'fs', dir: path.join(l.dir, ...fsKey(fkey)) };
+}
+
+/** What a file is (Drive's own types or the extension), for its icon, the type filter and how it opens. */
+export type FileKind = 'folder' | 'video' | 'image' | 'audio' | 'pdf' | 'doc' | 'sheet' | 'slides' | 'archive' | 'other';
+const GAPPS = 'application/vnd.google-apps.';
+const EXT_MIME: Record<string, string> = {
+  mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska', avi: 'video/x-msvideo',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', svg: 'image/svg+xml', avif: 'image/avif', bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff',
+  mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', ogg: 'audio/ogg',
+  pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', rtf: 'application/rtf', doc: 'application/msword', pages: 'application/vnd.apple.pages',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', csv: 'text/csv', numbers: 'application/vnd.apple.numbers',
+  ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', key: 'application/vnd.apple.keynote',
+  zip: 'application/zip', rar: 'application/vnd.rar', '7z': 'application/x-7z-compressed', tar: 'application/x-tar', gz: 'application/gzip',
+  // Drive for desktop shows Google Docs, Sheets and Slides as small link files.
+  gdoc: GAPPS + 'document', gsheet: GAPPS + 'spreadsheet', gslides: GAPPS + 'presentation',
+};
+const mimeOfName = (name: string) => EXT_MIME[path.extname(name).slice(1).toLowerCase()] || 'application/octet-stream';
+function kindOf(mime: string): FileKind {
+  if (mime === G.FOLDER_MIME) return 'folder';
+  const top = mime.split('/')[0];
+  if (top === 'video' || top === 'image' || top === 'audio') return top;
+  if (mime === 'application/pdf') return 'pdf';
+  if (/spreadsheet|ms-excel|numbers|csv/.test(mime)) return 'sheet';
+  if (/presentation|powerpoint|keynote/.test(mime)) return 'slides';
+  if (/wordprocessing|msword|google-apps\.document|apple\.pages|rtf|opendocument\.text|^text\//.test(mime)) return 'doc';
+  if (/zip|rar|7z|tar|gzip|compressed/.test(mime)) return 'archive';
+  return 'other';
+}
+/** Where a Drive item opens: folders and Google Docs/Sheets/Slides in their own pages, other files in Drive's preview. */
+function driveLink(id: string, mime: string) {
+  if (mime === G.FOLDER_MIME) return `https://drive.google.com/drive/folders/${id}`;
+  const app = ({ document: 'document', spreadsheet: 'spreadsheets', presentation: 'presentation' } as Record<string, string>)[mime.startsWith(GAPPS) ? mime.slice(GAPPS.length) : ''];
+  return app ? `https://docs.google.com/${app}/d/${id}/edit` : `https://drive.google.com/file/d/${id}/view`;
+}
+export interface FileItem {
+  key: string; name: string; kind: FileKind; mime: string; bytes: number; modifiedAt: number;
+  url: string | null; thumb: string | null; driveId: string | null; driveUrl: string | null; shared: boolean; shortcut?: boolean;
+}
+const SHOWN_IMAGE = /^image\/(jpeg|png|gif|webp|svg\+xml|avif|bmp)$/;
+/** Folders first (by name), then files, newest first. */
+const order = (a: FileItem, b: FileItem) => (+(b.kind === 'folder') - +(a.kind === 'folder')) || (a.kind === 'folder' ? a.name.localeCompare(b.name, 'vi') : b.modifiedAt - a.modifiedAt);
+const fileUrl = (cid: string, key: string) => `/api/customers/${cid}/files/${encodeURIComponent(key)}`;
+function gItem(c: any, f: G.GFile): FileItem {
+  // A shortcut points outside the customer folder: it opens on Drive, not here.
+  const target = f.shortcutDetails, mime = target?.targetMimeType || f.mimeType, id = target?.targetId || f.id, kind = kindOf(mime);
+  const at = Date.parse(f.modifiedTime || '') || 0, here = !target && kind !== 'folder' && !mime.startsWith(GAPPS);
+  return {
+    key: f.id, name: f.name, kind, mime, bytes: Number(f.size || 0), modifiedAt: at,
+    url: here ? fileUrl(c.id, f.id) : null, thumb: !target && f.thumbnailLink ? `${fileUrl(c.id, f.id)}/thumb?v=${at}` : null,
+    driveId: id, driveUrl: (!target && f.webViewLink) || driveLink(id, mime), shared: !!f.shared, ...(target ? { shortcut: true } : {}),
+  };
+}
+async function fsItems(c: any, dir: string, prefix: string, withFolders: boolean): Promise<FileItem[]> {
+  let ents: fs.Dirent[];
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
   const desktop = onDesktopDrive(dir);
-  const out = await Promise.all(names.map(async (name) => {
-    const p = path.join(dir, name);
+  const out = await Promise.all(ents.filter((d) => !HIDDEN.test(d.name) && (d.isFile() || (withFolders && d.isDirectory()))).map(async (d): Promise<FileItem | null> => {
+    const p = path.join(dir, d.name), key = prefix + d.name;
     let st: fs.Stats;
     try { st = fs.statSync(p); } catch { return null; }
-    if (!st.isFile()) return null;
+    const folder = st.isDirectory(), mime = folder ? G.FOLDER_MIME : mimeOfName(d.name), native = mime.startsWith(GAPPS);
     const id = desktop ? await desktopDriveId(p, st.mtimeMs) : null;
+    const url = folder || native ? null : fileUrl(c.id, key);
     return {
-      key: prefix + name, name, bytes: st.size, modifiedAt: st.mtimeMs, url: `/api/customers/${c.id}/videos/${encodeURIComponent(prefix + name)}`, thumb: null,
-      driveId: id, driveUrl: id ? `https://drive.google.com/file/d/${id}/view` : null, shared: false,
+      key, name: native ? d.name.replace(/\.g(doc|sheet|slides)$/i, '') : d.name, kind: kindOf(mime), mime, bytes: folder || native ? 0 : st.size, modifiedAt: st.mtimeMs,
+      url, thumb: url && SHOWN_IMAGE.test(mime) ? url : null, driveId: id, driveUrl: id ? driveLink(id, mime) : null, shared: false,
     };
   }));
-  return out.filter(Boolean).sort(byNew);
+  return (out.filter(Boolean) as FileItem[]).sort(order);
 }
 const fsSubdirs = (dir: string) => {
   try { return fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && validSub(d.name)).map((d) => d.name).sort((a, b) => a.localeCompare(b, 'vi')); }
@@ -210,35 +285,41 @@ async function library(c: any, l: Loc, fresh = false) {
   data.catch(() => libCache.delete(c.id));
   return data;
 }
-/** Loose videos in the customer folder + every video folder with its videos. */
+/** Loose files in the customer folder + every folder (tab) with what is inside it: its files and its own folders. */
 async function readLibrary(c: any, l: Loc) {
   if (l.kind === 'gdrive') {
     const dirs = await G.listFolders(l.account, l.id);
-    const files = await G.listVideosIn(l.account, [l.id, ...dirs.map((d) => d.id)]);
-    remember(c.id, [...dirs.map((d) => d.id), ...files.map((f) => f.id)]);
-    for (const f of files) G.rememberThumb(f.id, f.thumbnailLink);
-    const of = (id: string) => files.filter((f) => f.parents?.includes(id)).map((f) => gVideo(c, f)).sort(byNew);
-    return { videos: of(l.id), folders: dirs.map((d) => ({ key: d.id, name: d.name, driveUrl: `https://drive.google.com/drive/folders/${d.id}`, videos: of(d.id) })) };
+    const items = await G.listChildrenIn(l.account, [l.id, ...dirs.map((d) => d.id)]);
+    remember(c.id, [...dirs.map((d) => d.id), ...items.map((f) => f.id)]);
+    for (const f of items) G.rememberThumb(f.id, f.thumbnailLink);
+    const of = (id: string, withFolders: boolean) => items.filter((f) => f.parents?.includes(id) && (withFolders || f.mimeType !== G.FOLDER_MIME)).map((f) => gItem(c, f)).sort(order);
+    return { files: of(l.id, false), folders: dirs.map((d) => ({ key: d.id, name: d.name, driveUrl: driveLink(d.id, G.FOLDER_MIME), files: of(d.id, true) })) };
   }
   const desktop = onDesktopDrive(l.dir);
   return {
-    videos: await fsVideos(c, l.dir, ''),
+    files: await fsItems(c, l.dir, '', false),
     folders: await Promise.all(fsSubdirs(l.dir).map(async (name) => {
       const dir = path.join(l.dir, name);
       let id: string | null = null;
       if (desktop) { try { id = await desktopDriveId(dir, fs.statSync(dir).mtimeMs); } catch { /* gone */ } }
-      return { key: name, name, driveUrl: id ? `https://drive.google.com/drive/folders/${id}` : null, videos: await fsVideos(c, dir, name + '/') };
+      return { key: name, name, driveUrl: id ? driveLink(id, G.FOLDER_MIME) : null, files: await fsItems(c, dir, name + '/', true) };
     })),
   };
 }
-async function counts(c: any, l: Loc, fresh = false): Promise<{ videos: number | null; folders: number | null }> {
+type Counts = { videos: number | null; files: number | null; folders: number | null };
+async function counts(c: any, l: Loc, fresh = false): Promise<Counts> {
   if (l.kind === 'gdrive') {
-    return library(c, l, fresh).then((x) => ({ videos: x.videos.length + x.folders.reduce((n, f) => n + f.videos.length, 0), folders: x.folders.length }))
-      .catch(() => ({ videos: null, folders: null }));
+    return library(c, l, fresh).then((x) => {
+      const files = [...x.files, ...x.folders.flatMap((f) => f.files)].filter((f) => f.kind !== 'folder');
+      return { videos: files.filter((f) => f.kind === 'video').length, files: files.length, folders: x.folders.length };
+    }).catch(() => ({ videos: null, files: null, folders: null }));
   }
-  const n = (dir: string) => { try { return fs.readdirSync(dir).filter((x) => VIDEO.test(x) && !x.startsWith('.')).length; } catch { return 0; } };
-  const subs = fsSubdirs(l.dir);
-  return { videos: n(l.dir) + subs.reduce((k, d) => k + n(path.join(l.dir, d)), 0), folders: subs.length };
+  const n = (dir: string) => {
+    try { const f = fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isFile() && !HIDDEN.test(d.name)); return [f.length, f.filter((d) => VIDEO.test(d.name)).length]; }
+    catch { return [0, 0]; }
+  };
+  const subs = fsSubdirs(l.dir), all = [l.dir, ...subs.map((d) => path.join(l.dir, d))].map(n);
+  return { files: all.reduce((k, x) => k + x[0], 0), videos: all.reduce((k, x) => k + x[1], 0), folders: subs.length };
 }
 
 // ---------------------------------------------------------------- root folder ↔ customer list
@@ -263,26 +344,23 @@ async function doSync(r: Loc, label: string) {
   if (CLOUD_STORAGE_ONLY && r.kind === 'fs') return new Set<string>();
   const skip = await hidden();
   for (const c of await all<any>('SELECT * FROM customers')) {
-    if (CLOUD_STORAGE_ONLY && !c.gloc) continue;
+    if ((!c.folder && !c.gloc) || (CLOUD_STORAGE_ONLY && !c.gloc)) continue;
     skip.add(folderKey(await custLoc(c)));
   }
   const found: { name: string; folder: string; gloc: string | null; key: string }[] = [];
   if (r.kind === 'gdrive') {
+    const known = new Map((await all<any>('SELECT * FROM customers WHERE gloc IS NOT NULL')).map((c) => [JSON.parse(c.gloc).id, c]));
     for (const d of await G.listFolders(r.account, r.id)) {
       found.push({ name: d.name, folder: d.name, key: `g:${d.id}`, gloc: JSON.stringify({ account: r.account, id: d.id, label: `${label} › ${d.name}`, owned: true }) });
+
     }
   } else {
     for (const name of fsSubdirs(r.dir)) found.push({ name, folder: path.join(r.dir, name), gloc: null, key: folderKey({ kind: 'fs', dir: path.join(r.dir, name) }) });
   }
-  for (const f of found) {
-    if (skip.has(f.key)) continue;
-    await run(`INSERT INTO customers(id, name, links, notes, folder, gloc, created_at, updated_at)
-      SELECT ?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM customers WHERE
-      (? IS NOT NULL AND json_extract(gloc, '$.id') = json_extract(?, '$.id') AND json_extract(gloc, '$.account') = json_extract(?, '$.account'))
-      OR (? IS NULL AND gloc IS NULL AND folder=?))`, uid('c_'), f.name, '[]', '', f.folder, f.gloc, now(), now(), f.gloc, f.gloc, f.gloc, f.gloc, f.folder);
-  }
   return new Set(found.map((f) => f.key));
 }
+/** Only direct child folders of CLIENTS are customer choices; browsing other folders must not pollute this list. */
+export async function clientCustomers(){return all<any>('SELECT * FROM customers ORDER BY name COLLATE NOCASE');}
 // ---------------------------------------------------------------- per-user view
 // Everyone browses on their own (the `at` query, kept by the browser); the root is shared and set by admins.
 // Members only see the root and what is inside it.
@@ -334,6 +412,8 @@ function cleanLinks(v: any) {
 const linksOf = (c: any) => { try { return JSON.parse(c.links || '[]'); } catch { return []; } };
 
 async function customerOut(c: any, full = false, fresh = false) {
+  if (!c.folder && !c.gloc) return { id:c.id, name:c.name, links:linksOf(c), notes:c.notes || '', storage:'local', account:null, folderLoc:null, folderLabel:'Chưa liên kết thư mục', folderPath:'', files:[], folders:[], projects:[], videoCount:0, fileCount:0, folderCount:0, projectCount:0, createdAt:c.created_at, updatedAt:c.updated_at, driveFolderUrl:null };
+
   const l = await custLoc(c);
   const out: any = {
     id: c.id, name: c.name, links: linksOf(c), notes: c.notes || '',
@@ -341,9 +421,13 @@ async function customerOut(c: any, full = false, fresh = false) {
     createdAt: c.created_at, updatedAt: c.updated_at,
   };
   if (full) {
-    try { Object.assign(out, await library(c, l, fresh)); } catch (e: any) { Object.assign(out, { videos: [], folders: [], error: e.message }); }
-    out.projects = (await all<any>('SELECT id, title, aspect, updated_at FROM projects WHERE customer_id = ? ORDER BY updated_at DESC', c.id))
-      .map((p) => ({ id: p.id, title: p.title, aspect: p.aspect, updatedAt: p.updated_at }));
+    await syncUnlinkedCustomers();
+    try { Object.assign(out, await library(c, l, fresh)); } catch (e: any) { Object.assign(out, { files: [], folders: [], error: e.message }); }
+    out.projects = (await all<any>('SELECT id, title, aspect, updated_at, data FROM projects WHERE customer_id = ? ORDER BY updated_at DESC', c.id)).map((p) => {
+      const d = JSON.parse(p.data);
+      return { id: p.id, title: p.title, aspect: p.aspect, updatedAt: p.updated_at, status: d.status || '', deadline: d.sheet?.form?.deadline || '', urgent: !!d.sheet?.form?.urgent,
+        clips: (d.storyboard?.scenes || []).reduce((a: number, s: any) => a + (s.shots?.length || 0), 0) };
+    });
     if (l.kind === 'gdrive') out.driveFolderUrl = `https://drive.google.com/drive/folders/${l.id}`;
     else {
       let st: fs.Stats | null = null;
@@ -354,9 +438,72 @@ async function customerOut(c: any, full = false, fresh = false) {
   } else {
     out.projectCount = (await get<any>('SELECT COUNT(*) n FROM projects WHERE customer_id = ?', c.id))?.n || 0;
     const n = await counts(c, l, fresh);
-    out.videoCount = n.videos; out.folderCount = n.folders;
+    out.videoCount = n.videos; out.fileCount = n.files; out.folderCount = n.folders;
   }
   return out;
+}
+
+// ---------------------------------------------------------------- projects ↔ customers
+// A project belongs to one customer (projects.customer_id): the customer page lists it and the work overview counts it.
+const fold = (x: string) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]+/g, ' ').trim();
+/** Drive item and its current ancestors; do not cache paths because files can move on Drive. */
+async function ancestors(account: string, id: string) {
+  const ids: string[] = [];
+  for (let cur: string | undefined = id; cur && ids.length < 100 && !ids.includes(cur);) {
+    ids.push(cur);
+    cur = (await G.meta(account, cur, 'id,parents')).parents?.[0];
+  }
+  return ids;
+}
+/** The customer whose Drive folder holds Drive item `id` (or is it), the nearest one; null if none does. */
+export async function customerOfDrive(account: string, id: string) {
+  const folders = new Map<string, any>(); // Drive folder id → customer (Google Drive folders, or Drive for desktop ones)
+  for (const c of await clientCustomers()) {
+    if (c.gloc) { folders.set(JSON.parse(c.gloc).id, c); continue; }
+    try {
+      const l = await custLoc(c);
+      const fid = l.kind === 'fs' && onDesktopDrive(l.dir) ? await desktopDriveId(l.dir, fs.statSync(l.dir).mtimeMs) : null;
+      if (fid) folders.set(fid, c);
+    } catch { /* folder gone */ }
+  }
+  for (const x of await ancestors(account, id)) if (folders.has(x)) return folders.get(x);
+  return null;
+}
+/** The one customer named like `name` (accents and case ignored; equal, else one name containing the other). */
+function customerNamed(name: string, customers: any[]) {
+  const n = fold(name);
+  if (n.length < 3) return null;
+  const hits = customers.filter((c) => { const m = fold(c.name); return m.length >= 3 && (m === n || m.includes(n) || n.includes(m)); });
+  const same = hits.filter((c) => fold(c.name) === n);
+  return same.length === 1 ? same[0] : hits.length === 1 ? hits[0] : null;
+}
+const looked = new Map<string, number>(); // project → when its Drive places last matched no customer
+/**
+ * Give a project that has no customer the one it belongs to: the customer whose Drive folder holds the project's Drive
+ * link or its footage, else the one named like the sheet's customer. `drive: false` only compares names (no Drive
+ * calls); `force` looks on Drive again even if it found nothing a moment ago.
+ */
+export async function autoLinkCustomer(projectId: string, o: { drive?: boolean; force?: boolean } = {}) {
+  const p = await get<any>('SELECT id, customer_id, data FROM projects WHERE id = ?', projectId);
+  if (!p || p.customer_id) return;
+  const data = JSON.parse(p.data);
+  if (data.customerManual && !o.force) return;
+  let c: any = null;
+  if (o.drive !== false && (o.force || Date.now() - (looked.get(p.id) || 0) > 10 * 60e3)) {
+    for (const x of [data.drive, ...(data.sources || []).slice(0, 2)]) {
+      if (x?.account && x?.id && (c = await customerOfDrive(x.account, x.id).catch(() => null))) break;
+    }
+    if (!c) looked.set(p.id, Date.now());
+  }
+  c ??= customerNamed(data.sheet?.form?.customer || '', await clientCustomers());
+  if (c) await run('UPDATE projects SET customer_id = ? WHERE id = ? AND customer_id IS NULL', c.id, p.id);
+}
+
+/** Keep customer pages and project lists consistent, regardless of which page opens first. */
+export async function syncUnlinkedCustomers() {
+  for (const p of await all<any>('SELECT id FROM projects WHERE customer_id IS NULL')) {
+    await autoLinkCustomer(p.id, { drive: false });
+  }
 }
 
 const redirectUri = (req: Req) => `${publicOrigin(req)}/api/google/callback`;
@@ -374,18 +521,20 @@ export function registerWorkspace(api: Router) {
     json(res, 200, { ok: true });
   });
   api.get('/api/google/login', async (req, res) => redirect(res, await G.authUrl(redirectUri(req))));
-  // Shared by both Google flows: connecting a Drive account, and signing in to DM Studio.
+  // Shared by both Google flows: connecting a Drive account, and signing in to DM Workspace.
   api.get('/api/google/callback', async (req, res) => {
     const err = req.query.get('error'), state = req.query.get('state') || '';
-    const signin = await G.purposeOf(state) === 'signin';
+    const purpose=await G.purposeOf(state);
+    const signin=purpose==='signin';
     try {
       if (err) throw new Error(err === 'access_denied' ? 'Bạn đã huỷ đăng nhập' : err);
       const a = await G.finishLogin(req.query.get('code') || '', state);
       if (a.purpose === 'signin') { await finishGoogleSignin(req, res, a.email); return redirect(res, '/'); }
-      if (!await currentUser(req)) throw new Error('Hãy đăng nhập DM Studio trước');
+      if(a.purpose==='mail')return redirect(res,`/#admin?mail=${encodeURIComponent(a.email)}`);
+      if (!await currentUser(req)) throw new Error('Hãy đăng nhập DM Workspace trước');
       redirect(res, `/#admin?google=${encodeURIComponent(a.email)}`);
     } catch (e: any) {
-      redirect(res, signin ? `/?auth_error=${encodeURIComponent(e.message)}` : `/#admin?google_error=${encodeURIComponent(e.message)}`);
+      redirect(res, signin ? `/?auth_error=${encodeURIComponent(e.message)}` : purpose==='mail'?`/#admin?mail_error=${encodeURIComponent(e.message)}`:`/#admin?google_error=${encodeURIComponent(e.message)}`);
     }
   });
   api.delete('/api/google/accounts/:email', async (req, res) => { await G.removeAccount(req.params.email); json(res, 200, { accounts: await G.publicAccounts() }); });
@@ -456,19 +605,38 @@ export function registerWorkspace(api: Router) {
     // Only the folders inside the folder being viewed; customers elsewhere stay saved for when that folder is opened again.
     const v = await viewOf(req);
     const inside = await syncFolder(v.loc, v.label);
-    const candidates = await all<any>('SELECT * FROM customers ORDER BY name COLLATE NOCASE');
+    await syncUnlinkedCustomers();
+    const user=(await currentUser(req))!;
+    const candidates=await all<any>(`SELECT * FROM customers c WHERE ${customerAccessSql()} ORDER BY name COLLATE NOCASE`,user.id,user.id,user.id);
     const rows: any[] = [];
     // Local folders from an imported database cannot be browsed on the cloud server.
     for (const c of candidates) {
-      if (CLOUD_STORAGE_ONLY && !c.gloc) continue;
+      if ((!c.folder && !c.gloc) || (CLOUD_STORAGE_ONLY && !c.gloc)) continue;
       if (inside.has(folderKey(await custLoc(c)))) rows.push(c);
     }
     json(res, 200, await Promise.all(rows.map((c) => customerOut(c, false, fresh))));
   });
   api.post('/api/customers', async (req, res) => {
     const b = await readJson(req);
-    const name = safeName(String(b.name || ''));
+    const creator=(await currentUser(req))!.id;
+    const fields=customerFields(b);
+    if (b.databaseOnly === true) {
+      const id=uid('c_');
+      await run('INSERT INTO customers(id,name,contact,phone,email,notes,links,folder,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',id,fields.name,fields.contact,fields.phone,fields.email,fields.notes,'[]','',now(),now());
+      await run('UPDATE customers SET created_by=? WHERE id=?',creator,id);
+      json(res,201,await customerOut(await mustCustomer(id),true));return;
+    }
+    const name = safeName(fields.name);
     if (!name) throw new HttpError(400, 'Hãy nhập tên khách hàng');
+    if (b.existingFolder) {
+      const l = await mustLoc(b.existingFolder);
+      const id = uid('c_');
+      const gloc = l.kind === 'gdrive' ? JSON.stringify({ account: l.account, id: l.id, label: l.label }) : null;
+      await run('INSERT INTO customers(id,name,links,notes,folder,gloc,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)', id, name, '[]', String(b.notes || ''), l.kind === 'gdrive' ? name : l.dir, gloc, now(), now());
+      await setHidden(folderKey(l), false);
+      await run('UPDATE customers SET created_by=? WHERE id=?',creator,id);
+    json(res, 201, await customerOut(await mustCustomer(id), true)); return;
+    }
     // Created inside the folder the admin is looking at.
     const view = await viewOf(req), root = view.loc;
     if (CLOUD_STORAGE_ONLY && root.kind === 'fs') throw new HttpError(400, 'Hãy kết nối Google Drive và chọn thư mục gốc trong Quản trị trước khi tạo khách hàng.');
@@ -487,7 +655,111 @@ export function registerWorkspace(api: Router) {
     const id = uid('c_');
     await run('INSERT INTO customers(id, name, links, notes, folder, gloc, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)',
       id, String(b.name).trim(), JSON.stringify(b.links ? cleanLinks(b.links) : []), b.notes || '', folder, gloc, now(), now());
+    await run('UPDATE customers SET created_by=? WHERE id=?',creator,id);
     json(res, 201, await customerOut(await mustCustomer(id), true));
+  });
+  // Picker is scoped to CLIENTS, independently of the folder currently being browsed.
+  api.get('/api/customers/all',async(req,res)=>{const user=(await currentUser(req))!;json(res,200,await all(`SELECT c.id,c.name,c.name label FROM customers c WHERE ${customerAccessSql()} ORDER BY c.name`,user.id,user.id,user.id));});
+  // CRM directory is independent of the folder currently being browsed.
+  api.get('/api/customers/directory', async (req, res) => {
+    const user=(await currentUser(req))!,levels=await customerLevels(user.id),dept=await headedDepartment(user.id);
+    json(res,200,(await all<any>(`SELECT c.*, (SELECT team_role FROM users WHERE id=c.created_by) owner_team, (SELECT COUNT(*) FROM task_projects p WHERE p.customer_id=c.id) projects,
+      (SELECT COUNT(*) FROM task_campaigns a JOIN task_projects p ON p.id=a.project_id WHERE p.customer_id=c.id) campaigns,
+      (SELECT COUNT(*) FROM tasks t JOIN task_projects p ON p.id=t.project_id WHERE p.customer_id=c.id AND t.stub=0) tasks,
+      (SELECT COUNT(*) FROM tasks t JOIN task_projects p ON p.id=t.project_id WHERE p.customer_id=c.id AND t.stub=0 AND t.done_at IS NOT NULL) completed
+      FROM customers c ORDER BY c.name COLLATE NOCASE`)).filter(c=>levels.has(c.id)).map(c=>({...customerRecord(c),level:levels.get(c.id),canManage:levels.get(c.id)==='admin',canDelete:c.created_by?c.created_by===user.id||!!dept&&c.owner_team===dept:levels.get(c.id)==='admin',projects:c.projects,campaigns:c.campaigns,tasks:c.tasks,completed:c.completed,hasDrive:!!c.gloc})));
+  });
+  api.post('/api/customers/import', async (req,res) => {
+    if (!canManage(await currentUser(req))) throw new HttpError(403,'Chỉ quản trị viên được nhập khách hàng');
+    const b=await readJson(req);
+    let parsed: ReturnType<typeof readCustomerImport>;
+    try { parsed=readCustomerImport(String(b.text || '')); } catch(e:any) { throw new HttpError(400,e.message); }
+    const owner=(await currentUser(req))!.id;
+    const existing=new Map((await all<any>(`SELECT c.id,c.name FROM customers c WHERE ${customerAccessSql()}`,owner,owner,owner)).map(c=>[normName(c.name),c.id]));
+    let created=0,kept=0,projectLinks=0;
+    for(const row of parsed.customers){
+      const key=normName(row.name); let id=existing.get(key);
+      if(id)kept++;
+      else {
+        id=uid('c_');const notes=[row.externalId && `Mã khách hàng: ${row.externalId}`,row.alias && `Tên khác / dự án: ${row.alias}`,row.notes].filter(Boolean).join('\n');
+        await run('INSERT INTO customers(id,name,email,phone,notes,links,folder,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',id,row.name,row.email,row.phone,notes,'[]','',now(),now());
+        await run('UPDATE customers SET created_by=? WHERE id=?',owner,id);
+        existing.set(key,id);created++;
+      }
+      if(b.linkProjects===true){
+        const names=new Set([row.name,...row.alias.split(/[;\n]/)].map(n=>normName(n).replace(/^[\[\s]*master[\]\s|:-]*/,'')).filter(Boolean));
+        for(const p of await all<any>('SELECT id,name FROM task_projects WHERE customer_id IS NULL')) if(names.has(normName(p.name).replace(/^[\[\s]*master[\]\s|:-]*/,''))) {
+          projectLinks+=(await run('UPDATE task_projects SET customer_id=? WHERE id=? AND customer_id IS NULL',id,p.id)).changes;
+        }
+      }
+    }
+    json(res,200,{created,kept,projectLinks,skipped:parsed.skipped});
+  });
+  api.get('/api/customers/:id/members',async(req,res)=>{
+    const user=(await currentUser(req))!,level=await requireCustomer(user.id,req.params.id);
+    const customer=await mustCustomer(req.params.id);
+    const members=await all<any>(`SELECT u.id,u.name,u.email,CASE WHEN u.id=? THEN 'admin' ELSE m.role END level FROM users u LEFT JOIN customer_members m ON m.user_id=u.id AND m.customer_id=? WHERE u.disabled=0 AND (u.id=? OR m.user_id IS NOT NULL) ORDER BY u.name`,customer.created_by,customer.id,customer.created_by);
+    json(res,200,{ownerId:customer.created_by,level,members,people:level==='admin'?await all('SELECT id,name,email FROM users WHERE disabled=0 ORDER BY name'):[]});
+  });
+  api.put('/api/customers/:id/members/:userId',async(req,res)=>{
+    const user=(await currentUser(req))!;await requireCustomer(user.id,req.params.id,'admin');
+    const customer=await mustCustomer(req.params.id),body=await readJson(req);
+    if(!['admin','normal','observer'].includes(body.level))throw new HttpError(400,'Quyền không hợp lệ');
+    if(!await get('SELECT id FROM users WHERE id=? AND disabled=0',req.params.userId))throw new HttpError(404,'Không tìm thấy nhân viên');
+    if(customer.created_by===req.params.userId&&body.level!=='admin')throw new HttpError(400,'Chủ khách hàng luôn có quyền quản lý');
+    const had=await get('SELECT 1 FROM customer_members WHERE customer_id=? AND user_id=?',customer.id,req.params.userId);
+    await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',customer.id,req.params.userId,body.level,user.id,now());
+    if(!had)await notifyPeople([req.params.userId],user.id,{title:'Bạn được thêm vào khách hàng',body:customer.name,link:`#customers/${customer.id}`});
+    json(res,200,{ok:true});
+  });
+  api.delete('/api/customers/:id/members/:userId',async(req,res)=>{
+    const user=(await currentUser(req))!;await requireCustomer(user.id,req.params.id,'admin');
+    const customer=await mustCustomer(req.params.id);if(customer.created_by===req.params.userId)throw new HttpError(400,'Không thể gỡ chủ khách hàng');
+    await run('DELETE FROM customer_members WHERE customer_id=? AND user_id=?',customer.id,req.params.userId);json(res,200,{ok:true});
+  });
+  api.get('/api/customers/:id/projects', async (req, res) => {
+    await mustCustomer(req.params.id);
+    const visible=await projectLevels((await currentUser(req))!.id);
+    json(res, 200, (await all<any>('SELECT p.id, p.name, (SELECT COUNT(*) FROM task_campaigns c WHERE c.project_id=p.id) campaigns, (SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id AND t.stub=0) tasks FROM task_projects p WHERE p.customer_id=? ORDER BY p.created_at DESC', req.params.id)).filter(p=>visible.has(p.id)));
+  });
+  api.post('/api/customers/:id/projects', async (req, res) => {
+    await requireCustomer((await currentUser(req))!.id,req.params.id,'admin');
+    await mustCustomer(req.params.id);
+    const b = await readJson(req), name = String(b.name || '').trim();
+    if (b.projectId) {
+      const p = await get<any>('SELECT * FROM task_projects WHERE id=?', String(b.projectId));
+      if (!p) throw new HttpError(404, 'Không tìm thấy dự án');
+      await requireProject((await currentUser(req))!.id,p.id,'admin');
+      if (p.customer_id && p.customer_id !== req.params.id) throw new HttpError(409, 'Dự án đã thuộc khách hàng khác');
+      await run('UPDATE task_projects SET customer_id=? WHERE id=?', req.params.id, p.id);
+      json(res, 200, { id: p.id, name: p.name }); return;
+    }
+    if (!name || name.length > 200) throw new HttpError(400, 'Tên dự án cần từ 1 đến 200 ký tự');
+    const id = uid('tj_');
+    await run('INSERT INTO task_projects(id,name,customer_id,created_at) VALUES(?,?,?,?)', id, name, req.params.id, now());
+    const creator=(await currentUser(req))!;await run('UPDATE task_projects SET created_by=?,team_id=? WHERE id=?',creator.id,creator.team_role||null,id);
+    json(res, 201, { id, name });
+  });
+  api.put('/api/customers/:id/projects/:project', async (req, res) => {
+    await requireProject((await currentUser(req))!.id,req.params.project,'admin');
+    await requireCustomer((await currentUser(req))!.id,req.params.id,'admin');
+    const p = await get<any>('SELECT * FROM task_projects WHERE id=? AND customer_id=?', req.params.project, req.params.id);
+    if (!p) throw new HttpError(404, 'Không tìm thấy dự án của khách hàng');
+    const b = await readJson(req);
+    if (b.unlink === true) await run('UPDATE task_projects SET customer_id=NULL WHERE id=?', p.id);
+    else {
+      const name = String(b.name || '').trim();
+      if (!name || name.length > 200) throw new HttpError(400, 'Tên dự án cần từ 1 đến 200 ký tự');
+      await run('UPDATE task_projects SET name=? WHERE id=?', name, p.id);
+    }
+    json(res, 200, { ok: true });
+  });
+  api.get('/api/customers/:id/record',async(req,res)=>json(res,200,customerRecord(await mustCustomer(req.params.id))));
+  api.put('/api/customers/:id/record',async(req,res)=>{
+    await requireCustomer((await currentUser(req))!.id,req.params.id,'admin');
+    const current=await mustCustomer(req.params.id), fields=customerFields(await readJson(req),current);
+    await run('UPDATE customers SET name=?,contact=?,phone=?,email=?,notes=?,updated_at=? WHERE id=?',fields.name,fields.contact,fields.phone,fields.email,fields.notes,now(),current.id);
+    json(res,200,customerRecord(await mustCustomer(current.id)));
   });
   api.get('/api/customers/:id', async (req, res) => json(res, 200, await customerOut(await mustCustomer(req.params.id), true, req.query.get('fresh') === '1')));
   api.put('/api/customers/:id', async (req, res) => {
@@ -495,19 +767,7 @@ export function registerWorkspace(api: Router) {
     const b = await readJson(req);
     let folder = c.folder, gloc = c.gloc;
     const newName = b.name !== undefined ? String(b.name).trim() : '';
-    if (newName && newName !== c.name && (await currentUser(req))?.role !== 'admin') throw new HttpError(403, 'Chỉ quản trị viên mới đổi được tên thư mục');
-    if (newName && newName !== c.name) {
-      // Rename the folder along with the customer when DM Studio created it (Drive keeps the same ID and share links).
-      const want = safeName(newName), l = await custLoc(c);
-      if (l.kind === 'gdrive' && l.owned) {
-        await G.rename(l.account, l.id, want).catch(() => {});
-        const label = (l.label || '').split(' › ').slice(0, -1).concat(want).join(' › ');
-        gloc = JSON.stringify({ ...JSON.parse(c.gloc), label }); folder = want;
-      } else if (l.kind === 'fs' && !path.isAbsolute(c.folder)) {
-        const parent = path.dirname(l.dir), next = uniqueIn(parent, want);
-        try { fs.renameSync(l.dir, path.join(parent, next)); folder = next; } catch { /* keep old folder name */ }
-      }
-    }
+    if (newName && newName !== c.name && await customerLevel((await currentUser(req))!.id,c.id)!=='admin') throw new HttpError(403, 'Chỉ quản trị viên mới đổi được tên thư mục');
     await run('UPDATE customers SET name=?, links=?, notes=?, folder=?, gloc=?, updated_at=? WHERE id=?',
       newName || c.name, b.links !== undefined ? JSON.stringify(cleanLinks(b.links)) : c.links, b.notes ?? c.notes, folder, gloc, now(), c.id);
     json(res, 200, await customerOut(await mustCustomer(c.id), true));
@@ -522,10 +782,16 @@ export function registerWorkspace(api: Router) {
     knownIds.delete(c.id); invalidate(c.id);
     json(res, 200, await customerOut(await mustCustomer(c.id), true));
   });
-  // Hides the customer in DM Studio only; the folder and its videos stay untouched.
+  // Hides the customer in DM Workspace only; the folder and its videos stay untouched.
   api.delete('/api/customers/:id', async (req, res) => {
-    await setHidden(folderKey(await custLoc(await mustCustomer(req.params.id))), true);
+    const customer = await mustCustomer(req.params.id);
+    if (!await canDeleteCustomer((await currentUser(req))!.id, customer)) throw new HttpError(403, 'Chỉ người tạo khách hàng hoặc trưởng phòng của họ được xoá khách hàng');
+    if (customer.folder || customer.gloc) await setHidden(folderKey(await custLoc(customer)), true);
     await run('UPDATE projects SET customer_id = NULL WHERE customer_id = ?', req.params.id);
+    await run('UPDATE task_projects SET customer_id = NULL WHERE customer_id = ?', req.params.id);
+    await run('UPDATE reports SET customer_id = NULL WHERE customer_id = ?', req.params.id);
+    await run('UPDATE board_cards SET customer_id = NULL WHERE customer_id = ?', req.params.id);
+    await run('UPDATE card_attachments SET customer_id = NULL,file_key = NULL WHERE customer_id = ?', req.params.id);
     await run('DELETE FROM customers WHERE id = ?', req.params.id);
     json(res, 200, { ok: true });
   });
@@ -561,10 +827,24 @@ export function registerWorkspace(api: Router) {
     if (!name) throw new HttpError(400, 'Hãy đặt tên thư mục');
     invalidate(c.id);
     if (sub.kind === 'gdrive') { await G.rename(sub.account, sub.id, name); return json(res, 200, { key: sub.id, name }); }
-    if (name === req.params.fkey) return json(res, 200, { key: name, name });
+    const parent = req.params.fkey.split('/').slice(0, -1);
+    if (name === path.basename(sub.dir)) return json(res, 200, { key: req.params.fkey, name });
     const next = uniqueIn(path.dirname(sub.dir), name);
     fs.renameSync(sub.dir, path.join(path.dirname(sub.dir), next));
-    json(res, 200, { key: next, name: next });
+    json(res, 200, { key: [...parent, next].join('/'), name: next });
+  });
+  // A folder inside a tab (or deeper) opens in place, like on Drive.
+  api.get('/api/customers/:id/browse', async (req, res) => {
+    const c = await mustCustomer(req.params.id), key = String(req.query.get('folder') || '');
+    if (!key) throw new HttpError(400, 'Thiếu thư mục');
+    const sub = await subLoc(c, await custLoc(c), key);
+    if (sub.kind === 'gdrive') {
+      const items = await G.listChildrenIn(sub.account, [sub.id]);
+      remember(c.id, items.map((f) => f.id));
+      for (const f of items) G.rememberThumb(f.id, f.thumbnailLink);
+      return json(res, 200, { files: items.map((f) => gItem(c, f)).sort(order) });
+    }
+    json(res, 200, { files: await fsItems(c, sub.dir, key + '/', true) });
   });
   // Only empty folders: a slip of the mouse should never take a batch of videos with it.
   api.delete('/api/customers/:id/folders/:fkey', async (req, res) => {
@@ -582,18 +862,17 @@ export function registerWorkspace(api: Router) {
     json(res, 200, { ok: true });
   });
 
-  // ---------------------------------------------------------------- videos
-  // Google Drive: hand the browser a resumable upload URL so the video goes straight to Google.
+  // ---------------------------------------------------------------- files (any kind, like on Drive)
+  // Google Drive: hand the browser a resumable upload URL so the file goes straight to Google.
   api.post('/api/customers/:id/videos/session', async (req, res) => {
     const c = await mustCustomer(req.params.id), l = await subLoc(c, await custLoc(c), String(req.query.get('folder') || ''));
     if (l.kind !== 'gdrive') throw new HttpError(400, 'Chỉ dùng cho Google Drive');
-    const name = safeName(String(req.query.get('name') || 'video.mp4')), size = Number(req.query.get('size') || 0);
-    if (!VIDEO.test(name)) throw new HttpError(400, 'Chỉ nhận file video (.mp4, .mov, .m4v, .webm)');
+    const name = safeName(String(req.query.get('name') || 'file')), size = Number(req.query.get('size') || 0);
     if (!size) throw new HttpError(400, 'Thiếu kích thước file');
-    const mime = String(req.query.get('mime') || '');
+    const mime = String(req.query.get('mime') || '') || mimeOfName(name);
     const origin = String(req.headers.origin || publicOrigin(req));
     invalidate(c.id);
-    json(res, 200, { url: await G.uploadSession(l.account, l.id, name, mime.startsWith('video/') ? mime : 'video/mp4', size, origin) });
+    json(res, 200, { url: await G.uploadSession(l.account, l.id, name, mime, size, origin) });
   });
   // After a direct upload whose answer the browser could not read: did Google get the whole file?
   api.post('/api/customers/:id/videos/session/check', async (req, res) => {
@@ -604,22 +883,22 @@ export function registerWorkspace(api: Router) {
   });
   api.post('/api/customers/:id/videos', async (req, res) => {
     const c = await mustCustomer(req.params.id), fkey = String(req.query.get('folder') || ''), l = await subLoc(c, await custLoc(c), fkey);
-    const raw = safeName(String(req.query.get('name') || 'video.mp4'));
-    if (!VIDEO.test(raw)) throw new HttpError(400, 'Chỉ nhận file video (.mp4, .mov, .m4v, .webm)');
+    const raw = safeName(String(req.query.get('name') || 'file'));
+    if (!raw) throw new HttpError(400, 'Tên file không hợp lệ');
     const size = Number(req.headers['content-length'] || 0);
     if (l.kind === 'gdrive') {
       if (!size) throw new HttpError(411, 'Thiếu kích thước file');
-      const mime = String(req.headers['content-type'] || 'video/mp4').split(';')[0];
-      const f = await G.uploadStream(l.account, l.id, raw, mime.startsWith('video/') ? mime : 'video/mp4', size, req);
+      const mime = String(req.headers['content-type'] || '').split(';')[0] || mimeOfName(raw);
+      const f = await G.uploadStream(l.account, l.id, raw, mime, size, req);
       remember(c.id, [f.id]); invalidate(c.id);
       await run('UPDATE customers SET updated_at=? WHERE id=?', now(), c.id);
       return json(res, 201, { name: f.name, key: f.id });
     }
     // Local: stream to a temp file first, then move it into the folder in one step,
-    // so Drive for desktop never picks up a half-written video.
+    // so Drive for desktop never picks up a half-written file.
     const free = await fs.promises.statfs(DATA_DIR).then((s) => s.bavail * s.bsize).catch(() => Infinity);
     if (size && free - size < SPARE) {
-      throw new HttpError(507, `Ổ cứng chỉ còn ${Math.round(free / 1e6)} MB, không đủ chỗ cho video ${Math.round(size / 1e6)} MB. Hãy dọn bớt dung lượng máy hoặc chuyển khách hàng sang Google Drive (đăng nhập Google).`);
+      throw new HttpError(507, `Ổ cứng chỉ còn ${Math.round(free / 1e6)} MB, không đủ chỗ cho file ${Math.round(size / 1e6)} MB. Hãy dọn bớt dung lượng máy hoặc chuyển khách hàng sang Google Drive (đăng nhập Google).`);
     }
     fs.mkdirSync(l.dir, { recursive: true });
     const tmpDir = path.join(DATA_DIR, 'tmp');
@@ -634,31 +913,33 @@ export function registerWorkspace(api: Router) {
       json(res, 201, { name, key: (fkey ? fkey + '/' : '') + name });
     } finally { fs.rm(tmp, { force: true }, () => {}); }
   });
-  api.get('/api/customers/:id/videos/:key', async (req, res) => {
-    const c = await mustCustomer(req.params.id), l = await custLoc(c), key = req.params.key;
-    if (l.kind === 'gdrive') { await mustOwnVideo(c, l, key); return await G.streamFile(l.account, key, req, res); }
-    fsVideoKey(key);
-    if (!sendFile(req, res, l.dir, key)) throw new HttpError(404, 'Không tìm thấy video');
-  });
-  api.get('/api/customers/:id/videos/:key/thumb', async (req, res) => {
-    const c = await mustCustomer(req.params.id), l = await custLoc(c);
-    if (l.kind !== 'gdrive') throw new HttpError(404, 'Không có ảnh thu nhỏ');
-    await mustOwnVideo(c, l, req.params.key);
-    await G.streamThumb(l.account, req.params.key, res);
-  });
-  // Anyone with the link can view (Drive files are private by default).
-  api.post('/api/customers/:id/videos/:key/share', async (req, res) => {
-    const c = await mustCustomer(req.params.id), l = await custLoc(c);
-    if (l.kind !== 'gdrive') throw new HttpError(400, 'Chỉ chia sẻ được video trên Google Drive đã đăng nhập');
-    await mustOwnVideo(c, l, req.params.key);
-    await G.shareAnyone(l.account, req.params.key); invalidate(c.id);
-    json(res, 200, { url: `https://drive.google.com/file/d/${req.params.key}/view?usp=sharing` });
-  });
-  // Deleting moves the file to Google Drive's trash (recoverable for 30 days); local files are removed.
-  api.delete('/api/customers/:id/videos/:key', async (req, res) => {
-    const c = await mustCustomer(req.params.id), l = await custLoc(c), key = req.params.key;
-    if (l.kind === 'gdrive') { await mustOwnVideo(c, l, key); await G.trash(l.account, key); knownIds.get(c.id)?.delete(key); invalidate(c.id); return json(res, 200, { ok: true }); }
-    try { fs.unlinkSync(path.join(l.dir, ...fsVideoKey(key))); } catch { throw new HttpError(404, 'Không tìm thấy video'); }
-    json(res, 200, { ok: true });
-  });
+  // Files are served under /files/ (older pages used /videos/ for the same thing).
+  for (const kind of ['files', 'videos']) {
+    api.get(`/api/customers/:id/${kind}/:key`, async (req, res) => {
+      const c = await mustCustomer(req.params.id), l = await custLoc(c), key = req.params.key;
+      if (l.kind === 'gdrive') { await mustOwn(c, l, key, 'file'); return await G.streamFile(l.account, key, req, res); }
+      if (!sendFile(req, res, l.dir, fsKey(key).join('/'))) throw new HttpError(404, 'Không tìm thấy file');
+    });
+    api.get(`/api/customers/:id/${kind}/:key/thumb`, async (req, res) => {
+      const c = await mustCustomer(req.params.id), l = await custLoc(c);
+      if (l.kind !== 'gdrive') throw new HttpError(404, 'Không có ảnh thu nhỏ');
+      await mustOwn(c, l, req.params.key, 'file');
+      await G.streamThumb(l.account, req.params.key, res);
+    });
+    // Anyone with the link can view (Drive files are private by default).
+    api.post(`/api/customers/:id/${kind}/:key/share`, async (req, res) => {
+      const c = await mustCustomer(req.params.id), l = await custLoc(c);
+      if (l.kind !== 'gdrive') throw new HttpError(400, 'Chỉ chia sẻ được file trên Google Drive đã đăng nhập');
+      await mustOwn(c, l, req.params.key, 'file');
+      await G.shareAnyone(l.account, req.params.key); invalidate(c.id);
+      json(res, 200, { url: `https://drive.google.com/file/d/${req.params.key}/view?usp=sharing` });
+    });
+    // Deleting moves the file to Google Drive's trash (recoverable for 30 days); local files are removed.
+    api.delete(`/api/customers/:id/${kind}/:key`, async (req, res) => {
+      const c = await mustCustomer(req.params.id), l = await custLoc(c), key = req.params.key;
+      if (l.kind === 'gdrive') { await mustOwn(c, l, key, 'file'); await G.trash(l.account, key); knownIds.get(c.id)?.delete(key); invalidate(c.id); return json(res, 200, { ok: true }); }
+      try { fs.unlinkSync(path.join(l.dir, ...fsKey(key))); } catch { throw new HttpError(404, 'Không tìm thấy file'); }
+      json(res, 200, { ok: true });
+    });
+  }
 }

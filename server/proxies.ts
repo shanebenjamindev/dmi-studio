@@ -10,7 +10,9 @@ import { cutFromDrive } from './localcopy';
 import { verify } from './sources';
 
 const DIR = path.join(DATA_DIR, 'proxies');
-const PARALLEL = 3;
+// Two at a time: downloads share the line (one clip finishing first beats three finishing later), and one clip's
+// download overlaps the other's encode.
+const PARALLEL = 2;
 const KEY = /^[\w-]{10,}_\d{1,5}_\d{1,5}$/;
 
 type Item = { key: string; id: string; account: string; s: number; e: number };

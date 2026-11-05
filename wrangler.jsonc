@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "dmi-studio",
+  "name": "dmi-workspace",
   "main": "server/worker.ts",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat", "enable_nodejs_http_server_modules"],
@@ -16,5 +16,6 @@
   "d1_databases": [{ "binding": "DB", "database_name": "dmi-studio-db", "database_id": "9ad2e189-4940-4d8d-8b71-ccec235311ff" }],
   "build": { "command": "npm run build" },
   "observability": { "enabled": true },
+  "triggers": {"crons":["* * * * *"]},
   "keep_vars": true
 }

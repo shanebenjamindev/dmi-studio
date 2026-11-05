@@ -197,19 +197,28 @@ function drawScene(ctx: CanvasRenderingContext2D, W: number, H: number, sb: Stor
     const uw = M * 0.12 * easeOut(u.raw);
     ctx.fillRect(W / 2 - uw / 2, after - M * 0.01, uw, Math.max(3, M * 0.008));
     ctx.globalAlpha = 1;
+    // A closing card's extra lines (a deadline, a web address) sit small between the headline and the button.
+    let below = after;
+    if (layout === 'outro') (scene.bullets || []).filter((b) => b.trim()).slice(0, 3).forEach((b, i) => {
+      const s = fit(ctx, sb, b, 'body', M * 0.04, W - pad * 2.5, 2);
+      ctx.font = font(sb, 'body', s.size); ctx.fillStyle = hexA(p.text, 0.85);
+      lines(ctx, s.lines, W / 2, below + M * 0.06, s.size * 1.3, 'center', anim('slide-up', t, 0.6 + i * 0.15), W / 2, below);
+      below += s.lines.length * s.size * 1.3 + M * 0.015;
+    });
+    if (below > after) below += M * 0.03;
     if (scene.subtext) {
       if (layout === 'outro') {
         ctx.font = font(sb, 'head', M * 0.042);
         const tw = ctx.measureText(scene.subtext).width + M * 0.12, th = M * 0.1;
         const A2 = anim('pop', t, 0.8);
-        ctx.save(); ctx.globalAlpha = A2.a; ctx.translate(W / 2, after + M * 0.1); ctx.scale(A2.s, A2.s);
+        ctx.save(); ctx.globalAlpha = A2.a; ctx.translate(W / 2, below + M * 0.1); ctx.scale(A2.s, A2.s);
         const bg = ctx.createLinearGradient(-tw / 2, 0, tw / 2, 0);
         bg.addColorStop(0, p.accent); bg.addColorStop(1, hexA(p.accent, 0.85));
         ctx.fillStyle = bg; roundRect(ctx, -tw / 2, -th / 2, tw, th, th / 2); ctx.fill();
         ctx.fillStyle = lum(p.accent) > 0.55 ? '#0a0a0a' : '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(scene.subtext, 0, 0);
         ctx.restore();
-        outroBottom = after + M * 0.1 + th / 2;
+        outroBottom = below + M * 0.1 + th / 2;
       } else {
         const s = fit(ctx, sb, scene.subtext, 'body', M * 0.045, W - pad * 2.5, 3);
         ctx.font = font(sb, 'body', s.size); ctx.fillStyle = hexA(p.text, 0.85);

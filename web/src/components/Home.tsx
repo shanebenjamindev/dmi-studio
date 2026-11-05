@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useStore, setState, openProject, buildFromSheet, buildTabs, toast, fmt } from '../store';
 import { Icon, IconButton } from './ui';
+import { ProjectDetail } from './ProjectDetail';
 import type { ProjectItem } from '../types';
 
 const SHEET = /docs\.google\.com\/spreadsheets\/d\//;
@@ -14,13 +15,15 @@ function when(ms: number) {
   return d.toLocaleDateString('vi-VN', d.getFullYear() === now.getFullYear() ? { day: '2-digit', month: '2-digit' } : undefined);
 }
 
-// The editor's start page: create a project from a request sheet, or open one of the projects (each has its own sheet).
+// The editor's start page: create a project from a request sheet, or open one of the projects (each has its own sheet);
+// a project's page (sheet, progress, notes, exports and reports) opens from its row.
 export function Home() {
   const busy = useStore((s) => s.busy);
   const [list, setList] = useState<ProjectItem[] | null>(null);
   const [q, setQ] = useState('');
   const [view, setView] = useState<'list' | 'grid'>(() => { try { return localStorage.getItem(LS_VIEW) === 'grid' ? 'grid' : 'list'; } catch { return 'list'; } });
   const [creating, setCreating] = useState(false);
+  const [detail, setDetail] = useState<string | null>(null);
   const [link, setLink] = useState('');
   const homeVersion = useStore((s) => s.homeVersion);
   // A sheet with several visible tabs: pick which tabs become projects.
@@ -51,6 +54,8 @@ export function Home() {
   const shown = (list || []).filter((p) => !q.trim() || `${p.title} ${p.sheet?.customer || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
   const dup = async (p: ProjectItem) => { await api.duplicateProject(p.id); load(); };
   const del = async (p: ProjectItem) => { if (!confirm(`Xoá dự án “${p.title}”? Video gốc trên Drive không bị ảnh hưởng.`)) return; await api.deleteProject(p.id); load(); };
+
+  if (detail) return <div className="home"><ProjectDetail key={detail} id={detail} onBack={() => { setDetail(null); load(); }} /></div>;
 
   return (
     <div className="home">
@@ -114,6 +119,7 @@ export function Home() {
                   <span className="mono">{fmt(p.duration)}</span>
                   <span>{when(p.updatedAt)}</span>
                   <span className="home-actions" onClick={(e) => e.stopPropagation()}>
+                    <IconButton icon="info" label="Chi tiết & báo cáo" size={15} onClick={() => setDetail(p.id)} />
                     <IconButton icon="copy" label="Nhân bản" size={15} onClick={() => dup(p)} />
                     <IconButton icon="trash" label="Xoá dự án" size={15} danger onClick={() => del(p)} />
                   </span>
@@ -130,6 +136,7 @@ export function Home() {
                     <span>{p.sheet?.customer || '—'} · {p.clips} clip · {fmt(p.duration)} · {when(p.updatedAt)}</span>
                   </div>
                   <span className="home-actions" onClick={(e) => e.stopPropagation()}>
+                    <IconButton icon="info" label="Chi tiết & báo cáo" size={15} onClick={() => setDetail(p.id)} />
                     <IconButton icon="copy" label="Nhân bản" size={15} onClick={() => dup(p)} />
                     <IconButton icon="trash" label="Xoá dự án" size={15} danger onClick={() => del(p)} />
                   </span>

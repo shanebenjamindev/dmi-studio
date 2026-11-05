@@ -29,7 +29,7 @@ export async function exportVideo(sb: Storyboard, aspect: Aspect, shortSide: num
     const T = totalDuration(sb);
     const stream = canvas.captureStream(30);
     audio.ensure();
-    const tracks = [...stream.getVideoTracks()];
+    const tracks: MediaStreamTrack[] = [...stream.getVideoTracks()];
     if (player.opts.music || player.opts.voice) tracks.push(...audio.recDest.stream.getAudioTracks());
     const mime = pickMime();
     const rec = new MediaRecorder(new MediaStream(tracks), { mimeType: mime || undefined, videoBitsPerSecond: shortSide >= 1080 ? 12e6 : 6e6 });

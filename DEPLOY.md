@@ -1,6 +1,6 @@
-# DM Studio trên Cloudflare Workers + D1
+# DM Workspace trên Cloudflare Workers + D1
 
-App: https://dmi-studio.detailersmovement.workers.dev
+App: https://dmi-workspace.detailersmovement.workers.dev
 
 - **Cloudflare Workers** phục vụ giao diện React và API tại cùng một URL.
 - **Cloudflare D1** lưu tài khoản, phiên đăng nhập, khách hàng, ghi chú và cấu hình.
@@ -45,7 +45,7 @@ Lệnh tạo bản export remote tại `data/backups/d1-latest.sql`. Đổi tên
 ## Turnstile — xác minh không phải người máy
 
 1. Cloudflare → Turnstile → Add widget → **Managed**.
-2. Hostname: `dmi-studio.detailersmovement.workers.dev`.
+2. Hostname: `dmi-workspace.detailersmovement.workers.dev`.
 3. Lưu Site Key vào `TURNSTILE_SITE_KEY` và Secret Key vào `TURNSTILE_SECRET_KEY` trong `.env`.
 4. Chạy `npm run cf:secrets`, rồi `npm run cf:deploy`.
 
@@ -58,7 +58,7 @@ Backend xác minh token qua Siteverify, kiểm tra hostname và action. Token h�
 Google OAuth client cần Authorized redirect URI:
 
 ```text
-https://dmi-studio.detailersmovement.workers.dev/api/google/callback
+https://dmi-workspace.detailersmovement.workers.dev/api/google/callback
 ```
 
 Cookie thuộc từng domain. Người dùng đăng nhập bằng email và mật khẩu; kết nối Google Drive nằm trong trang Quản trị.

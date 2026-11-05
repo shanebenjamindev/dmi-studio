@@ -4,21 +4,25 @@ import { api, auth } from './api';
 import { player, type PlayerOpts } from './engine/player';
 import { audio } from './engine/audio';
 import { exportVideo } from './engine/exporter';
-import type { User, Project, Provider, Defaults, Job, Storyboard, Scene, Aspect, ChatMsg, ModelChoice, Kind, Render, Source, Picked, MediaRef, Page } from './types';
+import type { TeamRole, User, Project, Provider, Defaults, Job, Storyboard, Scene, Aspect, ChatMsg, ModelChoice, Kind, Render, Source, Picked, MediaRef, Page, Outro } from './types';
 
 export type Tab = 'scene' | 'global' | 'brand' | 'renders';
 // 'templates' and 'analyze' are hidden for now (pages kept in the code, not reachable from the UI).
-export type View = 'workspace' | 'admin' | 'editor' | 'templates' | 'analyze';
+/** Công việc: personal tasks, both kinds of project and department boards; Drive and the editor stay in projects;
+ *  'tools': file conversion, open to everyone (it runs in the browser). */
+export type View = 'profile' | 'customers' | 'boards' | 'tasks' | 'projects' | 'workspace' | 'admin' | 'editor' | 'tools' | 'reports' | 'ads' | 'templates' | 'analyze';
 export interface ExportState { phase: 'idle' | 'setup' | 'recording' | 'uploading' | 'done' | 'error'; progress: number; text: string; url?: string; download?: string; error?: string }
 export interface AppState {
   ready: boolean;
-  /** Signed-in DM Studio account; null shows the sign-in page. */
+  /** Signed-in DM Workspace account; null shows the sign-in page. */
   user: User | null;
   setup: boolean;
   /** First-run admin creation needs the server's SETUP_CODE (public deploys). */
   setupCode: boolean;
   googleSignin: boolean;
   view: View;
+  /** The company's roles (names and colours for the Workspace and Quản trị). */
+  roles: TeamRole[];
   tplFocus: string | null;
   analyzeSrc: { url: string; name: string } | null;
   mock: boolean;
@@ -50,7 +54,7 @@ export interface AppState {
 }
 
 let state: AppState = {
-  ready: false, user: null, setup: false, setupCode: false, googleSignin: false, view: (location.hash.startsWith('#admin') ? 'admin' : location.hash.startsWith('#editor') ? 'editor' : 'workspace') as View, tplFocus: null, analyzeSrc: null, mock: false, ffmpeg: false, editorAvailable: false, pages: [], homeVersion: 0, providers: [], defaults: {}, project: null, sel: 0, clip: null, tab: 'scene',
+  ready: false, user: null, setup: false, setupCode: false, googleSignin: false, view: (location.hash.startsWith('#profile') ? 'profile' : location.hash.startsWith('#customers') ? 'customers' : location.hash.startsWith('#admin') ? 'admin' : location.hash.startsWith('#editor') ? 'editor' : location.hash.startsWith('#drive') ? 'workspace' : location.hash.startsWith('#tools') ? 'tools' : location.hash.startsWith('#ads') ? 'ads' : location.hash.startsWith('#reports') ? 'reports' : location.hash.startsWith('#tasks') ? 'tasks' : location.hash.startsWith('#projects') ? 'projects' : 'boards') as View, roles: [], tplFocus: null, analyzeSrc: null, mock: false, ffmpeg: false, editorAvailable: false, pages: [], homeVersion: 0, providers: [], defaults: {}, project: null, sel: 0, clip: null, tab: 'scene',
   save: 'saved', busy: null, jobs: [], renders: [], undo: [], redo: [],
   opts: { captions: true, logo: true, music: true, voice: true }, dialog: null, toast: null,
   exp: { phase: 'idle', progress: 0, text: '' }, brandMode: true,
@@ -101,17 +105,30 @@ export const providerName = (id: string) => state.providers.find((p) => p.id ===
 // ------------------------------------------------------------------ boot
 auth.onSignedOut = () => { if (state.user) setState({ user: null }); };
 export async function signedIn(user: User) {
+  // Signing in starts on all the boards, unless the address names one task or card (a link from a notification).
+  if (!/^#(tasks\/tk_|boards\/b_[^/]+\/c\/)/.test(location.hash)) { history.replaceState(null, '', '#boards'); setState({ view: 'boards' }); }
   setState({ user, setup: false });
   await api.me().then((m) => setState({ pages: m.pages || [] })).catch(() => {});
   await loadApp();
 }
-/** Pages this account can open here: the editor also needs a server that can run it. */
+/** Pages this account can open. On a server that cannot run the editor (the cloud site), its tab says where it runs. */
 export function openPages(): View[] {
-  const out: View[] = [];
-  if (state.pages.includes('workspace')) out.push('workspace');
-  if (state.pages.includes('editor') && state.editorAvailable) out.push('editor');
+  const out: View[] = ['boards', 'tasks', 'projects', 'profile'];
+  if (state.pages.includes('workspace')) out.push('workspace', 'customers');
+  if (state.pages.includes('editor')) out.push('editor');
+  // Báo cáo: every client report (made in the editor or here) and, for those allowed, the Meta Ads numbers.
+  if (state.pages.includes('ads') || state.pages.includes('editor')) out.push('reports');
+  if (state.pages.includes('ads')) out.push('ads');
+  out.push('tools');
   if (state.user?.role === 'admin') out.push('admin');
   return out;
+}
+const HASH: Partial<Record<View, string>> = { profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', editor: '#editor', reports: '#reports', ads: '#ads', tools: '#tools', admin: '#admin' };
+/** Open a page (and keep it in the address, so a reload comes back to it). */
+export function goto(view: View) {
+  setState({ view });
+  const h = view === 'editor' && state.project ? `#editor/${state.project.id}` : HASH[view];
+  if (h && !location.hash.startsWith(h)) history.replaceState(null, '', h);
 }
 /** Leave a page this account may not open for the first one it may. */
 export function fixView() {
@@ -120,7 +137,7 @@ export function fixView() {
 }
 export async function signOut() {
   await api.logout().catch(() => {});
-  setState({ user: null, view: 'workspace' });
+  setState({ user: null, view: 'boards' });
 }
 
 export async function init() {
@@ -140,11 +157,12 @@ async function loadApp() {
     if (prefs.opts) setState({ opts: { ...state.opts, ...prefs.opts } });
     if (typeof prefs.brandMode === 'boolean') setState({ brandMode: prefs.brandMode });
     player.setOpts(state.opts);
+    api.roles().then((roles) => setState({ roles })).catch(() => {});
     const [h, pv] = await Promise.all([api.health(), api.providers()]);
     setState({ mock: h.mock, ffmpeg: h.ffmpeg, editorAvailable: !!h.editor, providers: pv.providers, defaults: pv.defaults });
     fixView();
     // The editor opens on the project list; a reload inside a project (#editor/<id>) reopens that project.
-    const id = location.hash.match(/^#editor\/(p_\w+)/)?.[1];
+    const id = h.editor ? location.hash.match(/^#editor\/(p_\w+)/)?.[1] : undefined;
     const p = id ? await api.getProject(id).catch(() => null) : null;
     if (p) { loadProject(p); setState({ view: 'editor' }); }
   } catch (e: any) {
@@ -196,7 +214,7 @@ export async function flushSave() {
   clearTimeout(saveTimer);
   setState({ save: 'saving' });
   try {
-    await api.saveProject(p.id, { title: p.title, aspect: p.aspect, storyboard: p.storyboard, chat: p.chat });
+    await api.saveProject(p.id, { title: p.title, aspect: p.aspect, storyboard: p.storyboard, chat: p.chat, outro: p.outro });
     if (state.save === 'saving') setState({ save: 'saved' });
   } catch (e: any) { setState({ save: 'error' }); toast('Lưu thất bại: ' + e.message, true); }
 }
@@ -303,10 +321,20 @@ export async function refine(instruction: string) {
   setState({ busy: `${providerName(c.provider)} đang chỉnh sửa…` });
   try {
     const sources = p.sources || [];
-    const { storyboard, picked } = await api.refine({ ...c, storyboard: p.storyboard, instruction, brand: state.brandMode, projectId: p.id, sources, sheet: p.sheet || null });
+    // A cut from a sheet: the logo outro is ours, not the client's footage, so Claude edits the cut without it and it
+    // goes back at the end afterwards.
+    const assembly = p.storyboard.mode === 'edit';
+    const hadOutro = assembly && p.storyboard.scenes.some((sc) => sc.shots?.some((x) => x.media.provider === 'outro'));
+    const cut = assembly ? clone(p.storyboard) : p.storyboard;
+    if (assembly) placeOutro(cut, null);
+    const { storyboard, picked } = await api.refine({ ...c, storyboard: cut, instruction, brand: state.brandMode, projectId: p.id, sources, sheet: p.sheet || null });
+    if (hadOutro && p.outro) placeOutro(storyboard, p.outro);
     setStoryboard(storyboard);
     setTitle(storyboard.title);
-    addChat({ who: 'ai', text: `✓ Đã cập nhật (${storyboard.scenes.length} cảnh). ⌘/Ctrl+Z để hoàn tác.${pickedNote(picked, sources.length)}` });
+    const secs = Math.round(storyboard.scenes.reduce((a, sc) => a + (sc.shots ? sc.shots.reduce((t, x) => t + x.dur, 0) : sc.duration || 0), 0));
+    addChat({ who: 'ai', text: assembly
+      ? `✓ Claude đã sửa bản dựng: ${storyboard.scenes.length} cảnh, khoảng ${secs} giây. ⌘/Ctrl+Z để hoàn tác.`
+      : `✓ Đã cập nhật (${storyboard.scenes.length} cảnh). ⌘/Ctrl+Z để hoàn tác.${pickedNote(picked, sources.length)}` });
     player.seek(0); player.play();
   } catch (e: any) { addChat({ who: 'err', text: e.message }); } finally { setState({ busy: null }); }
 }
@@ -359,9 +387,17 @@ export async function buildFromSheet(link: string, here = false, tab = here ? st
     const p = here && state.project ? state.project : await newProject(undefined, r.sheet.title);
     setState({ project: { ...state.project!, title: r.sheet.title, sources: r.sources, sheet: r.sheet, aspect: r.sheet.form.aspect }, sel: 0 });
     await api.saveProject(p.id, { title: r.sheet.title, sources: r.sources, sheet: r.sheet, aspect: r.sheet.form.aspect });
-    if (r.storyboard) { player.time = 0; setStoryboard(r.storyboard); await flushSave(); }
+    if (r.storyboard) {
+      // Reading the sheet again keeps the logo outro at the end (when it was made for this frame shape).
+      const o = here ? state.project?.outro : null;
+      if (o && o.aspect === r.sheet.form.aspect && r.storyboard.mode === 'edit') placeOutro(r.storyboard, o);
+      player.time = 0; setStoryboard(r.storyboard); await flushSave();
+    }
     const clips = r.storyboard?.scenes.reduce((a, s) => a + (s.shots?.length || 0), 0) || 0;
-    if (r.sheet.warning) toast(r.sheet.warning, true);
+    if (r.storyboard && r.storyboard.mode !== 'edit') {
+      toast(`Sheet không có video: đã tự tạo video ${r.storyboard.scenes.length} cảnh, ${Math.round(player.total)} giây từ kịch bản.${r.sheet.warning ? ' Claude chưa dùng được nên dựng theo từng hàng.' : ''}`, !!r.sheet.warning);
+      player.play();
+    } else if (r.sheet.warning) toast(r.sheet.warning, true);
     else if (r.storyboard) toast(`Đã ghép ${clips} clip theo nội dung sheet${r.missing.length ? ` · ${r.missing.length} file không tìm thấy` : ''}.`);
     else toast('Không tìm thấy video nào từ sheet này.', true);
   } catch (e: any) { toast(e.message, true); } finally { setState({ busy: null }); }
@@ -489,6 +525,24 @@ export function deleteShot(index: number) {
   setState({ sel: Math.min(state.sel, (state.project?.storyboard?.scenes.length || 1) - 1) });
 }
 
+// ------------------------------------------------------------------ logo outro
+/** Take the outro clip off the timeline (wherever it was moved to) and, given an outro, put it back at the end. */
+function placeOutro(sb: Storyboard, o: Outro | null) {
+  sb.scenes = sb.scenes
+    .map((sc) => (sc.shots ? { ...sc, shots: sc.shots.filter((x) => x.media.provider !== 'outro') } : sc))
+    .filter((sc) => !sc.shots || sc.shots.length);
+  sb.scenes.forEach((sc) => sc.shots && fixScene(sc));
+  if (!o) return;
+  const dur = o.media.duration || 3;
+  sb.scenes.push({ id: sid(), layout: 'outro', headline: 'Outro logo', caption: '', duration: dur, animation: 'none', background: '', media: o.media, shots: [{ media: o.media, from: 0, dur, move: 'none' }] });
+}
+/** Use a new outro (or none): the project keeps it and its clip goes at the end of the timeline (undoable). */
+export function setOutro(o: Outro | null) {
+  const p = state.project; if (!p?.storyboard) return;
+  setState({ project: { ...p, outro: o } });
+  updateSb((sb) => placeOutro(sb, o));
+}
+
 /** Manually put a source (or nothing) behind scene `i`. */
 export function setSceneSource(i: number, s: Source | null) {
   updateScene(i, { media: s ? { type: s.kind, assetId: s.id, url: s.url, mime: s.mime, provider: 'drive', prompt: s.name, ...(s.duration ? { duration: s.duration } : {}) } : null });
@@ -574,3 +628,22 @@ export function cancelExport() { exportSignal.cancelled = true; }
 
 export const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 export { sid };
+
+export function openProfile(id:string) {
+  history.replaceState(null,'',`#profile/${encodeURIComponent(id)}`);
+  setState({view:'profile'});
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+}
+/** Go to an address inside the app (a board, a card, a project, a customer) from any page. */
+export function openLink(hash: string) {
+  const view = (Object.entries(HASH).find(([, h]) => h && hash.startsWith(h))?.[0] || 'boards') as View;
+  setState({ view });
+  history.replaceState(null, '', hash);
+  setTimeout(() => window.dispatchEvent(new HashChangeEvent('hashchange')), 0);
+}
+/** Open a task's own page, also when the task list is already on screen. */
+export function openTask(id:string) {
+  history.replaceState(null,'',`#tasks/${id}/page`);
+  setState({view:'tasks'});
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+}

@@ -90,6 +90,7 @@ function SceneTab() {
           <input className="field emoji" value={s.icon || ''} maxLength={4} onChange={(e) => set({ icon: e.target.value })} aria-label="Biểu tượng" title="Biểu tượng (emoji)" />
         </div>
         {s.layout === 'bullets' && <textarea className="field" rows={4} value={(s.bullets || []).join('\n')} onChange={(e) => set({ bullets: e.target.value.split('\n') })} placeholder="Mỗi dòng một ý" aria-label="Các ý" />}
+        {s.layout === 'outro' && <textarea className="field" rows={2} value={(s.bullets || []).join('\n')} onChange={(e) => set({ bullets: e.target.value.split('\n') })} placeholder="Dòng nhỏ trên nút, vd. hạn đăng ký (mỗi dòng một ý)" aria-label="Dòng nhỏ trên nút" />}
         {s.layout === 'stat' && (
           <div className="field-row">
             <input className="field" value={s.stat_value || ''} onChange={(e) => set({ stat_value: e.target.value })} placeholder="Con số, vd. 90%" aria-label="Con số" />

@@ -1,0 +1,39 @@
+import { useState } from 'react';
+import { Icon } from './ui';
+import { addDays, calendarDay, clippedSpan, monthDays, monthStart, scheduleSpan, shiftMonth, weekStart } from '../../../shared/schedule';
+
+export interface ScheduleCard { id: string; title: string; group: string; labels: { name: string; color?: string }[]; members: string[]; startAt: number | null; dueAt: number | null; done: boolean; status?: string }
+const weekdays = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const date = (day: number) => new Intl.DateTimeFormat('vi-VN', { timeZone: 'UTC', day: 'numeric', month: 'numeric' }).format(day);
+const stamp = (t: number | null) => t === null ? '—' : date(calendarDay(t));
+export function ScheduleViews({ view, cards, groups, onOpen }: { view: 'table' | 'calendar' | 'timeline'; cards: ScheduleCard[]; groups: string[]; onOpen: (id: string) => void }) {
+  const today = calendarDay(Date.now());
+  const [anchor, setAnchor] = useState(today);
+  const [scale, setScale] = useState<'week' | 'month'>('month');
+  const [groupBy, setGroupBy] = useState<'list' | 'member'>('list');
+  const [sort, setSort] = useState<'title' | 'group' | 'due'>('group');
+  const [reverse, setReverse] = useState(false);
+  const name = (card: ScheduleCard) => <button className="sv-card-name" onClick={() => onOpen(card.id)}>{card.done && <Icon name="check" size={13} />}{card.title}</button>;
+  const spanCards = cards.map((card) => ({ card, span: scheduleSpan(card.startAt, card.dueAt) }));
+  const unscheduled = spanCards.filter((x) => !x.span).map((x) => x.card);
+  const changeSort = (key: typeof sort) => { if (sort === key) setReverse(!reverse); else { setSort(key); setReverse(false); } };
+  if (view === 'table') {
+    const sorted = [...cards].sort((a, b) => { const n = sort === 'due' ? (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) : (sort === 'title' ? a.title : a.group).localeCompare(sort === 'title' ? b.title : b.group, 'vi', { numeric: true }); return (Number.isNaN(n) ? 0 : n) * (reverse ? -1 : 1); });
+    return <section className="sv-shell sv-table" aria-label="Bảng thẻ"><table><thead><tr><th><button onClick={() => changeSort('title')}>Tên thẻ ↕</button></th><th><button onClick={() => changeSort('group')}>Danh sách ↕</button></th><th>Nhãn</th><th>Thành viên</th><th>Bắt đầu</th><th><button onClick={() => changeSort('due')}>Thời hạn ↕</button></th><th>Trạng thái</th></tr></thead><tbody>{sorted.map((card) => <tr key={card.id}><td>{name(card)}</td><td>{card.group}</td><td>{card.labels.map((l, i) => <span className="sv-label" key={i} style={{ background: l.color }}>{l.name || 'Nhãn'}</span>)}</td><td>{card.members.join(', ') || '—'}</td><td>{stamp(card.startAt)}</td><td>{stamp(card.dueAt)}</td><td>{card.status || (card.done ? 'Hoàn thành' : 'Chưa hoàn thành')}</td></tr>)}</tbody></table>{!cards.length && <p className="sv-empty">Không có thẻ phù hợp bộ lọc.</p>}</section>;
+  }
+  const days = view === 'calendar' ? (scale === 'month' ? monthDays(anchor) : Array.from({ length: 7 }, (_, i) => addDays(weekStart(anchor), i))) : (scale === 'week' ? Array.from({ length: 14 }, (_, i) => addDays(weekStart(anchor), i)) : Array.from({ length: (shiftMonth(anchor, 1) - monthStart(anchor)) / 86400000 }, (_, i) => addDays(monthStart(anchor), i)));
+  const inPeriod = spanCards.filter((x) => x.span && clippedSpan(x.span, days)).length;
+  const nearest = spanCards.filter((x) => x.span).sort((a, b) => Math.abs(a.span![0] - today) - Math.abs(b.span![0] - today))[0]?.span?.[0];
+  const d = new Date(anchor);
+  const navigate = (direction: number) => setAnchor(scale === 'month' ? shiftMonth(anchor, direction) : addDays(anchor, direction * (view === 'timeline' ? 14 : 7)));
+  const groupNames = groupBy === 'list' ? [...new Set([...groups, ...cards.map((c) => c.group)])] : [...new Set(cards.flatMap((c) => c.members.length ? c.members : ['Chưa giao']))];
+  return <section className="sv-shell" aria-label={view === 'calendar' ? 'Lịch' : 'Timeline'}>
+    <header className="sv-toolbar"><input type="month" aria-label="Chọn tháng" value={`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`} onChange={(e) => { if (e.target.value) { const [y, m] = e.target.value.split('-').map(Number); setAnchor(Date.UTC(y, m - 1, 1)); } }} /><button onClick={() => navigate(-1)} aria-label="Kỳ trước"><Icon name="left" size={15} /></button><button onClick={() => setAnchor(today)}>Hôm nay</button><button onClick={() => navigate(1)} aria-label="Kỳ sau"><Icon name="right" size={15} /></button><select value={scale} onChange={(e) => setScale(e.target.value as typeof scale)} aria-label="Phạm vi lịch"><option value="month">Tháng</option><option value="week">{view === 'timeline' ? '2 tuần' : 'Tuần'}</option></select>{view === 'timeline' && <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as typeof groupBy)} aria-label="Nhóm timeline"><option value="list">Theo danh sách</option><option value="member">Theo thành viên</option></select>}{inPeriod === 0 && nearest !== undefined && <button onClick={() => setAnchor(nearest)}>Đến thẻ có ngày</button>}<span className="sv-period">{inPeriod} thẻ · {date(days[0])} – {date(days[days.length - 1])}/{new Date(days[days.length - 1]).getUTCFullYear()}</span></header>
+    {view === 'calendar' ? <div className="sv-calendar-scroll"><div className="sv-weekdays">{weekdays.map((w) => <b key={w}>{w}</b>)}</div><div className="sv-calendar">{days.map((day) => <section key={day} className={'sv-day' + (day === today ? ' today' : '') + (new Date(day).getUTCMonth() !== d.getUTCMonth() ? ' outside' : '')}><header><time>{new Date(day).getUTCDate()}</time></header>{spanCards.filter((x) => x.span && day >= x.span[0] && day <= x.span[1]).map(({ card }) => <div key={card.id} className={'sv-calendar-card' + (card.done ? ' done' : '')}>{name(card)}<small>{card.members.join(', ') || card.group}</small></div>)}</section>)}</div><details className="sv-unscheduled"><summary>Chưa có ngày ({unscheduled.length})</summary>{unscheduled.map((c) => <div key={c.id}>{name(c)}</div>)}</details></div> : <div className="sv-timeline-scroll"><div className="sv-timeline" style={{ minWidth: 220 + days.length * 72 }}><div className="sv-timeline-head"><b className="sv-group-name">{groupBy === 'list' ? 'Danh sách' : 'Thành viên'}</b><div className="sv-day-axis">{days.map((day) => <div key={day} className={day === today ? 'today' : ''}><small>{weekdays[new Date(day).getUTCDay()]}</small><b>{date(day)}</b></div>)}</div></div>{groupNames.map((group) => {
+      const list = spanCards.filter(({ card }) => groupBy === 'list' ? card.group === group : (card.members.length ? card.members : ['Chưa giao']).includes(group));
+      const bars = list.flatMap((x) => { const clipped = x.span && clippedSpan(x.span, days); return clipped ? [{ ...x, clipped }] : []; });
+      const undated = list.filter((x) => !x.span);
+      return <section key={group} className="sv-timeline-group"><div className="sv-group-name"><b>{group}</b><details><summary>Chưa có ngày ({undated.length})</summary>{undated.map(({ card }) => <div key={card.id}>{name(card)}</div>)}</details></div><div className="sv-lanes" style={{ minHeight: Math.max(90, bars.length * 36 + 12) }}><div className="sv-gridlines">{days.map((day) => <div key={day} className={(day === today ? 'today' : '') + ([0, 6].includes(new Date(day).getUTCDay()) ? ' weekend' : '')} />)}</div>{bars.map(({ card, clipped }, i) => <button key={card.id} className={'sv-bar' + (card.done ? ' done' : '')} style={{ top: 8 + i * 36, left: `calc(${clipped.left / days.length * 100}% + 3px)`, width: `calc(${clipped.width / days.length * 100}% - 6px)` }} title={`${card.title} · ${stamp(card.startAt)} – ${stamp(card.dueAt)}`} onClick={() => onOpen(card.id)}>{card.title}</button>)}</div></section>;
+    })}{!groupNames.length && <p className="sv-empty">Không có thẻ phù hợp bộ lọc.</p>}</div></div>}
+  </section>;
+}

@@ -1,6 +1,7 @@
 // Sign-in only. Accounts are provisioned by an administrator or imported from the existing database.
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { LangChoice } from './TopBar';
 import { signedIn } from '../store';
 import { Turnstile } from './Turnstile';
 
@@ -38,7 +39,7 @@ export function LoginPage() {
       <form className="login-card" onSubmit={submit}>
         <img src="/brand/logo.png" alt="Detailers Movement" className="login-logo" />
         <h1>Đăng nhập</h1>
-        <p>DM Studio · Workspace khách hàng</p>
+        <p>DM Workspace · Workspace khách hàng</p>
         {input('email', 'Email', 'email', 'username')}
         {input('password', 'Mật khẩu', 'password', 'current-password')}
         {captcha?.required && captcha.siteKey && <Turnstile siteKey={captcha.siteKey} resetKey={resetKey} onToken={setToken} onError={setErr} />}
@@ -46,6 +47,7 @@ export function LoginPage() {
         <button className="btn btn-primary btn-lg" disabled={busy || !captcha || (captcha.required && !token)}>Đăng nhập</button>
         {err && <button className="link" type="button" onClick={() => { if (!captcha) loadConfig(); else { setErr(''); setResetKey((k) => k + 1); } }}>Thử lại xác minh</button>}
         <p className="login-foot">Chưa có tài khoản? Hãy nhờ quản trị viên thêm email của bạn.</p>
+        <LangChoice />
       </form>
     </main>
   );

@@ -8,7 +8,7 @@ import { Router, HttpError, json, readJson } from './http';
 import * as G from './google';
 import { askClaude } from './providers/llm';
 import { driveId, locate, sourceOut, refOf, type Source } from './sources';
-import { normalizeStoryboard } from './storyboard';
+import { normalizeStoryboard, STORYBOARD_SCHEMA, SYSTEM as MOTION_SYSTEM, BRAND_GUIDE, BRAND_PALETTES } from './storyboard';
 import { writeStoryboard, type PromptImage } from './providers/llm';
 import { contactSheets, frameTimes } from './frames';
 
@@ -74,23 +74,29 @@ export function sheetRef(link: string) {
 export const isSheetLink = (link: string) => /docs\.google\.com\/spreadsheets\//.test(String(link || ''));
 
 // ---------------------------------------------------------------- XLSX links (no dependency: a tiny zip reader)
+/** The files of a zip by name, each inflated the first time it is read (a big workbook's other tabs cost nothing). */
 function unzip(buf: Buffer) {
-  const files = new Map<string, Buffer>();
+  const entries = new Map<string, { method: number; data: Buffer }>(), done = new Map<string, Buffer>();
   let eocd = buf.length - 22;
   while (eocd >= 0 && buf.readUInt32LE(eocd) !== 0x06054b50) eocd--;
-  if (eocd < 0) return files;
-  let p = buf.readUInt32LE(eocd + 16);
-  for (let n = buf.readUInt16LE(eocd + 10); n > 0; n--) {
+  let p = eocd < 0 ? 0 : buf.readUInt32LE(eocd + 16);
+  for (let n = eocd < 0 ? 0 : buf.readUInt16LE(eocd + 10); n > 0; n--) {
     const method = buf.readUInt16LE(p + 10), size = buf.readUInt32LE(p + 20);
     const nameLen = buf.readUInt16LE(p + 28), extra = buf.readUInt16LE(p + 30), comment = buf.readUInt16LE(p + 32);
     const local = buf.readUInt32LE(p + 42);
     const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
     const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
-    const data = buf.subarray(start, start + size);
-    files.set(name, method === 8 ? zlib.inflateRawSync(data) : data);
+    entries.set(name, { method, data: buf.subarray(start, start + size) });
     p += 46 + nameLen + extra + comment;
   }
-  return files;
+  return {
+    has: (name: string) => entries.has(name),
+    get(name: string) {
+      const e = entries.get(name);
+      if (e && !done.has(name)) done.set(name, e.method === 8 ? zlib.inflateRawSync(e.data) : e.data);
+      return done.get(name);
+    },
+  };
 }
 const unxml = (s: string) => s
   .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d))
@@ -504,8 +510,54 @@ export async function readSheet(link: string, step: (text: string) => void = () 
   }
   if (!scenes.length) scenes = evenCut(script, byRow);
   const sheet: Sheet = { title: tab ? `${pick.name}` : file.name, link, csv, form, missing, ...(tab ? { tab } : {}), ...(warning ? { warning } : {}) };
-  const storyboard = scenes.length ? normalizeStoryboard({ title: file.name, mode: 'edit', font: 'sans', music: { mood: 'none', bpm: 96 }, logo: null, scenes }) : null;
+  let storyboard = scenes.length ? normalizeStoryboard({ title: file.name, mode: 'edit', font: 'sans', music: { mood: 'none', bpm: 96 }, logo: null, scenes }) : null;
+  // A form with no footage at all (a script of voice-over and on-screen text): the video is made from the script itself.
+  if (!storyboard && !p.out.size && script.some((r) => r.on_screen || r.voice_over)) {
+    step('Sheet không có video, Claude đang tự tạo video từ kịch bản…');
+    storyboard = await motionVideo(sheet, script, !!warning);
+  }
   return { sheet, sources: [...p.out.values()], missing, links: notes.size, storyboard, warning };
+}
+
+// ---------------------------------------------------------------- a video made from the script (no footage)
+/** Forms for Detailers Movement itself get its brand kit and logo; a client's form gets neither. */
+export const ownBrand = (sheet: Sheet) => /detailers\s*movement|\bDMI\b/i.test(`${sheet.form.customer} ${sheet.title}`);
+
+const MOTION_BRIEF = `This form lists no footage: make the video yourself as motion graphics (text layouts and animated backgrounds, no clips).
+- One scene per script row, in order; skip rows the form says to ignore.
+- On-screen text exactly as the row writes it (same language, wording, numbers, capitals). One line → headline; two lines → headline + subtext; three or more → layout "bullets" (headline = the first line when it reads as a title, otherwise a 2–4 word heading from the row); a price or total as the main point → layout "stat" (stat_value like "$2,900", stat_label the rest).
+- caption: the row's voice-over, word for word.
+- duration: the row's time range ("12–21s" → 9) or duration column; otherwise its voice-over read at about 2.6 words per second. The total matches the target length.
+- The closing call-to-action row is layout "outro": headline = its main line, subtext = a 2–3 word button label taken from its text, bullets = its other lines (a deadline, a web address), so no line of the row is lost.
+- Pick animation, background and palette from the visual direction and editor notes; visual_prompt describes the row's visual direction in English.`;
+
+/** The storyboard for a form without footage: written by Claude, or laid out row by row when Claude can't be reached. */
+async function motionVideo(sheet: Sheet, script: ScriptRow[], offline: boolean) {
+  const brand = ownBrand(sheet);
+  let sb: any = null;
+  if (!offline) {
+    try { sb = await askClaude('sonnet', MOTION_SYSTEM, `${sheetPrompt(sheet)}\n\n${MOTION_BRIEF}${brand ? '\n\n' + BRAND_GUIDE : ''}`, STORYBOARD_SCHEMA); }
+    catch (e: any) { console.error('✖ Tự tạo video từ kịch bản thất bại, dựng theo từng hàng:', e?.message || e); }
+  }
+  sb ||= { title: sheet.title, music: { mood: 'upbeat', bpm: 110 }, scenes: textScenes(script) };
+  if (brand) { sb.font = 'brand'; if (!Object.values(BRAND_PALETTES).some((c) => c.bg1 === String(sb.palette?.bg1).toLowerCase())) sb.palette = BRAND_PALETTES.blue; }
+  else { if (sb.font === 'brand') sb.font = 'sans'; sb.brandLogo = false; }
+  return normalizeStoryboard(sb);
+}
+
+/** Scenes straight from the script rows: on-screen text as the layout, voice-over as caption, the row's length. */
+function textScenes(script: ScriptRow[]) {
+  const anims = ['pop', 'slide-up', 'zoom', 'fade'], bgs = ['blobs', 'particles', 'waves', 'grid'];
+  const rows = script.filter((r) => r.on_screen || r.voice_over);
+  return rows.map((r, i) => {
+    const lines = String(r.on_screen || r.voice_over).split(/\n+/).map((l) => l.trim()).filter(Boolean);
+    const last = i === rows.length - 1;
+    const scene: any = { layout: last ? 'outro' : 'title', headline: lines[0] || '', subtext: lines.slice(1).join(' · '), caption: r.voice_over, visual_prompt: r.visual,
+      duration: rowTarget(r), animation: anims[i % anims.length], background: bgs[i % bgs.length], icon: '' };
+    if (last && lines.length >= 3) Object.assign(scene, { subtext: lines[lines.length - 1], bullets: lines.slice(1, -1) });
+    else if (lines.length >= 3) Object.assign(scene, { layout: 'bullets', subtext: '', bullets: lines.slice(1) });
+    return scene;
+  });
 }
 
 // ---------------------------------------------------------------- the assembly (sources in script order; editing is left to the editor)

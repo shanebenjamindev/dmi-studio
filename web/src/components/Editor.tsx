@@ -1,12 +1,14 @@
+import {BrandLoading} from './BrandLoading';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { player } from '../engine/player';
 import { proxies } from '../engine/proxies';
-import { useStore, setState, getState, closeProject, rebuildFromSheet, addSourceAtPlayhead, flatShots, setShot, splitAt, deleteShot, flushSave, fmt } from '../store';
+import { useStore, setState, getState, closeProject, rebuildFromSheet, addSourceAtPlayhead, flatShots, setShot, splitAt, deleteShot, flushSave, setOutro, toast, fmt } from '../store';
 import { api } from '../api';
 import { Sheet as Dialog } from './Dialogs';
 import { ClipTimeline } from './ClipTimeline';
+import { ClaudeChat } from './LeftPanel';
 import { Icon, IconButton } from './ui';
-import type { Aspect, Source } from '../types';
+import type { Aspect, OutroOpts, Source } from '../types';
 
 // A project built from a request sheet, laid out like a desktop video editor:
 //   media (sources / sheet) │ properties of the selected clip │ player (full height)
@@ -45,7 +47,7 @@ export function Editor() {
       ) : (
         // The project exists before its assembly does (the sheet is still being read), or the sheet found no video.
         <div className="ed-wait">
-          {busy ? <><span className="spinner" /><p>{busy}</p></>
+          {busy ? <BrandLoading label={busy}/>
             : <><Icon name="film" size={30} /><p>Chưa ghép được video nào từ sheet này. Kiểm tra cột Source trong sheet và quyền chia sẻ của thư mục, rồi bấm đọc lại.</p>
               <button className="ed-btn" onClick={rebuildFromSheet}><Icon name="refresh" size={14} />Đọc lại sheet</button></>}
         </div>
@@ -59,7 +61,7 @@ type Filter = 'all' | 'used' | 'unused';
 function MediaPanel() {
   const busy = useStore((s) => s.busy);
   const project = useStore((s) => s.project)!;
-  const [tab, setTab] = useState<'source' | 'sheet'>('source');
+  const [tab, setTab] = useState<'source' | 'sheet' | 'outro' | 'claude'>('source');
   const [filter, setFilter] = useState<Filter>('all');
   const [q, setQ] = useState('');
   const sources = project.sources || [];
@@ -82,8 +84,10 @@ function MediaPanel() {
       <nav className="ed-nav">
         <button className={tab === 'source' ? 'on' : ''} onClick={() => setTab('source')}><Icon name="film" size={18} />Source</button>
         <button className={tab === 'sheet' ? 'on' : ''} onClick={() => setTab('sheet')}><Icon name="text" size={18} />Sheet{missing.length > 0 && <i className="ed-dot" />}</button>
+        <button className={tab === 'outro' ? 'on' : ''} onClick={() => setTab('outro')}><Icon name="badge" size={18} />Outro</button>
+        <button className={tab === 'claude' ? 'on' : ''} onClick={() => setTab('claude')} title="Nhờ Claude sửa bản dựng"><Icon name="sparkle" size={18} />Claude</button>
       </nav>
-      {tab === 'source' ? (
+      {tab === 'claude' ? <div className="ed-media-body ed-claude"><ClaudeChat assembly /></div> : tab === 'outro' ? <OutroTab /> : tab === 'source' ? (
         <div className="ed-media-body">
           <div className="ed-media-tools">
             <label className="ed-search"><Icon name="search" size={13} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm source" /></label>
@@ -122,6 +126,97 @@ function MediaPanel() {
         </div>
       )}
     </section>
+  );
+}
+
+// ---------------------------------------------------------------- logo outro
+const LS_OUTRO = 'dms.outroOpts';
+const OUTRO0: OutroOpts = { dur: 3, bg: 'auto', removeBg: true, holes: false, shine: true, size: 'M' };
+const BG: Record<string, string> = { logo: 'Nền: gradient theo màu logo', 'logo-bg': 'Nền: gradient theo màu nền gốc của logo', black: 'Nền: đen', white: 'Nền: trắng' };
+const REMOVED = { alpha: 'Logo đã có nền trong suốt.', key: 'Đã xoá nền trơn của logo.', vision: 'Đã tách logo khỏi nền bằng Vision của macOS.', none: '' };
+
+/** Import a logo: the server cuts it out, fits it to the frame, adds the light sweep; the clip goes at the end. */
+function OutroTab() {
+  const project = useStore((s) => s.project)!;
+  const o = project.outro || null;
+  const [opts, setOpts] = useState<OutroOpts>(() => { try { return o?.opts || { ...OUTRO0, ...JSON.parse(localStorage.getItem(LS_OUTRO) || '{}') }; } catch { return o?.opts || OUTRO0; } });
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const [drag, setDrag] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const set = (p: Partial<OutroOpts>) => setOpts((x) => ({ ...x, ...p }));
+  const run = async (file?: File) => {
+    if (busy) return;
+    if (file && !/^image\/(png|jpeg|webp|gif)$/.test(file.type)) { setErr('Chọn ảnh PNG, JPG, WebP hoặc GIF.'); return; }
+    setErr(''); setBusy(file ? 'Đang xoá nền, căn logo và tạo outro…' : 'Đang tạo lại outro…');
+    try {
+      const r = file ? await api.outroLogo(project.id, file, opts) : await api.outroRender(project.id, opts);
+      setOutro(r.outro);
+      try { localStorage.setItem(LS_OUTRO, JSON.stringify(opts)); } catch { /* private mode */ }
+      toast('Đã gắn outro vào cuối timeline.');
+    } catch (e: any) { setErr(e.message); } finally { setBusy(''); }
+  };
+  const onTimeline = !!project.storyboard && flatShots(project.storyboard).some((x) => x.sh.media.provider === 'outro');
+  const stale = !!o && o.aspect !== project.aspect;
+  const changed = !!o && JSON.stringify(o.opts) !== JSON.stringify(opts);
+  const [vw, vh] = PREVIEW[project.aspect];
+  const seg = <T extends string | number>(cur: T, list: [T, string][], pick: (v: T) => void) => (
+    <div className="ed-seg">{list.map(([v, l]) => <button key={String(v)} className={cur === v ? 'on' : ''} onClick={() => pick(v)}>{l}</button>)}</div>
+  );
+  return (
+    <div className="ed-media-body ed-outro">
+      <p className="ed-outro-lead">Nhập logo: máy tự xoá nền, căn logo vào giữa vừa khung {project.aspect} (không bị cắt), thêm ánh sáng lướt qua rồi gắn outro vào cuối timeline. Outro có cùng độ phân giải với dự án và đi theo khi xuất CapCut.</p>
+      {o && (
+        <div className="ed-outro-view">
+          <video key={o.media.url} className="ed-outro-video" style={{ aspectRatio: `${vw} / ${vh}` }} src={o.media.url} poster={o.media.url.replace('?', '/thumb?')} muted loop autoPlay playsInline />
+          <div className="ed-outro-info">
+            <img className="ed-outro-logo" src={o.logo} alt="Logo đã xử lý" />
+            {REMOVED[o.removed] && <span>{REMOVED[o.removed]}</span>}
+            {o.removed === 'none' && <span>{o.opts.removeBg ? 'Không tách được nền: giữ nguyên ảnh.' : 'Giữ nền gốc của logo.'}</span>}
+            {o.bg === 'expand' ? <span>Nền: ảnh gốc mở rộng cho vừa khung (làm mờ phần thêm, không dùng AI tạo ảnh).</span>
+              : o.colors?.length === 2 && <span className="ed-outro-bg"><i style={{ background: `radial-gradient(circle at 50% 45%, ${o.colors[0]}, ${o.colors[1]})` }} />{BG[o.bg] || 'Nền: màu đã chọn'}</span>}
+            <span className="mono">{fmt(o.media.duration || 0)} · {o.aspect}{onTimeline ? ' · ở cuối timeline' : ''}</span>
+          </div>
+        </div>
+      )}
+      {o?.faint && <p className="ed-hint-box">⚠ Logo và nền gần màu nhau nên khó nhìn. Đổi màu nền rồi bấm “Áp dụng”.</p>}
+      {o?.small && <p className="ed-hint-box">⚠ Ảnh logo nhỏ (dưới 400 px) nên outro có thể hơi mờ. Nên dùng file lớn hơn.</p>}
+      {stale && <p className="ed-hint-box">⚠ Outro được tạo cho khung {o!.aspect}, dự án đang là {project.aspect}. Bấm “Tạo lại”.</p>}
+      {o && !onTimeline && !stale && <p className="ed-hint-box">Outro không còn trên timeline. <button className="ed-link" onClick={() => setOutro(o)}>Gắn lại vào cuối</button></p>}
+      <button className={'ed-drop' + (drag ? ' on' : '')} disabled={!!busy} onClick={() => input.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); run(e.dataTransfer.files[0]); }}>
+        {busy ? <><span className="spinner sm" />{busy}</> : <><Icon name="photo" size={22} /><b>{o ? 'Đổi logo' : 'Nhập logo'}</b><small>Kéo thả hoặc bấm để chọn · PNG, JPG, WebP</small></>}
+      </button>
+      <input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={(e) => { run(e.target.files?.[0]); e.target.value = ''; }} />
+      <div className="ed-opts">
+        <div className="ed-opt"><span>Thời lượng</span>{seg(opts.dur, [[2, '2s'], [3, '3s'], [4, '4s'], [5, '5s']], (v) => set({ dur: v }))}</div>
+        <div className="ed-opt"><span>Nền</span>
+          <span className="ed-opt-row">
+            {seg(opts.bg.startsWith('#') ? '#' : opts.bg, [['auto', 'Tự động'], ['black', 'Đen'], ['white', 'Trắng']], (v) => set({ bg: v }))}
+            <label className={'ed-swatch' + (opts.bg.startsWith('#') ? ' on' : '')} title="Chọn màu nền">
+              <input type="color" value={opts.bg.startsWith('#') ? opts.bg : '#1d4ed8'} onChange={(e) => set({ bg: e.target.value })} />
+            </label>
+          </span>
+        </div>
+        {!!o?.palette?.length && (
+          <div className="ed-opt"><span>Màu từ logo</span>
+            <span className="ed-opt-row">{o.palette.map((c) => <button key={c} className={'ed-swatch' + (opts.bg === c ? ' on' : '')} style={{ background: c }} title={`Nền gradient màu ${c}`} onClick={() => set({ bg: c })} />)}</span>
+          </div>
+        )}
+        <div className="ed-opt"><span>Cỡ logo</span>{seg(opts.size, [['S', 'Nhỏ'], ['M', 'Vừa'], ['L', 'Lớn']], (v) => set({ size: v }))}</div>
+        <label className="ed-check"><input type="checkbox" checked={opts.removeBg} onChange={(e) => set({ removeBg: e.target.checked })} />Xoá nền logo</label>
+        <label className={'ed-check' + (opts.removeBg ? '' : ' off')}><input type="checkbox" disabled={!opts.removeBg} checked={opts.holes} onChange={(e) => set({ holes: e.target.checked })} />Xoá cả nền trong lòng chữ (O, A, D…)</label>
+        <label className="ed-check"><input type="checkbox" checked={opts.shine} onChange={(e) => set({ shine: e.target.checked })} />Ánh sáng lướt qua logo</label>
+        <p className="ed-outro-lead">Nền “Tự động” là gradient theo màu logo: logo vốn nằm trên nền màu thì lấy đúng màu đó; còn lại lấy màu chủ đạo của logo, nhạt sau logo tối và đậm sau logo sáng. Logo chỉ có đen trắng thì dùng nền trắng hoặc đen. Tắt xoá nền thì ảnh gốc được mở rộng cho vừa khung.</p>
+      </div>
+      {err && <p className="note err">{err}</p>}
+      {o && (
+        <div className="ed-row">
+          {(changed || stale) && <button className="ed-btn primary" disabled={!!busy} onClick={() => run()}><Icon name="refresh" size={13} />{stale ? 'Tạo lại' : 'Áp dụng'}</button>}
+          <button className="ed-btn danger" disabled={!!busy} onClick={() => setOutro(null)}><Icon name="trash" size={13} />Bỏ outro</button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -174,7 +269,8 @@ function ScenesTab() {
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => { listRef.current?.querySelector('.ed-scene.cur')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [curRow]);
 
-  const rows = script.length ? script : sb.scenes.map((sc) => ({ row: sc.headline, meaning: '', voice_over: '', visual: '', on_screen: '', source: '', duration: '', note: '' }));
+  const outro = sb.scenes.findIndex((sc) => sc.shots?.some((x) => x.media.provider === 'outro'));
+  const rows = (script.length ? script : sb.scenes.filter((_, si) => si !== outro).map((sc) => ({ row: sc.headline, meaning: '', voice_over: '', visual: '', on_screen: '', source: '', duration: '', note: '' })));
   return (
     <div className="ed-scenes" ref={listRef}>
       {project.sheet?.warning && <p className="ed-hint-box">⚠ {project.sheet.warning} Bấm “Đọc lại sheet” (tab Sheet) khi Claude dùng lại được.</p>}
@@ -197,6 +293,15 @@ function ScenesTab() {
           </article>
         );
       })}
+      {outro >= 0 && (() => {
+        const pos = at.get(norm(sb.scenes[outro].headline))!;
+        return (
+          <article className={'ed-scene' + (curSi === outro ? ' cur' : '')} onClick={() => { player.seek(pos.start + 0.01); setState({ clip: null }); }}>
+            <header><b>Outro logo</b><span className="mono">{fmt(pos.dur)}</span></header>
+            <div className="ed-cell"><span>Nội dung</span><p>Logo khách hàng, ánh sáng lướt qua (tab Outro bên trái để đổi).</p></div>
+          </article>
+        );
+      })()}
     </div>
   );
 }
@@ -293,32 +398,36 @@ function PlayerPanel() {
 }
 
 // ---------------------------------------------------------------- export as a CapCut project
-type Run = { job: string; phase: 'media' | 'pack' | 'done' | 'error'; done: number; total: number; error: string | null; bytes: number };
+type Run = { job: string; phase: 'media' | 'pack' | 'done' | 'error'; to: 'capcut' | 'zip'; name: string; done: number; total: number; error: string | null; bytes: number };
 const mb = (b: number) => (b > 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`);
 
 function CapcutExport({ open, onClose }: { open: boolean; onClose: () => void }) {
   const project = useStore((s) => s.project)!;
   const [run, setRun] = useState<Run | null>(null);
   const [err, setErr] = useState('');
+  // CapCut's projects folder on the machine running DM Workspace ('' when it has no CapCut): projects can go straight in.
+  const [drafts, setDrafts] = useState('');
   const timer = useRef<any>(0);
   useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => { if (open) api.capcutLocal().then((r) => setDrafts(r.drafts)).catch(() => setDrafts('')); }, [open]);
   const download = (job: string) => { const a = document.createElement('a'); a.href = `/api/capcut/${job}/download`; a.click(); };
+  const openCapcut = () => api.capcutOpen().catch((e) => setErr(e.message));
   const poll = (job: string) => {
     timer.current = setTimeout(async () => {
       try {
         const st = await api.capcutStatus(job);
         setRun({ job, ...st });
-        if (st.phase === 'done') download(job);
+        if (st.phase === 'done') { if (st.to === 'zip') download(job); }
         else if (st.phase !== 'error') poll(job);
       } catch (e: any) { setErr(e.message); }
     }, 1500);
   };
-  const start = async () => {
+  const start = async (to: 'capcut' | 'zip') => {
     setErr('');
     try {
       await flushSave(); // the server exports what is saved: the timeline as it is now
-      const { job } = await api.capcutStart(getState().project!.id);
-      setRun({ job, phase: 'media', done: 0, total: 0, error: null, bytes: 0 });
+      const { job } = await api.capcutStart(getState().project!.id, to);
+      setRun({ job, phase: 'media', to, name: '', done: 0, total: 0, error: null, bytes: 0 });
       poll(job);
     } catch (e: any) { setErr(e.message); }
   };
@@ -330,27 +439,42 @@ function CapcutExport({ open, onClose }: { open: boolean; onClose: () => void })
     <Dialog open={open} onClose={close} title="Xuất dự án CapCut" footer={
       !run || run.phase === 'error' ? <>
         <button className="btn btn-plain" onClick={() => { close(); setState({ dialog: 'export', exp: { phase: 'setup', progress: 0, text: '' } }); }}>Xuất MP4 xem nhanh</button>
-        <button className="btn btn-primary" onClick={start}>Tạo file CapCut</button>
-      </> : run.phase === 'done' ? <>
+        {drafts ? <>
+          <button className="btn btn-gray" onClick={() => start('zip')}><Icon name="download" size={15} />Tải .zip</button>
+          <button className="btn btn-primary" onClick={() => start('capcut')}>Đưa vào CapCut</button>
+        </> : <button className="btn btn-primary" onClick={() => start('zip')}>Tạo file CapCut</button>}
+      </> : run.phase === 'done' ? run.to === 'capcut' ? <>
+        <button className="btn btn-gray" onClick={close}>Xong</button>
+        <button className="btn btn-primary" onClick={openCapcut}>Mở CapCut</button>
+      </> : <>
         <button className="btn btn-gray" onClick={() => download(run.job)}><Icon name="download" size={15} />Tải lại</button>
         <button className="btn btn-primary" onClick={close}>Xong</button>
       </> : <button className="btn btn-gray" onClick={close}>Chạy nền, đóng cửa sổ</button>}>
       {!run && <>
-        <p className="sheet-lead">Tạo một dự án CapCut (.zip) với {clips} clip đúng thứ tự, điểm vào/ra như trên timeline. Mỗi clip được cắt từ file gốc trên Drive, giữ nguyên độ phân giải, có thêm 2 giây đệm mỗi đầu để chỉnh tiếp trong CapCut.</p>
+        <p className="sheet-lead">Tạo một dự án CapCut với {clips} clip đúng thứ tự, điểm vào/ra như trên timeline. Mỗi clip được cắt từ file gốc trên Drive, giữ nguyên độ phân giải, có thêm 2 giây đệm mỗi đầu để chỉnh tiếp trong CapCut.</p>
+        {drafts
+          ? <p className="note">“Đưa vào CapCut” chép dự án thẳng vào CapCut trên máy này (<code>{drafts}</code>), nằm trong tài khoản CapCut đang đăng nhập ở đây. “Tải .zip” để mang sang máy khác.</p>
+          : <p className="note">Máy chạy DM Workspace không có CapCut, nên dự án được tải về dạng .zip.</p>}
         <p className="note">Thời gian tuỳ số clip và mạng, thường vài phút. Bạn có thể đóng cửa sổ này, việc xuất vẫn chạy.</p>
       </>}
       {busy && <div className="export-run">
         <div className="ring" style={{ ['--p' as any]: run!.phase === 'pack' ? 1 : p }}><span>{run!.phase === 'pack' ? '…' : `${Math.round(p * 100)}%`}</span></div>
-        <p className="sheet-lead">{run!.phase === 'pack' ? 'Đang đóng gói dự án CapCut…' : run!.total ? `Đang tải và cắt clip ${run!.done}/${run!.total}` : 'Đang chuẩn bị…'}</p>
+        <p className="sheet-lead">{run!.phase === 'pack' ? (run!.to === 'capcut' ? 'Đang đưa vào CapCut…' : 'Đang đóng gói dự án CapCut…') : run!.total ? `Đang tải và cắt clip ${run!.done}/${run!.total}` : 'Đang chuẩn bị…'}</p>
       </div>}
-      {run?.phase === 'done' && <div className="cc-done">
+      {run?.phase === 'done' && (run.to === 'capcut' ? <div className="cc-done">
+        <p className="sheet-lead">✓ Đã thêm “{run.name}” vào CapCut.</p>
+        <ol>
+          <li>Bấm “Mở CapCut”: dự án nằm đầu danh sách Projects. Nếu CapCut đang mở mà chưa thấy, thoát hẳn CapCut (⌘Q) rồi mở lại.</li>
+          <li>Muốn mở trên máy khác hoặc chia sẻ cho nhóm: trong CapCut, tải dự án lên Cloud/Space của tài khoản.</li>
+        </ol>
+      </div> : <div className="cc-done">
         <p className="sheet-lead">✓ Đã tạo xong ({mb(run.bytes)}). File .zip đang được tải về.</p>
         <ol>
           <li>Giải nén file .zip.</li>
           <li>Chép thư mục vừa giải nén vào thư mục dự án của CapCut (thường là <code>Documents/CAPCUT/CapCut Drafts</code>; xem trong CapCut ▸ Cài đặt ▸ Vị trí lưu bản nháp).</li>
           <li>Thoát hẳn CapCut rồi mở lại: dự án hiện trong danh sách Projects.</li>
         </ol>
-      </div>}
+      </div>)}
       {(err || run?.error) && <p className="note err">{err || run?.error}</p>}
     </Dialog>
   );

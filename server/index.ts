@@ -1,4 +1,5 @@
-// DM Studio server entry.
+import {drainNotifications} from './notifications';
+// DM Workspace server entry.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,6 +35,8 @@ const server = http.createServer(async (req0, res) => {
   const req = req0 as Req;
   const url = new URL(req.url || '/', 'http://local');
   req.path = url.pathname; req.query = url.searchParams;
+  // Mail a change has queued goes out as soon as it is answered; the minute's timer retries what failed.
+  if (req.method !== 'GET' && req.path.startsWith('/api/')) res.on('finish', () => { void drainNotifications().catch(() => console.error('Chưa xử lý được hàng đợi email')); });
 
   if (!trustedRequest(req)) return json(res, 403, { error: 'Yêu cầu bị chặn: Host/Origin không hợp lệ (đặt ALLOWED_HOSTS nếu cần)' });
 
@@ -73,8 +76,11 @@ server.requestTimeout = 0;
 await startWorker();
 const ready = (await publicCatalog()).filter((p) => p.configured && !p.mock).map((p) => p.name);
 server.listen(PORT, HOST, () => {
-  console.log(`\n  ▶ DM Studio  ${PUBLIC_URL || `http://localhost:${PORT}`}`);
+  console.log(`\n  ▶ DM Workspace  ${PUBLIC_URL || `http://localhost:${PORT}`}`);
   console.log(`    Database: ${cloudDatabase ? 'Cloudflare D1 (dùng chung)' : 'SQLite local'}`);
   console.log(`    Nền tảng đã có key: ${ready.length ? [...new Set(ready)].join(', ') : 'chưa có — thêm trong ⚙︎ Cài đặt hoặc file .env'}`);
   console.log(`    ffmpeg: ${FFMPEG ? 'có (xuất MP4)' : 'không có (xuất WebM/MP4 tuỳ trình duyệt)'}${MOCK ? '   · CHẾ ĐỘ DEMO' : ''}\n`);
 });
+
+const mailTimer=setInterval(()=>{void drainNotifications().catch(()=>console.error('Chưa xử lý được hàng đợi email'));},60000);
+mailTimer.unref();

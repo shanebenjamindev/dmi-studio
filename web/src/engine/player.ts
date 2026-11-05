@@ -121,7 +121,7 @@ class Player {
   sceneIndexAt(t: number) { const tl = timeline(this.sb); const s = tl.find((x) => t >= x.start && t < x.end); return s ? s.i : Math.max(0, tl.length - 1); }
 
   renderOpts(): RenderOpts {
-    return { captions: this.opts.captions, logo: this.opts.logo, brand, getMedia: (s) => this.media.get(s), getRef: (m) => this.media.ref(m), getThumb: (m) => this.media.thumb(m), getShot: (sh) => this.media.ref(this.playable(sh).media) };
+    return { captions: this.opts.captions, logo: this.opts.logo && this.sb?.brandLogo !== false, brand, getMedia: (s) => this.media.get(s), getRef: (m) => this.media.ref(m), getThumb: (m) => this.media.thumb(m), getShot: (sh) => this.media.ref(this.playable(sh).media) };
   }
 
   /** Keep the clip(s) of the visible scene(s) aligned with the timeline. */

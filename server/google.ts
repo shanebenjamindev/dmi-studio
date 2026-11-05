@@ -1,3 +1,4 @@
+import {gmailIssue} from '../shared/gmail-errors';
 // "Sign in with Google" (OAuth 2.0, web-server flow) + the few Google Drive v3 calls the workspace needs.
 // Several accounts can be connected; refresh tokens live in the settings table like the other API keys.
 import https from 'node:https';
@@ -29,19 +30,19 @@ export async function removeAccount(email: string) {
 }
 
 // ---------------------------------------------------------------- OAuth
-// 'drive' connects an account for storage; 'signin' only identifies who is logging in to DM Studio.
-export type Purpose = 'drive' | 'signin';
-interface OAuthState { redirect: string; purpose: Purpose }
-export async function authUrl(redirect: string, purpose: Purpose = 'drive') {
+// 'drive' connects an account for storage; 'signin' only identifies who is logging in to DM Workspace.
+export type Purpose = 'drive' | 'signin' | 'mail';
+interface OAuthState { redirect: string; purpose: Purpose; owner_id?:string|null }
+export async function authUrl(redirect: string, purpose: Purpose = 'drive', ownerId?:string) {
   const { clientId } = await oauthConfig();
   if (!clientId) throw new HttpError(400, 'Chưa cấu hình Google OAuth Client ID');
   const state = crypto.randomBytes(16).toString('hex');
   await run('DELETE FROM oauth_states WHERE expires_at < ?', Date.now());
-  await run('INSERT INTO oauth_states(id, redirect, purpose, expires_at) VALUES(?,?,?,?)', state, redirect, purpose, Date.now() + 15 * 60e3);
+  await run('INSERT INTO oauth_states(id, redirect, purpose, expires_at, owner_id) VALUES(?,?,?,?,?)', state, redirect, purpose, Date.now() + 15 * 60e3,ownerId||null);
   const q = new URLSearchParams(purpose === 'signin'
     ? { client_id: clientId, redirect_uri: redirect, response_type: 'code', scope: 'openid email profile', prompt: 'select_account', state }
     : {
-      client_id: clientId, redirect_uri: redirect, response_type: 'code', scope: SCOPES,
+      client_id: clientId, redirect_uri: redirect, response_type: 'code', scope: purpose==='mail'?'openid email profile https://www.googleapis.com/auth/gmail.send':SCOPES,
       access_type: 'offline', prompt: 'consent select_account', include_granted_scopes: 'true', state,
     });
   return `https://accounts.google.com/o/oauth2/v2/auth?${q}`;
@@ -58,14 +59,25 @@ async function tokenCall(params: Record<string, string>) {
 }
 export const purposeOf = async (state: string) => (await get<OAuthState>('SELECT purpose FROM oauth_states WHERE id=? AND expires_at>?', state, Date.now()))?.purpose ?? null;
 export async function finishLogin(code: string, state: string) {
-  const p = await get<OAuthState>('DELETE FROM oauth_states WHERE id=? AND expires_at>? RETURNING redirect, purpose', state, Date.now());
+  const p = await get<OAuthState>('DELETE FROM oauth_states WHERE id=? AND expires_at>? RETURNING redirect, purpose, owner_id', state, Date.now());
   if (!p) throw new HttpError(400, 'Phiên đăng nhập đã hết hạn, hãy thử lại');
+  if(p.purpose==='mail'&&!await get("SELECT 1 FROM users WHERE id=? AND role='admin' AND disabled=0",p.owner_id||''))throw new HttpError(403,'Chỉ quản trị viên kết nối tài khoản gửi mail');
   const t = await tokenCall({ code, grant_type: 'authorization_code', redirect_uri: p.redirect });
   const me: any = await (await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { authorization: `Bearer ${t.access_token}` } })).json();
   if (!me.email) throw new HttpError(400, 'Không đọc được email tài khoản Google');
   if (p.purpose === 'signin') {
     if (me.email_verified === false) throw new HttpError(400, 'Email Google này chưa được xác minh');
     return { purpose: p.purpose, email: String(me.email).toLowerCase(), name: me.name || me.email, picture: me.picture || '' };
+  }
+  if(p.purpose==='mail'){
+    if(me.email_verified===false)throw new HttpError(400,'Email Google chưa được xác minh');
+    if(t.scope&&!String(t.scope).split(' ').includes('https://www.googleapis.com/auth/gmail.send'))throw new HttpError(400,'Chưa cấp quyền gửi mail qua Gmail');
+    const previous=await getSetting<GAccount|null>('notification_mail',null);
+    const account:GAccount={email:String(me.email).toLowerCase(),name:me.name||me.email,picture:me.picture||'',refresh:t.refresh_token||(previous?.email===String(me.email).toLowerCase()?previous.refresh:''),access:t.access_token,expiry:Date.now()+((t.expires_in||3600)-60)*1000};
+    if(!account.refresh)throw new HttpError(400,'Google chưa cấp quyền truy cập lâu dài, hãy kết nối lại');
+    await setSetting('notification_mail',account);
+    await setSetting('notification_mail_issue',null);
+    return {purpose:p.purpose,email:account.email,name:account.name,picture:account.picture};
   }
   const prev = (await accounts()).find((a) => a.email === me.email);
   const acc: GAccount = {
@@ -122,14 +134,13 @@ async function listAll(email: string, query: string, fields: string, corpora = '
 }
 export const listFolders = async (email: string, parent: string) =>
   await listAll(email, `'${parent}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`, 'id,name');
-export const listVideos = async (email: string, parent: string) =>
-  await listAll(email, `'${parent}' in parents and mimeType contains 'video/' and trashed=false`, 'id,name,size,mimeType,modifiedTime,webViewLink,thumbnailLink,shared');
-/** Videos directly inside any of `parents` (chunked so the query stays short); each file carries its `parents`. */
-export async function listVideosIn(email: string, parents: string[]) {
+/** Everything (files, folders, shortcuts) directly inside any of `parents`, chunked so the query stays short; each item carries its `parents`. */
+export async function listChildrenIn(email: string, parents: string[]) {
   const out: GFile[] = [];
   for (let i = 0; i < parents.length; i += 40) {
     const q = parents.slice(i, i + 40).map((p) => `'${p}' in parents`).join(' or ');
-    out.push(...await listAll(email, `(${q}) and mimeType contains 'video/' and trashed=false`, 'id,name,size,mimeType,modifiedTime,webViewLink,thumbnailLink,shared,parents'));
+    out.push(...await listAll(email, `(${q}) and trashed=false`,
+      'id,name,size,mimeType,modifiedTime,webViewLink,thumbnailLink,shared,parents,shortcutDetails(targetId,targetMimeType)', 'allDrives'));
   }
   return out;
 }
@@ -171,6 +182,13 @@ export async function searchByName(email: string, term: string, limit = 20) {
   const j = await gjson<{ files: GFile[] }>(email,
     `${DRIVE}/files?q=${q(query)}&fields=${q(`files(${MEDIA_FIELDS})`)}&pageSize=${limit}&corpora=allDrives&${ALL}`);
   return await resolveShortcuts(email, j.files || []);
+}
+/** Video library for report selection. Read-only; no permissions or files are changed. */
+export async function searchVideos(email: string, term: string, limit=60) {
+  const escaped=term.replace(/['\\]/g,'\\$&');
+  const query=`trashed=false and mimeType contains 'video/'${term?` and name contains '${escaped}'`:''}`;
+  const j=await gjson<{files:GFile[]}>(email,`${DRIVE}/files?q=${q(query)}&fields=${q(`files(${MEDIA_FIELDS})`)}&pageSize=${Math.min(limit,100)}&orderBy=${q('modifiedTime desc')}&corpora=allDrives&${ALL}`);
+  return j.files || [];
 }
 /** One tab of a Google Sheet as CSV or XLSX (works with the Drive scope; the Sheets API need not be enabled). */
 export async function sheetExport(email: string, id: string, gid: string, format: 'csv' | 'xlsx') {
@@ -258,7 +276,7 @@ export async function streamFile(email: string, id: string, req: http.IncomingMe
   const headers: Record<string, string> = {};
   if (req.headers.range) headers.range = String(req.headers.range);
   const r = await gfetch(email, `${DRIVE}/files/${q(id)}?alt=media&supportsAllDrives=true`, { headers });
-  if (!r.ok && r.status !== 206) throw new HttpError(r.status === 404 ? 404 : 502, `Google Drive: không đọc được video (${r.status})`);
+  if (!r.ok && r.status !== 206) throw new HttpError(r.status === 404 ? 404 : 502, `Google Drive: không đọc được file (${r.status})`);
   // Drive file ids never change content in place (a new upload is a new id), so the browser may reuse what it fetched.
   const out: Record<string, string> = { 'cache-control': 'private, max-age=86400', 'accept-ranges': 'bytes' };
   for (const h of ['content-type', 'content-length', 'content-range']) { const v = r.headers.get(h); if (v) out[h] = v; }
@@ -299,4 +317,21 @@ export async function streamThumb(email: string, id: string, res: http.ServerRes
   // The URL carries the file's modified time, so it can be cached for long.
   res.writeHead(200, { 'content-type': hit.type, 'content-length': hit.body.length, 'cache-control': 'private, max-age=604800, immutable' });
   res.end(hit.body);
+}
+
+/** Separate send-only connection; Drive tokens are never reused for notifications. */
+export async function sendNotificationMail(to:string,subject:string,text:string){
+  const account=await getSetting<GAccount|null>('notification_mail',null);
+  if(!account)throw new HttpError(400,'Chưa kết nối tài khoản gửi Gmail');
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)||!/^([^\s@]+)@([^\s@]+)\.([^\s@]+)$/.test(account.email))throw new HttpError(400,'Email không hợp lệ');
+  if(!account.access||(account.expiry||0)<Date.now()){
+    const token=await tokenCall({refresh_token:account.refresh,grant_type:'refresh_token'});
+    account.access=token.access_token;account.expiry=Date.now()+((token.expires_in||3600)-60)*1000;
+    await setSetting('notification_mail',account);
+  }
+  const mime=[`From: DM Workspace <${account.email}>`,`To: ${to}`,`Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,'MIME-Version: 1.0','Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64','',Buffer.from(text).toString('base64')].join('\r\n');
+  const result=await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send',{method:'POST',headers:{authorization:`Bearer ${account.access}`,'content-type':'application/json'},body:JSON.stringify({raw:Buffer.from(mime).toString('base64url')}),signal:AbortSignal.timeout(15000)});
+  if(result.status===401)await setSetting('notification_mail',{...account,access:undefined,expiry:0});
+  if(!result.ok){const issue=gmailIssue(result.status,await result.json().catch(()=>null));await setSetting('notification_mail_issue',issue);throw new HttpError(502,issue.message);}
+  await setSetting('notification_mail_issue',null);
 }
