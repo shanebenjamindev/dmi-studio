@@ -1,36 +1,48 @@
+import {removeTaskRecord,removeProjectRecord,syncProjectCards} from './work-sync';
 import {grantAccess,projectLevels,requireProject} from './project-access';
 import {customerLevel,customerLevels,requireCustomer} from './customer-access';
 import {notificationSnapshot,notifyPeople,queueTaskNotifications} from './notifications';
 // Công việc: the team's tasks, imported from their task app's export (pasted or as a file; see taskimport.ts) into
 // tables of their own: tasks (any depth of parent → children, the app's ID kept so importing again updates them),
-// projects (linked to a customer of the same name), people (who made a task, who does it; each name linked to a DM
+// projects (linked to a customer of the same name), people (who made a task, who does it; each name linked to a DMI
 // Studio account, which is what "Công việc của tôi" goes by) and labels. Everyone signed in reads the list; a task's
 // result (it can hold logins) shows to admins and the task's own people, who edit it. Public fields sync with linked cards. Admins import
 // and link names to accounts; anyone may claim their own name when no one has it yet.
 import { Router, HttpError, json, readJson } from './http';
-import { routeTaskToWorkspace, syncAllTasksToWorkspace } from './taskworkspace';
+import { assigneeUsers, placeTaskCard, projectCustomerChanged, projectHome, renameProjectBoard, routeTaskToWorkspace, shareTaskCard, syncAllTasksToWorkspace, syncProjectBoardMembers } from './taskworkspace';
 import { TASK_MASTER } from '../shared/task-master';
+import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
+/** A description or result as written (formatted text is never cut, which would break it): too long is refused. */
+const richIn = (x: unknown) => { const v = String(x ?? ''); if (v.length > RICH_MAX) throw new HttpError(413, RICH_TOO_LONG); return v; };
 import type { Req } from './http';
-import { all, get, run, uid, now } from './db';
-import { currentUser } from './auth';
+import { all, get, getSetting, run, uid, now } from './db';
+import { currentUser, deptLevel } from './auth';
 import { mustBoard, mustCard, mustList, boardLevelForUser } from './boards';
 import { syncTaskToCard, taskDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
 import { readTaskExport, readTaskSheet, statusKey, normName, type TaskRow } from './taskimport';
+import { matcher } from './admin/common';
 
 const me = async (req: Req) => (await currentUser(req))!;
 /** The names in the task data linked to this account. */
 const myPeople = async (userId: string) => (await all<any>('SELECT id FROM task_people WHERE user_id = ?', userId)).map((r) => r.id as string);
 /** What a task's status means now: not finished past its deadline is late, whatever the app said then. */
-function stateOf(t: { status: string; due_at: number | null; done_at: number | null }) {
+export function stateOf(t: { status: string; due_at: number | null; done_at: number | null }) {
   const k = statusKey(t.status);
   if (['todo', 'doing', 'paused', 'other'].includes(k) && !t.done_at && t.due_at && t.due_at < now()) return 'overdue';
   return k;
 }
-/** The statuses a task can be set to here (the app's words). */
+/** The statuses a task can be set to here (the app's words), until Quản trị › Công việc › Trạng thái has a list. */
 const STATUSES = ['Chưa thực hiện', 'Đang thực hiện', 'Đang đánh giá', 'Tạm dừng', 'Hoàn thành', 'Hoàn thành muộn', 'Đã huỷ'];
+/** The active statuses, in the order set in Quản trị. */
+export async function taskStatuses(): Promise<string[]> {
+  const rows = await all<any>('SELECT name FROM task_statuses WHERE active = 1 ORDER BY pos');
+  return rows.length ? rows.map((r) => r.name as string) : STATUSES;
+}
 
 // ------------------------------------------------------------------ import
-export async function importTasks(text: string, userId: string, sourceName = '') {
+/** `links`: the account each name in the sheet is (null: none), as the importer chose it; remembered on the name for the
+ *  next imports. Names left out keep what they had. */
+export async function importTasks(text: string, userId: string, sourceName = '', links: Record<string, string | null> = {}) {
   let parsed: ReturnType<typeof readTaskExport>, sheet: ReturnType<typeof readTaskSheet>;
   try { sheet = readTaskSheet(text); parsed = sheet.titleColumn >= 0 ? readTaskExport(text) : { rows: [], skipped: 0, columns: [], sourceRows: [] }; } catch (e: any) { throw new HttpError(400, e.message); }
   const { rows, skipped } = parsed;
@@ -49,20 +61,27 @@ export async function importTasks(text: string, userId: string, sourceName = '')
   }
   if (part.rows.length) parts.push(part);
   const t0 = now(), importId = uid('ti_');
-  const count = { created: 0, updated: 0, parents: 0, stubs: 0, people: 0, projects: 0, labels: 0 };
+  const count = { created: 0, updated: 0, parents: 0, stubs: 0, people: 0, linked: 0, projects: 0, labels: 0 };
 
-  // Imported names work on their own; account links are optional and explicitly managed.
-  const people = new Map((await all<any>('SELECT id, name FROM task_people')).map((p) => [normName(p.name), p.id as string]));
+  // Imported names work on their own; a name is an employee's account only when the importer says so (never by
+  // matching names), and stays linked for the next imports.
+  const people = new Map((await all<any>('SELECT id, name, user_id FROM task_people')).map((p) => [normName(p.name), { id: p.id as string, userId: (p.user_id || null) as string | null }]));
   const person = async (name: string) => {
     const k = normName(name);
     if (!k) return null;
     if (!people.has(k)) {
       const id = uid('tp_');
       await run('INSERT INTO task_people(id, name, user_id, created_at) VALUES(?,?,?,?)', id, name.trim(), null, t0);
-      people.set(k, id); count.people++;
+      people.set(k, { id, userId: null }); count.people++;
     }
-    return people.get(k)!;
+    return people.get(k)!.id;
   };
+  for (const [name, account] of Object.entries(links)) {
+    const id = await person(name), p = id && people.get(normName(name));
+    if (!p || p.userId === account) continue;
+    await run('UPDATE task_people SET user_id = ? WHERE id = ?', account, id);
+    p.userId = account; if (account) count.linked++;
+  }
   const allowedImportCustomers=await customerLevels(userId),allowedImportProjects=await projectLevels(userId);
   const customers = (await all<any>('SELECT id, name FROM customers')).filter(c=>allowedImportCustomers.has(c.id)).map((c) => ({ id: c.id as string, k: normName(c.name) })).filter((c) => c.k.length >= 4);
   const projects = new Map((await all<any>('SELECT id, name,customer_id FROM task_projects')).filter(p=>allowedImportProjects.has(p.id)&&(!p.customer_id||allowedImportCustomers.has(p.customer_id))).map((p) => [normName(p.name), p.id as string]));
@@ -92,7 +111,7 @@ export async function importTasks(text: string, userId: string, sourceName = '')
     const k = normName(t.title);
     byTitle.set(k, [...(byTitle.get(k) || []), { id: t.id, project: t.project_id }]);
   }
-  const done: { row: TaskRow; id: string; project: string | null }[] = [];
+  const done: { row: TaskRow; id: string; project: string | null }[] = [], granted = new Set<string>();
   for (const row of rows) {
     const projectId = await project(row.project), createdBy = await person(row.createdBy);
     const old = row.externalId
@@ -116,7 +135,14 @@ export async function importTasks(text: string, userId: string, sourceName = '')
       byTitle.set(k, [...(byTitle.get(k) || []), { id, project: projectId }]);
     }
     await run('DELETE FROM task_assignees WHERE task_id = ?', id);
-    for (const name of row.assignees) { const p = await person(name); if (p) await run('INSERT OR IGNORE INTO task_assignees(task_id, person_id) VALUES(?,?)', id, p); }
+    for (const name of row.assignees) {
+      const p = await person(name);
+      if (!p) continue;
+      await run('INSERT OR IGNORE INTO task_assignees(task_id, person_id) VALUES(?,?)', id, p);
+      // As when a task is assigned by hand: an employee opens the project of the work given to them.
+      const account = people.get(normName(name))!.userId, grant = `${account}|${projectId}`;
+      if (account && projectId && !granted.has(grant)) { granted.add(grant); await grantAccess(account, userId, { projectId }, 'normal'); }
+    }
     await run('DELETE FROM task_label_links WHERE task_id = ?', id);
     for (const name of row.labels) await run('INSERT OR IGNORE INTO task_label_links(task_id, label_id) VALUES(?,?)', id, await label(name));
     done.push({ row, id, project: projectId });
@@ -158,13 +184,14 @@ export async function importTasks(text: string, userId: string, sourceName = '')
 // ------------------------------------------------------------------ reading
 /** People and labels of every task, by task. */
 async function links(req:Req) {
-  const who = new Map<string, { id: string; name: string; userId: string | null }[]>(), tags = new Map<string, string[]>();
-  for (const r of await all<any>('SELECT a.task_id, p.id, p.name, p.user_id FROM task_assignees a JOIN task_people p ON p.id = a.person_id ORDER BY p.name')) {
-    who.set(r.task_id, [...(who.get(r.task_id) || []), { id: r.id, name: r.name, userId: r.user_id || null }]);
+  const who = new Map<string, { id: string; name: string; userId: string | null; avatarAt?: number | null }[]>(), tags = new Map<string, string[]>();
+  // A name linked to an employee shows as that employee.
+  for (const r of await all<any>('SELECT a.task_id, p.id, COALESCE(u.name, p.name) name, p.user_id, u.avatar_at FROM task_assignees a JOIN task_people p ON p.id = a.person_id LEFT JOIN users u ON u.id = p.user_id ORDER BY 3')) {
+    who.set(r.task_id, [...(who.get(r.task_id) || []), { id: r.id, name: r.name, userId: r.user_id || null, avatarAt: r.avatar_at ?? null }]);
   }
   for (const r of await all<any>('SELECT k.task_id, l.name FROM task_label_links k JOIN task_labels l ON l.id = k.label_id ORDER BY l.name')) tags.set(r.task_id, [...(tags.get(r.task_id) || []), r.name]);
-  const followers = new Map<string, { id: string; name: string }[]>();
-  for (const r of await all<any>('SELECT f.task_id, u.id, u.name FROM task_followers f JOIN users u ON u.id = f.user_id WHERE u.disabled = 0 ORDER BY u.name')) followers.set(r.task_id, [...(followers.get(r.task_id) || []), { id: r.id, name: r.name }]);
+  const followers = new Map<string, { id: string; name: string; avatarAt?: number | null }[]>();
+  for (const r of await all<any>('SELECT f.task_id, u.id, u.name, u.avatar_at FROM task_followers f JOIN users u ON u.id = f.user_id WHERE u.disabled = 0 ORDER BY u.name')) followers.set(r.task_id, [...(followers.get(r.task_id) || []), { id: r.id, name: r.name, avatarAt: r.avatar_at ?? null }]);
   const user=await me(req);
   const allowed=new Set<string>();
   for(const board of await all<any>('SELECT * FROM boards'))if(await boardLevelForUser(user,board))allowed.add(board.id);
@@ -173,9 +200,10 @@ async function links(req:Req) {
     linkedTasks.add(row.task_id);
     if(allowed.has(row.boardId)){const{task_id,...link}=row;boardLinks.set(task_id,link);}
   }
-  return { who, tags, followers, boardLinks,linkedTasks };
+  const pLevels = await projectLevels(user.id);
+  return { who, tags, followers, boardLinks, linkedTasks, user, pLevels };
 }
-const TASK_SQL = `SELECT t.*, j.name project_name, j.customer_id, (SELECT name FROM task_campaigns WHERE id=t.campaign_id) campaign_name, c.name creator_name, p.title parent_title,
+const TASK_SQL = `SELECT t.*, j.name project_name, j.customer_id, (SELECT name FROM task_campaigns WHERE id=t.campaign_id) campaign_name, c.name creator_name, c.user_id creator_user_id, p.title parent_title,
   (SELECT COUNT(*) FROM tasks x WHERE x.parent_id = t.id) children
   FROM tasks t LEFT JOIN task_projects j ON j.id = t.project_id LEFT JOIN task_people c ON c.id = t.created_by LEFT JOIN tasks p ON p.id = t.parent_id`;
 function taskOut(t: any, l: Awaited<ReturnType<typeof links>>) {
@@ -186,6 +214,7 @@ function taskOut(t: any, l: Awaited<ReturnType<typeof links>>) {
     parent: t.parent_id ? { id: t.parent_id, title: t.parent_title || '' } : null, children: Number(t.children) || 0,
     createdBy: t.created_by ? { id: t.created_by, name: t.creator_name || '' } : null, assignees: l.who.get(t.id) || [], followers: l.followers.get(t.id) || [], labels: l.tags.get(t.id) || [],
     boardLink:l.boardLinks.get(t.id)||null,hasBoardLink:l.linkedTasks.has(t.id),
+    canDelete: l.user.role === 'admin' || (t.creator_user_id != null && t.creator_user_id === l.user.id) || (t.project_id ? l.pLevels.get(t.project_id) === 'admin' : false),
     sourceUpdatedAt: t.source_updated_at ?? null, stub: !!t.stub, updatedAt: t.updated_at,
   };
 }
@@ -218,7 +247,13 @@ async function taskPersonForUser(userId: string) {
 
 async function canDelete(req: Req, t: any) {
   const u = await me(req);
-  return u.role === 'admin' || !!await get('SELECT 1 FROM task_people WHERE id=? AND user_id=?', t.created_by, u.id);
+  if (u.role === 'admin') return true;
+  if (await get('SELECT 1 FROM task_people WHERE id=? AND user_id=?', t.created_by, u.id)) return true;
+  if (t.project_id) {
+    const level = (await projectLevels(u.id)).get(t.project_id);
+    if (level === 'admin') return true;
+  }
+  return false;
 }
 async function writable(req: Req) {
   const t = await get<any>('SELECT * FROM tasks WHERE id=?', req.params.id);
@@ -235,7 +270,7 @@ async function taskInput(b: any, old?: any,userId?:string) {
   const title = String(b.title ?? old?.title ?? '').replace(/\s+/g, ' ').trim();
   if (!title || title.length > 500) throw new HttpError(400, 'Tên công việc cần có từ 1 đến 500 ký tự');
   const status = b.status === undefined ? old?.status || 'Chưa thực hiện' : String(b.status);
-  if (b.status !== undefined && !STATUSES.includes(status) && !(old && await get('SELECT 1 FROM task_board_links l JOIN board_cards c ON c.id=l.card_id JOIN board_lists bl ON bl.board_id=c.board_id WHERE l.task_id=? AND bl.archived=0 AND bl.name=?',old.id,status))) throw new HttpError(400, 'Trạng thái không hợp lệ');
+  if (b.status !== undefined && !(await taskStatuses()).includes(status) && !(old && await get('SELECT 1 FROM task_board_links l JOIN board_cards c ON c.id=l.card_id JOIN board_lists bl ON bl.board_id=c.board_id WHERE l.task_id=? AND bl.archived=0 AND bl.name=?',old.id,status))) throw new HttpError(400, 'Trạng thái không hợp lệ');
   const date = (v: any) => { if (v === null) return null; if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 8640000000000000) throw new HttpError(400, 'Ngày không hợp lệ'); return v; };
   const start = b.startAt === undefined ? old?.start_at ?? null : date(b.startAt);
   const due = b.dueAt === undefined ? old?.due_at ?? null : date(b.dueAt);
@@ -285,7 +320,7 @@ async function taskInput(b: any, old?: any,userId?:string) {
   const keptLate = b.status !== undefined && statusKey(status) === 'done_late';
   if (!campaign && project) campaign = await defaultCampaign(String(project));
   return { title, status: finished ? (keptLate ? status : due && done! > due ? 'Hoàn thành muộn' : 'Hoàn thành') : status, start, due, done, project, campaign, parent,
-    description: String(b.description ?? old?.description ?? '').slice(0, 20000), result: String(b.result ?? old?.result ?? '').slice(0, 20000), people, userIds, followers, labels };
+    description: richIn(b.description ?? old?.description), result: richIn(b.result ?? old?.result), people, userIds, followers, labels };
 }
 async function saveLinks(id: string, input: Awaited<ReturnType<typeof taskInput>>, by?: string) {
   if (input.people !== undefined || input.userIds !== undefined) {
@@ -322,6 +357,64 @@ async function inheritFollowers(id: string, project: string | null, parent: stri
 
 async function canManageProject(user:any,id:string){return (await requireProject(user.id,id,'admin'))==='admin';}
 export function registerTasks(api: Router) {
+  api.post('/api/task-projects',async(req,res)=>{
+    const user=await me(req),body=await readJson(req),name=String(body.name||'').trim();
+    if(!name||name.length>200)throw new HttpError(400,'Tên dự án cần từ 1 đến 200 ký tự');
+    const customerId=body.customerId?String(body.customerId):null;
+    if(customerId)await requireCustomer(user.id,customerId,'admin');
+    const teamId=body.teamId!==undefined?(body.teamId?String(body.teamId):null):user.team_role||null;
+    if(teamId&&!await get('SELECT id FROM team_roles WHERE id=?',teamId))throw new HttpError(400,'Phòng ban không tồn tại');
+    const id=uid('tj_');
+    await run('INSERT INTO task_projects(id,name,customer_id,created_by,team_id,created_at) VALUES(?,?,?,?,?,?)',id,name,customerId,user.id,teamId,now());
+    // On Workspace at once: a card on its customer's board (or its own board), where its tasks will go.
+    if(await getSetting('task_workspace_auto',true))await projectHome(id);
+    json(res,201,{id,name,customerId,teamId});
+  });
+  api.put('/api/task-projects/:project',async(req,res)=>{
+    const user=await me(req),id=req.params.project;await requireProject(user.id,id,'admin');
+    const body=await readJson(req);
+    if(body.name!==undefined){
+      const name=String(body.name||'').trim();
+      if(!name||name.length>200)throw new HttpError(400,'Tên dự án không hợp lệ (tối đa 200 ký tự)');
+      await run('UPDATE task_projects SET name=? WHERE id=?',name,id);
+      await renameProjectBoard(id,name);
+    }
+    let customerChanged=false;
+    if(body.customerId!==undefined){
+      const cid=body.customerId?String(body.customerId):null;
+      if(cid)await requireCustomer(user.id,cid,'admin');
+      customerChanged=cid!==((await get<any>('SELECT customer_id FROM task_projects WHERE id=?',id))?.customer_id||null);
+      await run('UPDATE task_projects SET customer_id=? WHERE id=?',cid,id);
+    }
+    if(body.teamId!==undefined){
+      const tid=body.teamId?String(body.teamId):null;
+      if(tid&&!await get('SELECT id FROM team_roles WHERE id=?',tid))throw new HttpError(400,'Phòng ban không tồn tại');
+      await run('UPDATE task_projects SET team_id=? WHERE id=?',tid,id);
+    }
+    await syncProjectCards(id);
+    if(customerChanged)await projectCustomerChanged(id);
+    const updated=await get<any>('SELECT * FROM task_projects WHERE id=?',id);
+    json(res,200,{ok:true,id,name:updated.name,customerId:updated.customer_id||null,teamId:updated.team_id||null});
+  });
+  const removeTaskProject = removeProjectRecord;
+  api.delete('/api/task-projects/:project',async(req,res)=>{
+    const user=await me(req),id=req.params.project;await requireProject(user.id,id,'admin');
+    await removeTaskProject(id);
+    json(res,200,{ok:true});
+  });
+  api.post('/api/task-projects/bulk-delete',async(req,res)=>{
+    const user=await me(req),b=await readJson(req);
+    const ids=Array.isArray(b.ids)?[...new Set<string>(b.ids.filter((id:unknown)=>typeof id==='string'&&id))]:[];
+    if(!ids.length||ids.length>200)throw new HttpError(400,'Hãy chọn từ 1 đến 200 dự án để xoá');
+    const levels=await projectLevels(user.id);
+    let deleted=0;
+    for(const id of ids){
+      if(levels.get(id)!=='admin'&&user.role!=='admin')continue;
+      await removeTaskProject(id);
+      deleted++;
+    }
+    json(res,200,{ok:true,deleted});
+  });
   api.get('/api/task-projects/:project/members',async(req,res)=>{
     const user=await me(req),id=req.params.project,level=await requireProject(user.id,id);
     const p=await get<any>('SELECT * FROM task_projects WHERE id=?',id);
@@ -348,12 +441,15 @@ export function registerTasks(api: Router) {
     const had=await get('SELECT 1 FROM task_project_members WHERE project_id=? AND user_id=?',id,req.params.userId);
     await run('INSERT INTO task_project_members(project_id,user_id,role,follows) VALUES(?,?,?,?) ON CONFLICT(project_id,user_id) DO UPDATE SET role=excluded.role,follows=excluded.follows',id,req.params.userId,role,follows);
     if(!had)await notifyPeople([req.params.userId],user.id,{title:'Bạn được thêm vào dự án',body:p.name,link:`#projects/${id}`});
+    await syncProjectBoardMembers(id);
     json(res,200,{ok:true});
   });
   api.delete('/api/task-projects/:project/members/:userId',async(req,res)=>{
     const user=await me(req),id=req.params.project;await requireProject(user.id,id,'admin');
     const p=await get<any>('SELECT created_by FROM task_projects WHERE id=?',id);if(p.created_by===req.params.userId)throw new HttpError(400,'Không thể gỡ chủ dự án');
-    await run('DELETE FROM task_project_members WHERE project_id=? AND user_id=?',id,req.params.userId);json(res,200,{ok:true});
+    await run('DELETE FROM task_project_members WHERE project_id=? AND user_id=?',id,req.params.userId);
+    await syncProjectBoardMembers(id);
+    json(res,200,{ok:true});
   });
   api.get('/api/task-projects/:project/campaigns',async(req,res)=>{
     if(!await get('SELECT id FROM task_projects WHERE id=?',req.params.project))throw new HttpError(404,'Không tìm thấy dự án');
@@ -402,20 +498,57 @@ export function registerTasks(api: Router) {
     if(user.role!=='admin')throw new HttpError(403,'Chỉ quản trị viên được đồng bộ tất cả công việc');
     json(res,200,await syncAllTasksToWorkspace(user.id));
   });
+  // Everyone lists their own work; a department's head also lists the department's (`scope=team`), a company admin any
+  // department's (`team=<id>`). Every task at once (`scope=all`) is only a project's list, on the project's page.
   api.get('/api/tasks', async (req, res) => {
-    const u = await me(req), q = req.query, scope = q.get('scope') === 'all' ? 'all' : 'mine';
+    const u = await me(req), q = req.query, project = String(q.get('project') || '') || null;
+    const scope = q.get('scope') === 'all' && project ? 'all' : q.get('scope') === 'team' ? 'team' : 'mine';
+    let team = new Set<string>();
+    if (scope === 'team') {
+      const requested = String(q.get('team') || '');
+      const myLeaderTeams = new Set((await all<any>("SELECT team_id FROM team_members WHERE user_id = ? AND role = 'leader'", u.id)).map((r) => r.team_id as string));
+      const isDeptHead = deptLevel(u) === 'admin' && !!u.team_role;
+      let target = requested;
+      if (!target) target = u.role === 'admin' || isDeptHead ? (u.team_role || [...myLeaderTeams][0] || '') : ([...myLeaderTeams][0] || '');
+      if (!target) throw new HttpError(403, 'Chỉ trưởng phòng, trưởng nhóm hoặc quản trị viên xem được công việc của team');
+      const workTeam = await get<any>('SELECT id, department_id FROM teams WHERE id = ? AND deleted_at IS NULL', target);
+      if (workTeam) {
+        if (u.role !== 'admin' && !myLeaderTeams.has(workTeam.id) && !(isDeptHead && workTeam.department_id === u.team_role)) {
+          throw new HttpError(403, 'Chỉ trưởng nhóm, trưởng phòng hoặc quản trị viên xem được công việc của nhóm này');
+        }
+        team = new Set((await all<any>('SELECT m.user_id FROM team_members m JOIN users u ON u.id = m.user_id WHERE m.team_id = ? AND u.disabled = 0', workTeam.id)).map((r) => r.user_id as string));
+      } else {
+        // A department head always sees their own department, whichever one they ask for.
+        if (u.role !== 'admin' && isDeptHead) target = u.team_role!;
+        if (u.role !== 'admin' && !(isDeptHead && target === u.team_role)) {
+          throw new HttpError(403, 'Chỉ trưởng phòng hoặc quản trị viên xem được công việc của team');
+        }
+        team = new Set((await all<any>('SELECT id FROM users WHERE team_role = ? AND disabled = 0', target)).map((r) => r.id as string));
+      }
+    }
     const ids = await myPeople(u.id), l = await links(req),allowedCustomers=await customerLevels(u.id),allowedProjects=await projectLevels(u.id);
-    const person = scope === 'mine' ? null : String(q.get('person') || '') || null, project = String(q.get('project') || '') || null;
-    const state = String(q.get('state') || ''), term = normName(String(q.get('q') || ''));
+    // A task and its card are one piece of work: the card's members are the task's people too.
+    const onCard = new Map<string, string[]>();
+    for (const r of await all<any>('SELECT l.task_id, m.user_id FROM task_board_links l JOIN card_members m ON m.card_id = l.card_id')) onCard.set(r.task_id, [...(onCard.get(r.task_id) || []), r.user_id]);
+    const mine = (t: ReturnType<typeof taskOut>) => t.assignees.some((a) => ids.includes(a.id)) || !!onCard.get(t.id)?.includes(u.id) || t.followers.some((f) => f.id === u.id);
+    // Within "mine", one relation only: given to me (or on my card), made by me, or followed by me.
+    const rel = String(q.get('rel') || '');
+    const related = (t: ReturnType<typeof taskOut>) => rel === 'assigned' ? t.assignees.some((a) => ids.includes(a.id)) || !!onCard.get(t.id)?.includes(u.id)
+      : rel === 'created' ? !!t.createdBy && ids.includes(t.createdBy.id) : rel === 'following' ? t.followers.some((f) => f.id === u.id) : mine(t);
+    const ofTeam = (t: ReturnType<typeof taskOut>) => t.assignees.some((a) => !!a.userId && team.has(a.userId)) || !!onCard.get(t.id)?.some((id) => team.has(id));
+    const person = scope === 'mine' ? null : String(q.get('person') || '') || null;
+    const state = String(q.get('state') || ''), hit = matcher(q.get('q'));
     const rows = (await all<any>(`${TASK_SQL}${project ? ' WHERE t.project_id = ?' : ''} ORDER BY COALESCE(t.due_at, t.created_at) DESC`, ...(project ? [project] : [])))
       .filter(t=>(!t.project_id||allowedProjects.has(t.project_id))&&(!t.customer_id||allowedCustomers.has(t.customer_id)))
       .map((t) => taskOut(t, l))
-      .filter(t=>!t.hasBoardLink||!!t.boardLink||t.assignees.some(a=>a.userId===u.id)||t.followers.some(f=>f.id===u.id)||!!t.createdBy&&ids.includes(t.createdBy.id))
-      .filter((t) => (scope === 'all' || t.assignees.some((a) => ids.includes(a.id)) || t.followers.some((f) => f.id === u.id)) && (!person || t.assignees.some((a) => a.id === person)))
-      .filter((t) => !q.get('employee') || t.assignees.some(a=>a.userId===q.get('employee')))
+      // Who lists a task is decided by its project, customer and the team asked for, not by the board its card is on: a
+      // new task's card sits on its maker's own board, which a department head may not see (the task then opens as its
+      // page instead of its card).
+      .filter((t) => (scope === 'all' || (scope === 'team' ? ofTeam(t) : related(t))) && (!person || t.assignees.some((a) => a.id === person)))
+      .filter((t) => { const e = q.get('employee'); return !e || t.assignees.some((a) => a.userId === e) || !!onCard.get(t.id)?.includes(e); })
       .filter((t) => !q.get('campaign') || t.campaign?.id === q.get('campaign'))
       .filter((t) => !state || (state === 'open' ? !['done', 'done_late', 'cancelled'].includes(t.state) : state === 'done' ? ['done', 'done_late'].includes(t.state) : t.state === state))
-      .filter((t) => !term || normName(`${t.title} ${t.project?.name || ''} ${t.labels.join(' ')} ${t.externalId || ''}`).includes(term));
+      .filter((t) => hit(t.id, t.title, t.project?.name, t.labels.join(' '), t.externalId, t.status, t.state === 'overdue' ? 'Quá hạn' : '', t.createdBy?.name, t.assignees.map((a) => a.name).join(' ')));
     json(res, 200, { tasks: rows, linked: ids.length > 0 });
   });
   // People (with their accounts and counts), projects and labels, for filters and linking names to accounts.
@@ -425,13 +558,39 @@ export function registerTasks(api: Router) {
     const visibleProjects=(await all<any>('SELECT id,customer_id FROM task_projects')).filter(p=>allowedProjects.has(p.id)&&(!p.customer_id||allowedCustomers.has(p.customer_id)));
     const projectIds=new Set(visibleProjects.map(p=>p.id));
     const counts = new Map((await all<any>('SELECT person_id, COUNT(*) n FROM task_assignees GROUP BY person_id')).map((r) => [r.person_id, Number(r.n)]));
+    const projStats = new Map<string, { completed: number; overdue: number }>();
+    for (const r of await all<any>('SELECT project_id, status, due_at, done_at FROM tasks WHERE project_id IS NOT NULL AND stub = 0')) {
+      if (!projectIds.has(r.project_id)) continue;
+      const s = projStats.get(r.project_id) || { completed: 0, overdue: 0 };
+      const st = stateOf(r);
+      if (st === 'done' || st === 'done_late') s.completed++;
+      else if (st === 'overdue') s.overdue++;
+      projStats.set(r.project_id, s);
+    }
+    const projAssignees = new Map<string, { id: string; name: string; userId: string | null; avatarAt?: number | null }[]>();
+    for (const r of await all<any>('SELECT DISTINCT t.project_id, p.id, COALESCE(u.name, p.name) name, p.user_id, u.avatar_at FROM tasks t JOIN task_assignees a ON a.task_id = t.id JOIN task_people p ON p.id = a.person_id LEFT JOIN users u ON u.id = p.user_id WHERE t.project_id IS NOT NULL ORDER BY 3')) {
+      if (!projectIds.has(r.project_id)) continue;
+      projAssignees.set(r.project_id, [...(projAssignees.get(r.project_id) || []), { id: r.id, name: r.name, userId: r.user_id || null, avatarAt: r.avatar_at ?? null }]);
+    }
     json(res, 200, {
-      people: (await all<any>('SELECT p.*, u.name user_name FROM task_people p LEFT JOIN users u ON u.id = p.user_id ORDER BY p.name COLLATE NOCASE'))
-        .map((p) => ({ id: p.id, name: p.name, userId: p.user_id || null, userName: p.user_name || null, tasks: counts.get(p.id) || 0 })),
-      projects: (await all<any>('SELECT j.*, (SELECT COUNT(*) FROM tasks t WHERE t.project_id = j.id) n FROM task_projects j ORDER BY j.name COLLATE NOCASE')).filter(j=>projectIds.has(j.id)).map((j) => ({ id: j.id, name: j.name, customerId: j.customer_id || null, teamId:j.team_id||null,createdBy:j.created_by,level:allowedProjects.get(j.id), tasks: Number(j.n) })),
+      people: (await all<any>('SELECT p.*, u.name user_name, u.avatar_at FROM task_people p LEFT JOIN users u ON u.id = p.user_id ORDER BY p.name COLLATE NOCASE'))
+        .map((p) => ({ id: p.id, name: p.name, userId: p.user_id || null, userName: p.user_name || null, avatarAt: p.avatar_at ?? null, tasks: counts.get(p.id) || 0 })),
+      projects: (await all<any>('SELECT j.*, c.name customer_name, (SELECT COUNT(*) FROM tasks t WHERE t.project_id = j.id) n FROM task_projects j LEFT JOIN customers c ON c.id = j.customer_id ORDER BY j.name COLLATE NOCASE')).filter(j=>projectIds.has(j.id)).map((j) => {
+        const st = projStats.get(j.id);
+        return { id: j.id, name: j.name, customerId: j.customer_id || null, customerName: j.customer_name || null, teamId:j.team_id||null,createdBy:j.created_by,level:allowedProjects.get(j.id), tasks: Number(j.n), completed: st?.completed || 0, overdue: st?.overdue || 0, assignees: projAssignees.get(j.id) || [] };
+      }),
       campaigns: (await all<any>('SELECT c.*, (SELECT COUNT(*) FROM tasks t WHERE t.campaign_id=c.id) tasks FROM task_campaigns c ORDER BY c.name')).filter(c=>projectIds.has(c.project_id)).map(c=>({id:c.id,name:c.name,projectId:c.project_id,tasks:c.tasks})),
-      teams:await all('SELECT id,name,color FROM team_roles ORDER BY pos'),mine: await myPeople(u.id), statuses: STATUSES,
-      users: await all<any>('SELECT id, name, email FROM users WHERE disabled = 0 ORDER BY name COLLATE NOCASE'),
+      teams:await all('SELECT id,name,color FROM team_roles ORDER BY pos'),
+      workTeams: await (async () => {
+        const mems = await all<any>('SELECT team_id, user_id, role FROM team_members');
+        return (await all<any>('SELECT id, name, color, department_id departmentId FROM teams WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE')).map((t) => ({
+          id: t.id, name: t.name, color: t.color, departmentId: t.departmentId || null,
+          memberIds: mems.filter((m) => m.team_id === t.id).map((m) => m.user_id as string),
+          leaderIds: mems.filter((m) => m.team_id === t.id && m.role === 'leader').map((m) => m.user_id as string),
+        }));
+      })(),
+      mine: await myPeople(u.id), statuses: await taskStatuses(),
+      users: await all<any>('SELECT id, name, email, team_role teamId FROM users WHERE disabled = 0 ORDER BY name COLLATE NOCASE'),
       imports: (await all<any>('SELECT i.*, u.name user_name, s.name source_name FROM task_imports i LEFT JOIN users u ON u.id = i.user_id LEFT JOIN task_import_sheets s ON s.import_id=i.id WHERE i.user_id=? ORDER BY i.created_at DESC LIMIT 50',u.id))
         .map((i) => ({ id: i.id, rows: i.rows, created: i.created, updated: i.updated, at: i.created_at, by: i.user_name || '', sourceName: i.source_name || '', hasSheet: !!i.source_name })),
     });
@@ -461,8 +620,8 @@ export function registerTasks(api: Router) {
     const kids = (await all<any>(`${TASK_SQL} WHERE t.parent_id = ? ORDER BY COALESCE(t.due_at, t.created_at)`, t.id)).filter(x=>(!x.project_id||visibleProjects.has(x.project_id))&&(!x.customer_id||visibleCustomers.has(x.customer_id))).map((x) => taskOut(x,l));
     let boardLink: any = null;
     const linked = await get<any>('SELECT c.id cardId, c.board_id boardId, c.list_id listId, b.name boardName, l.name listName FROM task_board_links x JOIN board_cards c ON c.id=x.card_id JOIN boards b ON b.id=c.board_id JOIN board_lists l ON l.id=c.list_id WHERE x.task_id=?', t.id);
-    if (linked) { try { await mustBoard(req, linked.boardId, 'observer'); boardLink = linked; } catch (e) { if (!(e instanceof HttpError) || ![403,404].includes(e.status)) throw e; } }
-    json(res, 200, { ...taskOut(t, l), canDelete: own&&await canDelete(req,t), statuses: boardLink ? (await all<any>('SELECT name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',boardLink.boardId)).map(l=>l.name) : STATUSES, boardLink, hasBoardLink: !!linked, description: t.description || '', result: own ? t.result || '' : null, resultHidden: !own && !!t.result, canEdit: own, canEditDescription: own && mayWriteDescription(await me(req), t.description, await taskDescriptionWriter(t)), path: chain, childTasks: kids });
+    if (linked) { try { await mustBoard(req, linked.boardId, 'viewer'); boardLink = linked; } catch (e) { if (!(e instanceof HttpError) || ![403,404].includes(e.status)) throw e; } }
+    json(res, 200, { ...taskOut(t, l), canDelete: own&&await canDelete(req,t), statuses: boardLink ? (await all<any>('SELECT name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',boardLink.boardId)).map(l=>l.name) : await taskStatuses(), boardLink, hasBoardLink: !!linked, description: t.description || '', result: own ? t.result || '' : null, resultHidden: !own && !!t.result, canEdit: own, canEditDescription: own && mayWriteDescription(await me(req), t.description, await taskDescriptionWriter(t)), path: chain, childTasks: kids });
   });
   api.post('/api/tasks', async (req, res) => {
     const u = await me(req), input = await taskInput(await readJson(req),undefined,u.id);
@@ -490,19 +649,36 @@ export function registerTasks(api: Router) {
     const linked = await get<any>('SELECT card_id FROM task_board_links WHERE task_id=?',t.id);
     await run('UPDATE tasks SET title=?,status=?,start_at=?,due_at=?,done_at=?,project_id=?,parent_id=?,description=?,result=?,updated_at=? WHERE id=?', input.title,input.status,input.start,input.due,input.done,input.project,input.parent,input.description,input.result,now(),t.id);
     await run('UPDATE tasks SET campaign_id=?,description_by=? WHERE id=?',input.campaign,t.description_by ?? null,t.id);
+    const assignedBefore=await assigneeUsers(t.id);
     await saveLinks(t.id,input,(await me(req)).id);
-    if (!linked) await routeTaskToWorkspace(t.id,(await me(req)).id);
+    // A task goes onto Workspace when it is made (or synced from the menu), not on a later edit: one taken off its card
+    // stays off.
     if (linked && ['title','description','startAt','dueAt','status'].some((k) => b[k] !== undefined)) await syncTaskToCard(t.id);
+    if (linked && (b.assigneeIds !== undefined || b.assigneeUserIds !== undefined)) await shareTaskCard(t.id,assignedBefore);
+    // Moved to another project: its card goes to that project's board.
+    if (linked && (input.project || null) !== (t.project_id || null)) await placeTaskCard(t.id);
     await queueTaskNotifications(t.id,beforeNotification,(await me(req)).id).catch(()=>console.error('Không xếp được thông báo công việc'));
     json(res,200,{ ok:true });
   });
   api.delete('/api/tasks/:id', async (req,res) => {
     const t = await writable(req);
     if (!await canDelete(req,t)) throw new HttpError(403,'Chỉ người tạo hoặc quản trị viên được xoá công việc');
-    await run('UPDATE tasks SET parent_id=NULL WHERE parent_id=?',t.id);
-    for (const table of ['task_assignees','task_followers','task_label_links','task_board_links']) await run(`DELETE FROM ${table} WHERE task_id=?`,t.id);
-    await run('DELETE FROM tasks WHERE id=?',t.id);
+    await removeTaskRecord(t.id);
     json(res,200,{ ok:true });
+  });
+  api.post('/api/tasks/bulk-delete', async (req, res) => {
+    const b = await readJson(req);
+    const ids = Array.isArray(b.ids) ? [...new Set<string>(b.ids.filter((id: unknown) => typeof id === 'string' && id))] : [];
+    if (!ids.length || ids.length > 500) throw new HttpError(400, 'Hãy chọn từ 1 đến 500 công việc để xoá');
+    let deleted = 0;
+    for (const id of ids) {
+      const t = await get<any>('SELECT * FROM tasks WHERE id=?', id);
+      if (!t) continue;
+      if (!await canDelete(req, t)) continue;
+      await removeTaskRecord(t.id);
+      deleted++;
+    }
+    json(res, 200, { ok: true, deleted });
   });
   api.post('/api/tasks/:id/card', async (req,res) => {
     const t = await writable(req), b = await readJson(req), u = await me(req);
@@ -511,7 +687,18 @@ export function registerTasks(api: Router) {
     let card: any, created = false;
     if (b.cardId) {
       card = await mustCard(req,String(b.cardId));
-      if (await get('SELECT 1 FROM task_board_links WHERE card_id=?',card.id)) throw new HttpError(409,'Thẻ đã liên kết với công việc khác');
+      const existing = await get<any>('SELECT task_id FROM task_board_links WHERE card_id=?', card.id);
+      if (existing && existing.task_id !== t.id) {
+        const oldTask = await get<any>('SELECT * FROM tasks WHERE id=?', existing.task_id);
+        if (oldTask && !oldTask.project_id && !oldTask.parent_id) {
+          if (!t.result && oldTask.result) await run('UPDATE tasks SET result=? WHERE id=?', oldTask.result, t.id);
+          await run('DELETE FROM task_assignees WHERE task_id=?', oldTask.id);
+          await run('DELETE FROM task_board_links WHERE card_id=?', card.id);
+          await run('DELETE FROM tasks WHERE id=?', oldTask.id);
+        } else {
+          throw new HttpError(409,'Thẻ đã liên kết với công việc khác');
+        }
+      }
     } else {
       const list = await mustList(req,String(b.listId));
       if (list.archived) throw new HttpError(400,'Không tạo thẻ trong danh sách đã lưu trữ');
@@ -522,6 +709,8 @@ export function registerTasks(api: Router) {
     }
     try { await run('INSERT INTO task_board_links(task_id,card_id) VALUES(?,?)',t.id,card.id); }
     catch { if (created) { await run('DELETE FROM card_members WHERE card_id=?',card.id); await run('DELETE FROM board_cards WHERE id=?',card.id); } throw new HttpError(409,'Công việc hoặc thẻ đã được liên kết; hãy tải lại'); }
+    // A linked card's result is the task's: the card's own note joins it.
+    if (card.result) { await run('UPDATE tasks SET result=? WHERE id=?',[t.result,card.result].filter(Boolean).join('\n\n').slice(0,20000),t.id); await run('UPDATE board_cards SET result=NULL WHERE id=?',card.id); }
     await syncTaskToCard(t.id);
     json(res,201,{cardId:card.id,boardId:card.board_id});
   });
@@ -536,7 +725,14 @@ export function registerTasks(api: Router) {
     if (u.role !== 'admin') throw new HttpError(403, 'Chỉ quản trị viên mới nhập dữ liệu công việc');
     const body = await readJson(req), text = String(body.text || '');
     if (!text.trim()) throw new HttpError(400, 'Hãy dán dữ liệu hoặc chọn file');
-    json(res, 200, await importTasks(text, u.id, String(body.sourceName || '')));
+    const links: Record<string, string | null> = {};
+    const chosen = body.people && typeof body.people === 'object' && !Array.isArray(body.people) ? Object.entries(body.people) : [];
+    if (chosen.length > 2000) throw new HttpError(400, 'Quá nhiều tên nhân viên');
+    for (const [name, account] of chosen) {
+      if (account !== null && !(await get('SELECT 1 FROM users WHERE id = ? AND disabled = 0', String(account)))) throw new HttpError(400, `Không tìm thấy tài khoản cho “${name}”`);
+      links[name] = account === null ? null : String(account);
+    }
+    json(res, 200, await importTasks(text, u.id, String(body.sourceName || ''), links));
   });
   api.post('/api/task-people',async(req,res)=>{
     if((await me(req)).role!=='admin')throw new HttpError(403,'Chỉ quản trị viên được thêm nhân viên');

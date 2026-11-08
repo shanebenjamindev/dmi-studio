@@ -30,7 +30,7 @@ function workerOptions(name, transport, extra = {}, withDB = true) {
     bindings: { DMS_RUNTIME: 'cloudflare', CLOUD_STORAGE_ONLY: '1', SETUP_CODE: 'fixture-setup', TURNSTILE_SITE_KEY: 'fixture-site-key', TURNSTILE_SECRET_KEY: 'fixture-secret-key', ...extra },
     ...(withDB ? { d1Databases: { DB: 'fixture-db' } } : {}),
     outboundService: transport,
-    serviceBindings: { ASSETS: () => new Response('<html>DM Workspace</html>', { headers: { 'content-type': 'text/html' } }) },
+    serviceBindings: { ASSETS: () => new Response('<html>DMI Workspace</html>', { headers: { 'content-type': 'text/html' } }) },
   };
 }
 async function call(mf, method, pathname, body, cookie, headers = {}) {
@@ -103,13 +103,31 @@ test('Workers: accounts, cookies, cross-isolate Google state, permissions and or
     await db.prepare('INSERT INTO notification_preferences(user_id,enabled,email,verified_at,updated_at) VALUES(?,1,?,1,1) ON CONFLICT(user_id) DO UPDATE SET email=excluded.email,verified_at=1,enabled=1').bind(setup.data.user.id,'personal@example.test').run();
     assert.equal((await call(a,'PUT','/api/notifications',{enabled:true},setup.cookie)).status,200);
 
+    // Quản trị on D1: roles across isolates, one-parameter id sets (json_each), the audit trail written before the
+    // answer leaves the Worker, numbers and logs.
+    const d1Staff=await call(a,'POST','/api/admin/staff',{name:'D1 member',email:'d1@example.test',password:'test-password'},setup.cookie);
+    assert.equal(d1Staff.status,201,JSON.stringify(d1Staff.data));
+    const roles=(await call(b,'GET','/api/admin/roles',undefined,setup.cookie)).data;
+    assert.equal((await call(b,'PUT',`/api/admin/staff/${d1Staff.data.id}/roles`,{roles:[{roleId:roles.find(r=>r.key==='manager').id,scope:'department'}]},setup.cookie)).status,200);
+    const d1Login=await call(a,'POST','/api/auth/login',{email:'d1@example.test',password:'test-password'});
+    assert.equal((await call(b,'GET','/api/auth/me',undefined,d1Login.cookie)).data.admin.perms['staff.view'],'department');
+    assert.deepEqual((await call(a,'GET','/api/admin/staff',undefined,d1Login.cookie)).data.items.map(x=>x.email),['d1@example.test']);
+    assert.equal((await call(a,'PUT',`/api/admin/staff/${setup.data.user.id}/roles`,{roles:[]},d1Login.cookie)).status,403);
+    assert.equal((await call(a,'GET','/api/admin/stats?view=overview',undefined,setup.cookie)).status,200);
+    const trail=(await call(b,'GET','/api/admin/logs?kind=permission',undefined,setup.cookie)).data.items;
+    assert.ok(trail.some(l=>l.entityId===d1Staff.data.id&&/Manager/.test(l.after.roles)));
+    assert.ok((await db.prepare("SELECT COUNT(*) n FROM audit_logs WHERE kind='action' AND status=403").first()).n>=1);
+    assert.ok((await db.prepare("SELECT COUNT(*) n FROM login_logs WHERE ok=1").first()).n>=1);
+
     const client=await call(a,'POST','/api/customers',{name:'Project ACL client',databaseOnly:true},setup.cookie);
     assert.equal(client.status,201,JSON.stringify(client.data));
     const project=await call(a,'POST',`/api/customers/${client.data.id}/projects`,{name:'D1 private project'},setup.cookie);
     assert.equal(project.status,201,JSON.stringify(project.data));
     assert.equal((await call(b,'GET',`/api/task-projects/${project.data.id}/members`,undefined,setup.cookie)).data.ownerId,setup.data.user.id);
 
-    // Task CRUD and card synchronisation also run against the real D1 binding.
+    // Task CRUD and card synchronisation also run against the real D1 binding (linked by hand here: new tasks are not put
+    // on Workspace by themselves for this check).
+    assert.equal((await call(a, 'PUT', '/api/admin/settings', { taskWorkspaceAuto: false }, setup.cookie)).status, 200);
     // Someone else follows it: whoever makes a change is not mailed about it, the follower is.
     const mate = await call(a, 'POST', '/api/users', { name: 'Mail Mate', email: 'mate@example.test', password: 'test-password', role: 'member', notifyEmail: 'mate.personal@example.test' }, setup.cookie);
     assert.equal(mate.status, 201, JSON.stringify(mate.data));
@@ -137,7 +155,8 @@ test('Workers: accounts, cookies, cross-isolate Google state, permissions and or
     assert.equal((await db.prepare("SELECT COUNT(*) n FROM mail_outbox WHERE state='pending'").first()).n, 0);
 
     assert.equal((await call(b, 'DELETE', `/api/tasks/${taskId}`, undefined, setup.cookie)).status, 200);
-    assert.equal((await call(a, 'GET', `/api/cards/${linked.data.cardId}`, undefined, setup.cookie)).data.linkedTask, null);
+    // A task and its card are one piece of work: deleting the task takes its card too.
+    assert.equal((await call(a, 'GET', `/api/cards/${linked.data.cardId}`, undefined, setup.cookie)).status, 404);
     const sheetImport=await call(a,'POST','/api/tasks/import',{sourceName:'Workbook.csv',text:'Custom,Tên công việc,Mã công việc\nExtra,Imported on D1,12345'},setup.cookie);
     assert.equal(sheetImport.status,200,JSON.stringify(sheetImport.data));
     const sheet=await call(b,'GET',`/api/tasks/imports/${sheetImport.data.importId}/sheet`,undefined,setup.cookie);

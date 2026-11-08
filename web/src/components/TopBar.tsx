@@ -1,30 +1,42 @@
 import {NotificationBell} from './NotificationBell';
+import { QuickNotesButton } from './QuickNotes';
+import { Reminders } from './Reminders';
+import { SupportButton } from './SupportDialog';
 import { useEffect, useRef, useState } from 'react';
-import { useStore, signOut, openPages, goto, openProfile } from '../store';
-import { createPortal } from 'react-dom';
+import { useStore, signOut, openPages, goto, openProfile, openLink, HASH } from '../store';
 import { Icon } from './ui';
-import { Pop } from './boardkit';
-import { PasswordSheet } from './Users';
+import { PasswordSheet } from './PasswordSheet';
 import type { View } from '../store';
 import { themePref, setThemePref, onTheme, type ThemePref } from '../theme';
 import { langPref, setLang, type Lang } from '../i18n';
 
-// Workspace (the Trello-like boards) is a tab of its own. Công việc unifies personal tasks and projects; Drive and the
-// editor stay inside the project flow.
+// The app's frame, Base-like. Along the top (AppHeader): the logo, the search in the middle, and quick notes,
+// notifications, the theme and the account at the right. Down the left (TopBar): one item per section with its icon
+// and name; the section's own pages (Công việc, Báo cáo, Tools) open in a column beside it (WorkArea). On phones the
+// sections are a bar along the bottom.
 const WORK: View[] = ['tasks', 'projects', 'workspace'];
 const REPORTS: View[] = ['reports', 'ads'];
-const NAV_ICON: Record<string, string> = { customers: 'users', boards: 'boards', work: 'checklist', reports: 'file', tools: 'wand', admin: 'gear' };
-const LS_WORK = 'dms.workView', LS_REPORTS = 'dms.reportsView';
-/** Each group's pages, as its second switch names them. */
-const SUB: Partial<Record<View, string>> = { tasks: 'Công việc của tôi', projects: 'Dự án', workspace: 'Drive', editor: 'Trình dựng', tools: 'Chuyển đổi định dạng', reports: 'Tất cả báo cáo', ads: 'Meta Ads' };
-const SUB_ICON: Partial<Record<View, string>> = { tasks: 'checklist', projects: 'folder', workspace: 'folder', editor: 'film', tools: 'wand', reports: 'file', ads: 'activity' };
-export function TopBar() {
+const TOOLS: View[] = ['tools', 'editor'];
+const NAV_ICON: Record<string, string> = { boards: 'boards', customers: 'users', work: 'checklist', reports: 'file', tools: 'wand', admin: 'gear' };
+const KEY: Record<string, string> = { work: 'dms.workView', reports: 'dms.reportsView', tools: 'dms.toolsView' };
+/** The section a page belongs to. */
+export const sectionOf = (v: View) => (WORK.includes(v) ? 'work' : REPORTS.includes(v) ? 'reports' : TOOLS.includes(v) ? 'tools' : v);
+/** A section's pages this account may open. */
+export const sectionPages = (section: string, open = openPages()) => open.filter((v) => (section === 'work' ? ['tasks', 'projects'] : section === 'reports' ? REPORTS : section === 'tools' ? TOOLS : [section]).includes(v));
+/** Opens a page of a section and remembers it as the one the section opens on next time. */
+export function openSub(v: View) {
+  const key = KEY[sectionOf(v)];
+  if (key) try { localStorage.setItem(key, v); } catch { /* private mode */ }
+  const h = HASH[v];
+  if (h) openLink(h);
+  else goto(v);
+}
+/** The bar along the top: the logo, the search (opens Tìm kiếm toàn bộ), and the account's own tools at the right. */
+export function AppHeader() {
   const mock = useStore((s) => s.mock);
-  const view = useStore((s) => s.view);
   const user = useStore((s) => s.user)!;
   const [menu, setMenu] = useState(false);
   const [pw, setPw] = useState(false);
-  const [navMenu, setNavMenu] = useState<{ tab: string; anchor: HTMLElement } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!menu) return;
@@ -32,80 +44,19 @@ export function TopBar() {
     document.addEventListener('mousedown', off);
     return () => document.removeEventListener('mousedown', off);
   }, [menu]);
-  useStore((s) => s.pages); useStore((s) => s.editorAvailable); // re-render when access changes
   const roleName = useStore((s) => s.roles.find((r) => r.id === s.user?.teamRole)?.name || '');
-  const open = openPages();
-  const work = open.filter((v) => ['tasks', 'projects'].includes(v)), reports = open.filter((v) => REPORTS.includes(v));
-  const tabs: [string, string][] = [['boards', 'Workspace'], ...(open.includes('customers') ? [['customers', 'Khách hàng'] as [string, string]] : []), ['work', 'Công việc'], ...(reports.length ? [['reports', 'Báo cáo'] as [string, string]] : []), ['tools', 'Tools'], ...(open.includes('admin') ? [['admin', 'Quản trị'] as [string, string]] : [])];
-  const tab = view === 'editor' ? 'tools' : WORK.includes(view) ? 'work' : REPORTS.includes(view) ? 'reports' : view;
-  // A group opens on the page last used in it.
-  const group = (t: string) => (t === 'work' ? { pages: work, key: LS_WORK } : t === 'reports' ? { pages: reports, key: LS_REPORTS } : t === 'tools' ? { pages: open.filter((v) => v === 'tools' || v === 'editor'), key: 'dms.toolsView' } : null);
-  const pick = (t: string) => {
-    setNavMenu(null);
-    const g = group(t);
-    if(t==='customers'){goto('customers');window.location.hash='#customers';return;}
-    if (!g) return goto(t as View);
-    let last: View | null = null;
-    try { last = localStorage.getItem(g.key) as View | null; } catch { /* private mode */ }
-    goto(last && g.pages.includes(last) ? last : g.pages[0]);
-  };
-  const pickSub = (v: View) => { setNavMenu(null); try { localStorage.setItem(v === 'tools' || v === 'editor' ? 'dms.toolsView' : WORK.includes(v) ? LS_WORK : LS_REPORTS, v); } catch { /* private mode */ } goto(v); };
-  const center = useRef<HTMLElement>(null);
-  useEffect(() => {
-    center.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    setNavMenu(null);
-  }, [view]);
-  useEffect(() => {
-    if (!navMenu) return;
-    const close = () => setNavMenu(null);
-    window.addEventListener('resize', close);
-    const nav = center.current;
-    nav?.addEventListener('scroll', close);
-    return () => { window.removeEventListener('resize', close); nav?.removeEventListener('scroll', close); };
-  }, [navMenu]);
-  const menuPages = navMenu ? group(navMenu.tab)?.pages || [] : [];
-
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform);
   return (
-    <header className="toolbar">
-      <div className="tb-left">
-        <img src="/brand/logo.png" alt="Detailers Movement" className="tb-logo" />
-        {mock && <span className="tag-demo">Demo</span>}
-      </div>
-      <nav className="tb-center tb-nav" ref={center} aria-label="Điều hướng chính">
-        {tabs.map(([key, label]) => {
-          const pages = group(key)?.pages || [];
-          const active = tab === key;
-          return (
-            <div key={key} className={'tb-nav-item' + (active ? ' active' : '')}>
-              <button className="tb-nav-link" aria-label={label} aria-current={active ? 'page' : undefined} title={label} onClick={() => pick(key)}>
-                <Icon name={NAV_ICON[key]} size={17} />
-                <span className="tb-nav-text"><span>{label}</span>{active && pages.length > 1 && <small>{view === 'workspace' ? 'Dự án' : SUB[view]}</small>}</span>
-              </button>
-              {key !== 'work' && pages.length > 1 && <button className="tb-nav-expand" aria-label={`Mở menu ${label}`} title={`Mở menu ${label}`}
-                aria-expanded={navMenu?.tab === key} aria-haspopup="dialog" onClick={(e) => setNavMenu(navMenu?.tab === key ? null : { tab: key, anchor: e.currentTarget })}>
-                <Icon name="chevron" size={12} />
-              </button>}
-            </div>
-          );
-        })}
-      </nav>
-      {navMenu && menuPages.length > 1 && createPortal(
-        <Pop anchor={navMenu.anchor} title={tabs.find(([key]) => key === navMenu.tab)?.[1] || ''} width={248} onClose={() => setNavMenu(null)}>
-          <nav className="tb-subnav" aria-label={navMenu.tab === 'work' ? 'Mục công việc' : navMenu.tab === 'tools' ? 'Công cụ' : 'Mục báo cáo'}>
-            {menuPages.map((v) => <button key={v} aria-current={view === v ? 'page' : undefined} onClick={() => pickSub(v)}>
-              <Icon name={SUB_ICON[v] || 'file'} size={17} />
-              <span>{SUB[v]}</span>{view === v && <Icon name="check" size={15} />}
-            </button>)}
-          </nav>
-        </Pop>, document.body
-      )}
-      <div className="tb-right">
-        <ThemeSwitch /><NotificationBell/>
+    <header className="app-head">
+      <div className="app-head-left"><img src="/brand/logo.png" alt="Detailers Movement" className="tb-logo" />{mock && <span className="tag-demo">Demo</span>}</div>
+      <button className="app-search" onClick={() => window.dispatchEvent(new Event('dms:search'))} aria-label="Tìm kiếm">
+        <Icon name="search" size={16} /><span>Tìm kiếm</span><kbd>{mac ? '⌘' : 'Ctrl'} K</kbd>
+      </button>
+      <div className="app-head-right">
+        <QuickNotesButton /><NotificationBell /><ThemeSwitch />
         <div className="tb-user" ref={ref}>
-          <button className="tb-user-btn" onClick={() => setMenu(!menu)} aria-expanded={menu} aria-haspopup="menu">
-            <span className="ws-avatar">{(user.name || user.email).charAt(0).toUpperCase()}</span>
-            <span className="tb-user-name">{user.name}</span>
-            <Icon name="chevron" size={13} />
+          <button className="tb-user-btn" onClick={() => setMenu(!menu)} aria-expanded={menu} aria-haspopup="menu" title={user.name} aria-label={`Tài khoản ${user.name}`}>
+            <span className="ws-avatar">{(user.name || user.email).charAt(0).toUpperCase()}</span><span className="tb-user-name">{user.name}</span><Icon name="chevron" size={13} />
           </button>
           {menu && (
             <div className="tb-menu" role="menu">
@@ -120,6 +71,41 @@ export function TopBar() {
       </div>
       <PasswordSheet open={pw} onClose={() => setPw(false)} />
     </header>
+  );
+}
+
+/** The sections, down the left side. */
+export function TopBar() {
+  const view = useStore((s) => s.view);
+  useStore((s) => s.pages); useStore((s) => s.editorAvailable); useStore((s) => s.admin); // re-render when access changes
+  const open = openPages();
+  const items: [string, string][] = [['boards', 'Workspace'], ...(open.includes('customers') ? [['customers', 'Khách hàng'] as [string, string]] : []), ['work', 'Công việc'],
+    ...(sectionPages('reports', open).length ? [['reports', 'Báo cáo'] as [string, string]] : []), ['tools', 'Tools'], ...(open.includes('admin') ? [['admin', 'Quản trị'] as [string, string]] : [])];
+  const current = sectionOf(view);
+  // A section opens on the page last used in it; choosing the open section again folds or unfolds its column.
+  const pick = (t: string) => {
+    if (t === 'work') { openSub('tasks'); return; }
+    if (t === 'reports') { openSub('reports'); return; }
+    if (t === 'tools') { openSub('tools'); return; }
+    if (t === 'customers') { goto('customers'); openLink('#customers'); return; }
+    if (t === 'boards') { goto('boards'); openLink('#boards'); return; }
+    if (t === 'admin') { goto('admin'); openLink('#admin'); return; }
+    const pages = sectionPages(t, open);
+    let last: View | null = null;
+    try { last = localStorage.getItem(KEY[t]) as View | null; } catch { /* private mode */ }
+    openSub(last && pages.includes(last) ? last : pages[0]);
+  };
+  return (
+    <nav className="rail" aria-label="Điều hướng chính">
+      {items.map(([key, label]) => (
+        <button key={key} className="rail-item" aria-current={current === key ? 'page' : undefined} title={label} onClick={() => pick(key)}>
+          <Icon name={NAV_ICON[key]} size={20} /><span>{label}</span>
+        </button>
+      ))}
+      <span className="rail-fill" />
+      <SupportButton />
+      <Reminders />
+    </nav>
   );
 }
 

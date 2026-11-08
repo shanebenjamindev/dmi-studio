@@ -46,6 +46,14 @@ async function start(dataDir, extra = {}) {
   };
 }
 
+/** Every task the account may list: its own, and each project's it can open (there is no list of everyone's). */
+async function visibleTasks(server, cookie) {
+  const meta = (await server.call('GET', '/api/tasks/meta', undefined, cookie)).data;
+  const lists = [(await server.call('GET', '/api/tasks', undefined, cookie)).data.tasks];
+  for (const p of meta.projects) lists.push((await server.call('GET', `/api/tasks?scope=all&project=${p.id}`, undefined, cookie)).data.tasks);
+  return [...new Map(lists.flat().map((t) => [t.id, t])).values()];
+}
+
 test('two backend instances share accounts, sessions, settings and customer notes; permissions survive restart', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'dmi-db-'));
   const servers = [];
@@ -211,7 +219,8 @@ test('company departments do not grant board access; direct invitations allow ca
     assert.ok((await server.call('GET', '/api/boards', undefined, mc)).data.some(b => b.id === general.id));
     const saleBoard = all.find(b => b.roleId === sale.id);
     assert.equal((await server.call('GET', `/api/boards/${saleBoard.id}`, undefined, mc)).status, 404);
-    // Cards are added, moved to another list at a place and renamed; lists are reordered.
+    // Cards are added, moved to another list at a place and renamed; lists are reordered by the board's admins only
+    // (members work on cards), unless an admin lets members change the board too.
     const board = (await server.call('GET', `/api/boards/${mine.find(b => b.roleId === media.id).id}`, undefined, mc)).data;
     assert.deepEqual(board.lists.map(l => l.name), ['Cần dựng', 'Đang dựng', 'Chờ duyệt', 'Cần sửa', 'Đã giao']);
     const [todo, doing] = board.lists;
@@ -219,7 +228,13 @@ test('company departments do not grant board access; direct invitations allow ca
     const moved = (await server.call('POST', `/api/lists/${todo.id}/cards`, { title: 'Summer Breeze' }, mc)).data;
     await server.call('POST', `/api/lists/${doing.id}/cards`, { title: 'VizionOne' }, mc);
     assert.equal((await server.call('PUT', `/api/cards/${moved.id}`, { listId: doing.id, index: 0, title: 'Summer Breeze v2' }, mc)).status, 200);
+    assert.equal((await server.call('PUT', `/api/lists/${doing.id}`, { index: 0 }, mc)).status, 403);
+    assert.equal((await server.call('PUT', `/api/boards/${board.id}`, { name: 'Đổi tên' }, mc)).status, 403);
+    assert.equal((await server.call('POST', `/api/boards/${board.id}/labels`, { name: 'Gấp', color: 'red' }, mc)).status, 403);
+    assert.equal((await server.call('PUT', `/api/boards/${board.id}`, { memberEdit: true }, mc)).status, 403);
+    assert.equal((await server.call('PUT', `/api/boards/${board.id}`, { memberEdit: true }, ac)).status, 200);
     assert.equal((await server.call('PUT', `/api/lists/${doing.id}`, { index: 0 }, mc)).status, 200);
+    assert.equal((await server.call('PUT', `/api/boards/${board.id}`, { memberEdit: false }, ac)).status, 200);
     const after = (await server.call('GET', `/api/boards/${board.id}`, undefined, mc)).data;
     assert.equal(after.lists[0].id, doing.id);
     assert.deepEqual(after.lists[0].cards.map(x => x.title), ['Summer Breeze v2', 'VizionOne']);
@@ -232,6 +247,82 @@ test('company departments do not grant board access; direct invitations allow ca
     await server.call('DELETE', `/api/roles/${sale.id}`, undefined, ac);
     assert.ok(!(await server.call('GET', '/api/boards', undefined, mc)).data.some(b => b.id === saleBoard.id));
     assert.ok((await server.call('GET', '/api/boards', undefined, ac)).data.some(b => b.id === saleBoard.id));
+  } finally { if (server) await server.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test('Workspace avatars persist, reset and require workspace admin access', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'dmi-ws-avatar-'));
+  let server;
+  try {
+    server = await start(dir);
+    const cookie = (await server.call('POST', '/api/auth/setup', { code: 'test-setup-only', name: 'Boss', email: 'boss@example.test', password: 'test-password' })).cookie;
+    const user = (await server.call('POST', '/api/users', { name: 'Viewer', email: 'viewer@example.test', password: 'test-password' }, cookie)).data;
+    const viewer = (await server.call('POST', '/api/auth/login', { email: 'viewer@example.test', password: 'test-password' })).cookie;
+    const workspace = (await server.call('POST', '/api/workspaces', { name: 'Design' }, cookie)).data;
+    await server.call('PUT', `/api/workspaces/${workspace.id}/members/${user.id}`, { level: 'observer' }, cookie);
+    const avatar = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==';
+    const update = (id, dataUrl, as = cookie) => server.call('PUT', `/api/workspaces/${id}/avatar`, { dataUrl }, as);
+    assert.equal((await update(workspace.id, avatar, viewer)).status, 403);
+    assert.equal((await update('company', avatar, viewer)).status, 403);
+    assert.equal((await update(workspace.id, 'data:image/svg+xml;base64,PHN2Zz4=')).status, 400);
+    assert.equal((await update(workspace.id, 'data:image/png;base64,' + 'A'.repeat(410000))).status, 413);
+    assert.equal((await update(workspace.id, avatar)).status, 200);
+    assert.equal((await update('company', avatar)).status, 200);
+    await server.close(); server = await start(dir);
+    let workspaces = (await server.call('GET', '/api/workspaces', undefined, viewer)).data;
+    assert.equal(workspaces.find(w => w.id === workspace.id).avatar, avatar);
+    assert.equal(workspaces.find(w => w.id === 'company').avatar, avatar);
+    assert.equal((await update(workspace.id, null)).status, 200);
+    workspaces = (await server.call('GET', '/api/workspaces', undefined, viewer)).data;
+    assert.equal(workspaces.find(w => w.id === workspace.id).avatar, null);
+  } finally { if (server) await server.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test('boards with tasks can be deleted, cleanly removing cards and tasks', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'dmi-board-delete-'));
+  let server;
+  try {
+    server = await start(dir);
+    const cookie = (await server.call('POST', '/api/auth/setup', { code: 'test-setup-only', name: 'Boss', email: 'boss@example.test', password: 'test-password' })).cookie;
+    const ws = (await server.call('POST', '/api/workspaces', { name: 'Protected' }, cookie)).data;
+    const createBoard = async name => (await server.call('POST', '/api/boards', { name, workspaceId: ws.id }, cookie)).data;
+    const board = await createBoard('With tasks');
+    const list = (await server.call('GET', `/api/boards/${board.id}`, undefined, cookie)).data.lists[0];
+    const card = (await server.call('POST', `/api/lists/${list.id}/cards`, { title: 'Work', kind: 'task' }, cookie)).data;
+    const boards = (await server.call('GET', '/api/boards', undefined, cookie)).data;
+    assert.equal(boards.find(b => b.id === board.id).taskCount, 1);
+    assert.equal((await server.call('GET', `/api/boards/${board.id}`, undefined, cookie)).data.taskCount, 1);
+    assert.equal((await server.call('DELETE', `/api/boards/${board.id}`, undefined, cookie)).status, 200);
+    assert.equal((await server.call('GET', `/api/boards/${board.id}`, undefined, cookie)).status, 404);
+    const board2 = await createBoard('With tasks 2');
+    const list2 = (await server.call('GET', `/api/boards/${board2.id}`, undefined, cookie)).data.lists[0];
+    await server.call('POST', `/api/lists/${list2.id}/cards`, { title: 'Work 2', kind: 'task' }, cookie);
+    assert.equal((await server.call('DELETE', `/api/workspaces/${ws.id}`, undefined, cookie)).status, 200);
+  } finally { if (server) await server.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test('Workspace Project cards persist task grouping and reject invalid parents', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'dmi-project-cards-'));
+  let server;
+  try {
+    server = await start(dir);
+    const setup = await server.call('POST', '/api/auth/setup', { code: 'test-setup-only', name: 'Boss', email: 'boss@example.test', password: 'test-password' });
+    const cookie = setup.cookie;
+    const shared = (await server.call('GET', '/api/boards', undefined, cookie)).data.find(b => b.name === 'Việc chung');
+    const board = (await server.call('GET', `/api/boards/${shared.id}`, undefined, cookie)).data;
+    const list = board.lists[0];
+    const create = body => server.call('POST', `/api/lists/${list.id}/cards`, body, cookie);
+    const project = await create({ title: 'Launch', kind: 'project', syncTask: true });
+    assert.equal(project.status, 201);
+    assert.equal(project.data.kind, 'project');
+    const task = await create({ title: 'Design', kind: 'task', projectCardId: project.data.id, syncTask: true });
+    assert.equal(task.status, 201);
+    assert.equal(task.data.projectCardId, project.data.id);
+    assert.equal((await create({ title: 'Invalid', projectCardId: task.data.id })).status, 400);
+    const loaded = (await server.call('GET', `/api/boards/${shared.id}`, undefined, cookie)).data;
+    assert.equal(loaded.lists[0].cards.find(c => c.id === task.data.id).projectCardId, project.data.id);
+    const detail = (await server.call('GET', `/api/cards/${project.data.id}`, undefined, cookie)).data;
+    assert.equal(detail.kind, 'project');
   } finally { if (server) await server.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -464,6 +555,8 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
   try {
     server = await start(dir);
     const admin = await server.call('POST', '/api/auth/setup', { code: 'test-setup-only', name: 'Admin', email: 'tasks@example.test', password: 'test-password' });
+    // This test links tasks to cards by hand: new tasks are not put on Workspace by themselves here.
+    assert.equal((await server.call('PUT','/api/admin/settings',{taskWorkspaceAuto:false},admin.cookie)).status,200);
     const ac = admin.cookie;
     const account = async (name) => {
       const u = await server.call('POST','/api/users',{name,email:`${name}@example.test`,password:'test-password'},ac);
@@ -477,7 +570,7 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     const editorName=importedPeople.find(p=>p.name==='Editor');
     assert.equal(editorName.userId,null);
     await server.call('PUT',`/api/task-people/${editorName.id}`,{userId:ed.id},ac);
-    const task = (await server.call('GET','/api/tasks?scope=all',undefined,ac)).data.tasks.find(t => t.externalId==='123');
+    const task = (await visibleTasks(server,ac)).find(t => t.externalId==='123');
     const id = task.id;
     // The project's members change its tasks; a follower of the project ('observer') only looks.
     for(const [who,level] of [[ed,'normal'],[mate,'normal'],[other,'observer']])assert.equal((await server.call('PUT',`/api/task-projects/${task.project.id}/members/${who.id}`,{level},ac)).status,200);
@@ -530,6 +623,9 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     detail=(await server.call('GET',`/api/tasks/${id}`,undefined,ac)).data;
     assert.equal(detail.status,'Hoàn thành');
     assert.equal((await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data.done,true);
+    const cardWithProj = (await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data;
+    assert.equal(cardWithProj.projectId, task.project.id);
+    assert.equal(cardWithProj.projectName, 'Launch');
 
 
     assert.equal((await server.call('PUT',`/api/cards/${cardId}`,{title:'Unauthorized through board'},other.cookie)).status,403);
@@ -540,7 +636,7 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     assert.equal((await server.call('PUT',`/api/tasks/${id}`,{title:'No board access'},ed.cookie)).status,200);
     assert.equal((await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data.title,'No board access');
     detail=(await server.call('GET',`/api/tasks/${id}`,undefined,ed.cookie)).data;
-    const hiddenBoard=(await server.call('GET','/api/tasks?scope=all',undefined,ed.cookie)).data.tasks.find(task=>task.id===id);
+    const hiddenBoard=(await server.call('GET','/api/tasks',undefined,ed.cookie)).data.tasks.find(task=>task.id===id);
     assert.equal(hiddenBoard.boardLink,null);assert.equal(hiddenBoard.hasBoardLink,true);
 
     assert.equal(detail.boardLink,null); assert.equal(detail.hasBoardLink,true);
@@ -555,6 +651,13 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     await server.call('PUT',`/api/boards/${b.id}/members/${ed.id}`,{level:'normal'},ac);
     assert.equal((await server.call('DELETE',`/api/cards/${cardId}`,undefined,ed.cookie)).status,200);
     assert.equal((await server.call('GET',`/api/tasks/${id}`,undefined,ac)).data.hasBoardLink,false);
+    const unlinkedCard = (await server.call('POST', `/api/lists/${list.id}/cards`, { title: 'Card to link', syncTask: false }, ac)).data;
+    assert.equal(unlinkedCard.linkedTask, undefined);
+    const updatedWithTask = (await server.call('PUT', `/api/cards/${unlinkedCard.id}`, { linkTask: true }, ac)).data;
+    assert.ok(updatedWithTask.linkedTask?.id);
+    const updatedWithProject = (await server.call('PUT', `/api/cards/${unlinkedCard.id}`, { projectId: task.project.id }, ac)).data;
+    assert.equal(updatedWithProject.projectId, task.project.id);
+    assert.equal(updatedWithProject.projectName, 'Launch');
     const created=await server.call('POST','/api/tasks',{title:'Local parent'},ed.cookie);
     assert.equal(created.status,201);
     const child=await server.call('POST','/api/tasks',{title:'Local child',parentId:created.data.id},ed.cookie);
@@ -726,6 +829,8 @@ test('staff and task assignees can be selected directly from active database use
   try{
     server=await start(dir);
     const admin=await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Admin',email:'staff-admin@example.test',password:'test-password'});
+    // This test links tasks to cards by hand: new tasks are not put on Workspace by themselves here.
+    assert.equal((await server.call('PUT','/api/admin/settings',{taskWorkspaceAuto:false},admin.cookie)).status,200);
     const ac=admin.cookie;
     const account=async(name)=>{const user=await server.call('POST','/api/users',{name,email:`staff-${name}@example.test`,password:'test-password'},ac);const login=await server.call('POST','/api/auth/login',{email:`staff-${name}@example.test`,password:'test-password'});return{id:user.data.id,cookie:login.cookie};};
     const alice=await account('Alice'),bob=await account('Bob'),carol=await account('Carol');
@@ -764,13 +869,13 @@ test('task people work by name with no account link or automatic matching on imp
     const person=await server.call('POST','/api/task-people',{name:'Same Person'},ac);
     assert.equal(person.status,201);assert.equal(person.data.userId,null);
     assert.equal((await server.call('POST','/api/task-people',{name:'same person'},ac)).data.id,person.data.id);
-    const imported=await server.call('POST','/api/tasks/import',{text:'Tên công việc\tGiao cho\tMã công việc\nUnlinked task\tSame Person\t991'},ac);
+    const imported=await server.call('POST','/api/tasks/import',{text:'Tên công việc\tDự án\tGiao cho\tMã công việc\nUnlinked task\tNames\tSame Person\t991'},ac);
     assert.equal(imported.status,200);
     const meta=(await server.call('GET','/api/tasks/meta',undefined,ac)).data;
     assert.equal(meta.people.find(p=>p.id===person.data.id).userId,null);
-    const list=(await server.call('GET','/api/tasks?scope=all',undefined,viewer.cookie)).data;
-    assert.ok(list.tasks.some(t=>t.title==='Unlinked task'));assert.equal(list.linked,false);
-    const task=list.tasks.find(t=>t.title==='Unlinked task');
+    const list=(await server.call('GET','/api/tasks',undefined,viewer.cookie)).data;
+    assert.equal(list.linked,false);assert.ok(!list.tasks.some(t=>t.title==='Unlinked task'),'a name nobody linked is not anyone\'s task');
+    const task=(await visibleTasks(server,ac)).find(t=>t.title==='Unlinked task');
     assert.equal(task.assignees[0].name,'Same Person');assert.equal(task.assignees[0].userId,null);
     const updated=await server.call('PUT',`/api/tasks/${task.id}`,{assigneeIds:[person.data.id],description:'Assigned using a name'},ac);
     assert.equal(updated.status,200);
@@ -936,7 +1041,7 @@ test('customers, projects, campaigns and tasks remain separate with validated hi
   const detail=(await server.call('GET',`/api/tasks/${task.data.id}`,undefined,cookie)).data;
   assert.equal(detail.project.id,p1.id);assert.equal(detail.campaign.id,c1.data.id);
   const invalid=await server.call('PUT',`/api/tasks/${task.data.id}`,{projectId:p2.id,campaignId:c1.data.id},cookie);assert.equal(invalid.status,400);
-  const list=(await server.call('GET',`/api/tasks?scope=all&campaign=${c1.data.id}`,undefined,cookie)).data;assert.equal(list.tasks.length,1);
+  const list=(await server.call('GET',`/api/tasks?scope=all&project=${p1.id}&campaign=${c1.data.id}`,undefined,cookie)).data;assert.equal(list.tasks.length,1);
   assert.equal((await server.call('DELETE',`/api/task-projects/${p1.id}/campaigns/${c1.data.id}`,undefined,cookie)).status,409);
   const renamed=await server.call('PUT',`/api/task-projects/${p1.id}/campaigns/${c1.data.id}`,{name:'Campaign renamed'},cookie);assert.equal(renamed.status,200);
   const record=(await server.call('GET','/api/customers/directory',undefined,cookie)).data[0];assert.equal(record.projects,2);assert.equal(record.campaigns,1);assert.equal(record.tasks,1);
@@ -950,6 +1055,8 @@ test('quick-created records share customer, project, campaign, employee and Work
   try{
     server=await start(dir);
     const admin=await server.call('POST','/api/auth/setup',{code:'test-setup-only',email:'quick-admin@example.test',password:'test-password'});
+    // This test links tasks to cards by hand: new tasks are not put on Workspace by themselves here.
+    assert.equal((await server.call('PUT','/api/admin/settings',{taskWorkspaceAuto:false},admin.cookie)).status,200);
     const cookie=admin.cookie;
     const create=async(url,body)=>{const r=await server.call('POST',url,body,cookie);assert.equal(r.status,201,JSON.stringify(r.data));return r.data;};
     const customer=await create('/api/customers',{name:'Quick Client',databaseOnly:true});
@@ -976,7 +1083,8 @@ test('quick-created records share customer, project, campaign, employee and Work
     const profile=(await server.call('GET',`/api/profiles/${employee.id}`,undefined,cookie)).data;
     assert.equal(profile.department.id,department.id);
     await server.close();server=await start(dir);
-    const assigned=(await server.call('GET',`/api/tasks?scope=all&employee=${employee.id}`,undefined,cookie)).data.tasks;
+    // A company admin lists a department's work, here one employee's.
+    const assigned=(await server.call('GET',`/api/tasks?scope=team&team=${department.id}&employee=${employee.id}`,undefined,cookie)).data.tasks;
     assert.equal(assigned.length,1);assert.equal(assigned[0].campaign.id,campaign.id);
     assert.equal(assigned[0].project.id,project.id);assert.equal(assigned[0].status,column.name);
     const directory=(await server.call('GET','/api/customers/directory',undefined,cookie)).data;
@@ -988,9 +1096,11 @@ test('bulk Workspace sync includes parent placeholders, keeps existing links and
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-sync-all-'));let server;
  try{
   server=await start(dir);const setup=await server.call('POST','/api/auth/setup',{code:'test-setup-only',email:'sync@example.test',password:'test-password'});const cookie=setup.cookie;
-  const imported=await server.call('POST','/api/tasks/import',{text:'Tên công việc\tCông việc cha\tMã công việc\nWebsite child\tWebsite parent\t991991\nVideo task\t\t991992'},cookie);
+  // This test links tasks to cards by hand: new tasks are not put on Workspace by themselves here.
+  assert.equal((await server.call('PUT','/api/admin/settings',{taskWorkspaceAuto:false},cookie)).status,200);
+  const imported=await server.call('POST','/api/tasks/import',{text:'Tên công việc\tDự án\tCông việc cha\tMã công việc\nWebsite child\tSync\tWebsite parent\t991991\nVideo task\tSync\t\t991992'},cookie);
   assert.equal(imported.status,200,JSON.stringify(imported.data));
-  const tasks=(await server.call('GET','/api/tasks?scope=all',undefined,cookie)).data.tasks;
+  const tasks=await visibleTasks(server,cookie);
   assert.equal(tasks.length,3);assert.ok(tasks.some(t=>t.stub));
   const board=(await server.call('POST','/api/boards',{name:'Keep chosen board',roleId:null,private:true,lists:['Chưa thực hiện']},cookie)).data;
   const full=(await server.call('GET',`/api/boards/${board.id}`,undefined,cookie)).data;
@@ -1001,7 +1111,7 @@ test('bulk Workspace sync includes parent placeholders, keeps existing links and
   assert.deepEqual(synced.data,{total:3,created:2,linked:3,remaining:0});
   assert.equal((await server.call('GET',`/api/tasks/${chosen.id}`,undefined,cookie)).data.boardLink.cardId,link.cardId);
   assert.equal((await server.call('POST','/api/tasks/sync-board',{},cookie)).data.created,0);
-  const rows=(await server.call('GET','/api/tasks?scope=all',undefined,cookie)).data.tasks;
+  const rows=await visibleTasks(server,cookie);
   assert.ok(rows.every(task=>task.hasBoardLink&&task.boardLink?.cardId));
   assert.equal(rows.find(task=>task.id===chosen.id).boardLink.boardId,board.id);
 
@@ -1044,7 +1154,7 @@ test('personal boards require direct membership even for system admins and works
     assert.equal((await server.call('GET',`/api/boards/${board.id}`,undefined,cookie)).status,404);
     assert.equal((await server.call('GET','/api/boards',undefined,cookie)).data.some(b=>b.id===board.id),false);
   }
-  assert.equal((await server.call('DELETE',`/api/workspaces/${space.id}`,undefined,ac)).status,403);
+  assert.equal((await server.call('DELETE',`/api/workspaces/${space.id}`,undefined,guest.cookie)).status,403);
   const detail=(await server.call('GET',`/api/boards/${board.id}`,undefined,owner.cookie)).data;
   assert.deepEqual(detail.members.map(m=>m.id),[owner.id]);
   const card=(await server.call('POST',`/api/lists/${detail.lists[0].id}/cards`,{title:'Private visibility marker'},owner.cookie)).data;
@@ -1195,6 +1305,30 @@ test('any employee can be put on a card: they join its board and its customer op
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
+test('someone given a task of a customer finds it on Khách hàng without Drive; its Drive folder stays closed',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-task-customer-'));let server;
+ try{
+  server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'tc-boss@example.test',password:'test-password'})).cookie;
+  const role=(await server.call('POST','/api/roles',{name:'Content',pages:['editor']},ac)).data;
+  const staff=(await server.call('POST','/api/users',{name:'Writer',email:'tc-writer@example.test',password:'test-password',role:'member',teamRole:role.id},ac)).data;
+  const customer=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách giao việc'},ac)).data;
+  const other=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách khác'},ac)).data;
+  const project=(await server.call('POST',`/api/customers/${customer.id}/projects`,{name:'Dự án giao'},ac)).data;
+  const sc=(await server.call('POST','/api/auth/login',{email:'tc-writer@example.test',password:'test-password'})).cookie;
+  assert.deepEqual((await server.call('GET','/api/customers/directory',undefined,sc)).data,[]);
+  assert.equal((await server.call('POST','/api/tasks',{title:'Viết bài',projectId:project.id,assigneeUserIds:[staff.id]},ac)).status,201);
+  assert.deepEqual((await server.call('GET','/api/customers/directory',undefined,sc)).data.map(c=>c.id),[customer.id]);
+  assert.equal((await server.call('GET',`/api/customers/${customer.id}/record`,undefined,sc)).status,200);
+  assert.equal((await server.call('GET',`/api/customers/${customer.id}/tasks`,undefined,sc)).data.length,1);
+  assert.equal((await server.call('GET',`/api/customers/${other.id}/record`,undefined,sc)).status,404);
+  // Not its Drive folder, nor adding customers, nor changing one they only work on.
+  assert.equal((await server.call('GET',`/api/customers/${customer.id}`,undefined,sc)).status,403);
+  assert.equal((await server.call('POST','/api/customers',{databaseOnly:true,name:'Mới'},sc)).status,403);
+  assert.equal((await server.call('PUT',`/api/customers/${customer.id}/record`,{name:'Đổi'},sc)).status,403);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
 test('each account has its own notification email, and whatever concerns that person is sent there',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-notify-people-'));let server;
  try{
@@ -1227,7 +1361,7 @@ test('each account has its own notification email, and whatever concerns that pe
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
-test('board backgrounds and interface choices belong to each account',async()=>{
+test('a board looks the same to everyone and interface choices belong to each account',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-personal-'));let server;
  try{
   server=await start(dir);
@@ -1236,21 +1370,28 @@ test('board backgrounds and interface choices belong to each account',async()=>{
   const mia=(await server.call('POST','/api/auth/login',{email:'mia@example.test',password:'test-password'})).cookie;
   const board=(await server.call('POST','/api/boards',{name:'Nền riêng',bg:'ocean'},ac)).data;
   await server.call('PUT',`/api/boards/${board.id}/members/${made.id}`,{level:'observer'},ac);
-  // Even someone who only looks picks their own background; nobody else sees it, and none brings back the board's.
-  assert.equal((await server.call('PUT',`/api/boards/${board.id}/background`,{bg:'forest'},mia)).status,200);
-  assert.equal((await server.call('PUT',`/api/boards/${board.id}/background`,{bg:'nope'},mia)).status,400);
-  const seen=async who=>{const b=(await server.call('GET',`/api/boards/${board.id}`,undefined,who)).data;const l=(await server.call('GET','/api/boards',undefined,who)).data.find(x=>x.id===board.id);return[b.bg,b.sharedBg,l.bg];};
-  assert.deepEqual(await seen(mia),['forest','ocean','forest']);
-  assert.deepEqual(await seen(ac),['ocean','ocean','ocean']);
-  assert.equal((await server.call('PUT',`/api/boards/${board.id}/background`,{bg:null},mia)).status,200);
-  assert.deepEqual(await seen(mia),['ocean','ocean','ocean']);
-  // Theme, language and layout are kept with the account: merged, forgotten with null, only known keys.
+  // The background, label names and folded lists are the board's, set by its admins and seen alike by everyone.
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}/background`,{bg:'forest'},mia)).status,403);
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}/background`,{bg:'nope'},ac)).status,400);
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}/background`,{bg:'forest'},ac)).status,200);
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}`,{labelText:true},mia)).status,403);
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}`,{labelText:true},ac)).status,200);
+  const list=(await server.call('GET',`/api/boards/${board.id}`,undefined,ac)).data.lists[0];
+  assert.equal((await server.call('PUT',`/api/lists/${list.id}`,{folded:true},mia)).status,403);
+  assert.equal((await server.call('PUT',`/api/lists/${list.id}`,{folded:true},ac)).status,200);
+  const seen=async who=>{const b=(await server.call('GET',`/api/boards/${board.id}`,undefined,who)).data;const l=(await server.call('GET','/api/boards',undefined,who)).data.find(x=>x.id===board.id);return[b.bg,l.bg,b.labelText,b.lists[0].folded,b.canShape];};
+  assert.deepEqual(await seen(mia),['forest','forest',true,true,false]);
+  assert.deepEqual(await seen(ac),['forest','forest',true,true,true]);
+  // Theme, language, panels and the Drive view are kept with the account: merged, forgotten with null; other keys are
+  // left out (an older page may still send them).
   assert.equal((await server.call('GET','/api/auth/me',undefined,mia)).data.prefs,null);
   assert.equal((await server.call('PUT','/api/auth/prefs',{'dms.theme':'dark','dms.lang':'en'},mia)).status,200);
   assert.equal((await server.call('PUT','/api/auth/prefs',{'dms.lang':null,'dms.panels':'{"inbox":false}'},mia)).status,200);
   assert.deepEqual((await server.call('GET','/api/auth/me',undefined,mia)).data.prefs,{'dms.theme':'dark','dms.panels':'{"inbox":false}'});
   assert.equal((await server.call('GET','/api/auth/me',undefined,ac)).data.prefs,null);
-  assert.equal((await server.call('PUT','/api/auth/prefs',{'dms.lastProject':'p_1'},mia)).status,400);
+  assert.equal((await server.call('PUT','/api/auth/prefs',{'dms.lastProject':'p_1','dms.driveView':'list'},mia)).status,200);
+  assert.deepEqual((await server.call('GET','/api/auth/me',undefined,mia)).data.prefs,{'dms.theme':'dark','dms.panels':'{"inbox":false}','dms.driveView':'list'});
+  assert.equal((await server.call('PUT','/api/auth/prefs',{'dms.theme':5},mia)).status,400);
   assert.equal((await server.call('PUT','/api/auth/prefs',{'dms.theme':'dark'})).status,401);
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
@@ -1260,6 +1401,8 @@ test('project members update its tasks and their cards; followers only look',asy
  try{
   server=await start(dir);
   const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'editors-boss@example.test',password:'test-password'})).cookie;
+  // This test links tasks to cards by hand: new tasks are not put on Workspace by themselves here.
+  assert.equal((await server.call('PUT','/api/admin/settings',{taskWorkspaceAuto:false},ac)).status,200);
   const account=async name=>{const u=(await server.call('POST','/api/users',{name,email:`${name}@example.test`,password:'test-password',role:'member'},ac)).data;return{...u,cookie:(await server.call('POST','/api/auth/login',{email:`${name}@example.test`,password:'test-password'})).cookie};};
   const member=await account('editor-member'),watcher=await account('editor-watcher'),doer=await account('editor-doer');
   const customer=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Editors Client'},ac)).data;
@@ -1293,5 +1436,175 @@ test('project members update its tasks and their cards; followers only look',asy
   assert.equal((await server.call('PUT',`/api/cards/${linked.data.cardId}`,{description:'Brief v2'},member.cookie)).status,200);
   assert.equal((await detail(member)).description,'Brief v2');
   assert.equal((await server.call('PUT',`/api/tasks/${task.id}`,{description:'Admin note'},ac)).status,200);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('a card holds the work result: its own note for editors, the linked task\'s once linked, and per-customer result files',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-card-result-'));let server;
+ try{
+  server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'boss@example.test',password:'test-password'})).cookie;
+  // This test links tasks to cards by hand: new tasks are not put on Workspace by themselves here.
+  assert.equal((await server.call('PUT','/api/admin/settings',{taskWorkspaceAuto:false},ac)).status,200);
+  const account=async name=>{const u=(await server.call('POST','/api/users',{name,email:`${name}@example.test`,password:'test-password'},ac)).data;return{id:u.id,cookie:(await server.call('POST','/api/auth/login',{email:`${name}@example.test`,password:'test-password'})).cookie};};
+  const ed=await account('ed'),sam=await account('sam');
+  const ws=(await server.call('POST','/api/workspaces',{name:'Kết quả'},ac)).data;
+  const board=(await server.call('POST','/api/boards',{name:'Media',workspaceId:ws.id},ac)).data;
+  for(const [who,level] of [[ed,'normal'],[sam,'observer']]){await server.call('PUT',`/api/workspaces/${ws.id}/members/${who.id}`,{level},ac);await server.call('PUT',`/api/boards/${board.id}/members/${who.id}`,{level},ac);}
+  const list=(await server.call('GET',`/api/boards/${board.id}`,undefined,ac)).data.lists[0];
+  const card=(await server.call('POST',`/api/lists/${list.id}/cards`,{title:'Bàn giao'},ac)).data;
+  // A card without a task keeps its own note, for those who edit the card.
+  assert.equal((await server.call('PUT',`/api/cards/${card.id}`,{result:'login: x'},ed.cookie)).status,200);
+  assert.equal((await server.call('PUT',`/api/cards/${card.id}`,{result:'nope'},sam.cookie)).status,403);
+  const byEd=(await server.call('GET',`/api/cards/${card.id}`,undefined,ed.cookie)).data;
+  assert.deepEqual([byEd.result,byEd.resultHidden],['login: x',false]);
+  const bySam=(await server.call('GET',`/api/cards/${card.id}`,undefined,sam.cookie)).data;
+  assert.deepEqual([bySam.result,bySam.resultHidden],[null,true]);
+  // Linked to a task, the card's note joins the task's, and the result is read and written on the task from then on.
+  const task=(await server.call('POST','/api/tasks',{title:'Bàn giao'},ac)).data;
+  assert.equal((await server.call('POST',`/api/tasks/${task.id}/card`,{cardId:card.id},ac)).status,201);
+  assert.equal((await server.call('GET',`/api/tasks/${task.id}`,undefined,ac)).data.result,'login: x');
+  const linked=(await server.call('GET',`/api/cards/${card.id}`,undefined,ac)).data;
+  assert.deepEqual([linked.linkedTask?.id,linked.result,linked.resultHidden],[task.id,null,false]);
+  assert.equal((await server.call('PUT',`/api/cards/${card.id}`,{result:'elsewhere'},ac)).status,400);
+  // The cards of one customer, each with its result files (the Drive tab marks the files with them).
+  const [a,b]=await Promise.all(['Khách A','Khách B'].map(async name=>(await server.call('POST','/api/customers',{databaseOnly:true,name},ac)).data));
+  const other=(await server.call('POST',`/api/lists/${list.id}/cards`,{title:'Khác'},ac)).data;
+  await server.call('PUT',`/api/cards/${card.id}`,{customerId:a.id},ac);
+  await server.call('PUT',`/api/cards/${other.id}`,{customerId:b.id},ac);
+  const ofA=(await server.call('GET',`/api/customer-tasks?customer=${a.id}`,undefined,ac)).data;
+  assert.deepEqual(ofA.map(t=>[t.id,t.customerId,t.files.length]),[[card.id,a.id,0]]);
+  assert.equal((await server.call('GET','/api/customer-tasks',undefined,ac)).data.length,2);
+  assert.equal((await server.call('POST',`/api/cards/${card.id}/files`,{keys:[]},ac)).status,400);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('a sheet import links the names it gives people to the employee accounts the importer chooses, and remembers them',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-import-links-'));let server;
+ try{
+  server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Admin',email:'links-admin@example.test',password:'test-password'})).cookie;
+  const minh=(await server.call('POST','/api/users',{name:'Trần Minh',email:'minh@example.test',password:'test-password'},ac)).data;
+  await server.call('POST','/api/users',{name:'Khánh Đỗ',email:'khanh@example.test',password:'test-password'},ac);
+  const minhCookie=(await server.call('POST','/api/auth/login',{email:'minh@example.test',password:'test-password'})).cookie;
+  const sheet='Tên công việc\tDự án\tGiao cho\tMã công việc\nDựng video\tLaunch\tDM, Khánh Đỗ\t501\nCắt teaser\tLaunch\tDM\t502';
+  const task=async(cookie,id='501')=>(await visibleTasks(server,cookie)).find(t=>t.externalId===id);
+  // The importer says "DM" is Trần Minh: the task shows the employee, who now opens the project of the work.
+  assert.equal((await server.call('POST','/api/tasks/import',{text:sheet,people:{DM:'u_missing'}},ac)).status,400);
+  const first=await server.call('POST','/api/tasks/import',{text:sheet,people:{DM:minh.id,'Khánh Đỗ':null}},ac);
+  assert.equal(first.status,200);assert.equal(first.data.linked,1);
+  const linked=(await task(ac)).assignees;
+  assert.deepEqual(linked.map(a=>[a.name,a.userId]).sort(),[['Khánh Đỗ',null],['Trần Minh',minh.id]]);
+  assert.ok(await task(minhCookie,'502'),'the linked employee sees the tasks given to them');
+  // A name nobody chose stays a name, even when an account has the same one.
+  const people=(await server.call('GET','/api/tasks/meta',undefined,ac)).data.people;
+  assert.equal(people.find(p=>p.name==='Khánh Đỗ').userId,null);
+  // The next import remembers the link; choosing "keep the name" lets it go.
+  assert.equal((await server.call('POST','/api/tasks/import',{text:sheet},ac)).data.linked,0);
+  assert.equal((await task(ac,'502')).assignees[0].userId,minh.id);
+  await server.call('POST','/api/tasks/import',{text:sheet,people:{DM:null}},ac);
+  assert.deepEqual((await task(ac,'502')).assignees.map(a=>[a.name,a.userId]),[['DM',null]]);
+  assert.equal((await server.call('POST','/api/tasks/import',{text:sheet,people:{DM:minh.id}},minhCookie)).status,403);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('my tasks include the tasks whose card has me as a member',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-card-member-tasks-'));let server;
+ try{
+  server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Admin',email:'members-admin@example.test',password:'test-password'})).cookie;
+  // This test links tasks to cards by hand: new tasks are not put on Workspace by themselves here.
+  assert.equal((await server.call('PUT','/api/admin/settings',{taskWorkspaceAuto:false},ac)).status,200);
+  const a=(await server.call('POST','/api/users',{name:'Anh',email:'anh@example.test',password:'test-password'},ac)).data;
+  const anh=(await server.call('POST','/api/auth/login',{email:'anh@example.test',password:'test-password'})).cookie;
+  const ws=(await server.call('POST','/api/workspaces',{name:'Đội'},ac)).data;
+  const board=(await server.call('POST','/api/boards',{name:'Ads',workspaceId:ws.id},ac)).data;
+  const list=(await server.call('GET',`/api/boards/${board.id}`,undefined,ac)).data.lists[0];
+  // Imported with a name from the sheet (not Anh's account), shown on the board as a card.
+  await server.call('POST','/api/tasks/import',{text:'Tên công việc\tDự án\tGiao cho\tMã công việc\nReport lead so với Media Plan\tAds\tSheet Name\t801'},ac);
+  const task=(await visibleTasks(server,ac)).find(t=>t.externalId==='801');
+  const {cardId}=(await server.call('POST',`/api/tasks/${task.id}/card`,{listId:list.id},ac)).data;
+  const mine=async()=>(await server.call('GET','/api/tasks',undefined,anh)).data.tasks.map(t=>t.externalId);
+  assert.deepEqual(await mine(),[]);
+  assert.equal((await server.call('PUT',`/api/cards/${cardId}/members`,{userId:a.id,on:true},ac)).status,200);
+  assert.deepEqual(await mine(),['801']);
+  await server.call('PUT',`/api/cards/${cardId}/members`,{userId:a.id,on:false},ac);
+  assert.deepEqual(await mine(),[]);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('people list only their own tasks; a department head also the department\'s, a company admin any department\'s',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-task-scopes-'));let server;
+ try{
+  server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Admin',email:'scopes-admin@example.test',password:'test-password'})).cookie;
+  const roles=(await server.call('GET','/api/roles',undefined,ac)).data;
+  const media=roles.find(r=>r.name==='Media Execute'),sale=roles.find(r=>r.name==='Account / Sale');
+  const account=async(name,d,position)=>{const u=(await server.call('POST','/api/users',{name,email:`${name}@example.test`,password:'test-password',teamRole:d.id,deptRole:d.positions.find(p=>p.name===position).id},ac)).data;return{...u,cookie:(await server.call('POST','/api/auth/login',{email:`${name}@example.test`,password:'test-password'})).cookie};};
+  const head=await account('head',media,'Trưởng phòng'),staff=await account('staff',media,'Nhân viên'),seller=await account('seller',sale,'Nhân viên');
+  const give=async(title,who)=>(await server.call('POST','/api/tasks',{title,assigneeUserIds:[who.id]},ac)).data.id;
+  const ofStaff=await give('Staff video',staff),ofHead=await give('Head review',head),ofSeller=await give('Seller call',seller);
+  const list=async(cookie,query='')=>(await server.call('GET',`/api/tasks${query}`,undefined,cookie)).data.tasks.map(t=>t.id).sort();
+  // Staff: their own work only, whatever they ask for.
+  assert.deepEqual(await list(staff.cookie),[ofStaff]);
+  assert.deepEqual(await list(staff.cookie,'?scope=all'),[ofStaff]);
+  assert.equal((await server.call('GET','/api/tasks?scope=team',undefined,staff.cookie)).status,403);
+  // The head of Media: their department's work, never another department's.
+  assert.deepEqual(await list(head.cookie,'?scope=team'),[ofStaff,ofHead].sort());
+  assert.deepEqual(await list(head.cookie,`?scope=team&team=${sale.id}`),[ofStaff,ofHead].sort());
+  // A company admin: any department's.
+  assert.deepEqual(await list(ac,`?scope=team&team=${sale.id}`),[ofSeller]);
+  assert.deepEqual(await list(ac,`?scope=team&team=${media.id}`),[ofStaff,ofHead].sort());
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('a new task goes onto its project\'s board as a card, shared with the project\'s people, unless an admin turns that off',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-auto-card-'));let server;
+ try{
+  server=await start(dir);
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'auto-boss@example.test',password:'test-password'})).cookie;
+  const user=async(name,email)=>{const u=(await server.call('POST','/api/users',{name,email,password:'test-password',role:'member'},ac)).data;return{...u,cookie:(await server.call('POST','/api/auth/login',{email,password:'test-password'})).cookie};};
+  const mia=await user('Mia','auto-mia@example.test'),bob=await user('Bob','auto-bob@example.test');
+  assert.equal((await server.call('GET','/api/admin/settings',undefined,ac)).data.taskWorkspaceAuto,true);
+  const project=(await server.call('POST','/api/task-projects',{name:'Auto project'},ac)).data;
+  assert.equal((await server.call('PUT',`/api/task-projects/${project.id}/members/${bob.id}`,{level:'normal'},ac)).status,200);
+  const made=await server.call('POST','/api/tasks',{title:'Dựng reel',projectId:project.id,assigneeUserIds:[mia.id]},ac);
+  assert.equal(made.status,201);
+  // Its card is on the project's own board, named after it; the project's people and the person it is given to are on
+  // that board, which holds only the project's work.
+  const own=(await server.call('GET',`/api/tasks/${made.data.id}`,undefined,ac)).data;
+  const board=(await server.call('GET',`/api/boards/${own.boardLink.boardId}`,undefined,ac)).data;
+  assert.equal(board.name,'Auto project');
+  assert.deepEqual((await server.call('GET',`/api/cards/${own.boardLink.cardId}`,undefined,ac)).data.members,[mia.id]);
+  const levelOf=async(who)=>(await server.call('GET',`/api/boards/${board.id}`,undefined,who.cookie)).data.level;
+  assert.equal(await levelOf(mia),'normal');assert.equal(await levelOf(bob),'normal');
+  assert.equal((await server.call('GET',`/api/tasks/${made.data.id}`,undefined,mia.cookie)).data.boardLink.cardId,own.boardLink.cardId);
+  const listed=(await server.call('GET',`/api/tasks?scope=all&project=${project.id}`,undefined,bob.cookie)).data.tasks;
+  assert.deepEqual(listed.map(t=>[t.id,!!t.boardLink]),[[made.data.id,true]]);
+  // The maker's work outside the project stays theirs: a task of no project given to Mia puts her on its card only.
+  const loose=(await server.call('POST','/api/tasks',{title:'Gia hạn router',result:'pw: R0uter!',assigneeUserIds:[mia.id]},ac)).data;
+  const secret=(await server.call('POST','/api/tasks',{title:'Việc riêng',result:'pin 4321'},ac)).data;
+  const looseCard=(await server.call('GET',`/api/tasks/${loose.id}`,undefined,ac)).data.boardLink;
+  assert.notEqual(looseCard.boardId,board.id);
+  assert.equal((await server.call('GET',`/api/boards/${looseCard.boardId}`,undefined,mia.cookie)).status,404);
+  assert.equal((await server.call('GET',`/api/tasks/${secret.id}`,undefined,mia.cookie)).status,404);
+  // Renamed, the board follows; a person taken off the project comes off its board.
+  assert.equal((await server.call('PUT',`/api/task-projects/${project.id}`,{name:'Auto project 2'},ac)).status,200);
+  assert.equal((await server.call('GET',`/api/boards/${board.id}`,undefined,ac)).data.name,'Auto project 2');
+  assert.equal((await server.call('DELETE',`/api/task-projects/${project.id}/members/${bob.id}`,undefined,ac)).status,200);
+  assert.equal((await server.call('GET',`/api/boards/${board.id}`,undefined,bob.cookie)).status,404);
+  // Given to someone else: they join the card (and the board) and the one it was given to before comes off the card.
+  assert.equal((await server.call('PUT',`/api/tasks/${made.data.id}`,{assigneeUserIds:[bob.id]},ac)).status,200);
+  assert.deepEqual((await server.call('GET',`/api/cards/${own.boardLink.cardId}`,undefined,ac)).data.members,[bob.id]);
+  assert.equal(await levelOf(bob),'normal');
+  // Taken off its card, it stays off when edited later.
+  assert.equal((await server.call('DELETE',`/api/tasks/${made.data.id}/card`,undefined,ac)).status,200);
+  assert.equal((await server.call('PUT',`/api/tasks/${made.data.id}`,{title:'Dựng reel v2'},ac)).status,200);
+  assert.equal((await server.call('GET',`/api/tasks/${made.data.id}`,undefined,ac)).data.boardLink,null);
+  // Turned off: a new task stays off Workspace until linked or synced.
+  assert.equal((await server.call('PUT','/api/admin/settings',{taskWorkspaceAuto:false},ac)).data.taskWorkspaceAuto,false);
+  const plain=(await server.call('POST','/api/tasks',{title:'Không lên board'},ac)).data;
+  assert.equal((await server.call('GET',`/api/tasks/${plain.id}`,undefined,ac)).data.boardLink,null);
+  assert.equal((await server.call('PUT','/api/admin/settings',{taskWorkspaceAuto:true},bob.cookie)).status,403);
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });

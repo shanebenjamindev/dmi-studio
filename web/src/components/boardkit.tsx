@@ -15,12 +15,89 @@ export const COLOR_NAME: Record<string, string> = {
 };
 const AVATAR = ['#0c66e4', '#1f845a', '#c25100', '#ae2e24', '#6e5dc6', '#0055cc', '#206a83', '#4c6b1f', '#943d73', '#44546f'];
 
-/** A person's initials in a coloured circle (the colour follows their id). */
-export function Avatar({ m, size = 28 }: { m: { id: string; name: string } | undefined; size?: number }) {
+const avatarMap = new Map<string, number>();
+let avatarLoaded = false;
+const avatarListeners = new Set<() => void>();
+function ensureAvatars() {
+  if (avatarLoaded || typeof window === 'undefined') return;
+  avatarLoaded = true;
+  fetch('/api/avatars', { credentials: 'same-origin' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d: Record<string, number> | null) => {
+      if (!d) return;
+      for (const [k, v] of Object.entries(d)) if (v) avatarMap.set(k, v);
+      avatarListeners.forEach((fn) => fn());
+    })
+    .catch(() => {});
+}
+export function notifyAvatarChanged(userId: string, avatarAt: number | null) {
+  if (avatarAt) avatarMap.set(userId, avatarAt);
+  else avatarMap.delete(userId);
+  avatarListeners.forEach((fn) => fn());
+}
+export function hasUserAvatar(userId: string | null | undefined) {
+  return !!(userId && avatarMap.get(userId));
+}
+/** Resizes and center-crops an image file to a 240x240 square data URL under 300 KB. */
+export async function fileToAvatarDataUrl(file: File): Promise<string> {
+  if (!/^image\/(png|jpeg|webp|gif)$/i.test(file.type)) {
+    throw new Error('Hãy chọn ảnh định dạng PNG, JPEG, WebP hoặc GIF');
+  }
+  if (file.size <= 280 * 1024 && file.type === 'image/gif') {
+    return await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result || ''));
+      r.onerror = () => reject(new Error('Không đọc được file ảnh'));
+      r.readAsDataURL(file);
+    });
+  }
+  const bmp = await createImageBitmap(file).catch(() => { throw new Error('Không đọc được file ảnh'); });
+  const side = Math.min(bmp.width, bmp.height), target = Math.min(240, side || 240);
+  const canvas = document.createElement('canvas');
+  canvas.width = target;
+  canvas.height = target;
+  const ctx = canvas.getContext('2d')!;
+  const sx = Math.max(0, Math.floor((bmp.width - side) / 2));
+  const sy = Math.max(0, Math.floor((bmp.height - side) / 2));
+  ctx.drawImage(bmp, sx, sy, side, side, 0, 0, target, target);
+  bmp.close?.();
+  let out = canvas.toDataURL('image/webp', 0.86);
+  if (!out.startsWith('data:image/webp')) out = canvas.toDataURL('image/jpeg', 0.86);
+  return out;
+}
+
+/** A person's picture (when uploaded) or their initials in a coloured circle (the colour follows their id). */
+export function Avatar({ m, size = 28 }: { m: { id: string; name: string; userId?: string | null; avatarAt?: number | null } | undefined; size?: number }) {
+  const [, bump] = useState(0);
+  const [failed, setFailed] = useState(false);
+  const uid = m?.userId || (m?.id?.startsWith('u_') ? m.id : null);
+  useEffect(() => {
+    ensureAvatars();
+    const fn = () => { setFailed(false); bump((x) => x + 1); };
+    avatarListeners.add(fn);
+    return () => { avatarListeners.delete(fn); };
+  }, [uid]);
   if (!m) return null;
-  const n = [...m.id].reduce((a, ch) => a + ch.charCodeAt(0), 0);
-  const ini = m.name.trim().split(/\s+/).map((w) => w[0]).filter(Boolean).slice(-2).join('').toUpperCase() || '?';
-  return <span className="bk-av" title={m.name} style={{ width: size, height: size, fontSize: Math.round(size * 0.4), background: AVATAR[n % AVATAR.length] }}>{ini}</span>;
+  if (uid && m.avatarAt) avatarMap.set(uid, m.avatarAt);
+  const at = uid ? (m.avatarAt ?? avatarMap.get(uid) ?? null) : null;
+  const n = [...(uid || m.id || m.name)].reduce((a, ch) => a + ch.charCodeAt(0), 0);
+  const clean = m.name.replace(/\([^)]*\)/g, '').trim() || m.name;
+  const words = clean.match(/[\p{L}\p{N}]+/gu) || [];
+  const ini = words.length >= 2
+    ? words.slice(-2).map((w) => w[0]).join('').toUpperCase()
+    : (clean.slice(0, 2).toUpperCase() || '?');
+  return (
+    <span className="bk-av" title={m.name} style={{ width: size, height: size, fontSize: Math.round(size * 0.4), background: AVATAR[n % AVATAR.length], overflow: 'hidden', position: 'relative' }}>
+      {uid && at && !failed ? (
+        <img
+          src={`/api/avatars/${encodeURIComponent(uid)}?v=${at}`}
+          alt={m.name}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          onError={() => setFailed(true)}
+        />
+      ) : ini}
+    </span>
+  );
 }
 
 const two = (n: number) => String(n).padStart(2, '0');
@@ -83,7 +160,7 @@ export function Pop({ anchor, title, onClose, onBack, children, width = 304, cla
 
 /** What happened, in words (`onCard`: shown on the card itself, so the card's name is left out). */
 /** A card video's picture: Drive's thumbnail, through the customer's folder (none for folders on a Mac's disk). */
-export const videoThumb = (a: Pick<CardAttachment, 'customerId' | 'key'>) => (a.customerId && a.key ? `/api/customers/${a.customerId}/files/${encodeURIComponent(a.key)}/thumb` : '');
+export const fileThumb = (a: Pick<CardAttachment, 'customerId' | 'key'>) => (a.customerId && a.key ? `/api/customers/${a.customerId}/files/${encodeURIComponent(a.key)}/thumb` : '');
 
 export function activityText(a: BoardActivity, onCard: boolean, openCard?: (id: string) => void): ReactNode {
   const d = a.data || {};
@@ -107,6 +184,7 @@ export function activityText(a: BoardActivity, onCard: boolean, openCard?: (id: 
     case 'board.member': return d.level
       ? <>đã cho <b>{d.name}</b> quyền <b>{({ admin: 'Admin', normal: 'Thành viên', observer: 'Chỉ xem' } as Record<string, string>)[d.level] || d.level}</b> trên board</>
       : d.self ? <>đã rời board</> : <>đã gỡ <b>{d.name}</b> khỏi board</>;
+    case 'board.member-edit': return d.on ? <>đã cho thành viên sửa board (danh sách, nhãn, tên, hình nền)</> : <>đã chỉ cho admin sửa board</>;
     default: return <>đã cập nhật {card}</>;
   }
 }

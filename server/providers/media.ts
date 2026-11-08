@@ -1,4 +1,4 @@
-// Video / image / voice generation. Every hosted platform needs a paid API, so DM Workspace no longer
+// Video / image / voice generation. Every hosted platform needs a paid API, so DMI Workspace no longer
 // ships any; only the offline demo provider (DMS_MOCK=1) runs through the job queue.
 import { findProvider } from './registry';
 import { ProviderError } from './llm';

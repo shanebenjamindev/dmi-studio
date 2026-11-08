@@ -7,7 +7,7 @@ import { langPref } from './i18n';
 import { player, type PlayerOpts } from './engine/player';
 import { audio } from './engine/audio';
 import { exportVideo } from './engine/exporter';
-import type { TeamRole, User, Project, Provider, Defaults, Job, Storyboard, Scene, Aspect, ChatMsg, ModelChoice, Kind, Render, Source, Picked, MediaRef, Page, Outro } from './types';
+import type { AdminAccess, TeamRole, User, Project, Provider, Defaults, Job, Storyboard, Scene, Aspect, ChatMsg, ModelChoice, Kind, Render, Source, Picked, MediaRef, Page, Outro } from './types';
 
 export type Tab = 'scene' | 'global' | 'brand' | 'renders';
 // 'templates' and 'analyze' are hidden for now (pages kept in the code, not reachable from the UI).
@@ -17,7 +17,7 @@ export type View = 'profile' | 'customers' | 'boards' | 'tasks' | 'projects' | '
 export interface ExportState { phase: 'idle' | 'setup' | 'recording' | 'uploading' | 'done' | 'error'; progress: number; text: string; url?: string; download?: string; error?: string }
 export interface AppState {
   ready: boolean;
-  /** Signed-in DM Workspace account; null shows the sign-in page. */
+  /** Signed-in DMI Workspace account; null shows the sign-in page. */
   user: User | null;
   setup: boolean;
   /** First-run admin creation needs the server's SETUP_CODE (public deploys). */
@@ -34,6 +34,8 @@ export interface AppState {
   editorAvailable: boolean;
   /** Pages the signed-in account may open (admins: all). */
   pages: Page[];
+  /** What the account may do in Quản trị (null: nothing there). */
+  admin: AdminAccess | null;
   /** Bumped when projects are added in the background, so the project list reloads. */
   homeVersion: number;
   providers: Provider[];
@@ -56,8 +58,12 @@ export interface AppState {
   brandMode: boolean;
 }
 
+export const HASH: Partial<Record<View, string>> = { profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', editor: '#editor', reports: '#reports', ads: '#ads', tools: '#tools', admin: '#admin' };
+/** The page an address opens (the reverse of HASH); any other address opens the boards. */
+const viewOfHash = (hash: string) => (Object.keys(HASH) as View[]).find((v) => hash.startsWith(HASH[v]!)) ?? 'boards';
+
 let state: AppState = {
-  ready: false, user: null, setup: false, setupCode: false, googleSignin: false, view: (location.hash.startsWith('#profile') ? 'profile' : location.hash.startsWith('#customers') ? 'customers' : location.hash.startsWith('#admin') ? 'admin' : location.hash.startsWith('#editor') ? 'editor' : location.hash.startsWith('#drive') ? 'workspace' : location.hash.startsWith('#tools') ? 'tools' : location.hash.startsWith('#ads') ? 'ads' : location.hash.startsWith('#reports') ? 'reports' : location.hash.startsWith('#tasks') ? 'tasks' : location.hash.startsWith('#projects') ? 'projects' : 'boards') as View, roles: [], tplFocus: null, analyzeSrc: null, mock: false, ffmpeg: false, editorAvailable: false, pages: [], homeVersion: 0, providers: [], defaults: {}, project: null, sel: 0, clip: null, tab: 'scene',
+  ready: false, user: null, setup: false, setupCode: false, googleSignin: false, view: viewOfHash(location.hash), roles: [], tplFocus: null, analyzeSrc: null, mock: false, ffmpeg: false, editorAvailable: false, pages: [], admin: null, homeVersion: 0, providers: [], defaults: {}, project: null, sel: 0, clip: null, tab: 'scene',
   save: 'saved', busy: null, jobs: [], renders: [], undo: [], redo: [],
   opts: { captions: true, logo: true, music: true, voice: true }, dialog: null, toast: null,
   exp: { phase: 'idle', progress: 0, text: '' }, brandMode: true,
@@ -112,7 +118,7 @@ export async function signedIn(user: User) {
   if (!/^#(tasks\/tk_|boards\/b_[^/]+\/c\/)/.test(location.hash)) { history.replaceState(null, '', '#boards'); setState({ view: 'boards' }); }
   const m = await api.me().catch(() => null);
   if (accountPrefs(user.id, m?.prefs)) return;
-  setState({ user, setup: false, ...(m ? { pages: m.pages || [] } : {}) });
+  setState({ user, setup: false, ...(m ? { pages: m.pages || [], admin: m.admin || null } : {}) });
   await loadApp();
 }
 /** Puts the account's own theme, language and board layout in place; true when the page reloads to show its language. */
@@ -123,19 +129,22 @@ function accountPrefs(userId: string, saved: Record<string, string> | null | und
   location.reload();
   return true;
 }
+/** Does the account hold this permission of Quản trị (shared/permissions.ts), at any scope? */
+export const canDo = (perm: string) => !!state.admin?.perms[perm];
 /** Pages this account can open. On a server that cannot run the editor (the cloud site), its tab says where it runs. */
 export function openPages(): View[] {
-  const out: View[] = ['boards', 'tasks', 'projects', 'profile'];
-  if (state.pages.includes('workspace')) out.push('workspace', 'customers');
+  // Khách hàng: everyone sees the customers they work on; Drive (their folders) only those given it.
+  const out: View[] = ['boards', 'tasks', 'projects', 'customers', 'profile'];
+  if (state.pages.includes('workspace')) out.push('workspace');
   if (state.pages.includes('editor')) out.push('editor');
   // Báo cáo: every client report (made in the editor or here) and, for those allowed, the Meta Ads numbers.
-  if (state.pages.includes('ads') || state.pages.includes('editor')) out.push('reports');
-  if (state.pages.includes('ads')) out.push('ads');
+  out.push('reports');
+  if (state.pages.includes('ads') || state.user?.role === 'admin') out.push('ads');
   out.push('tools');
-  if (state.user?.role === 'admin') out.push('admin');
+  // Quản trị: company admins, and whoever a role gives any of its permissions (each page inside checks its own).
+  if (state.user?.role === 'admin' || Object.keys(state.admin?.perms || {}).length) out.push('admin');
   return out;
 }
-const HASH: Partial<Record<View, string>> = { profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', editor: '#editor', reports: '#reports', ads: '#ads', tools: '#tools', admin: '#admin' };
 /** Open a page (and keep it in the address, so a reload comes back to it). */
 export function goto(view: View) {
   setState({ view });
@@ -153,26 +162,31 @@ export async function signOut() {
 }
 
 export async function init() {
+  // What the server can do is public: ask for it alongside the session, not after it.
+  const health = api.health();
+  health.catch(() => {});
   try {
     const me = await api.me();
     if (me.user && accountPrefs(me.user.id, me.prefs)) return;
-    setState({ user: me.user, pages: me.pages || [], setup: me.setup, setupCode: !!me.setupCode, googleSignin: me.google });
-    if (me.user) await loadApp();
+    setState({ user: me.user, pages: me.pages || [], admin: me.admin || null, setup: me.setup, setupCode: !!me.setupCode, googleSignin: me.google, ready: true });
+    if (me.user) void loadApp(health);
   } catch (e: any) {
     toast('Không kết nối được server: ' + e.message, true);
   } finally {
     setState({ ready: true });
   }
 }
-async function loadApp() {
+async function loadApp(health = api.health()) {
   try {
     const prefs = JSON.parse(ls.get(LS_PREFS) || '{}');
     if (prefs.opts) setState({ opts: { ...state.opts, ...prefs.opts } });
     if (typeof prefs.brandMode === 'boolean') setState({ brandMode: prefs.brandMode });
     player.setOpts(state.opts);
+    // Roles and the AI model list fill in after the first screen: only the editor's pickers and admin forms use them.
     api.roles().then((roles) => setState({ roles })).catch(() => {});
-    const [h, pv] = await Promise.all([api.health(), api.providers()]);
-    setState({ mock: h.mock, ffmpeg: h.ffmpeg, editorAvailable: !!h.editor, providers: pv.providers, defaults: pv.defaults });
+    api.providers().then((pv) => setState({ providers: pv.providers, defaults: pv.defaults })).catch(() => {});
+    const h = await health;
+    setState({ mock: h.mock, ffmpeg: h.ffmpeg, editorAvailable: !!h.editor });
     fixView();
     // The editor opens on the project list; a reload inside a project (#editor/<id>) reopens that project.
     const id = h.editor ? location.hash.match(/^#editor\/(p_\w+)/)?.[1] : undefined;
@@ -650,11 +664,12 @@ export function openProfile(id:string) {
 }
 /** Go to an address inside the app (a board, a card, a project, a customer) from any page. */
 export function openLink(hash: string) {
-  const view = (Object.entries(HASH).find(([, h]) => h && hash.startsWith(h))?.[0] || 'boards') as View;
-  setState({ view });
+  setState({ view: viewOfHash(hash) });
   history.replaceState(null, '', hash);
   setTimeout(() => window.dispatchEvent(new HashChangeEvent('hashchange')), 0);
 }
+/** Open a card on its board. */
+export const openCard = (boardId: string, cardId: string) => openLink(`#boards/${boardId}/c/${cardId}`);
 /** Open a task's own page, also when the task list is already on screen. */
 export function openTask(id:string) {
   setState({view:'tasks'});

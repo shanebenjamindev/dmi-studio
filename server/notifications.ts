@@ -1,6 +1,7 @@
 import {projectLevels} from './project-access';
 import {customerLevel,visibleCardIds} from './customer-access';
 import {gmailEnableUrl} from '../shared/gmail-errors';
+import {richToText} from '../shared/rich';
 import {createHash,randomInt,timingSafeEqual} from 'node:crypto';
 import {all,get,run,getSetting,setSetting,now,uid} from './db';
 import {currentUser} from './auth';
@@ -57,7 +58,7 @@ export async function notifyPeople(userIds:Iterable<string>,actorId:string|null,
 /** What a notification is about, for the person's own inbox (never in mail): a task's status, due date and the start of
  *  its description; a card's list and due date with the comment it is about, or the start of its description. */
 async function detailOf(taskId:string|null,p:any,userId:string,seesCard:(id:string)=>Promise<boolean>){
- const cut=(v:unknown)=>{const t=String(v||'').replace(/\s+/g,' ').trim();return t.length>280?t.slice(0,279)+'…':t;};
+ const cut=(v:unknown)=>{const t=richToText(String(v||'')).replace(/\s+/g,' ').trim();return t.length>280?t.slice(0,279)+'…':t;};
  if(taskId){const t=await get<any>('SELECT status,due_at,description FROM tasks WHERE id=?',taskId);return t?{status:t.status as string,dueAt:(t.due_at??null) as number|null,text:cut(t.description)}:null;}
  if(!p.cardId)return null;
  const c=await get<any>('SELECT c.description,c.due_at,c.done,c.board_id,l.name list FROM board_cards c JOIN board_lists l ON l.id=c.list_id WHERE c.id=?',p.cardId);
@@ -80,8 +81,8 @@ export async function drainNotifications(limit=10){
    if(body.taskId){const task=await get<any>('SELECT t.project_id,p.customer_id FROM tasks t LEFT JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',body.taskId);if(task?.project_id&&!(await projectLevels(row.user_id)).has(task.project_id)||task?.customer_id&&!await customerLevel(row.user_id,task.customer_id)){await run("UPDATE mail_outbox SET state='cancelled',locked_until=0 WHERE id=?",row.id);return;}}
    if(body.cardId&&!await get('SELECT 1 FROM board_cards WHERE id=?',body.cardId)){await run("UPDATE mail_outbox SET state='cancelled',locked_until=0 WHERE id=?",row.id);return;}
    const due=body.due?new Date(body.due).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'}):'Chưa có thời hạn';
-   const text=body.link?`${body.title}\n\n${body.task}\n\n${body.url}\n\nBạn có thể tắt thông báo email trong Hồ sơ của tôi.`:body.task?`${body.title}\n\n${body.task}\nTrạng thái: ${body.status}\nThời hạn: ${due}\n\n${body.url}\n\nBạn có thể tắt thông báo email trong Hồ sơ của tôi.`:'Bạn đã kết nối thông báo email với DM Workspace.\n\nĐây là email kiểm tra do bạn yêu cầu.';
-   await G.sendNotificationMail(user.email,`DM Workspace · ${body.title}`,text);
+   const text=body.link?`${body.title}\n\n${body.task}\n\n${body.url}\n\nBạn có thể tắt thông báo email trong Hồ sơ của tôi.`:body.task?`${body.title}\n\n${body.task}\nTrạng thái: ${body.status}\nThời hạn: ${due}\n\n${body.url}\n\nBạn có thể tắt thông báo email trong Hồ sơ của tôi.`:'Bạn đã kết nối thông báo email với DMI Workspace.\n\nĐây là email kiểm tra do bạn yêu cầu.';
+   await G.sendNotificationMail(user.email,`DMI Workspace · ${body.title}`,text);
    await run("UPDATE mail_outbox SET state='sent',sent_at=?,locked_until=0,error=NULL WHERE id=?",now(),row.id);sent++;
   }catch(e:any){
    await run("UPDATE mail_outbox SET state=?,next_at=?,locked_until=0,error=? WHERE id=?",row.attempts>=5?'failed':'pending',now()+Math.min(3600000,15000*2**(row.attempts-1)),String(e.message||'Không gửi được email').slice(0,400),row.id);failed++;
@@ -127,7 +128,7 @@ export function registerNotifications(api:Router){
   if(old?.verification_sent_at>now()-60000)throw new HttpError(429,'Đợi một phút trước khi yêu cầu mã mới');
   const code=String(randomInt(100000,1000000)),hash=createHash('sha256').update(user.id+':'+code).digest('hex');
   await run('INSERT INTO notification_preferences(user_id,enabled,updated_at,pending_email,verification_hash,verification_expires,verification_attempts,verification_sent_at) VALUES(?,0,?,?,?,?,0,?) ON CONFLICT(user_id) DO UPDATE SET pending_email=excluded.pending_email,verification_hash=excluded.verification_hash,verification_expires=excluded.verification_expires,verification_attempts=0,verification_sent_at=excluded.verification_sent_at',user.id,now(),email,hash,now()+600000,now());
-  try{await G.sendNotificationMail(email,'DM Workspace · Xác minh email cá nhân',`Mã xác minh email của bạn: ${code}\n\nMã có hiệu lực 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.`);}catch(e){await run('UPDATE notification_preferences SET verification_hash=NULL WHERE user_id=?',user.id);throw e;}
+  try{await G.sendNotificationMail(email,'DMI Workspace · Xác minh email cá nhân',`Mã xác minh email của bạn: ${code}\n\nMã có hiệu lực 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.`);}catch(e){await run('UPDATE notification_preferences SET verification_hash=NULL WHERE user_id=?',user.id);throw e;}
   json(res,200,{sent:true});
  });
  api.post('/api/notifications/email/verify',async(req,res)=>{
@@ -148,7 +149,7 @@ export function registerNotifications(api:Router){
   if(!pref?.email)throw new HttpError(400,'Hãy xác minh email cá nhân và bật nhận thư trước');
   if(await get('SELECT 1 FROM mail_outbox WHERE user_id=? AND created_at>? AND json_extract(payload,\'$.test\')=1',user.id,now()-60000))throw new HttpError(429,'Đợi một phút trước khi gửi thử lại');
   const id=uid('mail_');await run('INSERT INTO mail_outbox(id,user_id,payload,created_at) VALUES(?,?,?,?)',id,user.id,JSON.stringify({title:'Kiểm tra kết nối email',test:1}),now());
-  try{await G.sendNotificationMail(pref.email,'DM Workspace · Kiểm tra kết nối','Email cá nhân của bạn đã được liên kết với DM Workspace.');await run("UPDATE mail_outbox SET state='sent',sent_at=?,attempts=1 WHERE id=?",now(),id);json(res,200,{sent:true});}
+  try{await G.sendNotificationMail(pref.email,'DMI Workspace · Kiểm tra kết nối','Email cá nhân của bạn đã được liên kết với DMI Workspace.');await run("UPDATE mail_outbox SET state='sent',sent_at=?,attempts=1 WHERE id=?",now(),id);json(res,200,{sent:true});}
   catch(e:any){await run("UPDATE mail_outbox SET state='failed',attempts=1,error=? WHERE id=?",e.message,id);throw e;}
  });
  // Asked every few seconds by each open page: only when something new came is the whole inbox read again.

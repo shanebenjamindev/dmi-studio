@@ -10,8 +10,8 @@ import type { EditorLink } from '../types';
 const STATUS: Record<EditorLink['status'], [string, string]> = {
   ready: ['ok', 'Máy Mac đang bật, Trình dựng mở được'],
   'no-editor': ['warn', 'Máy Mac trả lời nhưng Trình dựng chưa sẵn sàng (thiếu Claude CLI hoặc ffmpeg)'],
-  blocked: ['warn', 'Máy Mac từ chối địa chỉ này: thêm tên miền vào ALLOWED_HOSTS trong .env của máy Mac rồi chạy lại DM Workspace'],
-  offline: ['err', 'Không kết nối được: máy Mac đang tắt, DM Workspace chưa chạy, hoặc địa chỉ đã đổi'],
+  blocked: ['warn', 'Máy Mac từ chối địa chỉ này: thêm tên miền vào ALLOWED_HOSTS trong .env của máy Mac rồi chạy lại DMI Workspace'],
+  offline: ['err', 'Không kết nối được: máy Mac đang tắt, DMI Workspace chưa chạy, hoặc địa chỉ đã đổi'],
   none: ['', ''],
 };
 

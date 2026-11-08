@@ -32,7 +32,7 @@ const jobs = new Map<string, Job>();
 
 const uuid = () => crypto.randomUUID().toUpperCase();
 const clone = <T>(o: T): T => JSON.parse(JSON.stringify(o));
-const safe = (s: string) => s.replace(/[\/\\:*?"<>|\n\r]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'DM Workspace';
+const safe = (s: string) => s.replace(/[\/\\:*?"<>|\n\r]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'DMI Workspace';
 /** Project folder name: the sheet title without the form's generic prefix, e.g. "DYNAMIC M DETAIL CERAMIC COATING". */
 const draftName = (title: string) => safe(title.replace(/\[ADS\]\s*/i, '').replace(/FORM YÊU CẦU DỰNG VIDEO\s*\|?/i, ''));
 const CANVAS = FRAME;
@@ -262,7 +262,7 @@ export function registerCapcut(api: Router) {
   api.post('/api/projects/:id/capcut', async (req, res) => {
     if (!FFMPEG) throw new HttpError(400, 'Máy chủ chưa có ffmpeg');
     const to = (await readJson(req)).to === 'capcut' ? 'capcut' : 'zip';
-    if (to === 'capcut' && !draftsDir()) throw new HttpError(400, 'Không thấy CapCut trên máy chạy DM Workspace. Hãy tải file .zip.');
+    if (to === 'capcut' && !draftsDir()) throw new HttpError(400, 'Không thấy CapCut trên máy chạy DMI Workspace. Hãy tải file .zip.');
     const p = await get<any>('SELECT * FROM projects WHERE id = ?', req.params.id);
     if (!p) throw new HttpError(404, 'Không tìm thấy dự án');
     // Old exports go after a day.
@@ -272,7 +272,7 @@ export function registerCapcut(api: Router) {
     build(job, p).catch((e) => { Object.assign(job, { phase: 'error', error: String(e?.message || e).slice(0, 400) }); fs.rmSync(path.join(DIR, job.id), { recursive: true, force: true }); });
     json(res, 202, { job: job.id });
   });
-  // Is CapCut installed on the machine running DM Workspace (then projects can go straight into it)? Before /:job.
+  // Is CapCut installed on the machine running DMI Workspace (then projects can go straight into it)? Before /:job.
   api.get('/api/capcut/local', async (_req, res) => json(res, 200, { drafts: draftsDir() }));
   api.post('/api/capcut/open', async (_req, res) => {
     if (process.platform !== 'darwin' || !draftsDir()) throw new HttpError(400, 'Không thấy CapCut trên máy này');

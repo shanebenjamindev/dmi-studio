@@ -1,12 +1,12 @@
 import {beginLoading} from './loading';
 import type { AdsService, AdsSummary } from '../../shared/ads-summary';
-// Typed client for the DM Workspace REST API.
-import type { NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Outro, OutroOpts, Status, Project, ProjectItem, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, DriveFile, Source, Picked, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page, EditorLink } from './types';
+// Typed client for the DMI Workspace REST API.
+import type { QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Outro, OutroOpts, Status, Project, ProjectItem, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, DriveFile, Source, Picked, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page, EditorLink } from './types';
 
 /** Called when the session has ended (401) so the app can show the sign-in page. */
 export const auth = { onSignedOut: () => {} };
 
-async function req<T>(method: string, url: string, body?: any, headers: Record<string, string> = {}): Promise<T> {
+export async function req<T>(method: string, url: string, body?: any, headers: Record<string, string> = {}): Promise<T> {
   const finishLoading=beginLoading();
   try {
   const isBlob = body instanceof Blob;
@@ -30,6 +30,8 @@ async function req<T>(method: string, url: string, body?: any, headers: Record<s
   if (res.status === 401 && !url.startsWith('/api/auth/')) auth.onSignedOut();
   if (!res.ok) throw new Error(data.error || `Lỗi ${res.status}`);
   if(method!=='GET'&&/^\/api\/(tasks|cards)(\/|$)/.test(url))window.dispatchEvent(new Event('dms:notifications-changed'));
+  if(method!=='GET'&&/^\/api\/admin\/customer-statuses(?:\/|$)/.test(url))window.dispatchEvent(new Event('dms:customer-statuses'));
+  if(method!=='GET'&&/^\/api\/(cards|lists|boards|tasks|task-projects|customers)(\/|$)/.test(url))window.dispatchEvent(new Event('dms:entities-changed'));
   return data as T;
   } finally {finishLoading();}
 }
@@ -39,6 +41,8 @@ export type ProjectRole = 'admin' | 'normal' | 'observer' | 'viewer';
 
 const atQ = (at: Loc | null, sep: string) => (at ? `${sep}at=${encodeURIComponent(JSON.stringify(at))}` : '');
 
+/** A tag put on a customer: one of the list, or a new name that joins it. */
+type TagChoice = { id: string } | { name: string };
 export const api = {
   me: () => req<AuthInfo>('GET', '/api/auth/me'),
   access: () => req<Record<Role, Page[]>>('GET', '/api/access'),
@@ -59,11 +63,16 @@ export const api = {
   testNotification:()=>req('POST','/api/notifications/test',{}),
   disconnectNotificationMail:()=>req('DELETE','/api/notifications/mail'),
   profile: (id:string) => req<UserProfile>('GET', `/api/profiles/${encodeURIComponent(id)}`),
-  updateProfile: (name: string) => req<User>('PUT', '/api/auth/profile', { name }),
+  updateProfile: (name: string, phone?: string) => req<User>('PUT', '/api/auth/profile', { name, ...(phone !== undefined ? { phone } : {}) }),
+  setMyAvatar: (dataUrl: string) => req<User>('PUT', '/api/auth/avatar', { dataUrl }),
+  removeMyAvatar: () => req<User>('DELETE', '/api/auth/avatar'),
+  setStaffAvatar: (id: string, dataUrl: string) => req<{ avatarAt: number }>('PUT', `/api/admin/staff/${id}/avatar`, { dataUrl }),
+  removeStaffAvatar: (id: string) => req<{ ok: boolean }>('DELETE', `/api/admin/staff/${id}/avatar`),
+  avatars: () => req<Record<string, number>>('GET', '/api/avatars'),
   savePrefs: (p: Record<string, string | null>) => req('PUT', '/api/auth/prefs', p),
   users: () => req<User[]>('GET', '/api/users'),
   createUser: (u: { name: string; email: string; password?: string; role: string; teamRole?: string | null; deptRole?: string | null; notifyEmail?: string | null }) => req<User>('POST', '/api/users', u),
-  updateUser: (id: string, u: Partial<{ name: string; email: string; role: string; disabled: boolean; password: string; teamRole: string | null; deptRole: string | null; notifyEmail: string | null }>) => req<User>('PUT', `/api/users/${id}`, u),
+  updateUser: (id: string, u: Partial<{ name: string; email: string; phone: string; role: string; disabled: boolean; password: string; teamRole: string | null; deptRole: string | null; notifyEmail: string | null }>) => req<User>('PUT', `/api/users/${id}`, u),
   roles: () => req<TeamRole[]>('GET', '/api/roles'),
   createRole: (r: { name: string; color?: string; pages?: Page[] }) => req<TeamRole>('POST', '/api/roles', r),
   updateRole: (id: string, r: Partial<{ name: string; color: string; pages: Page[] }>) => req<TeamRole>('PUT', `/api/roles/${id}`, r),
@@ -74,13 +83,14 @@ export const api = {
   boards: () => req<BoardItem[]>('GET', '/api/boards'),
   board: (id: string) => req<Board>('GET', `/api/boards/${id}`),
   createBoard: (b: { name: string; bg: string; roleId: string | null; workspaceId?: string; private?: boolean; lists?: string[] }) => req<BoardItem>('POST', '/api/boards', b),
-  updateBoard: (id: string, b: Partial<{ name: string; bg: string; roleId: string | null; private: boolean; workspaceId: string; about: string }>) => req('PUT', `/api/boards/${id}`, b),
+  updateBoard: (id: string, b: Partial<{ name: string; bg: string; roleId: string | null; private: boolean; workspaceId: string; about: string; memberEdit: boolean; labelText: boolean }>) => req('PUT', `/api/boards/${id}`, b),
   boardMembers: (id: string) => req<{ members: BoardMember[]; people: Person[] }>('GET', `/api/boards/${id}/members`),
   setBoardMember: (id: string, userId: string, level: Level) => req<{ members: BoardMember[] }>('PUT', `/api/boards/${id}/members/${userId}`, { level }),
   removeBoardMember: (id: string, userId: string) => req<{ members: BoardMember[] }>('DELETE', `/api/boards/${id}/members/${userId}`),
   workspaces: () => req<Workspace[]>('GET', '/api/workspaces'),
   createWorkspace: (w: { name: string; about?: string; visibility?: 'private' | 'company' }) => req<Workspace>('POST', '/api/workspaces', w),
   updateWorkspace: (id: string, w: Partial<{ name: string; about: string; visibility: 'private' | 'company' }>) => req('PUT', `/api/workspaces/${id}`, w),
+  setWorkspaceAvatar: (id: string, dataUrl: string | null) => req('PUT', `/api/workspaces/${id}/avatar`, { dataUrl }),
   deleteWorkspace: (id: string) => req('DELETE', `/api/workspaces/${id}`),
   workspaceMembers: (id: string) => req<{ members: WorkspaceMember[]; people: Person[] }>('GET', `/api/workspaces/${id}/members`),
   setWorkspaceMember: (id: string, userId: string, level: Level) => req<{ members: WorkspaceMember[] }>('PUT', `/api/workspaces/${id}/members/${userId}`, { level }),
@@ -93,18 +103,19 @@ export const api = {
   deleteLabel: (id: string) => req('DELETE', `/api/labels/${id}`),
   deleteBoard: (id: string) => req('DELETE', `/api/boards/${id}`),
   starBoard: (id: string, on: boolean) => req('PUT', `/api/boards/${id}/star`, { on }),
-  boardBackground: (id: string, bg: string | null) => req('PUT', `/api/boards/${id}/background`, { bg }),
+  boardBackground: (id: string, bg: string) => req('PUT', `/api/boards/${id}/background`, { bg }),
   createList: (boardId: string, name: string) => req<BoardList>('POST', `/api/boards/${boardId}/lists`, { name }),
-  updateList: (id: string, l: Partial<{ name: string; index: number; archived: boolean }>) => req('PUT', `/api/lists/${id}`, l),
+  updateList: (id: string, l: Partial<{ name: string; index: number; archived: boolean; folded: boolean }>) => req('PUT', `/api/lists/${id}`, l),
   sortList: (id: string, by: 'newest' | 'oldest' | 'name' | 'due') => req('POST', `/api/lists/${id}/sort`, { by }),
   moveListCards: (id: string, to: string) => req('POST', `/api/lists/${id}/move-cards`, { to }),
   archiveListCards: (id: string) => req<{ archived: string[]; kept: number }>('POST', `/api/lists/${id}/archive-cards`),
   copyList: (id: string, name: string) => req('POST', `/api/lists/${id}/copy`, { name }),
   deleteList: (id: string) => req('DELETE', `/api/lists/${id}`),
-  createCard: (listId: string, title: string, top = false) => req<BoardCard>('POST', `/api/lists/${listId}/cards`, { title, top }),
+  createCard: (listId: string, title: string, top = false, syncTask = true, kind: 'customer' | 'project' | 'task' = 'task', projectCardId: string | null = null, customerCardId: string | null = null, customerId: string | null = null) => req<BoardCard>('POST', `/api/lists/${listId}/cards`, { title, top, syncTask, kind, projectCardId, customerCardId, customerId }),
   card: (id: string) => req<CardDetail>('GET', `/api/cards/${id}`),
-  updateCard: (id: string, c: Partial<{ title: string; description: string; startAt: number | null; dueAt: number | null; done: boolean; cover: string | null; archived: boolean; customerId: string | null; listId: string; index: number }>) => req<CardDetail>('PUT', `/api/cards/${id}`, c),
+  updateCard: (id: string, c: Partial<{ title: string; description: string; result: string; startAt: number | null; dueAt: number | null; done: boolean; cover: string | null; archived: boolean; customerId: string | null; projectId: string | null; linkTask: boolean; listId: string; index: number }>) => req<CardDetail>('PUT', `/api/cards/${id}`, c),
   deleteCard: (id: string) => req('DELETE', `/api/cards/${id}`),
+  bulkDeleteCards: (ids: string[]) => req<{ ok: true; deleted: number }>('POST', '/api/cards/bulk-delete', { ids }),
   copyCard: (id: string, title: string) => req<{ id: string }>('POST', `/api/cards/${id}/copy`, { title }),
   cardLabel: (id: string, labelId: string, on: boolean) => req('PUT', `/api/cards/${id}/labels`, { labelId, on }),
   cardMember: (id: string, userId: string, on: boolean) => req('PUT', `/api/cards/${id}/members`, { userId, on }),
@@ -119,9 +130,9 @@ export const api = {
   deleteComment: (id: string) => req('DELETE', `/api/comments/${id}`),
   addAttachment: (cardId: string, url: string, name: string) => req('POST', `/api/cards/${cardId}/attachments`, { url, name }),
   deleteAttachment: (id: string) => req('DELETE', `/api/attachments/${id}`),
-  addCardVideos: (cardId: string, keys: string[]) => req<{ added: number }>('POST', `/api/cards/${cardId}/videos`, { keys }),
+  addCardFiles: (cardId: string, keys: string[]) => req<{ added: number }>('POST', `/api/cards/${cardId}/files`, { keys }),
   boardCustomers: () => req<{ id: string; name: string }[]>('GET', '/api/boards-customers'),
-  customerTasks: () => req<CustomerTask[]>('GET', '/api/customer-tasks'),
+  customerTasks: (customerId?: string) => req<CustomerTask[]>('GET', '/api/customer-tasks' + (customerId ? `?customer=${encodeURIComponent(customerId)}` : '')),
   inbox: () => req<InboxItem[]>('GET', '/api/inbox'),
   addInbox: (title: string, top = false) => req<InboxItem>('POST', '/api/inbox', { title, top }),
   updateInbox: (id: string, c: Partial<{ title: string; done: boolean; index: number }>) => req<InboxItem>('PUT', `/api/inbox/${id}`, c),
@@ -129,7 +140,7 @@ export const api = {
   inboxToList: (id: string, listId: string, index: number) => req<BoardCard>('POST', `/api/inbox/${id}/to-list`, { listId, index }),
   planner: (from: number, to: number) => req<PlannerCard[]>('GET', `/api/planner?from=${from}&to=${to}`),
   syncTasksToBoard:()=>req<{total:number;created:number;linked:number;remaining:number}>('POST','/api/tasks/sync-board',{}),
-  tasks: (q: { scope?: 'mine' | 'all'; person?: string; employee?:string; project?: string; campaign?:string; state?: string; q?: string }) =>
+  tasks: (q: { scope?: 'mine' | 'team' | 'all'; rel?: string; team?: string; person?: string; employee?:string; project?: string; campaign?:string; state?: string; q?: string }) =>
     req<{ tasks: TaskItem[]; linked: boolean }>('GET', `/api/tasks?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}`),
   projectMembers:(id:string)=>req<{ownerId:string;teamId:string|null;level:'admin'|'normal'|'observer';members:{id:string;name:string;level:ProjectRole}[];people:{id:string;name:string;teamId:string|null}[];teams:{id:string;name:string}[]}>('GET',`/api/task-projects/${id}/members`),
   setProjectTeam:(id:string,teamId:string|null)=>req('PUT',`/api/task-projects/${id}/team`,{teamId}),
@@ -139,15 +150,21 @@ export const api = {
   createCampaign: (project:string,name:string)=>req<TaskCampaign>('POST',`/api/task-projects/${project}/campaigns`,{name}),
   renameCampaign:(project:string,id:string,name:string)=>req('PUT',`/api/task-projects/${project}/campaigns/${id}`,{name}),
   deleteCampaign:(project:string,id:string)=>req('DELETE',`/api/task-projects/${project}/campaigns/${id}`),
+  renameTaskProject:(id:string,name:string)=>req<{ok:true;id:string;name:string}>('PUT',`/api/task-projects/${id}`,{name}),
+  updateTaskProject:(id:string,b:{name?:string;customerId?:string|null;teamId?:string|null})=>req<{ok:true;id:string;name:string;customerId:string|null;teamId:string|null}>('PUT',`/api/task-projects/${id}`,b),
+  createTaskProject:(b:{name:string;customerId?:string|null;teamId?:string|null})=>req<{id:string;name:string;customerId:string|null;teamId:string|null}>('POST','/api/task-projects',b),
+  deleteTaskProject:(id:string)=>req<{ok:true}>('DELETE',`/api/task-projects/${id}`),
+  bulkDeleteTaskProjects:(ids:string[])=>req<{ok:true;deleted:number}>('POST','/api/task-projects/bulk-delete',{ids}),
   taskMeta: () => req<TaskMeta>('GET', '/api/tasks/meta'),
   task: (id: string) => req<TaskDetail>('GET', `/api/tasks/${id}`),
   createTask: (body: TaskWrite) => req<{ id: string }>('POST', '/api/tasks', body),
   updateTask: (id: string, body: TaskWrite) => req('PUT', `/api/tasks/${id}`, body),
   deleteTask: (id: string) => req('DELETE', `/api/tasks/${id}`),
+  bulkDeleteTasks: (ids: string[]) => req<{ ok: true; deleted: number }>('POST', '/api/tasks/bulk-delete', { ids }),
   linkTaskCard: (id: string, body: { listId?: string; cardId?: string }) => req<{ cardId: string; boardId: string }>('POST', `/api/tasks/${id}/card`, body),
   unlinkTaskCard: (id: string) => req('DELETE', `/api/tasks/${id}/card`),
   setTaskStatus: (id: string, status: string) => req('PUT', `/api/tasks/${id}`, { status }),
-  importTasks: (text: string, sourceName = '') => req<TaskImportResult>('POST', '/api/tasks/import', { text, sourceName }),
+  importTasks: (text: string, sourceName = '', people: Record<string, string | null> = {}) => req<TaskImportResult>('POST', '/api/tasks/import', { text, sourceName, people }),
   taskImportSheet: (id: string, page = 0) => req<TaskImportSheet>('GET', `/api/tasks/imports/${id}/sheet?page=${page}`),
   addTaskPersonName: (name: string) => req<{id:string;userId:null}>('POST', '/api/task-people', {name}),
   addTaskPerson: (userId: string) => req<{id:string;userId:string}>('POST', '/api/task-people', {userId}),
@@ -226,6 +243,7 @@ export const api = {
   saveReport: (id: string, b: { title?: string; data?: ReportData }) => req<Report>('PUT', `/api/reports/${id}`, b),
   deleteReport: (id: string) => req('DELETE', `/api/reports/${id}`),
   reportVideoLibrary:(id:string,q:string,folder='')=>req<{videos:ReportVideo[];warnings:string[]}>('GET',`/api/reports/${id}/video-library?${new URLSearchParams({q,folder})}`),
+  reportDriveBrowse:(id:string,at:{account?:string;id?:string;folder?:string;places?:boolean})=>req<ReportDriveFolder>('GET',`/api/reports/${id}/drive-browse?${new URLSearchParams(Object.entries(at).filter(([,v])=>v).map(([k,v])=>[k,v===true?'1':String(v)]))}`),
   linkReportVideos:(id:string,videos:{id:string;account:string}[],targetIndex?:number|null)=>req<Report & {added:number}>('POST',`/api/reports/${id}/link-videos`,{videos,...(targetIndex!==undefined&&targetIndex!==null?{targetIndex}:{})}),
   reportVideos: (id: string, link: string) => req<Report & { videos: number }>('POST', `/api/reports/${id}/videos`, { link }),
   autofillReport: (id: string) => req<Report>('POST', `/api/reports/${id}/autofill`, {}),
@@ -238,15 +256,39 @@ export const api = {
   customerMembers:(id:string)=>req<CustomerMembersData>('GET',`/api/customers/${id}/members`),
   setCustomerMember:(id:string,userId:string,level:Level)=>req('PUT',`/api/customers/${id}/members/${userId}`,{level}),
   removeCustomerMember:(id:string,userId:string)=>req('DELETE',`/api/customers/${id}/members/${userId}`),
+  customerStatuses: () => req<import('./types').CustomerStatusOption[]>('GET', '/api/customers/statuses'),
+  customerClassifications: () => req<{id:string;name:string;color:string;active:number}[]>('GET', '/api/customers/classifications'),
+  customerSources: () => req<{id:string;name:string;color:string;active:number}[]>('GET', '/api/customers/sources'),
+  addCustomerSource: (name: string) => req<{id:string;name:string;color:string;active:number}>('POST', '/api/customers/sources', { name }),
+  customerManagers: () => req<{id:string;name:string;email:string;teamId:string|null}[]>('GET', '/api/customers/managers'),
   customerRecord: (id: string) => req<CustomerRecord>('GET', `/api/customers/${id}/record`),
-  saveCustomerRecord: (id: string, data: Omit<CustomerRecord,'id'>) => req<CustomerRecord>('PUT', `/api/customers/${id}/record`,data),
+  saveCustomerRecord: (id: string, data: Partial<Omit<CustomerRecord,'id'|'needs'|'status'|'tags'>> & { needs?: string[]; tags?: TagChoice[]; categoryId?: string | null; sourceId?: string | null; managerId?: string | null; status?: string | null }) => req<CustomerRecord>('PUT', `/api/customers/${id}/record`,data),
+  /** Links a customer to the Drive folder of a pasted link (a connected Google account must be able to open it). */
+  linkCustomerDrive: (id: string, link: string) => req<Customer>('PUT', `/api/customers/${id}/folder`, { link }),
+  /** Unlinks the customer's folder; the folder and its files stay on Drive. */
+  unlinkCustomerDrive: (id: string) => req<CustomerRecord>('DELETE', `/api/customers/${id}/folder`),
+  serviceCatalog: () => req<ServiceRef[]>('GET', '/api/services'),
+  /** Everything this account may open that matches (5 of each kind, or up to 50 of one `type`). */
+  search: (q: string, type = '') => req<Record<string, { items: any[]; total: number }>>('GET', `/api/search?${new URLSearchParams({ q, ...(type ? { type } : {}) })}`),
+  quickNotes: (q = '') => req<QuickNote[]>('GET', `/api/quick-notes${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  quickNote: (id: string) => req<QuickNote>('GET', `/api/quick-notes/${id}`),
+  createQuickNote: (b: Partial<Pick<QuickNote, 'color' | 'x' | 'y' | 'w' | 'h'>>) => req<QuickNote>('POST', '/api/quick-notes', b),
+  saveQuickNote: (id: string, b: Partial<Pick<QuickNote, 'body' | 'color' | 'open' | 'x' | 'y' | 'w' | 'h'>>) => req<QuickNote>('PUT', `/api/quick-notes/${id}`, b),
+  removeQuickNote: (id: string) => req('DELETE', `/api/quick-notes/${id}`),
+  orderQuickNotes: (ids: string[]) => req('PUT', '/api/quick-notes/order', { ids }),
+  removeQuickNotes: (ids: string[]) => req<{ deleted: number }>('POST', '/api/quick-notes/delete', { ids }),
+  customerTaskList: (id: string) => req<CustomerTaskRow[]>('GET', `/api/customers/${id}/tasks`),
+  customerHistory: (id: string) => req<RecordChange[]>('GET', `/api/customers/${id}/history`),
+  /** Adds a service to the catalogue by name (needs the services.create permission of Quản trị). */
+  createService: (name: string) => req<ServiceRef>('POST', '/api/admin/services', { name }),
   customerDirectory: () => req<CustomerRecord[]>('GET', '/api/customers/directory'),
   customerProjects: (id: string) => req<{ id: string; name: string; tasks: number }[]>('GET', `/api/customers/${id}/projects`),
   createCustomerProject: (id: string, b: { name?: string; projectId?: string }) => req<{id: string; name: string}>('POST', `/api/customers/${id}/projects`, b),
   updateCustomerProject: (id: string, campaign: string, b: { name?: string; unlink?: boolean }) => req('PUT', `/api/customers/${id}/projects/${campaign}`, b),
-  createCustomer: (c: Partial<Customer> & { existingFolder?: Loc; databaseOnly?: boolean; contact?: string; email?: string; phone?: string }, at: Loc | null = null) => req<Customer>('POST', `/api/customers${atQ(at, '?')}`, c),
+  createCustomer: (c: Partial<Customer> & { existingFolder?: Loc; databaseOnly?: boolean; status?: string | null; tags?: TagChoice[]; categoryId?: string | null; sourceId?: string | null; managerId?: string | null; needs?: string[]; contact?: string; email?: string; phone?: string }, at: Loc | null = null) => req<Customer>('POST', `/api/customers${atQ(at, '?')}`, c),
   updateCustomer: (id: string, c: Partial<Customer>) => req<Customer>('PUT', `/api/customers/${id}`, c),
   deleteCustomer: (id: string) => req('DELETE', `/api/customers/${id}`),
+  bulkDeleteCustomers: (ids: string[]) => req<{ ok: true; deleted: number }>('POST', '/api/customers/bulk-delete', { ids }),
   revealCustomer: (id: string) => req('POST', `/api/customers/${id}/reveal`),
   createVideoFolder: (id: string, name: string) => req<{ key: string; name: string }>('POST', `/api/customers/${id}/folders`, { name }),
   renameVideoFolder: (id: string, key: string, name: string) => req<{ key: string; name: string }>('PUT', `/api/customers/${id}/folders/${encodeURIComponent(key)}`, { name }),
@@ -270,6 +312,7 @@ export const api = {
     }
     await xhrSend('POST', `/api/customers/${id}/videos?${new URLSearchParams({ name: file.name, folder })}`, file, onProgress);
   },
+  sendSupport: (message: string) => req<{ ok: true; id: string }>('POST', '/api/support', { message }),
 };
 
 /** XHR instead of fetch so the page can show upload progress. Rejects with `network: true` when the request never got an answer. */

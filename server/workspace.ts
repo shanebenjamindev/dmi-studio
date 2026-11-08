@@ -20,6 +20,11 @@ import { currentUser, finishGoogleSignin, deptLevel, type User } from './auth';
 
 import { readCustomerImport } from '../shared/customer-import';
 import { normName } from './taskimport';
+import { driveId, locate } from './sources';
+import {customerStatuses,customerStatus} from './customer-statuses';
+import { renameProjectBoard, projectHome, projectCustomerChanged } from './taskworkspace';
+import { syncProjectCards } from './work-sync';
+import { customerBoardId, syncBoardPeople } from './board-people';
 
 const pexec = promisify(execFile);
 /** Company admins and department admins create, rename and delete customers, folders and files. */
@@ -130,7 +135,76 @@ async function mustLoc(raw: any): Promise<Loc> {
 }
 
 // ---------------------------------------------------------------- customers
-const customerRecord = (c: any) => ({ id:c.id, name:c.name, contact:c.contact || '', phone:c.phone || '', email:c.email || '', notes:c.notes || '',createdBy:c.created_by||null });
+/** A customer's details; `drive`: the folder it is linked to (null: in the database only). Its code (from an import) is kept, not shown. */
+const customerRecord = (c: any) => {
+  const g = c.gloc ? JSON.parse(c.gloc) : null;
+  return { id:c.id, name:c.name, contact:c.contact || '', phone:c.phone || '', email:c.email || '', notes:c.notes || '',createdBy:c.created_by||null,
+    drive: g ? { label: String(g.label || c.folder || ''), url: `https://drive.google.com/drive/folders/${g.id}` } : c.folder ? { label: path.basename(String(c.folder)), url: null } : null };
+};
+/** The services each customer wants (Nhu cầu), from the catalogue in Quản trị › Dịch vụ. */
+async function needsOf(ids?: string[]) {
+  const out = new Map<string, { id: string; name: string }[]>();
+  for (const r of await all<any>(`SELECT n.customer_id, s.id, s.name FROM customer_needs n JOIN services s ON s.id = n.service_id AND s.deleted_at IS NULL${ids ? ' WHERE n.customer_id IN (SELECT value FROM json_each(?))' : ''} ORDER BY s.name`, ...(ids ? [JSON.stringify(ids)] : [])))
+    out.set(r.customer_id, [...(out.get(r.customer_id) || []), { id: r.id, name: r.name }]);
+  return out;
+}
+/** Each customer's tags (Quản trị › Khách hàng › Phân loại is the list of tags), in the order of that list. */
+async function tagsOf(ids?: string[]) {
+  const out = new Map<string, { id: string; name: string; color: string }[]>();
+  for (const r of await all<any>(`SELECT t.customer_id, c.id, c.name, c.color FROM customer_tags t JOIN customer_categories c ON c.id = t.tag_id${ids ? ' WHERE t.customer_id IN (SELECT value FROM json_each(?))' : ''} ORDER BY c.pos, c.name`, ...(ids ? [JSON.stringify(ids)] : [])))
+    out.set(r.customer_id, [...(out.get(r.customer_id) || []), { id: r.id, name: r.name, color: r.color }]);
+  return out;
+}
+const TAG_COLORS = ['#0b7df2', '#16a34a', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#64748b'];
+/** Tags given as ids of the list or as new names (a name already in the list, any case, is that tag; a new one joins
+ *  the list). At most 20, names up to 40 characters. */
+async function tagIds(v: unknown) {
+  if (!Array.isArray(v) || v.length > 20) throw new HttpError(400, 'Tối đa 20 tag cho một khách hàng');
+  const ids: string[] = [];
+  for (const x of v) {
+    const id = x && typeof x === 'object' ? String((x as any).id || '') : '', name = x && typeof x === 'object' ? String((x as any).name || '').trim().replace(/\s+/g, ' ') : '';
+    if (id) { if (!(await get('SELECT 1 FROM customer_categories WHERE id = ?', id))) throw new HttpError(400, 'Không tìm thấy tag'); ids.push(id); continue; }
+    if (!name || name.length > 40) throw new HttpError(400, 'Tên tag cần từ 1 đến 40 ký tự');
+    let tag = await get<any>('SELECT id FROM customer_categories WHERE name = ? COLLATE NOCASE', name);
+    if (!tag) {
+      const pos = Number((await get<any>('SELECT MAX(pos) m FROM customer_categories'))?.m || 0) + 1;
+      tag = { id: uid('cus_') };
+      await run('INSERT INTO customer_categories(id,name,color,pos,active,created_at,updated_at) VALUES(?,?,?,?,1,?,?)', tag.id, name, TAG_COLORS[pos % TAG_COLORS.length], pos, now(), now());
+    }
+    ids.push(tag.id);
+  }
+  return [...new Set(ids)];
+}
+/** The tags a create or save asks for: `tags`, or the one category older pages send; null when neither is given. */
+const tagsIn = async (b: any, category: string | null) => (b.tags !== undefined ? tagIds(b.tags) : b.categoryId !== undefined ? (category ? [category] : []) : null);
+/** Puts these tags on the customer; its first one is also its category, for the views that group by one. */
+async function saveTags(customerId: string, ids: string[]) {
+  await run('DELETE FROM customer_tags WHERE customer_id = ? AND tag_id NOT IN (SELECT value FROM json_each(?))', customerId, JSON.stringify(ids));
+  for (const id of ids) await run('INSERT OR IGNORE INTO customer_tags(customer_id, tag_id, created_at) VALUES(?,?,?)', customerId, id, now());
+  await run('UPDATE customers SET category_id = ? WHERE id = ?', ids[0] || null, customerId);
+}
+/** Replaces what a customer wants with these services (they must be in the catalogue). */
+async function validateNeeds(v: unknown) {
+  if (!Array.isArray(v) || v.length > 100 || v.some((x) => typeof x !== 'string')) throw new HttpError(400, 'Danh sách nhu cầu không hợp lệ');
+  const ids = [...new Set(v as string[])];
+  for (const id of ids) if (!(await get('SELECT 1 FROM services WHERE id = ? AND deleted_at IS NULL', id))) throw new HttpError(400, 'Không tìm thấy dịch vụ trong danh mục');
+  return ids;
+}
+async function saveNeeds(customerId: string, v: unknown, by: string) {
+  const ids=await validateNeeds(v);
+  await run('DELETE FROM customer_needs WHERE customer_id = ? AND service_id NOT IN (SELECT value FROM json_each(?))', customerId, JSON.stringify(ids));
+  for (const id of ids) await run('INSERT OR IGNORE INTO customer_needs(customer_id, service_id, added_by, created_at) VALUES(?,?,?,?)', customerId, id, by, now());
+}
+async function customerClassification(b: any, old?: any) {
+  const status=await customerStatus(b.status,old?.status||null);
+  const category=b.categoryId===undefined?old?.category_id||null:b.categoryId||null;
+  if(category!==null&&(typeof category!=='string'||!await get('SELECT 1 FROM customer_categories WHERE id=? AND (active=1 OR id=?)',category,old?.category_id||null)))throw new HttpError(400,'Phân loại không hợp lệ');
+  const source=b.sourceId===undefined?old?.source_id||null:b.sourceId||null;
+  if(source!==null&&(typeof source!=='string'||!await get('SELECT 1 FROM customer_sources WHERE id=? AND (active=1 OR id=?)',source,old?.source_id||null)))throw new HttpError(400,'Nguồn khách hàng không hợp lệ');
+  const manager=b.managerId===undefined?old?.manager_id||null:b.managerId||null;
+  if(manager!==null&&(typeof manager!=='string'||!await get('SELECT 1 FROM users WHERE id=? AND (disabled=0 OR id=?)',manager,old?.manager_id||null)))throw new HttpError(400,'Người phụ trách không hợp lệ');
+  return {status,category,source,manager};
+}
 function customerFields(b: any, old?: any) {
   const field = (key: string, max: number) => { const value=String(b[key] ?? old?.[key] ?? '').trim(); if(value.length>max)throw new HttpError(400,`Trường ${key} tối đa ${max} ký tự`);return value; };
   const name=field('name',200), contact=field('contact',200), phone=field('phone',60), email=field('email',320), notes=field('notes',20000);
@@ -521,7 +595,7 @@ export function registerWorkspace(api: Router) {
     json(res, 200, { ok: true });
   });
   api.get('/api/google/login', async (req, res) => redirect(res, await G.authUrl(redirectUri(req))));
-  // Shared by both Google flows: connecting a Drive account, and signing in to DM Workspace.
+  // Shared by both Google flows: connecting a Drive account, and signing in to DMI Workspace.
   api.get('/api/google/callback', async (req, res) => {
     const err = req.query.get('error'), state = req.query.get('state') || '';
     const purpose=await G.purposeOf(state);
@@ -531,7 +605,7 @@ export function registerWorkspace(api: Router) {
       const a = await G.finishLogin(req.query.get('code') || '', state);
       if (a.purpose === 'signin') { await finishGoogleSignin(req, res, a.email); return redirect(res, '/'); }
       if(a.purpose==='mail')return redirect(res,`/#admin?mail=${encodeURIComponent(a.email)}`);
-      if (!await currentUser(req)) throw new Error('Hãy đăng nhập DM Workspace trước');
+      if (!await currentUser(req)) throw new Error('Hãy đăng nhập DMI Workspace trước');
       redirect(res, `/#admin?google=${encodeURIComponent(a.email)}`);
     } catch (e: any) {
       redirect(res, signin ? `/?auth_error=${encodeURIComponent(e.message)}` : purpose==='mail'?`/#admin?mail_error=${encodeURIComponent(e.message)}`:`/#admin?google_error=${encodeURIComponent(e.message)}`);
@@ -619,11 +693,17 @@ export function registerWorkspace(api: Router) {
   api.post('/api/customers', async (req, res) => {
     const b = await readJson(req);
     const creator=(await currentUser(req))!.id;
-    const fields=customerFields(b);
+    const fields=customerFields(b), classification=await customerClassification(b);
+    const managerId = b.managerId === undefined ? creator : classification.manager;
+    if(b.needs!==undefined)await validateNeeds(b.needs);
+    const tags = await tagsIn(b, classification.category);
     if (b.databaseOnly === true) {
       const id=uid('c_');
       await run('INSERT INTO customers(id,name,contact,phone,email,notes,links,folder,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',id,fields.name,fields.contact,fields.phone,fields.email,fields.notes,'[]','',now(),now());
-      await run('UPDATE customers SET created_by=? WHERE id=?',creator,id);
+      await run('UPDATE customers SET created_by=?,status=?,category_id=?,source_id=?,manager_id=? WHERE id=?',creator,classification.status,classification.category,classification.source,managerId,id);
+      if(managerId&&managerId!==creator)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',id,managerId,'admin',creator,now());
+      if(b.needs!==undefined)await saveNeeds(id,b.needs,creator);
+      if(tags)await saveTags(id,tags);
       json(res,201,await customerOut(await mustCustomer(id),true));return;
     }
     const name = safeName(fields.name);
@@ -634,7 +714,10 @@ export function registerWorkspace(api: Router) {
       const gloc = l.kind === 'gdrive' ? JSON.stringify({ account: l.account, id: l.id, label: l.label }) : null;
       await run('INSERT INTO customers(id,name,links,notes,folder,gloc,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)', id, name, '[]', String(b.notes || ''), l.kind === 'gdrive' ? name : l.dir, gloc, now(), now());
       await setHidden(folderKey(l), false);
-      await run('UPDATE customers SET created_by=? WHERE id=?',creator,id);
+      await run('UPDATE customers SET created_by=?,status=?,category_id=?,source_id=?,manager_id=? WHERE id=?',creator,classification.status,classification.category,classification.source,managerId,id);
+      if(managerId&&managerId!==creator)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',id,managerId,'admin',creator,now());
+    if(b.needs!==undefined)await saveNeeds(id,b.needs,creator);
+    if(tags)await saveTags(id,tags);
     json(res, 201, await customerOut(await mustCustomer(id), true)); return;
     }
     // Created inside the folder the admin is looking at.
@@ -655,19 +738,35 @@ export function registerWorkspace(api: Router) {
     const id = uid('c_');
     await run('INSERT INTO customers(id, name, links, notes, folder, gloc, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)',
       id, String(b.name).trim(), JSON.stringify(b.links ? cleanLinks(b.links) : []), b.notes || '', folder, gloc, now(), now());
-    await run('UPDATE customers SET created_by=? WHERE id=?',creator,id);
+    await run('UPDATE customers SET created_by=?,status=?,category_id=?,source_id=?,manager_id=? WHERE id=?',creator,classification.status,classification.category,classification.source,managerId,id);
+    if(managerId&&managerId!==creator)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',id,managerId,'admin',creator,now());
+    if(b.needs!==undefined)await saveNeeds(id,b.needs,creator);
+    if(tags)await saveTags(id,tags);
     json(res, 201, await customerOut(await mustCustomer(id), true));
   });
   // Picker is scoped to CLIENTS, independently of the folder currently being browsed.
-  api.get('/api/customers/all',async(req,res)=>{const user=(await currentUser(req))!;json(res,200,await all(`SELECT c.id,c.name,c.name label FROM customers c WHERE ${customerAccessSql()} ORDER BY c.name`,user.id,user.id,user.id));});
-  // CRM directory is independent of the folder currently being browsed.
+  api.get('/api/customers/all',async(req,res)=>{const user=(await currentUser(req))!;json(res,200,await all(`SELECT c.id,c.name,c.name label FROM customers c WHERE c.archived_at IS NULL AND ${customerAccessSql()} ORDER BY c.name`,user.id,user.id,user.id));});
+  // CRM directory is independent of the folder currently being browsed. Customers archived in Quản trị are left out.
   api.get('/api/customers/directory', async (req, res) => {
-    const user=(await currentUser(req))!,levels=await customerLevels(user.id),dept=await headedDepartment(user.id);
-    json(res,200,(await all<any>(`SELECT c.*, (SELECT team_role FROM users WHERE id=c.created_by) owner_team, (SELECT COUNT(*) FROM task_projects p WHERE p.customer_id=c.id) projects,
+    const user=(await currentUser(req))!,levels=await customerLevels(user.id),dept=await headedDepartment(user.id),needs=await needsOf(),tags=await tagsOf();
+    const adminMembers=new Map<string,{id:string;name:string}>();
+    for(const r of await all<any>("SELECT cm.customer_id,u.id,u.name FROM customer_members cm JOIN users u ON u.id=cm.user_id WHERE cm.role='admin' AND u.disabled=0 ORDER BY cm.created_at ASC")){
+      if(!adminMembers.has(r.customer_id))adminMembers.set(r.customer_id,{id:r.id,name:r.name});
+    }
+    json(res,200,(await all<any>(`SELECT c.*, (SELECT team_role FROM users WHERE id=COALESCE(c.created_by,c.manager_id)) owner_team, (SELECT COUNT(*) FROM task_projects p WHERE p.customer_id=c.id) projects,
+      cat.name category_name, cat.color category_color, src.name source_name, src.color source_color, ow.name owner_name, mg.name manager_name,
       (SELECT COUNT(*) FROM task_campaigns a JOIN task_projects p ON p.id=a.project_id WHERE p.customer_id=c.id) campaigns,
       (SELECT COUNT(*) FROM tasks t JOIN task_projects p ON p.id=t.project_id WHERE p.customer_id=c.id AND t.stub=0) tasks,
       (SELECT COUNT(*) FROM tasks t JOIN task_projects p ON p.id=t.project_id WHERE p.customer_id=c.id AND t.stub=0 AND t.done_at IS NOT NULL) completed
-      FROM customers c ORDER BY c.name COLLATE NOCASE`)).filter(c=>levels.has(c.id)).map(c=>({...customerRecord(c),level:levels.get(c.id),canManage:levels.get(c.id)==='admin',canDelete:c.created_by?c.created_by===user.id||!!dept&&c.owner_team===dept:levels.get(c.id)==='admin',projects:c.projects,campaigns:c.campaigns,tasks:c.tasks,completed:c.completed,hasDrive:!!c.gloc})));
+      FROM customers c LEFT JOIN customer_categories cat ON cat.id=c.category_id LEFT JOIN customer_sources src ON src.id=c.source_id LEFT JOIN users ow ON ow.id=c.created_by LEFT JOIN users mg ON mg.id=c.manager_id
+      WHERE c.archived_at IS NULL ORDER BY c.name COLLATE NOCASE`)).filter(c=>levels.has(c.id)).map(c=>{
+      const fallbackAdmin=adminMembers.get(c.id)||null;
+      const owner=c.created_by&&c.owner_name?{id:c.created_by,name:c.owner_name}:fallbackAdmin;
+      const manager=c.manager_id&&c.manager_name?{id:c.manager_id,name:c.manager_name}:owner;
+      return {...customerRecord(c),needs:needs.get(c.id)||[],tags:tags.get(c.id)||[],
+      status:c.status||null,category:c.category_id?{id:c.category_id,name:c.category_name||'',color:c.category_color||'#64748b'}:null,source:c.source_id?{id:c.source_id,name:c.source_name||'',color:c.source_color||'#64748b'}:null,
+      owner,manager,level:levels.get(c.id),canManage:levels.get(c.id)==='admin',canDelete:user.role==='admin'||(c.created_by?c.created_by===user.id||!!dept&&c.owner_team===dept:levels.get(c.id)==='admin'),projects:c.projects,campaigns:c.campaigns,tasks:c.tasks,completed:c.completed,hasDrive:!!c.gloc};
+    }));
   });
   api.post('/api/customers/import', async (req,res) => {
     if (!canManage(await currentUser(req))) throw new HttpError(403,'Chỉ quản trị viên được nhập khách hàng');
@@ -681,9 +780,9 @@ export function registerWorkspace(api: Router) {
       const key=normName(row.name); let id=existing.get(key);
       if(id)kept++;
       else {
-        id=uid('c_');const notes=[row.externalId && `Mã khách hàng: ${row.externalId}`,row.alias && `Tên khác / dự án: ${row.alias}`,row.notes].filter(Boolean).join('\n');
-        await run('INSERT INTO customers(id,name,email,phone,notes,links,folder,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',id,row.name,row.email,row.phone,notes,'[]','',now(),now());
-        await run('UPDATE customers SET created_by=? WHERE id=?',owner,id);
+        id=uid('c_');const notes=[row.alias && `Tên khác / dự án: ${row.alias}`,row.notes].filter(Boolean).join('\n');
+        await run('INSERT INTO customers(id,name,email,phone,notes,links,folder,code,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',id,row.name,row.email,row.phone,notes,'[]','',row.externalId||null,now(),now());
+        await run('UPDATE customers SET created_by=?,manager_id=COALESCE(manager_id,?) WHERE id=?',owner,owner,id);
         existing.set(key,id);created++;
       }
       if(b.linkProjects===true){
@@ -698,8 +797,9 @@ export function registerWorkspace(api: Router) {
   api.get('/api/customers/:id/members',async(req,res)=>{
     const user=(await currentUser(req))!,level=await requireCustomer(user.id,req.params.id);
     const customer=await mustCustomer(req.params.id);
-    const members=await all<any>(`SELECT u.id,u.name,u.email,CASE WHEN u.id=? THEN 'admin' ELSE m.role END level FROM users u LEFT JOIN customer_members m ON m.user_id=u.id AND m.customer_id=? WHERE u.disabled=0 AND (u.id=? OR m.user_id IS NOT NULL) ORDER BY u.name`,customer.created_by,customer.id,customer.created_by);
-    json(res,200,{ownerId:customer.created_by,level,members,people:level==='admin'?await all('SELECT id,name,email FROM users WHERE disabled=0 ORDER BY name'):[]});
+    const ownerId=customer.created_by||customer.manager_id||null;
+    const members=await all<any>(`SELECT u.id,u.name,u.email,CASE WHEN u.id=? OR u.id=? THEN 'admin' ELSE m.role END level FROM users u LEFT JOIN customer_members m ON m.user_id=u.id AND m.customer_id=? WHERE u.disabled=0 AND (u.id=? OR u.id=? OR m.user_id IS NOT NULL) ORDER BY u.name`,ownerId,customer.manager_id,customer.id,ownerId,customer.manager_id);
+    json(res,200,{ownerId,level,members,people:level==='admin'?await all('SELECT id,name,email FROM users WHERE disabled=0 ORDER BY name'):[]});
   });
   api.put('/api/customers/:id/members/:userId',async(req,res)=>{
     const user=(await currentUser(req))!;await requireCustomer(user.id,req.params.id,'admin');
@@ -738,6 +838,7 @@ export function registerWorkspace(api: Router) {
     const id = uid('tj_');
     await run('INSERT INTO task_projects(id,name,customer_id,created_at) VALUES(?,?,?,?)', id, name, req.params.id, now());
     const creator=(await currentUser(req))!;await run('UPDATE task_projects SET created_by=?,team_id=? WHERE id=?',creator.id,creator.team_role||null,id);
+    if(await getSetting('task_workspace_auto',true))await projectHome(id);
     json(res, 201, { id, name });
   });
   api.put('/api/customers/:id/projects/:project', async (req, res) => {
@@ -746,21 +847,62 @@ export function registerWorkspace(api: Router) {
     const p = await get<any>('SELECT * FROM task_projects WHERE id=? AND customer_id=?', req.params.project, req.params.id);
     if (!p) throw new HttpError(404, 'Không tìm thấy dự án của khách hàng');
     const b = await readJson(req);
-    if (b.unlink === true) await run('UPDATE task_projects SET customer_id=NULL WHERE id=?', p.id);
-    else {
+    if (b.unlink === true) {
+      await run('UPDATE task_projects SET customer_id=NULL WHERE id=?', p.id);
+      await projectCustomerChanged(p.id);
+    } else {
       const name = String(b.name || '').trim();
       if (!name || name.length > 200) throw new HttpError(400, 'Tên dự án cần từ 1 đến 200 ký tự');
       await run('UPDATE task_projects SET name=? WHERE id=?', name, p.id);
+      await renameProjectBoard(p.id, name);
     }
+    await syncProjectCards(p.id);
     json(res, 200, { ok: true });
   });
-  api.get('/api/customers/:id/record',async(req,res)=>json(res,200,customerRecord(await mustCustomer(req.params.id))));
-  api.put('/api/customers/:id/record',async(req,res)=>{
-    await requireCustomer((await currentUser(req))!.id,req.params.id,'admin');
-    const current=await mustCustomer(req.params.id), fields=customerFields(await readJson(req),current);
-    await run('UPDATE customers SET name=?,contact=?,phone=?,email=?,notes=?,updated_at=? WHERE id=?',fields.name,fields.contact,fields.phone,fields.email,fields.notes,now(),current.id);
-    json(res,200,customerRecord(await mustCustomer(current.id)));
+  api.get('/api/customers/statuses',async(_req,res)=>json(res,200,await customerStatuses()));
+  api.get('/api/customers/classifications',async(_req,res)=>json(res,200,await all('SELECT id,name,color,active FROM customer_categories ORDER BY pos,name')));
+  api.get('/api/customers/sources',async(_req,res)=>json(res,200,await all('SELECT id,name,color,active FROM customer_sources ORDER BY pos,name')));
+  // A source not in the list yet, added from the customer form by anyone who adds or edits customers (a view-only role
+  // can't); one with the same name, any case, is that one.
+  api.post('/api/customers/sources',async(req,res)=>{
+    const user=(await currentUser(req))!;
+    if(user.role!=='admin'&&deptLevel(user)==='observer')throw new HttpError(403,'Role của bạn chỉ được xem');
+    const name=String((await readJson(req)).name||'').trim().replace(/\s+/g,' ');
+    if(!name||name.length>60)throw new HttpError(400,'Tên nguồn cần từ 1 đến 60 ký tự');
+    const had=await get<any>('SELECT id,name,color,active FROM customer_sources WHERE name=? COLLATE NOCASE',name);
+    if(had){if(!had.active)await run('UPDATE customer_sources SET active=1,updated_at=? WHERE id=?',now(),had.id);return json(res,200,{...had,active:1});}
+    const pos=Number((await get<any>('SELECT MAX(pos) m FROM customer_sources'))?.m||0)+1,id=uid('cus_');
+    await run('INSERT INTO customer_sources(id,name,color,pos,active,created_at,updated_at) VALUES(?,?,?,?,1,?,?)',id,name,TAG_COLORS[pos%TAG_COLORS.length],pos,now(),now());
+    json(res,201,{id,name,color:TAG_COLORS[pos%TAG_COLORS.length],active:1});
   });
+  api.get('/api/customers/managers',async(_req,res)=>json(res,200,await all('SELECT id,name,email,team_role teamId FROM users WHERE disabled=0 ORDER BY name COLLATE NOCASE')));
+  const recordOut=async(c:any)=>{
+    const owner=c.created_by?await get<{id:string;name:string}>('SELECT id,name FROM users WHERE id=?',c.created_by):null;
+    const manager=(c.manager_id?await get<{id:string;name:string}>('SELECT id,name FROM users WHERE id=?',c.manager_id):null)||owner||(await get<{id:string;name:string}>("SELECT u.id,u.name FROM customer_members cm JOIN users u ON u.id=cm.user_id WHERE cm.customer_id=? AND cm.role='admin' AND u.disabled=0 ORDER BY cm.created_at ASC LIMIT 1",c.id))||null;
+    return {...customerRecord(c),status:c.status||null,
+      category:c.category_id?await get('SELECT id,name,color FROM customer_categories WHERE id=?',c.category_id):null,
+      source:c.source_id?await get('SELECT id,name,color FROM customer_sources WHERE id=?',c.source_id):null,
+      owner:owner||manager,manager,
+      needs:(await needsOf([c.id])).get(c.id)||[],tags:(await tagsOf([c.id])).get(c.id)||[]};
+  };
+  api.get('/api/customers/:id/record',async(req,res)=>json(res,200,await recordOut(await mustCustomer(req.params.id))));
+  api.put('/api/customers/:id/record',async(req,res)=>{
+    const user=(await currentUser(req))!;
+    await requireCustomer(user.id,req.params.id,'admin');
+    const current=await mustCustomer(req.params.id), body=await readJson(req), fields=customerFields(body,current),classification=await customerClassification(body,current);
+    if(body.needs!==undefined)await validateNeeds(body.needs);
+    const tags=await tagsIn(body,classification.category);
+    await run('UPDATE customers SET name=?,contact=?,phone=?,email=?,notes=?,status=?,category_id=?,source_id=?,manager_id=?,updated_by=?,updated_at=? WHERE id=?',fields.name,fields.contact,fields.phone,fields.email,fields.notes,classification.status,classification.category,classification.source,classification.manager,user.id,now(),current.id);
+    if(classification.manager&&classification.manager!==current.manager_id&&classification.manager!==current.created_by)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',current.id,classification.manager,'admin',user.id,now());
+    if(body.needs!==undefined)await saveNeeds(current.id,body.needs,user.id);
+    if(tags)await saveTags(current.id,tags);
+    // The customer's own board keeps its name (unless someone renamed it) and its manager.
+    await run('UPDATE boards SET name=? WHERE id=? AND name=?',fields.name,customerBoardId(current.id),current.name);
+    if(classification.manager!==current.manager_id)await syncBoardPeople(customerBoardId(current.id));
+    json(res,200,await recordOut(await mustCustomer(current.id)));
+  });
+  // The services catalogue (Quản trị › Dịch vụ), to say what a customer wants: names only, for everyone signed in.
+  api.get('/api/services',async(_req,res)=>json(res,200,(await all<any>("SELECT s.id,s.name,c.name category FROM services s LEFT JOIN service_categories c ON c.id=s.category_id WHERE s.deleted_at IS NULL AND s.status<>'inactive' ORDER BY c.pos,s.name")).map(s=>({id:s.id,name:s.name,category:s.category||null}))));
   api.get('/api/customers/:id', async (req, res) => json(res, 200, await customerOut(await mustCustomer(req.params.id), true, req.query.get('fresh') === '1')));
   api.put('/api/customers/:id', async (req, res) => {
     const c = await mustCustomer(req.params.id);
@@ -770,30 +912,71 @@ export function registerWorkspace(api: Router) {
     if (newName && newName !== c.name && await customerLevel((await currentUser(req))!.id,c.id)!=='admin') throw new HttpError(403, 'Chỉ quản trị viên mới đổi được tên thư mục');
     await run('UPDATE customers SET name=?, links=?, notes=?, folder=?, gloc=?, updated_at=? WHERE id=?',
       newName || c.name, b.links !== undefined ? JSON.stringify(cleanLinks(b.links)) : c.links, b.notes ?? c.notes, folder, gloc, now(), c.id);
+    if (newName) await run('UPDATE boards SET name=? WHERE id=? AND name=?', newName, customerBoardId(c.id), c.name);
     json(res, 200, await customerOut(await mustCustomer(c.id), true));
   });
-  // Link the customer to any existing folder (e.g. an old project folder on Drive).
+  // Link the customer to any existing folder (e.g. an old project folder on Drive): one picked, or a pasted Drive link
+  // that a connected Google account can open.
   api.put('/api/customers/:id/folder', async (req, res) => {
-    const c = await mustCustomer(req.params.id);
-    const l = await mustLoc((await readJson(req)).loc);
+    const c = await mustCustomer(req.params.id), b = await readJson(req);
+    let l: Loc;
+    if (b.link !== undefined) {
+      const id = driveId(String(b.link));
+      if (!id) throw new HttpError(400, 'Link Google Drive không hợp lệ. Hãy dán link thư mục (drive.google.com/drive/folders/…)');
+      const found = await locate(id);
+      if (found.file.mimeType !== G.FOLDER_MIME) throw new HttpError(400, 'Link này là một file, không phải thư mục. Hãy dán link thư mục của khách hàng');
+      l = await mustLoc({ kind: 'gdrive', account: found.account, id: found.file.id });
+    } else l = await mustLoc(b.loc);
+    const other = (await all<any>('SELECT id, name, folder, gloc FROM customers WHERE id <> ? AND (gloc IS NOT NULL OR folder <> \'\')', c.id)).find((x) => { try { return x.gloc ? `g:${JSON.parse(x.gloc).id}` === folderKey(l) : false; } catch { return false; } });
+    if (other) throw new HttpError(409, `Thư mục này đang liên kết với khách hàng “${other.name}”`);
     await setHidden(folderKey(l), false);
     if (l.kind === 'gdrive') await run('UPDATE customers SET folder=?, gloc=?, updated_at=? WHERE id=?', l.label?.split(' › ').pop() || c.folder, JSON.stringify({ account: l.account, id: l.id, label: l.label }), now(), c.id);
     else await run('UPDATE customers SET folder=?, gloc=NULL, updated_at=? WHERE id=?', l.dir, now(), c.id);
     knownIds.delete(c.id); invalidate(c.id);
     json(res, 200, await customerOut(await mustCustomer(c.id), true));
   });
-  // Hides the customer in DM Workspace only; the folder and its videos stay untouched.
+  // Unlinks the folder: the customer stays (database only) and the folder and its files stay on Drive. The folder is
+  // hidden so the next look at the root does not bring it back as a new customer; linking it again shows it.
+  api.delete('/api/customers/:id/folder', async (req, res) => {
+    const c = await mustCustomer(req.params.id);
+    if (!c.gloc && !c.folder) throw new HttpError(400, 'Khách hàng chưa liên kết thư mục nào');
+    await setHidden(folderKey(await custLoc(c)), true);
+    await run("UPDATE customers SET folder = '', gloc = NULL, updated_at = ? WHERE id = ?", now(), c.id);
+    knownIds.delete(c.id); invalidate(c.id);
+    json(res, 200, await recordOut(await mustCustomer(c.id)));
+  });
+  // Hides the customer in DMI Workspace only; the folder and its videos stay untouched.
+  const removeCustomerById = async (customer: any) => {
+    if (customer.folder || customer.gloc) await setHidden(folderKey(await custLoc(customer)), true).catch(() => {});
+    await run('UPDATE projects SET customer_id = NULL WHERE customer_id = ?', customer.id);
+    await run('UPDATE task_projects SET customer_id = NULL WHERE customer_id = ?', customer.id);
+    await run('UPDATE reports SET customer_id = NULL WHERE customer_id = ?', customer.id);
+    await run('UPDATE board_cards SET customer_id = NULL WHERE customer_id = ?', customer.id);
+    await run('UPDATE boards SET customer_id = NULL WHERE customer_id = ?', customer.id); // its boards become unclassified
+    await run('UPDATE card_attachments SET customer_id = NULL,file_key = NULL WHERE customer_id = ?', customer.id);
+    await run('DELETE FROM customer_tags WHERE customer_id = ?', customer.id);
+    await run('DELETE FROM customer_needs WHERE customer_id = ?', customer.id);
+    await run('DELETE FROM customer_members WHERE customer_id = ?', customer.id);
+    await run('DELETE FROM customers WHERE id = ?', customer.id);
+  };
   api.delete('/api/customers/:id', async (req, res) => {
     const customer = await mustCustomer(req.params.id);
-    if (!await canDeleteCustomer((await currentUser(req))!.id, customer)) throw new HttpError(403, 'Chỉ người tạo khách hàng hoặc trưởng phòng của họ được xoá khách hàng');
-    if (customer.folder || customer.gloc) await setHidden(folderKey(await custLoc(customer)), true);
-    await run('UPDATE projects SET customer_id = NULL WHERE customer_id = ?', req.params.id);
-    await run('UPDATE task_projects SET customer_id = NULL WHERE customer_id = ?', req.params.id);
-    await run('UPDATE reports SET customer_id = NULL WHERE customer_id = ?', req.params.id);
-    await run('UPDATE board_cards SET customer_id = NULL WHERE customer_id = ?', req.params.id);
-    await run('UPDATE card_attachments SET customer_id = NULL,file_key = NULL WHERE customer_id = ?', req.params.id);
-    await run('DELETE FROM customers WHERE id = ?', req.params.id);
+    if (!await canDeleteCustomer((await currentUser(req))!.id, customer)) throw new HttpError(403, 'Chỉ người tạo khách hàng, trưởng phòng hoặc quản trị viên được xoá khách hàng');
+    await removeCustomerById(customer);
     json(res, 200, { ok: true });
+  });
+  api.post('/api/customers/bulk-delete', async (req, res) => {
+    const user = (await currentUser(req))!, b = await readJson(req);
+    const ids = Array.isArray(b.ids) ? [...new Set<string>(b.ids.filter((id: unknown) => typeof id === 'string' && id))] : [];
+    if (!ids.length || ids.length > 200) throw new HttpError(400, 'Hãy chọn từ 1 đến 200 khách hàng để xoá');
+    let deleted = 0;
+    for (const id of ids) {
+      const customer = await get<any>('SELECT * FROM customers WHERE id = ?', id);
+      if (!customer || !await canDeleteCustomer(user.id, customer)) continue;
+      await removeCustomerById(customer);
+      deleted++;
+    }
+    json(res, 200, { ok: true, deleted });
   });
   api.post('/api/customers/:id/reveal', async (req, res) => {
     const l = await custLoc(await mustCustomer(req.params.id));
@@ -918,7 +1101,7 @@ export function registerWorkspace(api: Router) {
     api.get(`/api/customers/:id/${kind}/:key`, async (req, res) => {
       const c = await mustCustomer(req.params.id), l = await custLoc(c), key = req.params.key;
       if (l.kind === 'gdrive') { await mustOwn(c, l, key, 'file'); return await G.streamFile(l.account, key, req, res); }
-      if (!sendFile(req, res, l.dir, fsKey(key).join('/'))) throw new HttpError(404, 'Không tìm thấy file');
+      if (!sendFile(req, res, l.dir, fsKey(key).join('/'), { untrusted: true })) throw new HttpError(404, 'Không tìm thấy file');
     });
     api.get(`/api/customers/:id/${kind}/:key/thumb`, async (req, res) => {
       const c = await mustCustomer(req.params.id), l = await custLoc(c);

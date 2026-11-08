@@ -1,7 +1,6 @@
-import {NotificationSettings} from './NotificationSettings';
 import {EntitySelect,useEntityRefresh} from './QuickCreate';
-// Quản trị (admins only): storage (Google Drive accounts, shared root folder), departments and their roles, and users.
-// Also the "change my password" sheet.
+// Parts of Quản trị that company admins use (server/auth.ts): the staff by department, departments with their roles and
+// pages, and where customer folders are stored. The admin module (web/src/admin) puts them on its pages.
 import { Fragment, useEffect, useState } from 'react';
 import { api } from '../api';
 import { useStore, setState, toast } from '../store';
@@ -22,7 +21,9 @@ const LEVEL_HINT: Record<Level, string> = {
 };
 const LEVELS: Level[] = ['admin', 'normal', 'observer'];
 
-export function AdminPage() {
+/** The staff by department (drag to move someone), with adding and editing people and departments. Company admins only:
+ *  it reads every account (/api/users). */
+export function StaffChart() {
   const me = useStore((s) => s.user)!;
   const roles = useStore((s) => s.roles);
   const google = useStore((s) => s.googleSignin);
@@ -36,61 +37,60 @@ export function AdminPage() {
   useEntityRefresh(()=>{void api.users().then(setList).catch(()=>{});void api.roles().then(roles=>setState({roles})).catch(()=>{});});
   const addUser=(team:string|null)=>{setNewTeam(team);setEdit('new');};
   const reloadRoles=()=>api.roles().then(roles=>setState({roles})).catch(e=>toast(e.message,true));
+  useEffect(() => { load(); }, []);
+  return (
+    <div className="users staff-admin">
+      <StaffBoard users={list} roles={roles} meId={me.id} loading={loading} error={error} onRetry={load} onEdit={setEdit} onAdd={addUser} onUserChanged={u=>setList(current=>current.map(x=>x.id===u.id?u:x))} onReload={load} onAddDepartment={()=>setNewDepartment(true)}/>
+      <DepartmentSheet open={newDepartment} onClose={()=>setNewDepartment(false)} onSaved={()=>{setNewDepartment(false);reloadRoles();}}/>
+      <UserSheet user={edit} initialTeam={newTeam} google={google} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />
+    </div>
+  );
+}
+
+/** Where everyone's customer folders start (the root folder) and the Google Drive accounts connected. Company admins only. */
+export function StorageSettings() {
   const [ws, setWs] = useState<WorkspaceInfo | null>(null);
   const [gs, setGs] = useState<GoogleStatus | null>(null);
   const [picking, setPicking] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const loadStorage = () => { api.workspace().then(setWs).catch(() => {}); api.googleStatus().then(setGs).catch(() => {}); };
   useEffect(() => {
-    load(); loadStorage();
-    // Back from Google's consent page: /#admin?google=<email> or ?google_error=<message>
+    loadStorage();
+    // Back from Google's consent page: #admin…?google=<email> or ?google_error=<message>
     const qs = new URLSearchParams(location.hash.split('?')[1] || '');
     if (qs.get('google')) toast(`Đã kết nối ${qs.get('google')}. Bấm “Đổi” ở Thư mục gốc để dùng Drive này.`);
     if(qs.get('mail'))toast('Đã kết nối tài khoản Gmail gửi thông báo.');
     if(qs.get('mail_error'))toast(qs.get('mail_error')!,true);
     if (qs.get('google_error')) toast(qs.get('google_error')!, true);
-    if (qs.size) history.replaceState(null, '', '#admin');
+    if (qs.size) history.replaceState(null, '', location.hash.split('?')[0]);
   }, []);
   const addAccount = () => (gs?.configured ? googleLogin() : setConnecting(true));
-
-
   return (
-    <main className="users staff-admin">
-      <StaffBoard users={list} roles={roles} meId={me.id} loading={loading} error={error} onRetry={load} onEdit={setEdit} onAdd={addUser} onUserChanged={u=>setList(current=>current.map(x=>x.id===u.id?u:x))} onReload={load} onAddDepartment={()=>setNewDepartment(true)}/>
-      <details className="staff-settings"><summary><Icon name="folder" size={17}/><span>Cấu hình phòng ban & quyền truy cập</span></summary><DepartmentsCard onChanged={load}/></details>
-      <details className="staff-settings"><summary><Icon name="mail" size={17}/><span>Email thông báo</span></summary><NotificationSettings site/></details>
-      <details className="staff-settings"><summary><Icon name="folder" size={17}/><span>Lưu trữ & Google Drive</span></summary>
-
-      <section className="adm-sec">
-        <h2 className="side-sub">Lưu trữ</h2>
-        <div className="list users-list">
-          <div className="list-row users-row">
-            <span className="adm-ico"><Icon name="folder" size={17} /></span>
-            <div className="list-main">
-              <b>Thư mục gốc</b>
-              <span>{ws ? `${ws.label}${ws.account ? ` · ${ws.account}` : ''}` : '…'}</span>
-              <span className="tiny">Mọi người bắt đầu từ thư mục này; {ROLE.member.toLowerCase()} chỉ xem được bên trong nó.</span>
-            </div>
-            <div className="list-side"><button className="btn btn-gray btn-sm" onClick={() => setPicking(true)}>Đổi</button></div>
+    <section className="adm-sec">
+      <h2 className="side-sub">Lưu trữ</h2>
+      <div className="list users-list">
+        <div className="list-row users-row">
+          <span className="adm-ico"><Icon name="folder" size={17} /></span>
+          <div className="list-main">
+            <b>Thư mục gốc</b>
+            <span>{ws ? `${ws.label}${ws.account ? ` · ${ws.account}` : ''}` : '…'}</span>
+            <span className="tiny">Mọi người bắt đầu từ thư mục này; {ROLE.member.toLowerCase()} chỉ xem được bên trong nó.</span>
           </div>
-          <div className="list-row users-row">
-            <span className="adm-ico"><Icon name="key" size={17} /></span>
-            <div className="list-main">
-              <b>Tài khoản Google Drive</b>
-              <span>{gs?.accounts.length ? gs.accounts.map((a) => a.email).join(', ') : 'Chưa kết nối'}</span>
-            </div>
-            <div className="list-side"><button className="btn btn-gray btn-sm" onClick={() => setConnecting(true)}>Quản lý</button></div>
-          </div>
+          <div className="list-side"><button className="btn btn-gray btn-sm" onClick={() => setPicking(true)}>Đổi</button></div>
         </div>
-      </section>
-      </details>
+        <div className="list-row users-row">
+          <span className="adm-ico"><Icon name="key" size={17} /></span>
+          <div className="list-main">
+            <b>Tài khoản Google Drive</b>
+            <span>{gs?.accounts.length ? gs.accounts.map((a) => a.email).join(', ') : 'Chưa kết nối'}</span>
+          </div>
+          <div className="list-side"><button className="btn btn-gray btn-sm" onClick={() => setConnecting(true)}>Quản lý</button></div>
+        </div>
+      </div>
       <FolderPicker open={picking} title="Thư mục gốc" start={ws?.loc} confirmLabel="Dùng thư mục này" onClose={() => setPicking(false)} onAddAccount={addAccount}
         onPick={async (loc) => { setWs(await api.setWorkspace(loc)); toast('Đã đổi thư mục gốc'); }} />
       <GoogleConnect open={connecting} onClose={() => { setConnecting(false); loadStorage(); }} onChanged={loadStorage} />
-
-      <DepartmentSheet open={newDepartment} onClose={()=>setNewDepartment(false)} onSaved={()=>{setNewDepartment(false);reloadRoles();}}/>
-      <UserSheet user={edit} initialTeam={newTeam} google={google} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />
-    </main>
+    </section>
   );
 }
 
@@ -159,31 +159,6 @@ function UserSheet({ user, initialTeam, google, onClose, onSaved }: { initialTea
   );
 }
 
-export function PasswordSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const me = useStore((s) => s.user);
-  const [f, setF] = useState({ current: '', next: '', confirm: '' });
-  useEffect(() => { if (open) setF({ current: '', next: '', confirm: '' }); }, [open]);
-  const save = async () => {
-    if (f.next !== f.confirm) return toast('Hai mật khẩu mới không khớp', true);
-    try { await api.changePassword(f.current, f.next); if (me) setState({ user: { ...me, hasPassword: true } }); toast('Đã đổi mật khẩu. Các thiết bị khác đã bị đăng xuất.'); onClose(); }
-    catch (e: any) { toast(e.message, true); }
-  };
-  return (
-    <Sheet open={open} onClose={onClose} title={me?.hasPassword ? 'Đổi mật khẩu' : 'Đặt mật khẩu'} footer={<>
-      <button className="btn btn-gray" onClick={onClose}>Huỷ</button>
-      <button className="btn btn-primary" disabled={!f.next} onClick={save}>Lưu</button>
-    </>}>
-      <form className="users-form" onSubmit={(e) => { e.preventDefault(); save(); }}>
-        <input hidden autoComplete="username" value={me?.email || ''} readOnly />
-        {me?.hasPassword && <label className="ws-field"><span>Mật khẩu hiện tại</span><input type="password" value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} autoComplete="current-password" autoFocus /></label>}
-        <label className="ws-field"><span>Mật khẩu mới</span><input type="password" value={f.next} onChange={(e) => setF({ ...f, next: e.target.value })} placeholder="Ít nhất 8 ký tự" autoComplete="new-password" /></label>
-        <label className="ws-field"><span>Nhập lại mật khẩu mới</span><input type="password" value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })} autoComplete="new-password" /></label>
-        <button hidden />
-      </form>
-    </Sheet>
-  );
-}
-
 const PAGE_LABEL: [Page, string, string][] = [
   ['workspace', 'Drive', 'Thư mục khách hàng, video, link và ghi chú'],
   ['editor', 'Trình dựng', 'Dự án dựng từ sheet, timeline, xuất CapCut'],
@@ -195,7 +170,7 @@ const PAGE_LABEL: [Page, string, string][] = [
  * admin (manage the department's boards and Drive), member (edit) or view only. People in no department open the
  * pages set on the "Chưa có phòng ban" row; admins, everything.
  */
-function DepartmentsCard({onChanged}:{onChanged:()=>void}) {
+export function DepartmentsCard({onChanged}:{onChanged:()=>void}) {
   const roles = useStore((s) => s.roles);
   const [acc, setAcc] = useState<Record<Role, Page[]> | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});

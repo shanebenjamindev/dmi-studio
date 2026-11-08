@@ -1,0 +1,3 @@
+# Compressed copies are for the Node server; Cloudflare compresses responses by itself.
+*.br
+*.gz

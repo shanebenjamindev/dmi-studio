@@ -5,7 +5,19 @@ export async function projectLevels(userId:string){
  const customers=await customerLevels(userId),levels=new Map<string,CustomerLevel>();
  for(const p of await all<any>('SELECT p.*,m.role member_role FROM task_projects p LEFT JOIN task_project_members m ON m.project_id=p.id AND m.user_id=?',userId)){
   if(p.customer_id&&!customers.has(p.customer_id))continue;
-  const level=p.created_by===userId?'admin':p.member_role;
+  let level=p.created_by===userId?'admin':p.member_role;
+  if (!level) {
+    const isTaskMember = await get(`
+      SELECT 1 FROM tasks t WHERE t.project_id=? AND (
+        EXISTS(SELECT 1 FROM task_assignees a JOIN task_people tp ON tp.id=a.person_id WHERE a.task_id=t.id AND tp.user_id=?)
+        OR EXISTS(SELECT 1 FROM task_followers f WHERE f.task_id=t.id AND f.user_id=?)
+      )
+      UNION
+      SELECT 1 FROM board_cards c JOIN card_members cm ON cm.card_id=c.id WHERE c.work_project_id=? AND cm.user_id=?
+      LIMIT 1
+    `, p.id, userId, userId, p.id, userId);
+    if (isTaskMember) level = 'normal';
+  }
   if(level)levels.set(p.id,level);
  }
  return levels;
@@ -13,7 +25,19 @@ export async function projectLevels(userId:string){
 export async function requireProject(userId:string,id:string,need:CustomerLevel='observer'){
  const p=await get<any>('SELECT * FROM task_projects WHERE id=?',id);
  if(!p)throw new HttpError(404,'Không tìm thấy dự án');
- const level=p.created_by===userId?'admin':(await get<any>('SELECT role FROM task_project_members WHERE project_id=? AND user_id=?',id,userId))?.role;
+ let level=p.created_by===userId?'admin':(await get<any>('SELECT role FROM task_project_members WHERE project_id=? AND user_id=?',id,userId))?.role;
+ if(!level){
+   const isTaskMember = await get(`
+     SELECT 1 FROM tasks t WHERE t.project_id=? AND (
+       EXISTS(SELECT 1 FROM task_assignees a JOIN task_people tp ON tp.id=a.person_id WHERE a.task_id=t.id AND tp.user_id=?)
+       OR EXISTS(SELECT 1 FROM task_followers f WHERE f.task_id=t.id AND f.user_id=?)
+     )
+     UNION
+     SELECT 1 FROM board_cards c JOIN card_members cm ON cm.card_id=c.id WHERE c.work_project_id=? AND cm.user_id=?
+     LIMIT 1
+   `, id, userId, userId, id, userId);
+   if (isTaskMember) level = 'normal';
+ }
  if(!level)throw new HttpError(404,'Không tìm thấy dự án');
  if(p.customer_id)await requireCustomer(userId,p.customer_id,need==='observer'?'observer':'normal');
  if(need==='admin'&&level!=='admin'||need==='normal'&&level==='observer')throw new HttpError(403,'Bạn chưa được cấp quyền sửa dự án');

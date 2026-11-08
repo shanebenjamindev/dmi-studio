@@ -2,13 +2,14 @@ import {Rich} from './boardkit';
 // Workspace: customers, their info, their videos (on Google Drive via Google sign-in, or a folder on this Mac) and their projects.
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import { useStore, toast } from '../store';
+import { useStore, toast, openCard } from '../store';
 import { Icon, IconButton, Menu, Segmented } from './ui';
 import { FolderPicker } from './FolderPicker';
 import { Dashboard } from './Dashboard';
-import type { Loc, Customer, CustomerLink, DriveFile, DriveFolder, FileKind, WorkspaceInfo } from '../types';
+import type { Loc, Customer, CustomerLink, CustomerTask, DriveFile, DriveFolder, FileKind, WorkspaceInfo } from '../types';
+import { setDriveView, useDriveView } from '../driveView';
 
-const LS_SEL = 'dms.customer', LS_VIEW = 'dms.driveView';
+const LS_SEL = 'dms.customer';
 const ls = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } },
@@ -163,12 +164,15 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
   const [viewing, setViewing] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
   const [linking, setLinking] = useState(false);
+  // A Drive folder link pasted to link the customer (a connected Google account must be able to open it).
+  const [driveLink, setDriveLink] = useState('');
+  const [linkBusy, setLinkBusy] = useState(false);
   const [tab, setTab] = useState(() => ls.get(LS_TAB(id)) ?? '');
   /** Inline name field for a new folder or renaming the open one. */
   const [naming, setNaming] = useState<{ mode: 'new' | 'rename'; value: string } | null>(null);
   // Like Drive: grid or list, a type filter and an order; folders inside a tab open in place (deepest last).
-  const [view, setViewState] = useState<'grid' | 'list'>(() => (ls.get(LS_VIEW) === 'list' ? 'list' : 'grid'));
-  const setView = (v: 'grid' | 'list') => { setViewState(v); ls.set(LS_VIEW, v); };
+  // The same choice everywhere Drive opens, and on every device of the account.
+  const view = useDriveView(), setView = setDriveView;
   const [kind, setKind] = useState<FileKind | ''>('');
   const [sort, setSort] = useState<SortBy>('modified');
   const [trail, setTrail] = useState<{ key: string; name: string; driveUrl: string | null }[]>([]);
@@ -192,6 +196,17 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
     load().then((x) => x && setForm({ name: x.name, notes: x.notes }));
     return () => clearTimeout(timer.current);
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The cards each file is a result of (Kết quả công việc on the card), shown on the file and opened from it.
+  const [resultOf, setResultOf] = useState<Map<string, CustomerTask[]>>(new Map());
+  useEffect(() => {
+    let active = true;
+    api.customerTasks(id).then((cards) => {
+      const byFile = new Map<string, CustomerTask[]>();
+      for (const t of cards) for (const f of t.files) if (f.key && f.customerId === id) byFile.set(f.key, [...(byFile.get(f.key) || []), t]);
+      if (active) setResultOf(byFile);
+    }, () => {});
+    return () => { active = false; };
+  }, [id]);
 
   const save = async (k: keyof typeof form) => {
     if (!c || form[k] === (c as any)[k]) return;
@@ -328,8 +343,23 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
   // The viewer follows what is listed: another folder or type closes it, deleting the file moves to a neighbour.
   const shown = files.find((v) => v.key === viewing) || null;
 
+  const linkByUrl = async (link: string) => {
+    if (!link.trim()) return;
+    setLinkBusy(true);
+    try { setC(await api.linkCustomerDrive(id, link.trim())); setDriveLink(''); onChanged(); toast('Đã liên kết thư mục Drive'); }
+    catch (e: any) { toast(e.message, true); } finally { setLinkBusy(false); }
+  };
+  const unlink = async () => {
+    if (!c || !confirm(`Gỡ liên kết thư mục “${c.folderLabel.split(' › ').pop()}” khỏi ${c.name}?\nThư mục và file trên Drive vẫn giữ nguyên; liên kết lại được bất cứ lúc nào.`)) return;
+    try { await api.unlinkCustomerDrive(id); await load(true); onChanged(); toast('Đã gỡ liên kết Drive'); } catch (e: any) { toast(e.message, true); }
+  };
+
   if (!c) return <section className="ws-detail" />;
-  if (!c.folderLoc) return <section className="crm-campaigns"><h2>{c.name}</h2><p className="note">Khách hàng trong database. Chưa liên kết thư mục Drive.</p><label className="tm-field">Tên khách hàng<input className="bk-in" readOnly={!admin} value={form.name} onChange={(e)=>setForm({...form,name:e.target.value})} onBlur={()=>save('name')} /></label><label className="tm-field">Ghi chú<textarea className="bk-in" readOnly={viewOnly} value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} onBlur={()=>save('notes')} />{form.notes&&<Rich text={form.notes}/>}</label>{admin && <><button className="btn btn-primary" onClick={()=>setLinking(true)}>Liên kết thư mục Drive</button>{canDelete&&<button className="btn btn-gray" onClick={del}>Xoá khách hàng</button>}<FolderPicker open={linking} title={`Thư mục của ${c.name}`} confirmLabel="Xác nhận liên kết thư mục" onClose={()=>setLinking(false)} onPick={async(loc)=>{setC(await api.linkCustomerFolder(id,loc));setLinking(false);onChanged();}} /></>}</section>;
+  if (!c.folderLoc) return <section className="crm-campaigns"><h2>{c.name}</h2><p className="note">Khách hàng trong database. Chưa liên kết thư mục Drive.</p>
+    {admin && <form className="crm-inline-add crm-drive-link" onSubmit={(e) => { e.preventDefault(); void linkByUrl(driveLink); }}>
+      <input className="bk-in" type="url" value={driveLink} disabled={linkBusy} onChange={(e) => setDriveLink(e.target.value)} placeholder="Dán link thư mục Google Drive (drive.google.com/drive/folders/…)" aria-label="Link thư mục Google Drive" />
+      <button className="btn btn-primary btn-sm" disabled={linkBusy || !driveLink.trim()}>{linkBusy ? 'Đang liên kết…' : 'Liên kết link'}</button>
+    </form>}<label className="tm-field">Tên khách hàng<input className="bk-in" readOnly={!admin} value={form.name} onChange={(e)=>setForm({...form,name:e.target.value})} onBlur={()=>save('name')} /></label><label className="tm-field">Ghi chú<textarea className="bk-in" readOnly={viewOnly} value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} onBlur={()=>save('notes')} />{form.notes&&<Rich text={form.notes}/>}</label>{admin && <><button className="btn btn-gray" onClick={()=>setLinking(true)}><Icon name="folder" size={15}/>Chọn thư mục trên Drive</button>{canDelete&&<button className="btn btn-gray" onClick={del}>Xoá khách hàng</button>}<FolderPicker open={linking} title={`Thư mục của ${c.name}`} confirmLabel="Xác nhận liên kết thư mục" onClose={()=>setLinking(false)} onPick={async(loc)=>{setC(await api.linkCustomerFolder(id,loc));setLinking(false);onChanged();}} /></>}</section>;
 
 
   return (
@@ -349,6 +379,8 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
           { label: 'Mở trên Google Drive', icon: 'share', href: c.driveFolderUrl || undefined, hidden: !c.driveFolderUrl },
           { label: 'Mở trong Finder', icon: 'folder', onClick: () => api.revealCustomer(id).catch((e) => toast(e.message, true)), hidden: c.storage === 'google' },
           { label: 'Liên kết thư mục khác…', icon: 'layers', onClick: () => setLinking(true), hidden: !admin },
+          { label: 'Liên kết bằng link Drive…', icon: 'share', onClick: () => { const link = prompt('Dán link thư mục Google Drive của khách hàng'); if (link) void linkByUrl(link); }, hidden: !admin },
+          { label: 'Gỡ liên kết Drive', icon: 'x', onClick: () => void unlink(), hidden: !admin },
           { label: 'Ẩn khỏi danh sách', icon: 'trash', onClick: del, danger: true, hidden: !canDelete },
         ]} />
       </header>
@@ -415,7 +447,7 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
             <select value={sort} onChange={(e) => setSort(e.target.value as SortBy)} aria-label="Sắp xếp">{SORTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
           </label>
           <span className="dv-gap" />
-          <Segmented small value={view} onChange={setView} ariaLabel="Kiểu xem"
+          <Segmented small value={view} onChange={setView} ariaLabel="Kiểu xem mặc định của Drive"
             options={[['grid', <span key="g" className="dv-seg" title="Dạng lưới"><Icon name="grid" size={15} />Lưới</span>], ['list', <span key="l" className="dv-seg" title="Dạng danh sách"><Icon name="list" size={15} />Danh sách</span>]]} />
         </div>
       )}
@@ -450,6 +482,7 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
                     <span className="dv-prev" style={f.thumb ? { backgroundImage: `url("${f.thumb}")` } : undefined}>
                       {!f.thumb && <span style={{ color: KIND_COLOR[f.kind] }}><Icon name={KIND_ICON[f.kind]} size={44} /></span>}
                       {f.kind === 'video' && <i className="dv-play"><Icon name="play" size={13} /></i>}
+                      {resultOf.has(f.key) && <span className="tpl-badge ws-result">{`Kết quả · ${resultOf.get(f.key)!.length} thẻ`}</span>}
                       {c.storage === 'desktop' && !f.driveId && <span className="tpl-badge ws-sync">Đang đồng bộ…</span>}
                     </span>
                   </button>
@@ -470,6 +503,7 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
                 <span className="dv-name">
                   <KindIcon kind={f.kind} /><b title={f.name}>{f.name}</b>
                   {f.shortcut && <em className="dv-tag">Lối tắt</em>}
+                  {resultOf.has(f.key) && <em className="dv-tag ws-result-tag">{`Kết quả · ${resultOf.get(f.key)!.length} thẻ`}</em>}
                   {c.storage === 'desktop' && !f.driveId && f.kind !== 'folder' && <em className="dv-tag">Đang đồng bộ…</em>}
                 </span>
                 <span>{date(f.modifiedAt)}</span>
@@ -483,7 +517,7 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
 
       <aside className={'ws-aside' + (shown ? ' viewing' : '')}>
         {shown && cur ? (
-          <Viewer key={shown.key} v={shown} list={files} storage={c.storage} folder={here?.name ?? (cur.key ? cur.name : c.name)}
+          <Viewer key={shown.key} v={shown} list={files} storage={c.storage} cards={resultOf.get(shown.key) || []} folder={here?.name ?? (cur.key ? cur.name : c.name)}
             onPick={setViewing} onClose={() => setViewing(null)} onCopy={copyLink} onShare={viewOnly ? undefined : share} onDownload={download} onDelete={admin ? remove : undefined} />
         ) : <>
         <Links links={c.links} onSave={saveLinks} readOnly={viewOnly} />
@@ -559,8 +593,10 @@ function Links({ links, onSave, readOnly }: { links: CustomerLink[]; onSave: (l:
 // ---------------------------------------------------------------- viewer panel
 // Videos play, images and PDFs show, audio plays; Google Docs/Sheets/Slides and other files show their thumbnail
 // (or icon) with a way to open them on Drive or download them.
-function Viewer({ v, list, storage, folder, onPick, onClose, onCopy, onShare, onDownload, onDelete }: {
+function Viewer({ v, list, storage, cards, folder, onPick, onClose, onCopy, onShare, onDownload, onDelete }: {
   v: DriveFile; list: DriveFile[]; storage: Customer['storage']; folder: string;
+  /** The cards this file is a result of. */
+  cards: CustomerTask[];
   onPick: (key: string) => void; onClose: () => void; onCopy: (v: DriveFile) => void; onShare?: (v: DriveFile) => void; onDownload: (v: DriveFile) => void; onDelete?: (v: DriveFile) => void;
 }) {
   const k = list.findIndex((x) => x.key === v.key);
@@ -613,6 +649,12 @@ function Viewer({ v, list, storage, folder, onPick, onClose, onCopy, onShare, on
         {storage === 'desktop' && !v.driveId && <span>Đang đồng bộ lên Drive…</span>}
         {storage === 'google' && v.shared && <span>Ai có link đều xem được</span>}
       </div>
+      {cards.length > 0 && (
+        <div className="ws-viewer-cards">
+          <h4>Kết quả công việc của</h4>
+          {cards.map((t) => <button key={t.id} className="ws-viewer-card" onClick={() => openCard(t.boardId, t.id)} title="Mở thẻ trên bảng"><Icon name="check" size={13} /><b>{t.title}</b><span>{t.boardName} · {t.listName}</span></button>)}
+        </div>
+      )}
       <div className="ws-viewer-a">
         {!v.url && v.driveUrl && <a className="btn btn-primary btn-sm" href={v.driveUrl} target="_blank" rel="noreferrer"><Icon name="share" size={14} />Mở trên Google Drive</a>}
         {v.driveUrl && (onShare && storage === 'google' && !v.shared && !v.shortcut

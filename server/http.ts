@@ -33,6 +33,16 @@ export class Router {
   }
 }
 
+/** The request's path with each part decoded once, as the router hands ids to the handlers: every check here runs on
+ *  what the handler will act on (an id written as %63_… is c_…, and is checked as such). */
+export function pathOf(req: Req) {
+  const r = req as Req & { decodedPath?: string };
+  if (r.decodedPath === undefined) {
+    try { r.decodedPath = req.path.split('/').map((part) => decodeURIComponent(part)).join('/'); }
+    catch { throw new HttpError(400, 'URL không hợp lệ'); }
+  }
+  return r.decodedPath;
+}
 /** Origin the browser sees: PUBLIC_URL when set, else the proxy's forwarded scheme (https on cloud hosts) + Host. */
 export function publicOrigin(req: http.IncomingMessage) {
   if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/+$/, '');
@@ -73,14 +83,42 @@ const MIME: Record<string, string> = {
   '.csv': 'text/csv; charset=utf-8', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.flac': 'audio/flac', '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo',
 };
 
-// Serves a file inside `root`; honours Range so <video> can seek. Returns false when not found.
-export function sendFile(req: http.IncomingMessage, res: Res, root: string, rel: string, opts: { cache?: string; download?: string } = {}) {
+/** Types a file someone uploaded may be shown as in the browser; any other (HTML, SVG, scripts…) is only downloaded. */
+const INLINE_SAFE = /^(image\/(png|jpeg|webp|gif|avif|bmp|x-icon)|video\/|audio\/|application\/pdf|text\/(plain|csv))/i;
+/** Headers for a file someone uploaded, so it can never run as a page of this site: not sniffed into another type,
+ *  downloaded unless it is a picture, video, sound, PDF or plain text, and text opened without scripts. */
+export function untrustedHeaders(type: string, name = '') {
+  const h: Record<string, string> = { 'x-content-type-options': 'nosniff' };
+  if (!INLINE_SAFE.test(type)) h['content-disposition'] = name ? `attachment; filename*=UTF-8''${encodeURIComponent(name)}` : 'attachment';
+  else if (/^text\//i.test(type)) h['content-security-policy'] = "sandbox; default-src 'none'";
+  return h;
+}
+
+/** For files whose name changes with their content (uploads, the UI's hashed build files): kept by browsers for good. */
+export const IMMUTABLE = 'public, max-age=31536000, immutable';
+
+/** The .br or .gz copy of `file` made at build time that this browser accepts, if there is one. */
+function compressedCopy(req: http.IncomingMessage, file: string) {
+  const accepts = String(req.headers['accept-encoding'] || '');
+  for (const [encoding, ext] of [['br', '.br'], ['gzip', '.gz']]) {
+    if (!new RegExp(`\\b${encoding}\\b`).test(accepts)) continue;
+    try { const st = fs.statSync(file + ext); if (st.isFile()) return { file: file + ext, size: st.size, encoding }; } catch { /* no copy */ }
+  }
+  return null;
+}
+
+// Serves a file inside `root`; honours Range so <video> can seek, and If-None-Match so an unchanged file is not sent
+// again. With `precompressed`, a .br/.gz copy next to the file goes to browsers that accept it. False when not found.
+export function sendFile(req: http.IncomingMessage, res: Res, root: string, rel: string, opts: { cache?: string; download?: string; precompressed?: boolean; untrusted?: boolean } = {}) {
   const file = path.join(root, path.normalize('/' + rel).slice(1));
   if (!file.startsWith(root)) return false;
   let st: fs.Stats;
   try { st = fs.statSync(file); if (!st.isFile()) return false; } catch { return false; }
+  const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
+  const validators: Record<string, string> = { etag, 'cache-control': opts.cache || 'no-cache', ...(opts.precompressed ? { vary: 'accept-encoding' } : {}) };
+  if (String(req.headers['if-none-match'] || '').split(/\s*,\s*/).includes(etag)) { res.writeHead(304, validators); res.end(); return true; }
   const type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
-  const headers: Record<string, string | number> = { 'content-type': type, 'accept-ranges': 'bytes', 'cache-control': opts.cache || 'no-cache' };
+  const headers: Record<string, string | number> = { ...validators, 'content-type': type, 'accept-ranges': 'bytes', ...(opts.untrusted ? untrustedHeaders(type, path.basename(file)) : {}) };
   if (opts.download) headers['content-disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(opts.download)}`;
   const range = req.headers.range?.match(/^bytes=(\d*)-(\d*)$/);
   if (range && (range[1] || range[2])) {
@@ -91,8 +129,9 @@ export function sendFile(req: http.IncomingMessage, res: Res, root: string, rel:
     res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${st.size}`, 'content-length': end - start + 1 });
     fs.createReadStream(file, { start, end }).on('error', () => res.destroy()).pipe(res);
   } else {
-    res.writeHead(200, { ...headers, 'content-length': st.size });
-    if (req.method === 'HEAD') res.end(); else fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+    const body = (opts.precompressed && compressedCopy(req, file)) || { file, size: st.size, encoding: '' };
+    res.writeHead(200, { ...headers, 'content-length': body.size, ...(body.encoding ? { 'content-encoding': body.encoding } : {}) });
+    if (req.method === 'HEAD') res.end(); else fs.createReadStream(body.file).on('error', () => res.destroy()).pipe(res);
   }
   return true;
 }

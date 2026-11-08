@@ -6,6 +6,8 @@ import { Sheet } from './Dialogs';
 import { Icon, IconButton } from './ui';
 import type { DrivePlace, FolderListing, Loc } from '../types';
 
+/** Lowercase without Vietnamese marks, so “edward”, “OCD” or “dong” find their folders. */
+const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
 const VIA: Record<DrivePlace['via'], string> = { google: 'Đăng nhập Google', desktop: 'Qua app Drive trên máy', local: 'Không đồng bộ' };
 /** Which place a listing belongs to: same account/source and same root crumb. */
 const inPlace = (cur: FolderListing | null, p: DrivePlace) => {
@@ -25,8 +27,10 @@ export function FolderPicker({ open, title, start, confirmLabel, onClose, onPick
   const [newName, setNewName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Finds a folder among the open folder's sub-folders by name (long client lists).
+  const [q, setQ] = useState('');
 
-  const go = (loc: Loc) => { setLoading(true); return api.browse(loc).then(setCur).catch((e) => toast(e.message, true)).finally(() => setLoading(false)); };
+  const go = (loc: Loc) => { setLoading(true); setQ(''); return api.browse(loc).then(setCur).catch((e) => toast(e.message, true)).finally(() => setLoading(false)); };
   useEffect(() => {
     if (!open) return;
     setNewName(null);
@@ -55,6 +59,11 @@ export function FolderPicker({ open, title, start, confirmLabel, onClose, onPick
     try { await onPick(cur.loc); onClose(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); }
   };
   const path = cur ? cur.crumbs.map((c) => c.name).join(' › ') : '';
+  // Every word must appear, in any order and in any part of the name (“OCD Auto Care | Carlos”: “carlos ocd”).
+  // Punctuation does not count either (“ocd” finds “O.C.D Mobile”).
+  const flat = (s: string) => s.replace(/[^a-z0-9]+/g, '');
+  const words = fold(q).split(/[\s|,/·-]+/).filter(Boolean);
+  const shown = (cur?.dirs || []).filter((d) => { const name = fold(d.name); return words.every((w) => name.includes(w) || (!!flat(w) && flat(name).includes(flat(w)))); });
 
   return (
     <Sheet open={open} onClose={onClose} title={title} wide footer={<>
@@ -94,9 +103,22 @@ export function FolderPicker({ open, title, start, confirmLabel, onClose, onPick
               <button className="btn btn-primary btn-sm" disabled={!newName.trim()}>Tạo</button>
             </form>
           )}
+          {!!cur?.dirs.length && (
+            <label className="fp-search">
+              <Icon name="search" size={14} />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm thư mục: tên doanh nghiệp, tên người, nhiều từ…" aria-label="Tìm thư mục trong mục này"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && shown[0]) { e.preventDefault(); void go(shown[0].loc); }
+                  if (e.key === 'Escape' && q) { e.preventDefault(); e.stopPropagation(); setQ(''); }
+                }} />
+              {q && <small>{shown.length}/{cur.dirs.length}</small>}
+              {q && <button type="button" className="fp-search-x" onClick={() => setQ('')} aria-label="Xoá tìm kiếm"><Icon name="x" size={12} /></button>}
+            </label>
+          )}
           <div className={'fp-list' + (loading ? ' loading' : '')}>
             {cur && !loading && !cur.dirs.length && <p className="empty-note">Không có thư mục con. Chọn thư mục này hoặc tạo thư mục mới.</p>}
-            {cur?.dirs.map((d) => (
+            {cur && !loading && !!cur.dirs.length && !shown.length && <p className="empty-note">Không có thư mục nào tên có “{q.trim()}” trong mục này.</p>}
+            {shown.map((d) => (
               <button key={JSON.stringify(d.loc)} className="fp-dir" onClick={() => go(d.loc)}>
                 <Icon name="folder" size={16} /><span>{d.name}</span><Icon name="chevron" size={13} className="fp-chev" />
               </button>

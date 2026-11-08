@@ -5,7 +5,7 @@ import https from 'node:https';
 import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import type http from 'node:http';
-import { HttpError } from './http';
+import { HttpError, untrustedHeaders } from './http';
 import { get, run, getSetting, setSetting } from './db';
 
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/drive';
@@ -30,7 +30,7 @@ export async function removeAccount(email: string) {
 }
 
 // ---------------------------------------------------------------- OAuth
-// 'drive' connects an account for storage; 'signin' only identifies who is logging in to DM Workspace.
+// 'drive' connects an account for storage; 'signin' only identifies who is logging in to DMI Workspace.
 export type Purpose = 'drive' | 'signin' | 'mail';
 interface OAuthState { redirect: string; purpose: Purpose; owner_id?:string|null }
 export async function authUrl(redirect: string, purpose: Purpose = 'drive', ownerId?:string) {
@@ -280,6 +280,8 @@ export async function streamFile(email: string, id: string, req: http.IncomingMe
   // Drive file ids never change content in place (a new upload is a new id), so the browser may reuse what it fetched.
   const out: Record<string, string> = { 'cache-control': 'private, max-age=86400', 'accept-ranges': 'bytes' };
   for (const h of ['content-type', 'content-length', 'content-range']) { const v = r.headers.get(h); if (v) out[h] = v; }
+  // Whatever someone put on Drive is never shown as a page of this site (an HTML or SVG file is downloaded instead).
+  Object.assign(out, untrustedHeaders(out['content-type'] || 'application/octet-stream'));
   res.writeHead(r.status, out);
   if (!r.body) return res.end();
   const s = Readable.fromWeb(r.body as any);
@@ -329,7 +331,7 @@ export async function sendNotificationMail(to:string,subject:string,text:string)
     account.access=token.access_token;account.expiry=Date.now()+((token.expires_in||3600)-60)*1000;
     await setSetting('notification_mail',account);
   }
-  const mime=[`From: DM Workspace <${account.email}>`,`To: ${to}`,`Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,'MIME-Version: 1.0','Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64','',Buffer.from(text).toString('base64')].join('\r\n');
+  const mime=[`From: DMI Workspace <${account.email}>`,`To: ${to}`,`Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,'MIME-Version: 1.0','Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64','',Buffer.from(text).toString('base64')].join('\r\n');
   const result=await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send',{method:'POST',headers:{authorization:`Bearer ${account.access}`,'content-type':'application/json'},body:JSON.stringify({raw:Buffer.from(mime).toString('base64url')}),signal:AbortSignal.timeout(15000)});
   if(result.status===401)await setSetting('notification_mail',{...account,access:undefined,expiry:0});
   if(!result.ok){const issue=gmailIssue(result.status,await result.json().catch(()=>null));await setSetting('notification_mail_issue',issue);throw new HttpError(502,issue.message);}

@@ -1,24 +1,13 @@
 import {BrandLoading,NetworkLoading} from './components/BrandLoading';
-import { Component, useEffect, type ReactNode } from 'react';
-import { useStore, init } from './store';
-import { WorkArea, WorkProjects } from './components/WorkArea';
-import { TopBar } from './components/TopBar';
-import { WorkspacePage } from './components/Workspace';
-import { ProfilePage } from './components/Profile';
-import { AdminPage } from './components/Users';
+import { Component, Suspense, useEffect, type ReactNode } from 'react';
+import { useStore, init, openPages } from './store';
+import { WorkArea } from './components/WorkArea';
+import { TopBar, AppHeader } from './components/TopBar';
 import { LoginPage } from './components/Login';
-import { LeftPanel } from './components/LeftPanel';
-import { Stage } from './components/Stage';
 import { ProjectsDialog, ExportDialog } from './components/Dialogs';
-import { Home } from './components/Home';
-import { Editor } from './components/Editor';
-import { BoardsPage } from './components/Boards';
-import { ToolsPage } from './components/Tools';
-import { CustomersPage } from './components/Customers';
-import { AdsPage } from './components/AdsPage';
-import { ReportsPage } from './components/Reports';
-import { TasksPage } from './components/Tasks';
-import { EditorOnMac } from './components/EditorOnMac';
+import { pageFor, prefetchPages } from './pages';
+import { QuickNotes } from './components/QuickNotes';
+import { GlobalSearch } from './components/GlobalSearch';
 
 /** A page that fails to draw says so (and offers a reload) instead of leaving the whole window blank. */
 class PageGuard extends Component<{ page: string; children: ReactNode }, { error: Error | null }> {
@@ -37,7 +26,6 @@ class PageGuard extends Component<{ page: string; children: ReactNode }, { error
   }
 }
 
-// Template and Phân tích are hidden for now; their components stay in src/components.
 export function App() {
   const ready = useStore((s) => s.ready);
   const busy=useStore(s=>s.busy);
@@ -45,40 +33,31 @@ export function App() {
   const view = useStore((s) => s.view);
   const editorHere = useStore((s) => s.editorAvailable);
   const user = useStore((s) => s.user);
-  const hasProject = useStore((s) => !!s.project);
-  // A sheet project is a cut of the client's footage, unless the sheet had none and the video was made from its script.
-  const assembly = useStore((s) => s.project?.storyboard?.mode === 'edit' || (!!s.project?.sheet && !s.project?.storyboard));
+  const adminAccess = useStore((s) => s.admin);
+  const can = { admin: user?.role === 'admin' || Object.keys(adminAccess?.perms || {}).length > 0, editor: editorHere };
+  const Page = pageFor(view, can);
 
   useEffect(() => { init(); }, []);
+  useEffect(() => { if (ready && user) prefetchPages(openPages(), can); }, [ready, user?.id, editorHere, can.admin]);
 
   return (
     <>
       {ready && (user ? (
         <>
-          <TopBar />
-          <PageGuard page={view}>
-          <WorkArea>
-          {view === 'admin' && user.role === 'admin' ? <AdminPage />
-            : view === 'profile' ? <ProfilePage />
-            : view === 'boards' ? <BoardsPage />
-            : view === 'tasks' ? <TasksPage />
-            : view === 'projects' ? <WorkProjects />
-            : view === 'tools' ? <ToolsPage />
-            : view === 'reports' ? <ReportsPage />
-            : view === 'ads' ? <AdsPage />
-            : view === 'customers' ? <CustomersPage />
-            : view === 'editor' && !editorHere ? <EditorOnMac />
-            : view === 'editor' ? (
-              // The editor opens on the project list; a project from a sheet gets the desktop-editor layout,
-              // older projects written from a brief keep the previous layout.
-              <div className="studio">
-                {!hasProject ? <Home /> : assembly ? <Editor /> : <div className="layout"><LeftPanel /><Stage /></div>}
+          <div className="shell">
+            <AppHeader />
+            <div className="shell-body">
+              <TopBar />
+              <div className="shell-main">
+                <PageGuard page={view}>
+                <WorkArea>
+                  <Suspense fallback={null}><Page /></Suspense>
+                </WorkArea>
+                </PageGuard>
               </div>
-            )
-            : <WorkspacePage />}
-          </WorkArea>
-          </PageGuard>
-          <ProjectsDialog /><ExportDialog />
+            </div>
+          </div>
+          <ProjectsDialog /><ExportDialog /><QuickNotes key={user.id} /><GlobalSearch key={'s' + user.id} />
         </>
       ) : <LoginPage />)}
       {ready&&<NetworkLoading busy={busy}/>}

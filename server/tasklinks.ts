@@ -40,6 +40,8 @@ export async function syncTaskToCard(taskId: string) {
   await run('UPDATE board_cards SET title=?, description=?, description_by=?, start_at=?, due_at=?, done=?, updated_at=? WHERE id=?',
     t.title, t.description || '', t.description_by ?? null, t.start_at, t.due_at, ['done', 'done_late'].includes(statusKey(t.status)) ? 1 : 0, now(), t.card_id);
   const card=await get<any>('SELECT board_id,list_id FROM board_cards WHERE id=?',t.card_id);
+  if (!card) return;
+  await run('UPDATE board_cards SET project_card_id=(SELECT id FROM board_cards WHERE board_id=? AND work_project_id=? AND card_kind=\'project\' ORDER BY created_at LIMIT 1) WHERE id=?',card.board_id,t.project_id,t.card_id);
   const lists=await all<any>('SELECT id,name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',card.board_id);
   const target=lists.find(l=>l.name===t.status) || lists.find(l=>statusKey(l.name)!=='other' && statusKey(l.name)===statusKey(t.status));
   if(target && target.id!==card.list_id) {
@@ -55,7 +57,7 @@ export async function syncCardToTask(cardId: string, moved = false, actorId?: st
   const beforeNotification=await notificationSnapshot(c.task_id);
   const wasDone = ['done', 'done_late'].includes(statusKey(c.task_status));
   const column=moved ? await get<any>('SELECT name FROM board_lists WHERE id=?',c.list_id) : null;
-  const completed=column ? ['done','done_late'].includes(statusKey(column.name)) : !!c.done;
+  const completed = c.done ? true : (column ? ['done', 'done_late'].includes(statusKey(column.name)) : false);
   const doneAt = completed ? c.task_done || now() : null;
   const status = column ? column.name : c.done ? (c.due_at && doneAt > c.due_at ? 'Hoàn thành muộn' : 'Hoàn thành') : wasDone ? 'Chưa thực hiện' : c.task_status;
   if(moved) await run('UPDATE board_cards SET done=? WHERE id=?',completed?1:0,cardId);

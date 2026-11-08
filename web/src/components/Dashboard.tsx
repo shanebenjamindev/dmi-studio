@@ -1,20 +1,12 @@
-// Tổng quan (Drive ▸ the overview button): the customers and their videos, task by task. A task is a card on a board
-// set to a customer (Khách hàng on the card); its videos are the files of that customer's folder put on the card.
+// Tổng quan (Drive ▸ the overview button): the customers and their work's results, task by task. A task is a card on a
+// board set to a customer (Khách hàng on the card); its results are the files of that customer's folder put on the card.
 // Editing projects and their reports live in the editor, not here.
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { setState } from '../store';
+import { openCard } from '../store';
 import { Icon } from './ui';
-import { dueState, shortDate, videoThumb } from './boardkit';
+import { dueState, shortDate, fileThumb } from './boardkit';
 import type { Customer, CustomerTask } from '../types';
-
-/** Open a card on its board. Switching pages writes the page's own address (and may show it at once), so the card's
- *  address goes in after, and the Workspace page is told to read it. */
-function openCard(t: CustomerTask) {
-  setState({ view: 'boards' });
-  history.replaceState(null, '', `#boards/${t.boardId}/c/${t.id}`);
-  setTimeout(() => window.dispatchEvent(new HashChangeEvent('hashchange')), 0);
-}
 
 export function Dashboard({ customers, onOpenCustomer }: { customers: Customer[]; onOpenCustomer: (id: string) => void }) {
   const [tasks, setTasks] = useState<CustomerTask[] | null>(null);
@@ -32,7 +24,7 @@ export function Dashboard({ customers, onOpenCustomer }: { customers: Customer[]
   const busy = rows.filter((r) => r.tasks.length).sort((a, b) => Math.max(...b.tasks.map((t) => t.updatedAt)) - Math.max(...a.tasks.map((t) => t.updatedAt)));
   const idle = rows.filter((r) => !r.tasks.length);
   const taskCount = busy.reduce((n, r) => n + r.tasks.length, 0);
-  const videoCount = busy.reduce((n, r) => n + r.tasks.reduce((m, t) => m + t.videos.length, 0), 0);
+  const fileCount = busy.reduce((n, r) => n + r.tasks.reduce((m, t) => m + t.files.length, 0), 0);
 
   return (
     <section className="ws-detail dash">
@@ -43,38 +35,38 @@ export function Dashboard({ customers, onOpenCustomer }: { customers: Customer[]
       <div className="dash-stats">
         <div><b>{customers.length}</b><span>Khách hàng</span></div>
         <div><b>{tasks ? taskCount : '…'}</b><span>Task</span></div>
-        <div><b>{tasks ? videoCount : '…'}</b><span>Video trong task</span></div>
+        <div><b>{tasks ? fileCount : '…'}</b><span>File kết quả</span></div>
       </div>
 
       {error ? <p className="note err">Không tải được task. Hãy tải lại.</p> : tasks === null ? <p className="note">Đang tải task…</p> : !busy.length ? (
-        <p className="note">Chưa có task nào gắn khách hàng. Trên bảng Workspace, mở một thẻ, bấm “Khách hàng” để chọn khách rồi “Video” để gắn video của khách vào thẻ.</p>
+        <p className="note">Chưa có task nào gắn khách hàng. Trên bảng Workspace, mở một thẻ, bấm “Khách hàng” để chọn khách rồi “Thêm file” ở mục Kết quả công việc để gắn file của khách vào thẻ.</p>
       ) : busy.map(({ c, tasks: list }) => (
         <div key={c.id} className="dash-block dash-cust">
           <div className="dash-cust-h">
             <h3><Icon name="folder" size={17} />{c.name}</h3>
-            <span>{list.length} task · {list.reduce((n, t) => n + t.videos.length, 0)} video</span>
+            <span>{`${list.length} task · ${list.reduce((n, t) => n + t.files.length, 0)} file kết quả`}</span>
             <button className="btn btn-gray btn-sm" onClick={() => onOpenCustomer(c.id)}>Mở thư mục</button>
           </div>
           {list.map((t) => {
             const due = dueState(t.dueAt, t.done);
             return (
               <div key={t.id} className={'dash-task' + (t.done ? ' done' : '')}>
-                <button className="dash-task-h" onClick={() => openCard(t)} title="Mở thẻ trên bảng">
+                <button className="dash-task-h" onClick={() => openCard(t.boardId, t.id)} title="Mở thẻ trên bảng">
                   <span className={'dash-task-mark' + (t.done ? ' on' : '')}>{t.done && <Icon name="check" size={11} />}</span>
                   <b>{t.title}</b>
                   <span className="dash-task-where">{t.boardName} · {t.listName}</span>
                   {t.dueAt && <em className={'dash-task-due ' + (due || '')}>{shortDate(t.dueAt)}{due === 'over' ? ' · quá hạn' : due === 'soon' ? ' · sắp đến' : ''}</em>}
                 </button>
-                {t.videos.length ? (
+                {t.files.length ? (
                   <div className="dash-videos">
-                    {t.videos.map((v) => (
+                    {t.files.map((v) => (
                       <a key={v.id} className="dash-video" href={v.url} target="_blank" rel="noreferrer" title={v.name}>
-                        <span className="dash-video-pic"><Icon name="film" size={20} /><img src={videoThumb(v)} alt="" loading="lazy" onError={(e) => e.currentTarget.remove()} /></span>
+                        <span className="dash-video-pic"><Icon name="film" size={20} /><img src={fileThumb(v)} alt="" loading="lazy" onError={(e) => e.currentTarget.remove()} /></span>
                         <span className="dash-video-name">{v.name}</span>
                       </a>
                     ))}
                   </div>
-                ) : <p className="note dash-novideo">Chưa gắn video.</p>}
+                ) : <p className="note dash-novideo">Chưa gắn file kết quả.</p>}
               </div>
             );
           })}

@@ -101,7 +101,15 @@ export interface DriveFile {
 /** A folder of the customer folder, shown as a tab: its files and its own folders. */
 export interface DriveFolder { key: string; name: string; driveUrl: string | null; files: DriveFile[] }
 export interface CustomerLink { label: string; url: string }
-export interface CustomerRecord { createdBy?:string|null;level?:Level;canManage?:boolean;canDelete?:boolean; projects?:number; campaigns?:number; tasks?:number; completed?:number; hasDrive?:boolean; id: string; name: string; contact: string; phone: string; email: string; notes: string }
+/** A service from the catalogue (Quản trị › Dịch vụ), as a customer's need. */
+export interface ServiceRef { id: string; name: string; category?: string | null }
+/** `drive`: the folder the customer is linked to (null: database only); `needs`: the services it wants. */
+/** On the Customers page list: what Quản trị › Khách hàng sets (status, category, source, the staff member in charge). */
+export interface CustomerStatusOption {id:string;name:string;color:string;pos:number;active:number|boolean}
+/** `tags`: its tags (the list is Quản trị › Khách hàng › Phân loại); `category` is the first of them. */
+export interface CustomerRecord { status?: string | null; category?: { id: string; name: string; color: string } | null; tags?: CustomerTag[]; source?: { id: string; name: string; color: string } | null; owner?: { id: string; name: string } | null; manager?: { id: string; name: string } | null;
+  drive?: { label: string; url: string | null } | null; needs?: ServiceRef[]; createdBy?:string|null;level?:Level;canManage?:boolean;canDelete?:boolean; projects?:number; campaigns?:number; tasks?:number; completed?:number; hasDrive?:boolean; id: string; name: string; contact: string; phone: string; email: string; notes: string }
+export interface CustomerTag { id: string; name: string; color: string }
 export interface Customer {
   id: string; name: string; links: CustomerLink[]; notes: string; createdAt: number; updatedAt: number;
   storage: Storage; account: string | null; folderLabel: string; folderLoc: Loc | null; folderPath: string; error?: string;
@@ -119,6 +127,7 @@ export type Role = 'admin' | 'member';
 export interface User {
   id: string; email: string; name: string; role: Role; disabled: boolean; hasPassword: boolean; lastLogin: number | null; createdAt: number;
   teamRole: string | null; deptRole: string | null; deptRoleName: string | null; level: Level;
+  phone?: string; avatarAt?: number | null;
   /** Where this person's notifications are emailed (admins' list only). */
   notifyEmail?: string | null;
 }
@@ -131,38 +140,44 @@ export interface TeamRole { id: string; name: string; color: string; pages: Page
 export type Level = 'admin' | 'normal' | 'observer';
 /** The company's workspace (id 'company': everyone) or one a person made, private until shared. */
 /** `visibility`: 'private' (its people only, the default) or 'company' (everyone in the company may view it). */
-export interface Workspace { id: string; name: string; about: string; kind: 'company' | 'personal'; visibility: 'private' | 'company'; ownerId: string | null; level: Level; members: number }
+export interface Workspace { avatar?: string | null; id: string; name: string; about: string; kind: 'company' | 'personal'; visibility: 'private' | 'company'; ownerId: string | null; level: Level; members: number }
 export interface Person { id: string; name: string; email: string }
 export interface WorkspaceMember extends Person { level: Level; owner: boolean }
 export interface BoardItem {
-  /** `bg`: what this account sees (its own choice, else `sharedBg`, the board's). */
-  id: string; name: string; bg: string; sharedBg?: string; roleId: string | null; workspaceId: string; private: boolean; createdBy: string | null;
-  starred: boolean; cards: number; updatedAt: number; level: Level;
+  /** `bg`, `labelText` (label names on cards) and folded lists: the board's own look, the same for everyone. `canShape`: may
+   *  this account change the board itself (name, background, look, description, lists, labels): its admins, and its
+   *  members when `memberEdit`. */
+  id: string; name: string; bg: string; roleId: string | null; workspaceId: string; private: boolean; createdBy: string | null;
+  starred: boolean; cards: number; taskCount?: number; updatedAt: number; level: Level; memberEdit: boolean; canShape: boolean; labelText: boolean;
 }
 export interface BoardLabel { id: string; name: string; color: string }
 /** Someone who sees the board; `added`: given a level on the board itself (not just through its workspace or role). */
 export interface BoardMember extends Person { level?: Level; added?: boolean }
 /** The front of a card on the board: what it shows (`checks`: [done, total] of its checklist items). */
 export interface BoardCard {
+  kind?: 'customer' | 'project' | 'task'; projectCardId?: string | null;
   id: string; listId: string; title: string; cover: string | null; startAt: number | null; dueAt: number | null; done: boolean; desc: boolean;
   labels: string[]; members: string[]; comments: number; attachments: number; checks: [number, number] | null; createdAt: number; createdBy: string | null;
   customerId: string | null; customerName: string | null;
+  projectId?: string | null; projectName?: string | null;
 }
-export interface BoardList { id: string; name: string; cards: BoardCard[] }
+/** `folded`: shown as a narrow strip, for everyone (set by whoever may change the board). */
+export interface BoardList { id: string; name: string; folded?: boolean; cards: BoardCard[] }
 export interface Board extends BoardItem { about: string; labels: BoardLabel[]; members: BoardMember[]; lists: BoardList[] }
 export interface BoardActivity { id: string; cardId: string | null; cardTitle: string; userId: string; userName: string; action: string; data: any; createdAt: number }
 /** A link on a card, or a video of its customer's folder (`key`: the file there, `customerId`: whose folder). */
 export interface CardAttachment { id: string; name: string; url: string; createdAt: number; userId: string; customerId: string | null; key: string | null }
 /** A task of the team (Công việc), imported from their task app or made here. `state`: what its status means now. */
 export type TaskState = 'done' | 'done_late' | 'overdue' | 'doing' | 'todo' | 'paused' | 'cancelled' | 'other';
-export interface TaskPerson { id: string; name: string; userId: string | null }
+export interface TaskPerson { id: string; name: string; userId: string | null; avatarAt?: number | null }
 export interface TaskCampaign { id:string; name:string; projectId:string; tasks:number }
 export interface TaskItem {
   campaign: {id:string;name:string;projectId:string} | null;
   boardLink?:{cardId:string;boardId:string;boardName:string;listName:string;listId:string}|null;hasBoardLink?:boolean;
+  canDelete?: boolean;
   id: string; externalId: string | null; title: string; status: string; state: TaskState; startAt: number | null; dueAt: number | null; doneAt: number | null;
   project: { id: string; name: string; customerId: string | null } | null; parent: { id: string; title: string } | null; children: number;
-  createdBy: { id: string; name: string } | null; assignees: TaskPerson[]; followers: { id: string; name: string }[]; labels: string[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number;
+  createdBy: { id: string; name: string } | null; assignees: TaskPerson[]; followers: { id: string; name: string; avatarAt?: number | null }[]; labels: string[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number;
 }
 export interface TaskDetail extends TaskItem {
   statuses?: string[];
@@ -170,8 +185,9 @@ export interface TaskDetail extends TaskItem {
 }
 export interface TaskMeta {
   campaigns:TaskCampaign[]; teams:{id:string;name:string;color:string}[];
-  people: (TaskPerson & { userName: string | null; tasks: number })[]; projects: { id: string; name: string; customerId: string | null; teamId:string|null;createdBy:string|null;level:Level;tasks: number }[];
-  mine: string[]; statuses: string[]; users: { id: string; name: string; email: string }[];
+  workTeams?:{id:string;name:string;color:string;departmentId:string|null;memberIds:string[];leaderIds:string[]}[];
+  people: (TaskPerson & { userName: string | null; tasks: number })[]; projects: { id: string; name: string; customerId: string | null; customerName?: string | null; teamId:string|null;createdBy:string|null;level:Level;tasks: number; completed?: number; overdue?: number; assignees?: TaskPerson[] }[];
+  mine: string[]; statuses: string[]; users: { id: string; name: string; email: string; teamId: string | null; workTeamIds?: string[] }[];
   imports: { id: string; rows: number; created: number; updated: number; at: number; by: string; sourceName: string; hasSheet: boolean }[];
 }
 export interface TaskWrite {
@@ -179,7 +195,7 @@ export interface TaskWrite {
   campaignId?: string | null; projectId?: string | null; parentId?: string | null; assigneeIds?: string[]; assigneeUserIds?: string[]; followerUserIds?: string[]; labels?: string[];
 }
 export interface TaskImportSheet { id: string; name: string; headers: string[]; rows: string[][]; taskIds: (string | null)[]; titleColumn: number; start: number; total: number; page: number; pages: number }
-export interface TaskImportResult { sheetRows: number; sheetColumns: number; importId: string; sourceName: string; rows: number; skipped: number; created: number; updated: number; parents: number; stubs: number; people: number; projects: number; labels: number }
+export interface TaskImportResult { sheetRows: number; sheetColumns: number; importId: string; sourceName: string; rows: number; skipped: number; created: number; updated: number; parents: number; stubs: number; people: number; linked: number; projects: number; labels: number }
 /** A Meta ad account the token reads. */
 export interface AdAccount { id: string; accountId: string; name: string; currency: string; timezone: string; status: string; active: boolean; business: string }
 /** Sums over a period and the ratios recomputed from them (null: nothing to divide by); results by each campaign's type. */
@@ -206,17 +222,21 @@ export interface PlannerCard { id: string; title: string; boardId: string; board
 /** A card for a customer, with its videos (the Drive page's overview). */
 export interface CustomerTask {
   id: string; title: string; customerId: string; boardId: string; boardName: string; boardBg: string; listName: string; done: boolean; dueAt: number | null; updatedAt: number;
-  videos: CardAttachment[];
+  /** The work's result: files of the customer's folder put on the card. */
+  files: CardAttachment[];
 }
 /** Everything on a card (its back). */
 export interface CardDetail {
   linkedTask?: { id: string } | null;
+  /** The result note of a card without a task (null for those who may not read it; `resultHidden` when there is one). */
+  result: string | null; resultHidden: boolean;
   /** Once written, a description is changed only by whoever wrote it (and admins). */
   canEditDescription: boolean;
   id: string; boardId: string; listId: string; listName: string; title: string; description: string; cover: string | null;
   startAt: number | null; dueAt: number | null; done: boolean; archived: boolean; createdAt: number; createdBy: string | null; labels: string[]; members: string[];
   /** The customer the task is for. */
   customerId: string | null; customerName: string | null;
+  projectId?: string | null; projectName?: string | null;
   checklists: { id: string; title: string; items: { id: string; text: string; done: boolean }[] }[];
   attachments: CardAttachment[];
   comments: { id: string; userId: string; userName: string; text: string; createdAt: number; edited: boolean }[];
@@ -224,7 +244,9 @@ export interface CardDetail {
 }
 /** A top-level page whose access admins can grant or withhold per role. */
 export type Page = 'workspace' | 'editor' | 'ads';
-export interface AuthInfo { user: User | null; pages?: Page[]; prefs?: Record<string, string> | null; setup: boolean; setupCode?: boolean; google: boolean }
+/** What the signed-in account may do in Quản trị (shared/permissions.ts): each permission it holds, at its scope. */
+export interface AdminAccess { superAdmin: boolean; rank: number; perms: Record<string, 'personal' | 'team' | 'department' | 'organization'> }
+export interface AuthInfo { admin?: AdminAccess | null; user: User | null; pages?: Page[]; prefs?: Record<string, string> | null; setup: boolean; setupCode?: boolean; google: boolean }
 
 /** A Meta Ads campaign report (see server/reports.ts): every field of the page sent to the client; images are file names. */
 export interface ReportKV { label: string; value: string }
@@ -256,12 +278,20 @@ export interface ReportItem {
   customerName?: string | null; client?: string; meta?: { account: string; since: string; until: string } | null;
 }
 export interface ReportVideo { id:string; account:string; name:string; url:string; seconds:number|null; modifiedAt:string; thumb:string }
+/** One Drive folder in the report's video picker: where it is, its sub-folders and the videos directly in it. */
+/** A change to a customer's record, on its History tab. */
+export interface RecordChange { action: string; by: string | null; before: Record<string, any> | null; after: Record<string, any> | null; at: number }
+export interface CustomerTaskRow { id: string; title: string; status: string; state: string; category: string; dueAt: number | null; doneAt: number | null; project: { id: string; name: string } | null; campaign: { id: string; name: string } | null; assignees: { id: string; name: string; userId: string | null }[]; priority: { id: string; name: string; color: string } | null }
+/** A private sticky note (Ghi chú nhanh): `body` is its formatted text (only when one note is fetched). */
+export type NoteColor = 'yellow' | 'green' | 'pink' | 'purple' | 'blue' | 'dark';
+export interface QuickNote { id: string; title: string; preview: string; color: NoteColor; open: boolean; x: number | null; y: number | null; w: number | null; h: number | null; hasImage: boolean; createdAt: number; updatedAt: number; body?: string }
+export interface ReportDriveFolder { places?: { account: string; id: string; label: string }[]; account: string; id: string; crumbs: { id: string; name: string }[]; dirs: { id: string; name: string }[]; videos: ReportVideo[] }
 export interface Report extends ReportItem { data: ReportData; autofillWarnings?: string[] }
 
 /** The Mac's internet address for the editor, as the cloud site keeps it, and whether that Mac answers. */
 export interface EditorLink { url: string; status: 'none' | 'ready' | 'no-editor' | 'blocked' | 'offline' }
 
-export interface UserProfile { id:string;name:string;email?:string;role?:Role;level?:Level;department:{id:string;name:string;color:string}|null;position:string|null;createdAt?:number;canEdit:boolean }
+export interface UserProfile { id:string;name:string;email?:string;phone?:string;avatarAt?:number|null;role?:Role;level?:Level;department:{id:string;name:string;color:string}|null;position:string|null;createdAt?:number;canEdit:boolean }
 
 export interface NotificationStatus {enabled:boolean;loginEmail:string;email:string|null;verified:boolean;pendingEmail:string|null;codeSent:boolean;sender:string|null;mailReady:boolean;googleConfigured:boolean;gmailSetupUrl?:string;mailIssue?:{code:string;message:string;helpUrl?:string}|null;recent:{id:string;title:string;state:string;createdAt:number;sentAt:number|null;error:string|null}[]}
 

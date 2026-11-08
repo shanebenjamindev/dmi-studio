@@ -1,3 +1,5 @@
+// Admin module tables (roles … notification_logs, at the end): see server/admin/ and shared/permissions.ts. The logs keep the
+// person's id and name as they were, with no foreign key: they outlive the account, and nobody edits them.
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, aspect TEXT NOT NULL DEFAULT '16:9',
@@ -55,7 +57,7 @@ CREATE TABLE IF NOT EXISTS board_lists (
 );
 CREATE TABLE IF NOT EXISTS board_cards (
   id TEXT PRIMARY KEY, board_id TEXT NOT NULL, list_id TEXT NOT NULL, title TEXT NOT NULL, pos REAL NOT NULL, created_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-  description TEXT, start_at INTEGER, due_at INTEGER, done INTEGER NOT NULL DEFAULT 0, cover TEXT, archived INTEGER NOT NULL DEFAULT 0, customer_id TEXT
+  description TEXT, start_at INTEGER, due_at INTEGER, done INTEGER NOT NULL DEFAULT 0, cover TEXT, archived INTEGER NOT NULL DEFAULT 0, customer_id TEXT, card_kind TEXT NOT NULL DEFAULT 'task', project_card_id TEXT, work_project_id TEXT
 );
 CREATE TABLE IF NOT EXISTS board_stars (user_id TEXT NOT NULL, board_id TEXT NOT NULL, PRIMARY KEY (user_id, board_id));
 CREATE TABLE IF NOT EXISTS user_prefs (user_id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -144,5 +146,101 @@ CREATE TABLE IF NOT EXISTS notifications (
  task_id TEXT,payload TEXT NOT NULL,created_at INTEGER NOT NULL,read_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id,created_at);
+CREATE TABLE IF NOT EXISTS roles (
+ id TEXT PRIMARY KEY, key TEXT UNIQUE, name TEXT NOT NULL, about TEXT NOT NULL DEFAULT '', rank INTEGER NOT NULL, system INTEGER NOT NULL DEFAULT 0,
+ created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS role_permissions (
+ role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE, perm TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'organization', PRIMARY KEY(role_id,perm)
+);
+CREATE TABLE IF NOT EXISTS user_roles (
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+ scope TEXT, granted_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(user_id,role_id)
+);
+CREATE INDEX IF NOT EXISTS user_roles_role ON user_roles(role_id);
+CREATE TABLE IF NOT EXISTS teams (
+ id TEXT PRIMARY KEY, name TEXT NOT NULL, about TEXT NOT NULL DEFAULT '', color TEXT NOT NULL DEFAULT '#64748b',
+ department_id TEXT REFERENCES team_roles(id) ON DELETE SET NULL, created_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS team_members (
+ team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ role TEXT NOT NULL DEFAULT 'member', added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(team_id,user_id)
+);
+CREATE INDEX IF NOT EXISTS team_members_user ON team_members(user_id);
+CREATE TABLE IF NOT EXISTS user_avatars (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, mime TEXT NOT NULL, data TEXT NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS login_logs (
+ id TEXT PRIMARY KEY, user_id TEXT, email TEXT, ok INTEGER NOT NULL, method TEXT NOT NULL, reason TEXT, ip TEXT, agent TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS login_logs_at ON login_logs(created_at);
+CREATE INDEX IF NOT EXISTS login_logs_user ON login_logs(user_id,created_at);
+CREATE TABLE IF NOT EXISTS audit_logs (
+ id TEXT PRIMARY KEY, kind TEXT NOT NULL, action TEXT NOT NULL, user_id TEXT, user_name TEXT, entity_type TEXT, entity_id TEXT, entity_label TEXT,
+ method TEXT, path TEXT, status INTEGER, old_data TEXT, new_data TEXT, ip TEXT, agent TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS audit_logs_kind ON audit_logs(kind,created_at);
+CREATE INDEX IF NOT EXISTS audit_logs_user ON audit_logs(user_id,created_at);
+CREATE INDEX IF NOT EXISTS audit_logs_entity ON audit_logs(entity_type,entity_id,created_at);
+CREATE TABLE IF NOT EXISTS task_statuses (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL, pos REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS task_priorities (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL, pos REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS task_templates (
+ id TEXT PRIMARY KEY, name TEXT NOT NULL, about TEXT NOT NULL DEFAULT '', title TEXT NOT NULL, checklist TEXT NOT NULL DEFAULT '[]', status TEXT,
+ priority_id TEXT REFERENCES task_priorities(id) ON DELETE SET NULL, labels TEXT NOT NULL DEFAULT '[]', due_days INTEGER,
+ created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS customer_statuses (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL, pos REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS customer_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL, pos REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS customer_sources (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL, pos REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS customer_interactions (
+ id TEXT PRIMARY KEY, customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, user_id TEXT, kind TEXT NOT NULL, summary TEXT NOT NULL,
+ happened_at INTEGER NOT NULL, created_at INTEGER NOT NULL, deleted_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS customer_interactions_customer ON customer_interactions(customer_id,happened_at);
+CREATE TABLE IF NOT EXISTS service_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL, pos REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS services (
+ id TEXT PRIMARY KEY, name TEXT NOT NULL, code TEXT, category_id TEXT REFERENCES service_categories(id) ON DELETE SET NULL, about TEXT NOT NULL DEFAULT '',
+ image TEXT, price REAL, currency TEXT NOT NULL DEFAULT 'VND', unit TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active',
+ created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS service_packages (
+ id TEXT PRIMARY KEY, name TEXT NOT NULL, about TEXT NOT NULL DEFAULT '', price REAL, currency TEXT NOT NULL DEFAULT 'VND', term TEXT NOT NULL DEFAULT '',
+ status TEXT NOT NULL DEFAULT 'active', created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS service_package_items (
+ package_id TEXT NOT NULL REFERENCES service_packages(id) ON DELETE CASCADE, service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+ qty INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(package_id,service_id)
+);
+CREATE TABLE IF NOT EXISTS customer_needs (
+ customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+ added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(customer_id,service_id)
+);
+CREATE INDEX IF NOT EXISTS customer_needs_service ON customer_needs(service_id);
+CREATE TABLE IF NOT EXISTS customer_tags (
+ customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, tag_id TEXT NOT NULL REFERENCES customer_categories(id) ON DELETE CASCADE,
+ created_at INTEGER NOT NULL, PRIMARY KEY(customer_id,tag_id)
+);
+CREATE INDEX IF NOT EXISTS customer_tags_tag ON customer_tags(tag_id);
+CREATE TABLE IF NOT EXISTS quick_notes (
+ id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, body TEXT NOT NULL DEFAULT '', color TEXT NOT NULL DEFAULT 'yellow',
+ open INTEGER NOT NULL DEFAULT 0, x INTEGER, y INTEGER, w INTEGER, h INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS quick_notes_user ON quick_notes(user_id,updated_at);
+CREATE TABLE IF NOT EXISTS notification_templates (
+ id TEXT PRIMARY KEY, name TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', link TEXT NOT NULL DEFAULT '',
+ created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS notification_logs (
+ id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', link TEXT NOT NULL DEFAULT '', audience TEXT NOT NULL,
+ recipients INTEGER NOT NULL, emailed INTEGER NOT NULL DEFAULT 0, template_id TEXT, sent_by TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS notification_logs_at ON notification_logs(created_at);
+CREATE TABLE IF NOT EXISTS support_tickets (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  user_name TEXT NOT NULL,
+  user_email TEXT,
+  message TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS support_tickets_status ON support_tickets(status, created_at);
 `;
-

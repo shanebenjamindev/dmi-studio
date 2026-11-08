@@ -49,7 +49,7 @@ export function GoogleConnect({ open, onClose, onChanged,mode='drive' }: { mode?
         <div className="gc-setup">
           <p className="sheet-lead">Google yêu cầu mỗi ứng dụng có một <b>OAuth Client ID</b> riêng. Chỉ cần làm một lần, miễn phí:</p>
           <ol className="gc-steps">
-            <li>Mở <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">Google Cloud Console</a> và tạo một project (vd. “DM Workspace”).</li>
+            <li>Mở <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">Google Cloud Console</a> và tạo một project (vd. “DMI Workspace”).</li>
             <li>Bật <a href={mode==='mail'?'https://console.cloud.google.com/apis/library/gmail.googleapis.com':'https://console.cloud.google.com/apis/library/drive.googleapis.com'} target="_blank" rel="noreferrer">{mode==='mail'?'Gmail API':'Google Drive API'}</a> cho project đó.</li>
             <li>Vào <a href="https://console.cloud.google.com/auth/branding" target="_blank" rel="noreferrer">OAuth consent screen</a>: chọn <b>Internal</b> nếu chỉ dùng tài khoản công ty (Google Workspace), hoặc <b>External</b> rồi thêm email của bạn vào mục <b>Test users</b>.</li>
             <li>Vào <a href="https://console.cloud.google.com/auth/clients/create" target="_blank" rel="noreferrer">Clients → Create client</a>, chọn loại <b>Web application</b>, thêm vào <b>Authorized redirect URIs</b>:
@@ -62,7 +62,7 @@ export function GoogleConnect({ open, onClose, onChanged,mode='drive' }: { mode?
             <input value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Client secret (GOCSPX-…)" type="password" autoComplete="off" />
             <button className="btn btn-primary btn-sm" disabled={!id.trim() || !secret.trim()} onClick={save}>Lưu</button>
           </div>
-          <p className="note">Khi đăng nhập, Google có thể cảnh báo “ứng dụng chưa được xác minh” vì đây là app riêng của bạn. Bấm <b>Advanced → Go to DM Workspace</b> để tiếp tục. Thông tin đăng nhập được lưu trên máy chủ DM Workspace của bạn, giống các API key khác. Sau khi lưu, trang đăng nhập cũng có nút “Đăng nhập bằng Google” cho người dùng bạn đã thêm.</p>
+          <p className="note">Khi đăng nhập, Google có thể cảnh báo “ứng dụng chưa được xác minh” vì đây là app riêng của bạn. Bấm <b>Advanced → Go to DMI Workspace</b> để tiếp tục. Thông tin đăng nhập được lưu trên máy chủ DMI Workspace của bạn, giống các API key khác. Sau khi lưu, trang đăng nhập cũng có nút “Đăng nhập bằng Google” cho người dùng bạn đã thêm.</p>
         </div>
       ) : (
         <p className="note">OAuth Client ID: {st.clientId.slice(0, 18)}… · <button className="link" onClick={() => setEditing(true)}>Đổi</button></p>

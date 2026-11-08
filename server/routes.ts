@@ -21,6 +21,11 @@ import { registerAdsSummary } from './ads-summary';
 import { registerAds } from './ads';
 import { registerTasks } from './tasks';
 import { registerBoards } from './boards';
+import { registerAdmin } from './admin';
+import { registerCustomerTabs } from './customer-tabs';
+import { registerQuickNotes } from './quick-notes';
+import { registerSearch } from './search';
+import { registerSupport } from './support';
 import { registerSheets, checkSheet, sheetPrompt, ownBrand, EDIT_SYSTEM, EDIT_SCHEMA } from './sheets';
 import { registerSources, driveId, locate, checkSources, sourcePrompt, withSourceLabels, applySources, applyEdit, SOURCE_SCHEMA, FOOTAGE } from './sources';
 
@@ -387,5 +392,10 @@ registerAds(api);
 registerAdsSummary(api);
 registerTasks(api);
 registerBoards(api);
+registerAdmin(api);
+registerCustomerTabs(api);
+registerQuickNotes(api);
+registerSearch(api);
+registerSupport(api);
 
 export { ProviderError };

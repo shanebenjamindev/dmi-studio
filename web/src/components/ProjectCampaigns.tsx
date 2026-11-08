@@ -1,14 +1,118 @@
-import {ProjectMembers} from './ProjectMembers';
-import {BrandLoading} from './BrandLoading';
-import {useEntityRefresh} from './QuickCreate';
-import {useEffect,useState} from 'react';
-import {api} from '../api';import {toast,useStore} from '../store';import {Icon} from './ui';import {TasksPage} from './Tasks';import type {TaskCampaign} from '../types';
-export function ProjectCampaigns({id,name}:{id:string;name:string}){
- const[manage,setManage]=useState(false),[members,setMembers]=useState(false);useEffect(()=>{setManage(false);api.projectMembers(id).then(d=>setManage(d.level==='admin'),()=>{});},[id]);
- const[list,setList]=useState<TaskCampaign[]|null>(null),[selected,setSelected]=useState<TaskCampaign|null>(null),[title,setTitle]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const load=()=>api.projectCampaigns(id).then(rows=>{setList(rows);setError('');},e=>setError(e.message));useEffect(()=>{load();setSelected(null);},[id]);
- useEntityRefresh(()=>{void load();});
- const act=async(fn:()=>Promise<void>)=>{setBusy(true);try{await fn();await load();}catch(e:any){toast(e.message,true);}finally{setBusy(false);}};
- if(selected)return <section><div className="crm-breadcrumb"><button className="bk-link" onClick={()=>{setSelected(null);load();}}>{name}</button><Icon name="right" size={12}/><b>{selected.name}</b></div><TasksPage key={selected.id} initialProject={id} initialCampaign={selected.id} projectName={selected.name}/></section>;
- return <section className="crm-campaigns"><header className="crm-section-heading"><div><span className="crm-eyebrow">DỰ ÁN</span><h2>{name}</h2><p>Quản lý chiến dịch thuộc dự án này.</p></div><div className="crm-section-actions"><span className="crm-count">{list?.length||0} chiến dịch</span><button className="btn btn-gray" onClick={()=>setMembers(true)}><Icon name="users" size={16}/>Thành viên dự án</button></div></header>{error&&<p className="note err">{error}</p>}{manage&&<form className="crm-inline-form" onSubmit={e=>{e.preventDefault();act(async()=>{const c=await api.createCampaign(id,title.trim());setTitle('');setSelected(c);});}}><input className="bk-in" value={title} maxLength={200} placeholder="Tên chiến dịch mới" onChange={e=>setTitle(e.target.value)} required/><button className="btn btn-primary" disabled={busy||!title.trim()}><Icon name="plus" size={14}/>Tạo chiến dịch</button></form>}{list===null?(error?null:<BrandLoading label="Đang tải chiến dịch…"/>):!list.length?<div className="crm-empty"><Icon name="folder" size={30}/><h3>Chưa có chiến dịch</h3><p>Tạo chiến dịch để thêm và giao công việc.</p></div>:<div className="crm-campaign-grid">{list.map(c=><article key={c.id}><button className="crm-campaign-title" onClick={()=>setSelected(c)}><Icon name="activity" size={22}/><b>{c.name}</b><span>{c.tasks} công việc</span></button>{manage&&<div className="crm-campaign-actions"><button className="bk-link" disabled={busy} onClick={()=>{const name=prompt('Tên chiến dịch',c.name);if(name?.trim())act(async()=>{await api.renameCampaign(id,c.id,name.trim());});}}>Đổi tên</button><button className="bk-link" disabled={busy||c.tasks>0} title={c.tasks?'Chuyển công việc sang chiến dịch khác trước khi xoá':undefined} onClick={()=>{if(confirm('Xoá chiến dịch trống này?'))act(async()=>{await api.deleteCampaign(id,c.id);});}}>Xoá</button></div>}</article>)}</div>}{members&&<ProjectMembers id={id} onClose={()=>setMembers(false)} onChanged={()=>{void load();window.dispatchEvent(new Event('dms:entities-changed'));}}/>}</section>;
+import { ProjectMembers } from './ProjectMembers';
+import { useEffect, useState } from 'react';
+import { api } from '../api';
+import { toast } from '../store';
+import { Icon } from './ui';
+import { TasksPage } from './Tasks';
+
+export function ProjectCampaigns({ id, name, displayView = 'list', onRenamed, onDeleted, onBack }: { id: string; name: string; displayView?: 'list' | 'grid' | 'table'; onRenamed?: () => void; onDeleted?: () => void; onBack?: () => void }) {
+  const [manage, setManage] = useState(false), [members, setMembers] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const loadAccess = () => {
+    let active = true;
+    api.projectMembers(id).then((d) => { if (active) setManage(d.level === 'admin'); }, () => {});
+    return () => { active = false; };
+  };
+
+  useEffect(() => {
+    setManage(false);
+    setMembers(false);
+    return loadAccess();
+  }, [id]);
+
+  const act = async (fn: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    try { await fn(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); }
+  };
+
+  return (
+    <section className="project-campaign-shell">
+      <header className="project-compact-header">
+        <div className="project-header-left">
+          {onBack && (
+            <button type="button" className="btn btn-gray btn-sm project-back-btn" onClick={onBack} title="Quay lại danh sách dự án">
+              <Icon name="left" size={14} />
+              <span>Tất cả dự án</span>
+            </button>
+          )}
+          {onBack && <span className="project-header-sep">/</span>}
+          <div className="project-title-badge">
+            <span className="project-folder-ico"><Icon name="folder" size={16} /></span>
+            <h2 title={name}>{name}</h2>
+          </div>
+        </div>
+        <div className="crm-section-actions">
+          <button type="button" className="btn btn-gray btn-sm" onClick={() => setMembers(true)}>
+            <Icon name="users" size={14} />
+            <span>Thành viên dự án</span>
+          </button>
+          {manage && (
+            <>
+              <button
+                type="button"
+                className="btn btn-gray btn-sm"
+                disabled={busy}
+                onClick={() => {
+                  const next = prompt('Tên dự án', name);
+                  if (!next?.trim() || next.trim() === name) return;
+                  void act(async () => {
+                    await api.renameTaskProject(id, next.trim());
+                    onRenamed?.();
+                    window.dispatchEvent(new Event('dms:entities-changed'));
+                  });
+                }}
+              >
+                <Icon name="edit" size={14} />
+                <span>Đổi tên</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm cm-danger"
+                disabled={busy}
+                onClick={async () => {
+                  if (!confirm(`Xoá dự án “${name}”? Các công việc được giữ lại và gỡ khỏi dự án.`)) return;
+                  setBusy(true);
+                  try {
+                    await api.deleteTaskProject(id);
+                    toast(`Đã xoá dự án “${name}”.`);
+                    onDeleted?.();
+                    window.dispatchEvent(new Event('dms:entities-changed'));
+                  } catch (e: any) {
+                    toast(e.message, true);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <Icon name="trash" size={14} />
+                <span>Xoá dự án</span>
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      <div className="project-campaign-detail">
+        <TasksPage
+          embedded
+          key={id}
+          initialProject={id}
+          projectName={name}
+          forcedView={displayView === 'table' ? 'table' : undefined}
+        />
+      </div>
+      {members && (
+        <ProjectMembers
+          id={id}
+          onClose={() => setMembers(false)}
+          onChanged={() => {
+            loadAccess();
+            window.dispatchEvent(new Event('dms:entities-changed'));
+          }}
+        />
+      )}
+    </section>
+  );
 }

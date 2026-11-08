@@ -9,8 +9,9 @@ import {EntitySelect,useEntityRefresh} from './QuickCreate';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { toast } from '../store';
-import { Icon } from './ui';
-import type { AdAccount, Report, ReportData, ReportItem, ReportKV, ReportShot, ReportVideo } from '../types';
+import { Icon, Segmented } from './ui';
+import { setDriveView, useDriveView } from '../driveView';
+import type { AdAccount, Report, ReportData, ReportDriveFolder, ReportItem, ReportKV, ReportShot, ReportVideo } from '../types';
 
 const two = (n: number) => String(n).padStart(2, '0');
 const day = (ms: number) => { const d = new Date(ms); return `${two(d.getHours())}:${two(d.getMinutes())} · ${two(d.getDate())}/${two(d.getMonth() + 1)}`; };
@@ -444,51 +445,31 @@ function MetaSection({ r, up, flush, onTaken, onBusy }: { r: Report; up: (fn: (d
 const durLabel = (s: number | null) => s && isFinite(s) ? `${Math.floor(s / 60)}:${two(Math.round(s % 60))}` : '';
 const driveIdFromUrl = (url: string) => url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=\w+&)?id=)([\w-]{20,})/)?.[1] || '';
 
+/** Videos come from Drive through a picker: nothing is listed until it opens, and then one folder at a time. */
 function VideoLibrarySection({ r, folderLink, targetIndex, onTargetChange, flush, onLinked }: {
   r: Report; folderLink: string; targetIndex: number | null; onTargetChange: (idx: number | null) => void; flush: () => Promise<boolean>; onLinked: (x: Report) => void;
 }) {
-  const [q, setQ] = useState('');
-  const [inFolder, setInFolder] = useState(false);
-  const [videos, setVideos] = useState<ReportVideo[] | null>(null);
-  const [warnings, setWarnings] = useState<string[]>([]);
-  const [err, setErr] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
   const [linking, setLinking] = useState(false);
-  const [picked, setPicked] = useState<Record<string, ReportVideo>>({});
-
-  const load = async (query = q, onlyFolder = inFolder) => {
-    setLoading(true); setErr('');
-    try {
-      const res = await api.reportVideoLibrary(r.id, query.trim(), onlyFolder ? folderLink.trim() : '');
-      setVideos(res.videos); setWarnings(res.warnings || []);
-    } catch (e: any) {
-      setVideos([]); setErr(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { load('', false); }, [r.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const linkedIds = new Set(r.data.creatives.items.map((c) => driveIdFromUrl(c.url)).filter(Boolean));
-  const selectedList = Object.values(picked);
 
   const linkItems = async (list: ReportVideo[], toIndex: number | null) => {
-    if (!list.length) return;
+    if (!list.length) return false;
     setLinking(true);
     try {
-      if (!await flush()) return;
+      if (!await flush()) return false;
       const res = await api.linkReportVideos(r.id, list.map((v) => ({ id: v.id, account: v.account })), toIndex);
       onLinked(res);
-      setPicked({});
       if (toIndex !== null) {
         toast(`Đã liên kết “${list[0].name}” vào Video ${two(toIndex + 1)}.`);
         onTargetChange(null);
       } else {
         toast(res.added ? `Đã liên kết thêm ${res.added} video vào báo cáo.` : 'Các video đã chọn đều có sẵn trong báo cáo.');
       }
+      return true;
     } catch (e: any) {
       toast(e.message, true);
+      return false;
     } finally {
       setLinking(false);
     }
@@ -497,7 +478,7 @@ function VideoLibrarySection({ r, folderLink, targetIndex, onTargetChange, flush
   return (
     <div className="rp-sub rp-vlib">
       <div className="rp-sub-h">
-        <span className="rp-label"><b>Tìm & liên kết video từ Google Drive</b> (tải danh sách video, tìm theo tên và bấm liên kết)</span>
+        <span className="rp-label"><b>Video từ Google Drive</b> (mở Drive, vào thư mục và chọn video)</span>
         <select className="rp-vlib-target" value={targetIndex === null ? '' : String(targetIndex)} onChange={(e) => onTargetChange(e.target.value === '' ? null : Number(e.target.value))} aria-label="Chế độ liên kết video">
           <option value="">+ Thêm thành mục video mới</option>
           {r.data.creatives.items.map((c, idx) => (
@@ -505,59 +486,105 @@ function VideoLibrarySection({ r, folderLink, targetIndex, onTargetChange, flush
           ))}
         </select>
       </div>
-      <form className="rp-take" onSubmit={(e) => { e.preventDefault(); load(q, inFolder); }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nhập tên video cần tìm trên Drive (để trống để tải video mới nhất)…" aria-label="Tìm video trên Drive" />
-        {folderLink.trim() && (
-          <label className="rp-check rp-vlib-scope" title="Chỉ tìm trong thư mục Drive đã điền ở trên">
-            <input type="checkbox" checked={inFolder} onChange={(e) => { setInFolder(e.target.checked); load(q, e.target.checked); }} />Trong thư mục
-          </label>
-        )}
-        <button type="submit" className="btn btn-primary btn-sm" disabled={loading}>
-          <Icon name="search" size={13} />{loading ? 'Đang tải…' : 'Tìm / Tải video'}
-        </button>
-      </form>
-      {warnings.map((w) => <p key={w} className="note warn">{w}</p>)}
-      {err ? <p className="note err">{err}</p> : videos === null || loading ? <p className="rp-note">Đang tải danh sách video từ Google Drive…</p> : !videos.length ? (
-        <p className="rp-note">Không tìm thấy video nào khớp{q ? ` với “${q}”` : ''}. Hãy thử từ khoá khác hoặc bấm “Tìm / Tải video”.</p>
-      ) : (
-        <>
-          <div className="rp-vlib-bar">
-            <span className="rp-note">Tìm thấy <b>{videos.length}</b> video{targetIndex !== null ? ` · Đang chọn video để gắn vào Video ${two(targetIndex + 1)}` : ''}</span>
-            {targetIndex === null && selectedList.length > 0 && (
-              <button type="button" className="btn btn-primary btn-sm" disabled={linking} onClick={() => linkItems(selectedList, null)}>
-                <Icon name="plus" size={13} />{linking ? 'Đang liên kết…' : `Liên kết ${selectedList.length} video đã chọn`}
-              </button>
-            )}
-          </div>
-          <div className="rp-vlib-list" role="list">
-            {videos.map((v) => {
-              const isLinked = linkedIds.has(v.id);
-              const isChecked = !!picked[v.id];
-              return (
-                <div key={v.id} className={'rp-vlib-item' + (isLinked ? ' linked' : '') + (isChecked ? ' checked' : '')} role="listitem">
-                  {targetIndex === null && (
-                    <input type="checkbox" checked={isChecked} onChange={(e) => setPicked((cur) => { const next = { ...cur }; if (e.target.checked) next[v.id] = v; else delete next[v.id]; return next; })} aria-label={`Chọn ${v.name}`} />
-                  )}
-                  <div className="rp-vlib-thumb">
-                    <img src={v.thumb} alt="" loading="lazy" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
-                    {durLabel(v.seconds) && <span>{durLabel(v.seconds)}</span>}
-                  </div>
-                  <div className="rp-vlib-meta">
-                    <b title={v.name}>{v.name}</b>
-                    <small>{v.account} · <a href={v.url} target="_blank" rel="noreferrer">Xem trên Drive ↗</a></small>
-                  </div>
-                  <button type="button" className={'btn btn-sm ' + (targetIndex !== null ? 'btn-primary' : isLinked ? 'btn-gray' : 'btn-primary')}
-                    disabled={linking || (targetIndex === null && isLinked)}
-                    onClick={() => linkItems([v], targetIndex)}>
-                    {targetIndex !== null ? `Gắn vào Video ${two(targetIndex + 1)}` : isLinked ? 'Đã liên kết' : 'Liên kết'}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+      <button type="button" className="btn btn-primary btn-sm rp-vlib-open" disabled={linking} onClick={() => setOpen(true)}>
+        <Icon name="folder" size={14} />{targetIndex !== null ? `Chọn video cho Video ${two(targetIndex + 1)} từ Drive` : 'Chọn video từ Drive'}
+      </button>
+      {open && <DriveVideoPicker r={r} folderLink={folderLink} single={targetIndex !== null} linkedIds={linkedIds} busy={linking}
+        title={targetIndex !== null ? `Chọn video cho Video ${two(targetIndex + 1)}` : 'Chọn video từ Google Drive'}
+        onClose={() => setOpen(false)} onPick={async (list) => { if (await linkItems(list, targetIndex)) setOpen(false); }} />}
     </div>
+  );
+}
+
+/** Drive in a popup: the connected accounts' drives on the side, one folder's sub-folders and videos in the middle (it
+ *  starts in the report's video folder when it has one), and a search by name across Drive when asked. */
+function DriveVideoPicker({ r, folderLink, single, linkedIds, busy, title, onClose, onPick }: {
+  r: Report; folderLink: string; single: boolean; linkedIds: Set<string>; busy: boolean; title: string; onClose: () => void; onPick: (list: ReportVideo[]) => void;
+}) {
+  const [places, setPlaces] = useState<NonNullable<ReportDriveFolder['places']>>([]);
+  const [folder, setFolder] = useState<ReportDriveFolder | null>(null);
+  const [found, setFound] = useState<ReportVideo[] | null>(null);
+  const [q, setQ] = useState('');
+  const view = useDriveView();
+  const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [picked, setPicked] = useState<Record<string, ReportVideo>>({});
+  const dialog = useRef<HTMLDialogElement>(null);
+
+  const go = async (at: { account?: string; id?: string; folder?: string; places?: boolean }) => {
+    setLoading(true); setErr(''); setFound(null);
+    try { const f = await api.reportDriveBrowse(r.id, at); if (f.places) setPlaces(f.places); setFolder(f); }
+    catch (e: any) { setErr(e.message); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { dialog.current?.showModal(); void go({ folder: folderLink.trim() || undefined, places: true }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const search = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!q.trim()) { setFound(null); return; }
+    setLoading(true); setErr('');
+    try { setFound((await api.reportVideoLibrary(r.id, q.trim())).videos); }
+    catch (x: any) { setErr(x.message); }
+    finally { setLoading(false); }
+  };
+  const toggle = (v: ReportVideo) => setPicked((cur) => { const next = { ...cur }; if (next[v.id]) delete next[v.id]; else next[v.id] = v; return next; });
+  const chosen = Object.values(picked), videos = found ?? folder?.videos ?? [];
+
+  return (
+    <dialog ref={dialog} className="sheet wide rp-picker" onClose={onClose} onCancel={onClose} onClick={(e) => { if (e.target === dialog.current) onClose(); }}>
+      <div className="sheet-in">
+        <header className="sheet-h"><h2>{title}</h2><button className="bd-icon close" onClick={onClose} aria-label="Đóng"><Icon name="x" size={16} /></button></header>
+        <div className="rp-picker-body">
+          <nav className="rp-picker-places" aria-label="Drive">
+            {places.map((p) => (
+              <button key={p.account + p.id} className={folder?.account === p.account && folder.crumbs[0]?.name === p.label ? 'on' : ''} onClick={() => go({ account: p.account, id: p.id })}>
+                <Icon name="folder" size={15} /><span><b>{p.label}</b><small>{p.account}</small></span>
+              </button>
+            ))}
+          </nav>
+          <section className="rp-picker-main">
+            <form className="rp-take" onSubmit={search}>
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm video theo tên trên Drive…" aria-label="Tìm video theo tên" />
+              <button className="btn btn-gray btn-sm" disabled={loading}><Icon name="search" size={13} />Tìm</button>
+              <Segmented small value={view} onChange={setDriveView} ariaLabel="Kiểu xem mặc định của Drive"
+                options={[['grid', <span key="g" className="dv-seg" title="Dạng lưới"><Icon name="grid" size={15} /></span>], ['list', <span key="l" className="dv-seg" title="Dạng danh sách"><Icon name="list" size={15} /></span>]]} />
+            </form>
+            {found ? (
+              <p className="rp-picker-crumbs"><button className="link" onClick={() => { setFound(null); setQ(''); }}><Icon name="left" size={12} />Quay lại thư mục</button><span>Kết quả cho “{q}”</span></p>
+            ) : folder && (
+              <p className="rp-picker-crumbs">{folder.crumbs.map((c, i) => (
+                <span key={c.id}>{i > 0 && <i>›</i>}{i < folder.crumbs.length - 1 ? <button className="link" onClick={() => go({ account: folder.account, id: c.id })}>{c.name}</button> : <b>{c.name}</b>}</span>
+              ))}</p>
+            )}
+            {err ? <p className="note err" role="alert">{err}</p> : loading ? <BrandLoading label="Đang mở Drive…" compact /> : (
+              <div className={'rp-picker-list' + (view === 'grid' ? ' grid' : '')}>
+                {!found && folder?.dirs.map((d) => (
+                  <button key={d.id} className="rp-picker-dir" onClick={() => go({ account: folder.account, id: d.id })}><Icon name="folder" size={18} /><span>{d.name}</span><Icon name="right" size={14} /></button>
+                ))}
+                {videos.map((v) => {
+                  const isLinked = linkedIds.has(v.id), isChecked = !!picked[v.id];
+                  return (
+                    <div key={v.id} className={'rp-vlib-item' + (isLinked ? ' linked' : '') + (isChecked ? ' checked' : '')}>
+                      {!single && <input type="checkbox" checked={isChecked} disabled={isLinked} onChange={() => toggle(v)} aria-label={`Chọn ${v.name}`} />}
+                      <div className="rp-vlib-thumb">
+                        <img src={v.thumb} alt="" loading="lazy" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+                        {durLabel(v.seconds) && <span>{durLabel(v.seconds)}</span>}
+                      </div>
+                      <div className="rp-vlib-meta"><b title={v.name}>{v.name}</b><small><a href={v.url} target="_blank" rel="noreferrer">Xem trên Drive ↗</a></small></div>
+                      {single ? <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => onPick([v])}>Chọn</button>
+                        : isLinked ? <span className="rp-note">Đã liên kết</span> : null}
+                    </div>
+                  );
+                })}
+                {!videos.length && !(folder?.dirs.length && !found) && <p className="rp-note">{found ? `Không có video nào tên có “${q}”.` : 'Thư mục này không có video.'}</p>}
+              </div>
+            )}
+          </section>
+        </div>
+        {!single && <footer className="sheet-f"><span className="rp-note">{chosen.length ? `Đã chọn ${chosen.length} video` : 'Tích các video muốn liên kết'}</span>
+          <button className="btn btn-gray" onClick={onClose}>Huỷ</button>
+          <button className="btn btn-primary" disabled={busy || !chosen.length} onClick={() => onPick(chosen)}>{busy ? 'Đang liên kết…' : `Liên kết ${chosen.length || ''} video`}</button></footer>}
+      </div>
+    </dialog>
   );
 }
 

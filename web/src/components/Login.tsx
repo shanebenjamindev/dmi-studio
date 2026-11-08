@@ -39,7 +39,7 @@ export function LoginPage() {
       <form className="login-card" onSubmit={submit}>
         <img src="/brand/logo.png" alt="Detailers Movement" className="login-logo" />
         <h1>Đăng nhập</h1>
-        <p>DM Workspace · Workspace khách hàng</p>
+        <p>DMI Workspace · Workspace khách hàng</p>
         {input('email', 'Email', 'email', 'username')}
         {input('password', 'Mật khẩu', 'password', 'current-password')}
         {captcha?.required && captcha.siteKey && <Turnstile siteKey={captcha.siteKey} resetKey={resetKey} onToken={setToken} onError={setErr} />}

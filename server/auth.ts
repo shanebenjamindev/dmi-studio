@@ -1,15 +1,17 @@
 import {requireProject} from './project-access';
 import {customerLevel,requireCustomer} from './customer-access';
-// DM Workspace accounts: email + password (or "Sign in with Google" for an email an admin has added),
+// DMI Workspace accounts: email + password (or "Sign in with Google" for an email an admin has added),
 // cookie sessions, and admin-only user management. The first visitor creates the admin account.
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import type http from 'node:http';
-import { Router, HttpError, json, readJson, publicOrigin, type Req, type Res } from './http';
+import { Router, HttpError, json, readJson, publicOrigin, pathOf, type Req, type Res } from './http';
 import { all, get, run, uid, now, getSetting, setSetting } from './db';
 import * as G from './google';
 import { turnstileConfig, verifyTurnstile } from './turnstile';
 import { ACCOUNT_PREFS } from '../shared/account-prefs';
+import { accessOf, accessOut, syncSuperAdmin } from './rbac';
+import { audit, logLogin, clientIp, clientAgent } from './audit';
 
 export type Role = 'admin' | 'member';
 /** `team_role`: the person's department (phòng ban); `dept_role`: their role in it, whose level (`dept_level`) says what
@@ -31,7 +33,7 @@ const ROLES: Role[] = ['admin', 'member'];
 
 // ---------------------------------------------------------------- passwords & sessions
 const scrypt = promisify(crypto.scrypt);
-async function hashPass(pw: string) {
+export async function hashPass(pw: string) {
   const salt = crypto.randomBytes(16);
   return `s1$${salt.toString('hex')}$${((await scrypt(pw, salt, 64)) as Buffer).toString('hex')}`;
 }
@@ -47,7 +49,7 @@ const tokenId = (t: string) => crypto.createHash('sha256').update(t).digest('hex
 const secure = (req: http.IncomingMessage) => (publicOrigin(req).startsWith('https:') ? '; Secure' : '');
 async function startSession(req: http.IncomingMessage, res: Res, u: User) {
   const token = crypto.randomBytes(32).toString('base64url');
-  await run('INSERT INTO sessions(id, user_id, created_at, expires_at) VALUES(?,?,?,?)', tokenId(token), u.id, now(), now() + TTL);
+  await run('INSERT INTO sessions(id, user_id, created_at, expires_at, ip, agent) VALUES(?,?,?,?,?,?)', tokenId(token), u.id, now(), now() + TTL, clientIp(req), clientAgent(req));
   await run('UPDATE users SET last_login=? WHERE id=?', now(), u.id);
   await run('DELETE FROM sessions WHERE expires_at < ?', now());
   res.setHeader('set-cookie', `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${TTL / 1000}${secure(req)}`);
@@ -74,13 +76,13 @@ const ADMIN: [string, RegExp][] = [
 // Members browse, upload and keep links/notes; creating, renaming and deleting folders, customers and files is for
 // company admins and the admins of a department (a role at the 'admin' level).
 const MANAGE: [string, RegExp][] = [
-['DELETE', /^\/api\/customers\/[^/]+$/], ['PUT', /^\/api\/customers\/[^/]+\/folder$/],
+['DELETE', /^\/api\/customers\/[^/]+$/], ['PUT', /^\/api\/customers\/[^/]+\/folder$/], ['DELETE', /^\/api\/customers\/[^/]+\/folder$/],
   ['POST', /^\/api\/customers\/[^/]+\/folders$/], ['PUT', /^\/api\/customers\/[^/]+\/folders\//], ['DELETE', /^\/api\/customers\/[^/]+\/folders\//],
   ['DELETE', /^\/api\/customers\/[^/]+\/(videos|files)\//], ['POST', /^\/api\/workspace\/folders$/],
 ];
 // A view-only role changes nothing in the tool pages (looking through folders to pick one is not a change).
 const VIEW_ONLY_OK = /^\/api\/workspace\/browse$/;
-const matches = (list: [string, RegExp][], req: Req) => list.some(([m, r]) => (m === '*' || m === req.method) && r.test(req.path));
+const matches = (list: [string, RegExp][], req: Req) => list.some(([m, r]) => (m === '*' || m === req.method) && r.test(pathOf(req)));
 // ---------------------------------------------------------------- pages each role may open
 // Admins always reach every page. A member with a company role (Media Execute…) opens the pages of that role; one
 // without opens the pages set for members. Set in Quản trị and enforced on the API as well. The Workspace boards are
@@ -107,23 +109,46 @@ const PAGE_OF: [RegExp, Page[]][] = [
   [/^\/api\/(projects|sheets|sources|proxies|capcut|outro|ai|jobs|renders|templates|editor-link)(\/|$)/, ['editor']],
   [/^\/api\/ads\//, ['ads']],
 ];
+/** The Khách hàng page's own records (list, record, members, projects, tasks, history) need no page: everyone sees the
+ *  customers they work on (someone given a task of a customer finds it there), each as far as its own access goes. Its
+ *  Drive folder and files, and adding or importing customers, stay with Drive. */
+const CRM: [string, RegExp][] = [
+  ['*', /^\/api\/customers\/(directory|all|statuses|classifications|sources|managers|bulk-delete)$/],
+  ['*', /^\/api\/customers\/[^/]+\/(record|members|projects|tasks|history)(\/|$)/], ['DELETE', /^\/api\/customers\/[^/]+$/],
+];
+
+/** Company-admin endpoints that a role may also be given (Phân quyền): departments and their positions (org.*), and
+ *  the pages people in no department open (settings.update). The rest stay with Super Admins (company admins). */
+const DELEGATED: [RegExp, Record<string, string>][] = [
+  [/^\/api\/(roles|positions)(\/|$)/, { POST: 'org.create', PUT: 'org.update', DELETE: 'org.delete' }],
+  [/^\/api\/access$/, { PUT: 'settings.update' }],
+];
+async function delegated(req: Req, u: User) {
+  const perm = DELEGATED.find(([r]) => r.test(pathOf(req)))?.[1][req.method || ''];
+  return !!perm && (await accessOf(u)).perms.has(perm);
+}
 
 /** Throws unless the request may proceed; returns the signed-in user (null for public endpoints). */
 export async function guard(req: Req): Promise<User | null> {
-  if (PUBLIC.some((r) => r.test(req.path))) return await currentUser(req);
+  if (PUBLIC.some((r) => r.test(pathOf(req)))) return await currentUser(req);
   const u = await currentUser(req);
   if (!u) throw new HttpError(401, 'Hãy đăng nhập');
-  const customerMatch=req.path.match(/^\/api\/customers\/(c_[^/]+)(?:\/|$)/);
+  // Customers made from a card on a board have ids starting cust_.
+  const customerMatch=pathOf(req).match(/^\/api\/customers\/((?:c|cust)_[^/]+)(?:\/|$)/);
   let scopedCustomer:string|null=customerMatch?decodeURIComponent(customerMatch[1]):null;
-  const reportMatch=req.path.match(/^\/api\/reports\/(r_[^/]+)(?:\/|$)/);
-  const projectMatch=req.path.match(/^\/api\/(?:projects|task-projects)\/([^/]+)(?:\/|$)/);
-  const taskMatch=req.path.match(/^\/api\/tasks\/(tk_[^/]+)(?:\/|$)/);
+  const reportMatch=pathOf(req).match(/^\/api\/reports\/(r_[^/]+)(?:\/|$)/);
+  const projectMatch=pathOf(req).match(/^\/api\/(?:projects|task-projects)\/([^/]+)(?:\/|$)/);
+  const actualProjectMatch=projectMatch&&projectMatch[1]!=='bulk-delete'?projectMatch:null;
+  const taskMatch=pathOf(req).match(/^\/api\/tasks\/(tk_[^/]+)(?:\/|$)/);
   if(reportMatch)scopedCustomer=(await get<any>('SELECT customer_id FROM reports WHERE id=?',reportMatch[1]))?.customer_id||null;
-  if(projectMatch){const table=req.path.startsWith('/api/task-projects/')?'task_projects':'projects';scopedCustomer=(await get<any>(`SELECT customer_id FROM ${table} WHERE id=?`,projectMatch[1]))?.customer_id||null;}
+  if(actualProjectMatch){const table=pathOf(req).startsWith('/api/task-projects/')?'task_projects':'projects';scopedCustomer=(await get<any>(`SELECT customer_id FROM ${table} WHERE id=?`,actualProjectMatch[1]))?.customer_id||null;}
   if(taskMatch)scopedCustomer=(await get<any>('SELECT p.customer_id FROM tasks t JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',taskMatch[1]))?.customer_id||null;
-  if(req.path.startsWith('/api/task-projects/')&&projectMatch)await requireProject(u.id,projectMatch[1],req.method==='GET'?'observer':'normal');
-  if(taskMatch){const task=await get<any>('SELECT project_id FROM tasks WHERE id=?',taskMatch[1]);if(task?.project_id)await requireProject(u.id,task.project_id,req.method==='GET'||req.path.endsWith('/reveal')?'observer':'normal');}
-  if(taskMatch){
+  if(pathOf(req).startsWith('/api/task-projects/')&&actualProjectMatch)await requireProject(u.id,actualProjectMatch[1],req.method==='GET'?'observer':'normal');
+  const taskRow=taskMatch?await get<any>('SELECT project_id FROM tasks WHERE id=?',taskMatch[1]):null;
+  if(taskRow?.project_id)await requireProject(u.id,taskRow.project_id,req.method==='GET'||pathOf(req).endsWith('/reveal')?'observer':'normal');
+  // A task of a project is the project's people's (checked above), wherever its card is; a task of no project linked to
+  // a card on someone's board is for that board's people and the task's own.
+  if(taskMatch&&!taskRow?.project_id){
     const linked=await get<any>('SELECT b.created_by,b.id board_id FROM task_board_links l JOIN board_cards c ON c.id=l.card_id JOIN boards b ON b.id=c.board_id WHERE l.task_id=?',taskMatch[1]);
     if(linked&&linked.created_by!==u.id&&!await get('SELECT 1 FROM board_members WHERE board_id=? AND user_id=?',linked.board_id,u.id)){
       const own=await get('SELECT 1 FROM task_people p WHERE p.user_id=? AND (p.id IN(SELECT person_id FROM task_assignees WHERE task_id=?) OR p.id=(SELECT created_by FROM tasks WHERE id=?))',u.id,taskMatch[1],taskMatch[1])||req.method==='GET'&&await get('SELECT 1 FROM task_followers WHERE task_id=? AND user_id=?',taskMatch[1],u.id);
@@ -131,16 +156,16 @@ export async function guard(req: Req): Promise<User | null> {
     }
   }
   if(scopedCustomer){
-    const need=req.method==='GET'||req.path.endsWith('/reveal')?'observer':'normal';
+    const need=req.method==='GET'||pathOf(req).endsWith('/reveal')?'observer':'normal';
     const level=await requireCustomer(u.id,scopedCustomer,need);
     if(customerMatch&&matches(MANAGE,req)&&level!=='admin')throw new HttpError(403,'Chỉ chủ hoặc người quản lý khách hàng được thao tác');
   }
   if (u.role === 'admin') return u;
-  if (matches(ADMIN, req)) throw new HttpError(403, 'Chỉ quản trị viên mới làm được việc này');
-  const page = PAGE_OF.find(([r]) => r.test(req.path))?.[1];
+  if (matches(ADMIN, req) && !await delegated(req, u)) throw new HttpError(403, 'Chỉ quản trị viên mới làm được việc này');
+  const crm = matches(CRM, req), page = crm ? undefined : PAGE_OF.find(([r]) => r.test(pathOf(req)))?.[1];
   if (page) { const mine = await pagesOf(u); if (!page.some((p) => mine.includes(p))) throw new HttpError(403, 'Tài khoản của bạn chưa được cấp quyền vào trang này'); }
   if (matches(MANAGE, req) && !(scopedCustomer&&await customerLevel(u.id,scopedCustomer)==='admin') && deptLevel(u) !== 'admin') throw new HttpError(403, 'Chỉ quản trị viên hoặc admin của phòng mới làm được việc này');
-  if (page && req.method !== 'GET' && deptLevel(u) === 'observer' && !VIEW_ONLY_OK.test(req.path)) throw new HttpError(403, 'Role của bạn trong phòng chỉ được xem');
+  if ((page || crm) && req.method !== 'GET' && deptLevel(u) === 'observer' && !VIEW_ONLY_OK.test(pathOf(req))) throw new HttpError(403, 'Role của bạn trong phòng chỉ được xem');
   return u;
 }
 
@@ -149,15 +174,16 @@ export const userOut = (u: User) => ({
   id: u.id, email: u.email, name: u.name, role: u.role, disabled: !!u.disabled, hasPassword: !!u.pass, lastLogin: u.last_login, createdAt: u.created_at,
   teamRole: u.team_role || null, deptRole: u.team_role && u.dept_level ? u.dept_role || null : null, deptRoleName: u.dept_role_name || null,
   level: u.role === 'admin' ? 'admin' : deptLevel(u),
+  phone: (u as any).phone || '', avatarAt: (u as any).avatar_at || null,
 });
 /** A department id from a request (null to clear); it must exist. */
-async function teamRoleOf(x: any) {
+export async function teamRoleOf(x: any) {
   if (!x) return null;
   if (!(await get('SELECT id FROM team_roles WHERE id = ?', String(x)))) throw new HttpError(404, 'Không tìm thấy phòng ban');
   return String(x);
 }
 /** A role of department `team` from a request; with none given (or a new department), the department's first member role. */
-async function deptRoleOf(team: string | null, x: any) {
+export async function deptRoleOf(team: string | null, x: any) {
   if (!team) return null;
   if (x) {
     if (!(await get('SELECT id FROM dept_roles WHERE id = ? AND team_role_id = ?', String(x), team))) throw new HttpError(404, 'Không tìm thấy role này trong phòng ban');
@@ -165,10 +191,10 @@ async function deptRoleOf(team: string | null, x: any) {
   }
   return (await get<any>("SELECT id FROM dept_roles WHERE team_role_id = ? ORDER BY level = 'normal' DESC, pos LIMIT 1", team))?.id || null;
 }
-const normEmail = (e: any) => String(e || '').trim().toLowerCase();
-function validEmail(e: string) { if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new HttpError(400, 'Email không hợp lệ'); return e; }
+export const normEmail = (e: any) => String(e || '').trim().toLowerCase();
+export function validEmail(e: string) { if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new HttpError(400, 'Email không hợp lệ'); return e; }
 /** The email an admin sets for someone's notifications is theirs at once (no code to confirm); empty stops the mail. */
-async function setNotifyEmail(userId: string, value: unknown) {
+export async function setNotifyEmail(userId: string, value: unknown) {
   if (value === undefined) return;
   const email = normEmail(value);
   if (!email) { await run('UPDATE notification_preferences SET email = NULL, verified_at = NULL, enabled = 0, updated_at = ? WHERE user_id = ?', now(), userId); return; }
@@ -181,11 +207,11 @@ async function prefsOf(userId: string): Promise<Record<string, string> | null> {
   const row = await get<any>('SELECT data FROM user_prefs WHERE user_id = ?', userId);
   try { return row ? JSON.parse(row.data) : null; } catch { return null; }
 }
-const notifyEmails = async () => new Map((await all<any>('SELECT user_id, email FROM notification_preferences WHERE email IS NOT NULL AND verified_at IS NOT NULL')).map((r) => [r.user_id, r.email as string]));
-function validPass(p: any) { const s = String(p || ''); if (s.length < 8) throw new HttpError(400, 'Mật khẩu cần ít nhất 8 ký tự'); return s; }
+export const notifyEmails = async () => new Map((await all<any>('SELECT user_id, email FROM notification_preferences WHERE email IS NOT NULL AND verified_at IS NOT NULL')).map((r) => [r.user_id, r.email as string]));
+export function validPass(p: any) { const s = String(p || ''); if (s.length < 8) throw new HttpError(400, 'Mật khẩu cần ít nhất 8 ký tự'); return s; }
 const userCount = async () => (await get<any>('SELECT COUNT(*) n FROM users'))?.n || 0;
 const activeAdmins = async () => (await get<any>("SELECT COUNT(*) n FROM users WHERE role='admin' AND disabled=0"))?.n || 0;
-async function mustUser(id: string) {
+export async function mustUser(id: string) {
   const u = await get<User>(`${USER_SQL} WHERE u.id = ?`, id);
   if (!u) throw new HttpError(404, 'Không tìm thấy người dùng');
   return u;
@@ -213,7 +239,7 @@ export function registerAuth(api: Router) {
   api.get('/api/auth/me', async (req, res) => {
     const u = await currentUser(req);
     const c = await G.oauthConfig();
-    json(res, 200, { user: u ? userOut(u) : null, pages: u ? await pagesOf(u) : [], prefs: u ? await prefsOf(u.id) : null, setup: await userCount() === 0, setupCode: !!process.env.SETUP_CODE, google: !!(c.clientId && c.clientSecret) });
+    json(res, 200, { user: u ? userOut(u) : null, pages: u ? await pagesOf(u) : [], admin: u ? accessOut(await accessOf(u)) : null, prefs: u ? await prefsOf(u.id) : null, setup: await userCount() === 0, setupCode: !!process.env.SETUP_CODE, google: !!(c.clientId && c.clientSecret) });
   });
   // Merges into the account's interface choices; null forgets one.
   api.put('/api/auth/prefs', async (req, res) => {
@@ -221,7 +247,9 @@ export function registerAuth(api: Router) {
     if (!user) throw new HttpError(401, 'Hãy đăng nhập lại');
     const body = await readJson(req), prefs = await prefsOf(user.id) || {};
     for (const [k, v] of Object.entries(body)) {
-      if (!ACCOUNT_PREFS.includes(k) || (v !== null && (typeof v !== 'string' || v.length > 20000))) throw new HttpError(400, 'Tuỳ chọn giao diện không hợp lệ');
+      // A choice no longer kept with the account (an older page still open sends it) is left out.
+      if (!ACCOUNT_PREFS.includes(k)) { delete prefs[k]; continue; }
+      if (v !== null && (typeof v !== 'string' || v.length > 20000)) throw new HttpError(400, 'Tuỳ chọn giao diện không hợp lệ');
       if (v === null) delete prefs[k]; else prefs[k] = v;
     }
     await run('INSERT INTO user_prefs(user_id, data) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET data = excluded.data', user.id, JSON.stringify(prefs));
@@ -233,7 +261,7 @@ export function registerAuth(api: Router) {
     if(user.disabled&&viewer.role!=='admin')throw new HttpError(404,'Không tìm thấy người dùng');
     const department=user.team_role?await get<any>('SELECT id,name,color FROM team_roles WHERE id=?',user.team_role):null;
     const own=viewer.id===user.id;
-    json(res,200,{id:user.id,name:user.name,department:department||null,position:user.dept_role_name||null,canEdit:own,...(own?{email:user.email,role:user.role,level:user.role==='admin'?'admin':deptLevel(user),createdAt:user.created_at}:{})});
+    json(res,200,{id:user.id,name:user.name,avatarAt:(user as any).avatar_at||null,phone:(user as any).phone||'',department:department||null,position:user.dept_role_name||null,canEdit:own,...(own?{email:user.email,role:user.role,level:user.role==='admin'?'admin':deptLevel(user),createdAt:user.created_at}:{})});
   });
   api.put('/api/auth/profile', async (req,res) => {
     const user=await currentUser(req);
@@ -241,8 +269,38 @@ export function registerAuth(api: Router) {
     const body=await readJson(req);
     const name=typeof body.name==='string'?body.name.trim():'';
     if(!name||name.length>120) throw new HttpError(400,'Họ tên cần từ 1 đến 120 ký tự');
+    if(body.phone!==undefined){
+      const phone=typeof body.phone==='string'?body.phone.trim():'';
+      if(phone.length>40||(phone&&!/^[+\d][\d\s().-]*$/.test(phone))) throw new HttpError(400,'Số điện thoại không hợp lệ');
+      await run('UPDATE users SET phone=? WHERE id=?',phone||null,user.id);
+    }
     await run('UPDATE users SET name=?, updated_at=? WHERE id=?',name,now(),user.id);
     json(res,200,userOut(await mustUser(user.id)));
+  });
+  // Everyone sets their own picture (PNG, JPEG, WebP or GIF, up to 300 KB, kept in the database).
+  api.put('/api/auth/avatar', async (req,res) => {
+    const user=await currentUser(req);
+    if(!user) throw new HttpError(401,'Hãy đăng nhập để đổi ảnh đại diện');
+    const m=String((await readJson(req)).dataUrl||'').match(/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/);
+    if(!m) throw new HttpError(400,'Ảnh đại diện phải là PNG, JPEG, WebP hoặc GIF');
+    if(Buffer.from(m[2],'base64').length>300*1024) throw new HttpError(413,'Ảnh đại diện tối đa 300 KB');
+    const at=now();
+    await run('INSERT INTO user_avatars(user_id, mime, data, updated_at) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET mime = excluded.mime, data = excluded.data, updated_at = excluded.updated_at',user.id,m[1],m[2],at);
+    await run('UPDATE users SET avatar_at=? WHERE id=?',at,user.id);
+    json(res,200,userOut(await mustUser(user.id)));
+  });
+  api.delete('/api/auth/avatar', async (req,res) => {
+    const user=await currentUser(req);
+    if(!user) throw new HttpError(401,'Hãy đăng nhập để xoá ảnh đại diện');
+    await run('DELETE FROM user_avatars WHERE user_id=?',user.id);
+    await run('UPDATE users SET avatar_at=NULL WHERE id=?',user.id);
+    json(res,200,userOut(await mustUser(user.id)));
+  });
+  // Who has a picture (and since when), so every avatar in the app can show it.
+  api.get('/api/avatars', async (req,res) => {
+    if(!await currentUser(req)) throw new HttpError(401,'Hãy đăng nhập');
+    const rows=await all<any>('SELECT id, avatar_at FROM users WHERE avatar_at IS NOT NULL');
+    json(res,200,Object.fromEntries(rows.map(r=>[r.id,r.avatar_at])));
   });
   // Which pages each role may open (members' list is editable by admins; at least one page stays open).
   api.get('/api/access', async (_req, res) => json(res, 200, await pageAccess()));
@@ -253,7 +311,7 @@ export function registerAuth(api: Router) {
     await setSetting('page_access', { member });
     json(res, 200, await pageAccess());
   });
-  // First run only: whoever opens DM Workspace first creates the admin account.
+  // First run only: whoever opens DMI Workspace first creates the admin account.
   api.post('/api/auth/setup', async (req, res) => {
     if (await userCount() > 0) throw new HttpError(409, 'Đã có tài khoản quản trị, hãy đăng nhập');
     const b = await readJson(req);
@@ -269,6 +327,8 @@ export function registerAuth(api: Router) {
     const created = await run('INSERT INTO users(id, email, name, role, pass, created_at, updated_at) SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM users)', id, email, name, 'admin', await hashPass(validPass(b.password)), now(), now());
     if (!created.changes) throw new HttpError(409, 'Đã có tài khoản quản trị, hãy đăng nhập');
     const u = await mustUser(id);
+    await syncSuperAdmin(u.id, true, null);
+    await logLogin(req, { user: u, email, ok: true, method: 'setup' });
     await startSession(req, res, u);
     json(res, 201, { user: userOut(u) });
   });
@@ -276,12 +336,14 @@ export function registerAuth(api: Router) {
     const b = await readJson(req);
     await verifyTurnstile(req, b.turnstileToken, 'login');
     const email = normEmail(b.email), key = `${email}|${req.socket.remoteAddress}`;
-    await throttle(key);
+    try { await throttle(key); }
+    catch (e) { await logLogin(req, { email, ok: false, method: 'password', reason: 'Tạm khoá do sai nhiều lần' }); throw e; }
     const u = await get<User>(`${USER_SQL} WHERE u.email = ?`, email);
     const ok = !!u && await checkPass(String(b.password || ''), u.pass);
     await throttle(key, !ok);
-    if (!ok) throw new HttpError(401, u && !u.pass ? 'Tài khoản này đăng nhập bằng Google' : 'Sai email hoặc mật khẩu');
-    if (u!.disabled) throw new HttpError(403, 'Tài khoản đã bị khoá, hãy liên hệ quản trị viên');
+    if (!ok) { await logLogin(req, { user: u, email, ok: false, method: 'password', reason: !u ? 'Email chưa có tài khoản' : !u.pass ? 'Tài khoản đăng nhập bằng Google' : 'Sai mật khẩu' }); throw new HttpError(401, u && !u.pass ? 'Tài khoản này đăng nhập bằng Google' : 'Sai email hoặc mật khẩu'); }
+    if (u!.disabled) { await logLogin(req, { user: u, email, ok: false, method: 'password', reason: 'Tài khoản đã bị khoá' }); throw new HttpError(403, 'Tài khoản đã bị khoá, hãy liên hệ quản trị viên'); }
+    await logLogin(req, { user: u, email, ok: true, method: 'password' });
     await startSession(req, res, u!);
     json(res, 200, { user: userOut(u!) });
   });
@@ -313,6 +375,11 @@ export function registerAuth(api: Router) {
     const pass = b.password ? await hashPass(validPass(b.password)) : null;
     const id = uid('u_'), team = await teamRoleOf(b.teamRole);
     await run('INSERT INTO users(id, email, name, role, pass, team_role, dept_role, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?)', id, email, String(b.name || '').trim() || email.split('@')[0], role, pass, team, await deptRoleOf(team, b.deptRole), now(), now());
+    if (role === 'admin') {
+      const me = (await currentUser(req))!;
+      await syncSuperAdmin(id, true, me.id);
+      await audit({ kind: 'permission', action: 'Cấp vai trò Super Admin', user: me, req, entityType: 'user', entityId: id, entityLabel: email, after: { roles: ['Super Admin'] } });
+    }
     await setNotifyEmail(id, b.notifyEmail);
     json(res, 201, userOut(await mustUser(id)));
   });
@@ -334,6 +401,10 @@ export function registerAuth(api: Router) {
     const dept = b.deptRole !== undefined || team !== u.team_role ? await deptRoleOf(team, b.deptRole) : u.dept_role || null;
     await run('UPDATE users SET email=?, name=?, role=?, disabled=?, pass=?, team_role=?, dept_role=?, updated_at=? WHERE id=?',
       email, b.name !== undefined ? String(b.name).trim() || u.name : u.name, role, disabled, pass, team, dept, now(), u.id);
+    if (role !== u.role) {
+      await syncSuperAdmin(u.id, role === 'admin', me.id);
+      await audit({ kind: 'permission', action: role === 'admin' ? 'Cấp vai trò Super Admin' : 'Thu hồi vai trò Super Admin', user: me, req, entityType: 'user', entityId: u.id, entityLabel: u.name, before: { role: u.role }, after: { role } });
+    }
     // A new password, a lock or a lower role takes effect immediately on every device.
     if (b.password || disabled || role !== u.role) await run('DELETE FROM sessions WHERE user_id = ?', u.id);
     await setNotifyEmail(u.id, b.notifyEmail);
@@ -352,7 +423,8 @@ export function registerAuth(api: Router) {
 /** Google sent the user back after "Sign in with Google": start a session if an admin has added that email. */
 export async function finishGoogleSignin(req: http.IncomingMessage, res: Res, email: string) {
   const u = await get<User>(`${USER_SQL} WHERE u.email = ?`, email);
-  if (!u) throw new HttpError(403, `${email} chưa được cấp quyền vào DM Workspace. Hãy nhờ quản trị viên thêm email này.`);
-  if (u.disabled) throw new HttpError(403, 'Tài khoản đã bị khoá, hãy liên hệ quản trị viên');
+  if (!u) { await logLogin(req, { email, ok: false, method: 'google', reason: 'Email chưa có tài khoản' }); throw new HttpError(403, `${email} chưa được cấp quyền vào DMI Workspace. Hãy nhờ quản trị viên thêm email này.`); }
+  if (u.disabled) { await logLogin(req, { user: u, email, ok: false, method: 'google', reason: 'Tài khoản đã bị khoá' }); throw new HttpError(403, 'Tài khoản đã bị khoá, hãy liên hệ quản trị viên'); }
+  await logLogin(req, { user: u, email, ok: true, method: 'google' });
   await startSession(req, res, u);
 }

@@ -8,7 +8,7 @@ import { CardPop, type PopKind } from './CardModal';
 import { COLOR } from './boardkit';
 import type { Board, BoardCard, CardDetail, User } from '../types';
 
-export const VIEW_NAMES = { board: 'Board', table: 'Bảng', calendar: 'Lịch', dashboard: 'Tổng quan', timeline: 'Dòng thời gian' };
+export const VIEW_NAMES = { board: 'Board', table: 'Danh sách', calendar: 'Lịch', dashboard: 'Tổng quan', timeline: 'Dòng thời gian' };
 export type BoardViewKind = keyof typeof VIEW_NAMES;
 
 export function QuickCard({ id, rect, board, me, onClose, onOpen, onChanged }: { id: string; rect: DOMRect; board: Board; me: User; onClose: () => void; onOpen: () => void; onChanged: () => void }) {
@@ -19,6 +19,7 @@ export function QuickCard({ id, rect, board, me, onClose, onOpen, onChanged }: {
   useEffect(() => { let active = true; api.card(id).then((c) => { if (active) { setCard(c); setTitle(c.title); } }, (e) => { toast(e.message, true); onClose(); }); return () => { active = false; }; }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key); }, [onClose]);
   const edit = board.level !== 'observer';
+  const canDelete = edit && card && (me.role === 'admin' || (card.createdBy ? card.createdBy === me.id : board.level === 'admin'));
   const act = async (fn: () => Promise<unknown>) => {
     setPending(true);
     try { await fn(); setCard(await api.card(id)); onChanged(); return true; }
@@ -37,8 +38,14 @@ export function QuickCard({ id, rect, board, me, onClose, onOpen, onChanged }: {
         <button onClick={onOpen}><Icon name="boards" size={16} />Mở thẻ</button>
         {edit && (['labels', 'members', 'cover', 'dates', 'move', 'copy'] as PopKind[]).map((kind, i) => <button key={kind} disabled={!card || pending} onClick={(e) => setPop({ kind, el: e.currentTarget })}><Icon name={['tag', 'user', 'cover', 'clock', 'arrow', 'copy'][i]} size={16} />{['Sửa nhãn', 'Đổi thành viên', 'Đổi ảnh bìa', 'Sửa ngày', 'Di chuyển', 'Sao chép thẻ'][i]}</button>)}
         <button onClick={async () => { try { await navigator.clipboard.writeText(`${location.href.split('#')[0]}#boards/${board.id}/c/${id}`); toast('Đã sao chép liên kết'); } catch { toast('Không sao chép được liên kết', true); } }}><Icon name="share" size={16} />Sao chép liên kết</button>
-        {edit && card && (card.createdBy ? card.createdBy === me.id : board.level === 'admin') && <button disabled={pending} onClick={async () => { if (await act(() => api.updateCard(id, { archived: true }))) onClose(); }}><Icon name="archive" size={16} />Lưu trữ</button>}
-        <button onClick={onClose}><Icon name="x" size={16} />Đóng</button>
+        {canDelete && <button disabled={pending} onClick={async () => { if (await act(() => api.updateCard(id, { archived: true }))) onClose(); }}><Icon name="archive" size={16} />Lưu trữ</button>}
+        {canDelete && <button className="bq-delete" disabled={pending} onClick={async () => {
+          if (!confirm('Xoá hẳn thẻ này? Không khôi phục được.')) return;
+          setPending(true);
+          try { await api.deleteCard(id); onChanged(); onClose(); }
+          catch (e: any) { toast(e.message, true); }
+          finally { setPending(false); }
+        }}><Icon name="x" size={16} />Xoá thẻ</button>}
       </nav>
     </section>
     {pop && card && <CardPop key={pop.kind} pop={pop} card={card} board={board} me={me} edit={edit} setPop={setPop} act={act} onGone={() => { onChanged(); onClose(); }} />}

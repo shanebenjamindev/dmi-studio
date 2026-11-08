@@ -92,7 +92,7 @@ export function AdsPage() {
         ? <AdsSettingsForm settings={settings} onSaved={(s) => { setSettings(s); readAccounts(true); if (s.metaConnected) setTab('meta'); }} />
         : notConnected
         ? <div className="ad-empty"><Icon name="key" size={22} /><h2>Chưa kết nối Meta Ads</h2>
-            <p>{admin ? 'Dán access token của Meta (quyền ads_read) để DM Workspace đọc số liệu quảng cáo trực tiếp.' : 'Quản trị viên chưa kết nối Meta Ads cho DM Workspace.'}</p>
+            <p>{admin ? 'Dán access token của Meta (quyền ads_read) để DMI Workspace đọc số liệu quảng cáo trực tiếp.' : 'Quản trị viên chưa kết nối Meta Ads cho DMI Workspace.'}</p>
             {admin && <button className="btn btn-primary" onClick={() => setTab('settings')}>Kết nối Meta Ads</button>}</div>
         : accounts === null ? <p className="note ad-pad">Đang đọc tài khoản quảng cáo…</p>
         : err ? <p className="note err ad-pad">{err} <button className="bk-link" onClick={() => readAccounts(true)}>Thử lại</button></p>
@@ -317,7 +317,7 @@ function AdsSettingsForm({ settings, onSaved }: { settings: AdsSettings | null; 
           <li><b>Assign assets</b>: chọn các tài khoản quảng cáo của khách, quyền <b>View performance</b>.</li>
           <li><b>Generate new token</b>: chọn app của công ty, hạn <b>Never</b>, tích quyền <b>ads_read</b>, rồi sao chép token và dán vào ô trên.</li>
         </ol>
-        <p className="note">Token chỉ được lưu trên máy chủ DM Workspace, không hiện lại đầy đủ và không gửi tới trình duyệt của người khác. DM Workspace chỉ đọc số liệu, không sửa quảng cáo.</p>
+        <p className="note">Token chỉ được lưu trên máy chủ DMI Workspace, không hiện lại đầy đủ và không gửi tới trình duyệt của người khác. DMI Workspace chỉ đọc số liệu, không sửa quảng cáo.</p>
       </section>
     </div>
   );

@@ -1,4 +1,4 @@
-// `npm run -s dms -- <lệnh>`: sửa dự án DM Studio từ terminal (và để Claude Code sửa giúp).
+// `npm run -s dms -- <lệnh>`: sửa dự án DMI Studio từ terminal (và để Claude Code sửa giúp).
 // Chỉ gọi REST API của server đang chạy, nên mọi kiểm tra quyền và chuẩn hoá storyboard vẫn do server làm.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -10,7 +10,7 @@ const HOME = path.join(os.homedir(), '.dms');
 const SESSION_FILE = path.join(HOME, 'session.json');
 const BACKUP_DIR = path.join(HOME, 'backups');
 
-const HELP = `DM Studio CLI — server: ${BASE} (đổi bằng DMS_URL)
+const HELP = `DMI Studio CLI — server: ${BASE} (đổi bằng DMS_URL)
 
   login [email]                       Đăng nhập (mật khẩu lấy từ DMS_PASSWORD hoặc hỏi)
   logout

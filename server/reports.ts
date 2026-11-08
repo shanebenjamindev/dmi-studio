@@ -2,8 +2,8 @@ import {customerLevels,requireCustomer,customerAccessSql} from './customer-acces
 // Campaign reports: the page Detailers Movement sends a client once a Meta Ads campaign is set up (budget, ad sets,
 // audience, creatives with their captions, headlines and descriptions) and how it performs (Meta Ads numbers for a
 // period, against the one before, taken from the Marketing API and kept in the report), exported as one self-contained HTML file in the
-// look of the reports made by hand so far (reports/template.css). Every field is edited in DM Workspace; a new report is
-// filled in from what DM Workspace knows: the customer, its logo (cut out for a logo outro), its videos (its projects,
+// look of the reports made by hand so far (reports/template.css). Every field is edited in DMI Workspace; a new report is
+// filled in from what DMI Workspace knows: the customer, its logo (cut out for a logo outro), its videos (its projects,
 // with their Drive links and thumbnails) and the agency's logo.
 import fs from 'node:fs';
 import reportCss from './reports/template-css';
@@ -478,7 +478,7 @@ async function videosFrom(id: string, d: ReportData, link: string) {
   return vids.length;
 }
 
-// ------------------------------------------------------------------ filled in from DM Workspace
+// ------------------------------------------------------------------ filled in from DMI Workspace
 /** "[ADS] FORM YÊU CẦU DỰNG VIDEO | DYNAMIC M DETAIL | CERAMIC COATING" → "Ceramic Coating" (the last part, in Title Case). */
 function serviceOf(sheetTitle: string) {
   const parts = String(sheetTitle || '').split('|').map((x) => x.trim()).filter(Boolean);
@@ -603,6 +603,8 @@ const mustReport = async (id: string) => {
 const out = (r: any, full = true) => ({ id: r.id, title: r.title, customerId: r.customer_id, projectId: r.project_id, createdAt: r.created_at, updatedAt: r.updated_at, ...(full ? { data: clean(JSON.parse(r.data)) } : {}) });
 const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'report';
 
+/** A Drive video as the report's video picker shows it. */
+const videoOut=(reportId:string,account:string,file:G.GFile)=>({id:file.id,account,name:file.name,url:`https://drive.google.com/file/d/${file.id}/view`,seconds:file.videoMediaMetadata?.durationMillis?Number(file.videoMediaMetadata.durationMillis)/1000:null,modifiedAt:file.modifiedTime||'',thumb:`/api/reports/${reportId}/video-thumbnail/${file.id}?account=${encodeURIComponent(account)}`});
 export function registerReports(api: Router) {
   // Report customer choices come only from saved records, without scanning Drive.
   api.get('/api/reports/customers', async (req, res) => {
@@ -720,7 +722,23 @@ export function registerReports(api: Router) {
       found=batches.flat();if(warnings.length===accounts.length)throw new HttpError(502,'Không đọc được Drive. Hãy kết nối lại tài khoản Google.');
     }
     const seen=new Set<string>();
-    json(res,200,{videos:found.filter(({file})=>{if(seen.has(file.id))return false;seen.add(file.id);return true;}).slice(0,150).map(({account,file})=>({id:file.id,account,name:file.name,url:`https://drive.google.com/file/d/${file.id}/view`,seconds:file.videoMediaMetadata?.durationMillis?Number(file.videoMediaMetadata.durationMillis)/1000:null,modifiedAt:file.modifiedTime || '',thumb:`/api/reports/${req.params.id}/video-thumbnail/${file.id}?account=${encodeURIComponent(account)}`})),warnings});
+    json(res,200,{videos:found.filter(({file})=>{if(seen.has(file.id))return false;seen.add(file.id);return true;}).slice(0,150).map(({account,file})=>videoOut(req.params.id,account,file)),warnings});
+  });
+  // The video picker browses Drive one folder at a time: the folder's sub-folders and the videos directly in it (nothing
+  // deeper, nothing before the picker opens). Without a folder: the report's video folder when it has one, else the first
+  // account's My Drive; `places=1` adds the connected accounts' drives for the picker's side list.
+  api.get('/api/reports/:id/drive-browse',async(req,res)=>{
+    await mustReport(req.params.id);
+    const accounts=await G.publicAccounts();if(!accounts.length)throw new HttpError(400,'Chưa kết nối tài khoản Google Drive. Kết nối trong Quản trị trước khi chọn video.');
+    const q=req.query;let account=String(q.get('account')||''),id=String(q.get('id')||'');
+    if(!id&&q.get('folder')){const fid=driveId(String(q.get('folder')));if(fid)try{const l=await locate(fid);if(l.file.mimeType===G.FOLDER_MIME){account=l.account;id=l.file.id;}}catch{/* not reachable: start at My Drive */}}
+    if(!id){account=accounts[0].email;id='root';}
+    if(!accounts.some(a=>a.email===account))throw new HttpError(400,'Tài khoản Google này chưa được kết nối');
+    const places=q.get('places')==='1'?(await pool(accounts,2,async(a)=>[{account:a.email,id:'root',label:'My Drive'},...(await G.sharedDrives(a.email).catch(()=>[])).map(d=>({account:a.email,id:d.id,label:d.name}))])).flat():undefined;
+    const chain=await G.crumbs(account,id),here=chain[chain.length-1];
+    const [dirs,media]=await Promise.all([G.listFoldersDeep(account,here.id),G.listMediaIn(account,[here.id])]);
+    json(res,200,{places,account,id:here.id,crumbs:chain,dirs:dirs.map(d=>({id:d.id,name:d.name})).sort((a,b)=>a.name.localeCompare(b.name,'vi',{numeric:true})),
+      videos:media.filter(f=>f.mimeType.startsWith('video/')).sort((a,b)=>String(b.modifiedTime||'').localeCompare(String(a.modifiedTime||''))).map(f=>videoOut(req.params.id,account,f))});
   });
   api.get('/api/reports/:id/video-thumbnail/:file',async(req,res)=>{
     await mustReport(req.params.id);const account=String(req.query.get('account')||'');

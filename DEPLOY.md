@@ -1,4 +1,4 @@
-# DM Workspace trên Cloudflare Workers + D1
+# DMI Workspace trên Cloudflare Workers + D1
 
 App: https://dmi-workspace.detailersmovement.workers.dev
 

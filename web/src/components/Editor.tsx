@@ -405,7 +405,7 @@ function CapcutExport({ open, onClose }: { open: boolean; onClose: () => void })
   const project = useStore((s) => s.project)!;
   const [run, setRun] = useState<Run | null>(null);
   const [err, setErr] = useState('');
-  // CapCut's projects folder on the machine running DM Workspace ('' when it has no CapCut): projects can go straight in.
+  // CapCut's projects folder on the machine running DMI Workspace ('' when it has no CapCut): projects can go straight in.
   const [drafts, setDrafts] = useState('');
   const timer = useRef<any>(0);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -454,7 +454,7 @@ function CapcutExport({ open, onClose }: { open: boolean; onClose: () => void })
         <p className="sheet-lead">Tạo một dự án CapCut với {clips} clip đúng thứ tự, điểm vào/ra như trên timeline. Mỗi clip được cắt từ file gốc trên Drive, giữ nguyên độ phân giải, có thêm 2 giây đệm mỗi đầu để chỉnh tiếp trong CapCut.</p>
         {drafts
           ? <p className="note">“Đưa vào CapCut” chép dự án thẳng vào CapCut trên máy này (<code>{drafts}</code>), nằm trong tài khoản CapCut đang đăng nhập ở đây. “Tải .zip” để mang sang máy khác.</p>
-          : <p className="note">Máy chạy DM Workspace không có CapCut, nên dự án được tải về dạng .zip.</p>}
+          : <p className="note">Máy chạy DMI Workspace không có CapCut, nên dự án được tải về dạng .zip.</p>}
         <p className="note">Thời gian tuỳ số clip và mạng, thường vài phút. Bạn có thể đóng cửa sổ này, việc xuất vẫn chạy.</p>
       </>}
       {busy && <div className="export-run">
