@@ -4,10 +4,14 @@ import { api } from '../api';
 import { toast } from '../store';
 import { Icon } from './ui';
 import { TasksPage } from './Tasks';
+import { ProjectEditDialog } from './ProjectEditDialog';
+import type { TaskMeta } from '../types';
 
-export function ProjectCampaigns({ id, name, displayView = 'list', onRenamed, onDeleted, onBack }: { id: string; name: string; displayView?: 'list' | 'grid' | 'table'; onRenamed?: () => void; onDeleted?: () => void; onBack?: () => void }) {
+/** `onEdited`: after Chỉnh sửa dự án saved (name, customer, services or status). */
+export function ProjectCampaigns({ id, name, displayView = 'list', onEdited, onDeleted, onBack }: { id: string; name: string; displayView?: 'list' | 'grid' | 'table'; onEdited?: () => void; onDeleted?: () => void; onBack?: () => void }) {
   const [manage, setManage] = useState(false), [members, setMembers] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<TaskMeta['projects'][number] | null>(null);
 
   const loadAccess = () => {
     let active = true;
@@ -54,18 +58,14 @@ export function ProjectCampaigns({ id, name, displayView = 'list', onRenamed, on
                 type="button"
                 className="btn btn-gray btn-sm"
                 disabled={busy}
-                onClick={() => {
-                  const next = prompt('Tên dự án', name);
-                  if (!next?.trim() || next.trim() === name) return;
-                  void act(async () => {
-                    await api.renameTaskProject(id, next.trim());
-                    onRenamed?.();
-                    window.dispatchEvent(new Event('dms:entities-changed'));
-                  });
-                }}
+                onClick={() => void act(async () => {
+                  const project = (await api.taskMeta()).projects.find((p) => p.id === id);
+                  if (!project) throw new Error('Không tìm thấy dự án này');
+                  setEditing(project);
+                })}
               >
                 <Icon name="edit" size={14} />
-                <span>Đổi tên</span>
+                <span>Sửa</span>
               </button>
               <button
                 type="button"
@@ -113,6 +113,7 @@ export function ProjectCampaigns({ id, name, displayView = 'list', onRenamed, on
           }}
         />
       )}
+      {editing && <ProjectEditDialog project={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); onEdited?.(); window.dispatchEvent(new Event('dms:entities-changed')); }} />}
     </section>
   );
 }

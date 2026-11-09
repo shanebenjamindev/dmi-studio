@@ -309,7 +309,7 @@ export function WorkProjects() {
               id={current.id}
               name={current.name}
               displayView={view}
-              onRenamed={refresh}
+              onEdited={refresh}
               onDeleted={() => { select(null); refresh(); }}
             />
           </>) : <p className="note">Không tìm thấy dự án này.</p>}
