@@ -226,7 +226,7 @@ export function BoardsPage() {
         </Pop>
       )}
       {boardMenu && (
-        <Pop anchor={boardMenu.el} title={boardMenu.b.name} onClose={() => setBoardMenu(null)}>
+        <Pop anchor={boardMenu.el} title={boardMenu.b.name} onClose={() => setBoardMenu(null)} width={340}>
           <div className="bk-menu">
             <button onClick={() => { setBoardMenu(null); go(boardMenu.b.id); }}><Icon name="grid" size={15} />Mở board</button>
             <button onClick={() => { const b = boardMenu.b; setBoardMenu(null); star(b); }}><Icon name="star" size={15} />{boardMenu.b.starred ? 'Bỏ gắn sao' : 'Gắn sao'}</button>
@@ -260,8 +260,10 @@ export function BoardsPage() {
                 </div>
               </>
             )}
-            <hr />
-            <TileSettings key={boardMenu.b.id} b={boardMenu.b} onSaved={() => void load()} />
+          </div>
+          {/* Out of the menu's own button look: these are fields, not menu items. */}
+          <TileSettings key={boardMenu.b.id} b={boardMenu.b} onSaved={() => void load()} />
+          <div className="bk-menu">
             <hr />
             <button className="bk-danger" onClick={() => removeBoard(boardMenu.b)}><Icon name="trash" size={15} />Xoá board</button>
           </div>
@@ -452,7 +454,7 @@ function TileSettings({ b, onSaved }: { b: BoardItem; onSaved: () => void }) {
   const save = async (body: { services?: string[]; customerId?: string | null; view?: BoardViewKind }, undo: () => void) => {
     try { await api.updateBoard(b.id, body); onSaved(); } catch (e: any) { undo(); toast(e.message, true); }
   };
-  return <div className="bk-menu-colors bd-tile-settings">
+  return <div className="bd-tile-settings">
     <h5>Loại board (dịch vụ)</h5>
     <ServicePicker value={services} known={b.services} disabled={!b.canShape}
       onChange={(ids) => { const was = services; setServices(ids); void save({ services: ids }, () => setServices(was)); }} />

@@ -5860,8 +5860,10 @@ div.rt-view:not(.rt-body) [data-mention]:hover, div.rt-view:not(.rt-body) [data-
 .bd-ws-client { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: 0; background: none; color: var(--tint); font: inherit; cursor: pointer; }
 .bd-ws-client:hover { text-decoration: underline; }
 /* A board's type and customer in its tile's menu: the service list opens in place there. */
-.bd-tile-settings { display: flex; flex-direction: column; gap: 6px; }
-.bd-tile-settings h5 { margin: 4px 0 0; }
+.bd-tile-settings { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 0; padding-top: 10px; border-top: 1px solid var(--bd-line); }
+.bd-tile-settings h5 { margin: 4px 0 0; font-size: 12px; font-weight: 600; color: var(--bd-muted); text-transform: none; }
+.bd-tile-settings h5:first-child { margin-top: 0; }
+.bd-tile-settings .bk-in { width: 100%; }
 .bk-pop .svc-menu { position: static; flex-basis: 100%; width: 100%; box-shadow: none; }
 /* A workspace's timeline (WorkspaceViews.tsx): the board timeline, on the home page. */
 .wt { display: flex; flex-direction: column; gap: 10px; }
