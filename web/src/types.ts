@@ -154,8 +154,8 @@ export interface BoardItem {
   people?: { id: string; name: string; avatarAt?: number | null }[];
   /** The customer the board is for (null: none). */
   customerId?: string | null; customerName?: string | null;
-  /** Its type, the view it opens in, and the date it starts (its creation, unless set). */
-  view?: BoardViewKind; startAt?: number | null;
+  /** Its type (the services it is for), the view it opens in, and the date it starts (its creation, unless set). */
+  services?: ServiceRef[]; view?: BoardViewKind; startAt?: number | null;
 }
 export type BoardViewKind = 'board' | 'table' | 'calendar' | 'dashboard' | 'timeline';
 export interface BoardLabel { id: string; name: string; color: string }

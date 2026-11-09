@@ -1512,6 +1512,17 @@ test('a workspace of one\'s own can be for a customer; its boards\' work counts 
   assert.equal((await server.call('PUT',`/api/workspaces/${ws.id}`,{customerId:null},ac)).status,200);
   assert.equal((await find()).customerId,null);
   assert.equal((await server.call('POST','/api/workspaces',{name:'Sai',customerId:'nope'},ac)).status,404);
+  // A board's type is the services it is for; its cards count for them unless their task names its own.
+  const svc=(await server.call('POST','/api/admin/services',{name:'Website'},ac)).data;
+  const typed=(await server.call('POST','/api/boards',{name:'Board website',bg:'ocean',roleId:null,private:true,workspaceId:ws.id,services:[svc.id]},ac)).data;
+  assert.deepEqual(typed.services.map((x)=>x.name),['Website']);
+  assert.deepEqual((await server.call('GET','/api/boards',undefined,ac)).data.find((b)=>b.id===typed.id).services.map((x)=>x.name),['Website']);
+  assert.equal((await server.call('PUT',`/api/workspaces/${ws.id}`,{customerId:one.id},ac)).status,200);
+  const tl=(await server.call('GET',`/api/boards/${typed.id}`,undefined,ac)).data.lists[0];
+  const tc=(await server.call('POST',`/api/lists/${tl.id}/cards`,{title:'Sửa trang chủ'},ac)).data;
+  assert.deepEqual((await server.call('GET',`/api/client-work?workspace=${ws.id}`,undefined,ac)).data.find((x)=>x.id===tc.id).services.map((x)=>x.name),['Website']);
+  assert.equal((await server.call('PUT',`/api/boards/${typed.id}`,{services:[]},ac)).status,200);
+  assert.deepEqual((await server.call('GET',`/api/boards/${typed.id}`,undefined,ac)).data.services,[]);
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 

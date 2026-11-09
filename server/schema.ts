@@ -230,6 +230,11 @@ CREATE TABLE IF NOT EXISTS task_services (
  task_id TEXT NOT NULL, service_id TEXT NOT NULL, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(task_id,service_id)
 );
 CREATE INDEX IF NOT EXISTS task_services_service ON task_services(service_id);
+-- A board's type: the services it is for (its cards' work counts for them unless their task names its own).
+CREATE TABLE IF NOT EXISTS board_services (
+ board_id TEXT NOT NULL, service_id TEXT NOT NULL, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(board_id,service_id)
+);
+CREATE INDEX IF NOT EXISTS board_services_service ON board_services(service_id);
 CREATE TABLE IF NOT EXISTS customer_tags (
  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, tag_id TEXT NOT NULL REFERENCES customer_categories(id) ON DELETE CASCADE,
  created_at INTEGER NOT NULL, PRIMARY KEY(customer_id,tag_id)

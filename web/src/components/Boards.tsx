@@ -17,6 +17,7 @@ import { CardModal } from './CardModal';
 import { TaskPanel } from './Tasks';
 import { QuickCard, BoardAlternative } from './BoardViews';
 import { BoardTypePicker, VIEW_NAMES, VIEW_ICONS, type BoardViewKind } from './BoardType';
+import { ServicePicker } from './ServicePicker';
 import { BoardList, ClientWork, WS_VIEWS, savedWsView, saveWsView, type WsView } from './WorkspaceViews';
 import { COLOR, COLOR_NAME, Avatar, Pop, fileToAvatarDataUrl, activityText, ago, dueState, shortDate, fullDate, dateIn, timeIn } from './boardkit';
 import { AvatarStack } from './AvatarStack';
@@ -361,7 +362,7 @@ function Tiles({ title, icon, list, roles, onOpen, onStar, onMore, onCreate, sma
               <button className="bd-tile-b" onClick={() => onOpen(b.id)}>
                 <b>{b.name}</b>
                 {(role && role.name !== b.name) || b.private || b.level === 'observer'
-                  ? <span>{b.private && <Icon name="lock" size={11} />}{role && role.name !== b.name ? role.name : b.private ? 'Riêng tư' : ''}{b.level === 'observer' ? `${role || b.private ? ' · ' : ''}Chỉ xem` : ''}{b.startAt ? <> · {shortDate(b.startAt)}</> : null}</span> : null}
+                  ? <span>{b.private && <Icon name="lock" size={11} />}{role && role.name !== b.name ? role.name : b.private ? 'Riêng tư' : ''}{b.level === 'observer' ? `${role || b.private ? ' · ' : ''}Chỉ xem` : ''}{b.startAt ? <> · {shortDate(b.startAt)}</> : null}{b.services?.length ? <> · {b.services.map((x) => x.name).join(', ')}</> : null}</span> : null}
               </button>
               {/* Who is on the board: four at most, the rest as +N (all of them on hover). */}
               {!!b.people?.length && <span className="bd-tile-avs" onClick={() => onOpen(b.id)}><AvatarStack people={b.people} max={4} count focusable={false} render={(m) => <Avatar key={m.id} m={m} size={24} />} /></span>}
@@ -378,8 +379,9 @@ function Tiles({ title, icon, list, roles, onOpen, onStar, onMore, onCreate, sma
 
 /** How many shapes the preview of each type draws (columns, rows, days, tiles, bars). */
 const PREVIEW: Record<BoardViewKind, number> = { board: 3, table: 4, calendar: 14, dashboard: 4, timeline: 3 };
-/** Name, background, its type (the view it opens in), the day it starts, workspace, the customer it is for (picked, or
- *  added on the spot), and who sees it: the workspace, one role (company only, members: their own) or only the people added. */
+/** Name, background, its type (the services it is for), the view it opens in, the day it starts, workspace, the customer it
+ *  is for (picked, or added on the spot), and who sees it: the workspace, one role (company only, members: their own) or
+ *  only the people added. */
 function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User; roles: TeamRole[]; spaces: Workspace[]; wsId: string; onClose: () => void; onCreated: (b: BoardItem) => void }) {
   const[ownSpaces,setOwnSpaces]=useState(spaces);
   const targets = ownSpaces.filter((w) => w.level !== 'observer');
@@ -393,7 +395,8 @@ function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User
   useEffect(() => { void loadCustomers(); }, []);
   // In a workspace for a customer, the board starts out for that customer (it can be changed).
   useEffect(() => { const w = ownSpaces.find((x) => x.id === space); if (w?.customerId) setCustomer(w.customerId); }, [space]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Its type (the view it opens in) and the day it starts: now unless changed (emptied: now as well).
+  // Its type (the services it is for), the view it opens in and the day it starts: now unless changed (emptied: now as well).
+  const [services, setServices] = useState<string[]>([]);
   const [type, setType] = useState<BoardViewKind>('board');
   const [start, setStart] = useState(() => `${dateIn(Date.now())}T${timeIn(Date.now())}`);
   const [busy, setBusy] = useState(false);
@@ -402,7 +405,7 @@ function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User
     if (!name.trim() || busy) return;
     setBusy(true);
     const roleId = null, startAt = start ? new Date(start).getTime() : null;
-    try { onCreated(await api.createBoard({ name: name.trim(), bg: b, workspaceId: space, roleId, private: vis === 'private', customerId: customer || null, view: type, startAt: Number.isFinite(startAt) ? startAt : null })); } catch (err: any) { toast(err.message, true); setBusy(false); }
+    try { onCreated(await api.createBoard({ name: name.trim(), bg: b, workspaceId: space, roleId, private: vis === 'private', customerId: customer || null, view: type, startAt: Number.isFinite(startAt) ? startAt : null, services })); } catch (err: any) { toast(err.message, true); setBusy(false); }
   };
   return (
     <div className="bd-modal" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -413,7 +416,9 @@ function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User
         <div className="bd-swatches">{Object.keys(BG).map((k) => <button type="button" key={k} className={k === b ? 'on' : ''} style={{ background: BG[k] }} onClick={() => setB(k)} aria-label={`Nền ${k}`} />)}</div>
         <label className="bd-label" htmlFor="bd-name">Tiêu đề board <em>*</em></label>
         <input id="bd-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Ví dụ: Dynamic M · Black Friday" />
-        <span className="bd-label" id="bd-type">Loại board</span>
+        <span className="bd-label">Loại board (dịch vụ)</span>
+        <ServicePicker value={services} onChange={setServices} />
+        <span className="bd-label" id="bd-type">Dạng xem</span>
         <BoardTypePicker value={type} onChange={setType} labelledBy="bd-type" />
         <label className="bd-label" htmlFor="bd-start">Ngày bắt đầu</label>
         <input id="bd-start" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
@@ -1272,7 +1277,10 @@ function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { 
           {canDelete && <><hr /><button className="bk-danger" onClick={async () => { if (!confirm(`Xoá vĩnh viễn board “${board.name}” cùng mọi danh sách và thẻ?`)) return; try { await api.deleteBoard(board.id); onGone(); } catch (e: any) { toast(e.message, true); } }}><Icon name="trash" size={16} />Xoá board</button></>}
         </div>}
         {view === 'about' && <>
-          <h5 id="bd-about-type">Loại board</h5>
+          <h5>Loại board (dịch vụ)</h5>
+          <ServicePicker value={(board.services || []).map((x) => x.id)} known={board.services} disabled={!canShape}
+            onChange={(ids) => act(() => api.updateBoard(board.id, { services: ids }))} />
+          <h5 id="bd-about-type">Dạng xem mặc định</h5>
           {canShape
             ? <BoardTypePicker value={board.view || 'board'} labelledBy="bd-about-type" onChange={(v) => { mut((x) => { x.view = v; }); act(() => api.updateBoard(board.id, { view: v })); }} />
             : <p className="bd-about">{VIEW_NAMES[board.view || 'board']}</p>}

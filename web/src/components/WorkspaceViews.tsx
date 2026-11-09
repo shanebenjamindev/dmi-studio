@@ -9,7 +9,6 @@ import { openLink, toast } from '../store';
 import { Icon } from './ui';
 import { Avatar, dueState, shortDate } from './boardkit';
 import { BrandLoading } from './BrandLoading';
-import { VIEW_NAMES } from './BoardType';
 import type { Board, BoardItem, ClientCard } from '../types';
 
 export type WsView = 'tiles' | 'list' | 'clients';
@@ -64,14 +63,14 @@ export function BoardList({ boards, bgOf, onOpen, onCard }: { boards: BoardItem[
   const { items, pager } = usePage(sorted, 15, `${sort}${reverse}`);
   if (!boards.length) return <p className="note ws-empty">Workspace này chưa có board nào.</p>;
   return <><div className="ws-table-wrap"><table className="ws-table">
-    <thead><tr>{head('name', 'Board')}{head('client', 'Khách hàng')}<th scope="col">Loại</th>{head('start', 'Ngày bắt đầu')}<th scope="col">Thẻ</th>{head('updated', 'Cập nhật')}</tr></thead>
+    <thead><tr>{head('name', 'Board')}{head('client', 'Khách hàng')}<th scope="col">Loại (dịch vụ)</th>{head('start', 'Ngày bắt đầu')}<th scope="col">Thẻ</th>{head('updated', 'Cập nhật')}</tr></thead>
     <tbody>{items.map((b) => <Fragment key={b.id}>
       <tr className={open.has(b.id) ? 'open' : ''} onClick={() => toggle(b.id)}>
         <th scope="row"><span className="ws-board-cell">
           <button className="tk-fold" aria-expanded={open.has(b.id)} aria-label={open.has(b.id) ? 'Thu gọn' : 'Mở rộng'} onClick={(e) => { e.stopPropagation(); toggle(b.id); }}><Icon name={open.has(b.id) ? 'down' : 'right'} size={12} /></button>
           <button className="ws-board-name" title="Mở board" onClick={(e) => { e.stopPropagation(); onOpen(b.id); }}><i className="ws-bcolor" style={{ background: bgOf(b.bg) }} />{b.name}</button>
         </span></th>
-        <td>{b.customerName || '—'}</td><td>{VIEW_NAMES[b.view || 'board']}</td><td>{day(b.startAt ?? null)}</td><td>{b.taskCount ?? b.cards}</td><td>{shortDate(b.updatedAt)}</td>
+        <td>{b.customerName || '—'}</td><td>{b.services?.map((x) => x.name).join(', ') || '—'}</td><td>{day(b.startAt ?? null)}</td><td>{b.taskCount ?? b.cards}</td><td>{shortDate(b.updatedAt)}</td>
       </tr>
       {open.has(b.id) && <tr className="ws-sub"><td colSpan={6}><BoardTree id={b.id} stamp={b.updatedAt} onCard={(cardId) => onCard(b.id, cardId)} /></td></tr>}
     </Fragment>)}</tbody>

@@ -9,6 +9,13 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-09-4',
+    date: '09/11/2026',
+    items: [
+      { kind: 'new', vi: 'Loại board giờ là loại dịch vụ (Google Ads, Meta Ads, Website…): chọn khi tạo board hoặc ở menu board › Về board này. Thẻ trên board tính vào dịch vụ đó ở Dashboard, trừ khi công việc của thẻ đã chọn dịch vụ riêng. Ô chọn cách mở board đổi tên thành “Dạng xem”.', en: 'A board’s type is now its service (Google Ads, Meta Ads, Website…): pick it when creating the board or in the board menu › About this board. On the Dashboard its cards count for that service unless their task names its own. The picker for how a board opens is now called “View”.' },
+    ],
+  },
+  {
     id: '2026-11-09-3',
     date: '09/11/2026',
     items: [

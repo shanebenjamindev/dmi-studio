@@ -23,6 +23,7 @@ import type { Req } from './http';
 import { all, get, run, uid, now } from './db';
 import { assertLinkedTaskEditable, syncCardToTask, cardDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
 import { statusKey } from './taskimport';
+import { boardServices, saveBoardServices, serviceIds } from './project-services';
 import { notifyPeople } from './notifications';
 import { currentUser, PAGES, pagesOf, deptLevel, USER_SQL, type Level } from './auth';
 import { customerFile, clientCustomers } from './workspace';
@@ -272,7 +273,7 @@ async function dropBoards(where: string, ...args: any[]) {
   const boards = await all<any>(`SELECT id FROM boards WHERE ${where}`, ...args);
   for (const b of boards) {
     await dropCards('board_id = ?', b.id);
-    for (const t of ['board_lists', 'board_stars', 'board_backgrounds', 'board_labels', 'board_activity', 'board_members']) await run(`DELETE FROM ${t} WHERE board_id = ?`, b.id);
+    for (const t of ['board_lists', 'board_stars', 'board_backgrounds', 'board_labels', 'board_activity', 'board_members', 'board_services']) await run(`DELETE FROM ${t} WHERE board_id = ?`, b.id);
     await run('DELETE FROM boards WHERE id = ?', b.id);
   }
 }
@@ -558,7 +559,8 @@ export function registerBoards(api: Router) {
     const added = new Map<string, string[]>();
     for (const r of await all<any>('SELECT board_id, user_id FROM board_members ORDER BY created_at')) added.set(r.board_id, [...(added.get(r.board_id) || []), r.user_id]);
     const people = (b: any) => [...new Set([b.created_by, ...(added.get(b.id) || [])])].map((id) => users.get(id)).filter(Boolean);
-    json(res, 200, rows.map((b) => [b, level(b)] as const).filter(([, l]) => l).map(([b, l]) => ({ ...boardOut(b, stars.has(b.id), b.cards, l), people: people(b) })));
+    const svc = await boardServices();
+    json(res, 200, rows.map((b) => [b, level(b)] as const).filter(([, l]) => l).map(([b, l]) => ({ ...boardOut(b, stars.has(b.id), b.cards, l), people: people(b), services: svc.get(b.id) || [] })));
   });
   /** A workspace boards may go to: the company's (null) or one this account edits in. */
   const workspaceFor = async (req: Req, id: any) => (id && id !== COMPANY ? (await mustWorkspace(req, String(id), 'normal')).id as string : null);
@@ -582,6 +584,7 @@ export function registerBoards(api: Router) {
   api.post('/api/boards', async (req, res) => {
     const u = await me(req), b = await readJson(req);
     const roleId = b.roleId ? String(b.roleId) : null, ws = await workspaceFor(req, b.workspaceId), customer = await customerFor(req, b.customerId);
+    const services = b.services !== undefined ? await serviceIds(b.services) : [];
     if (!ws && wsLevel(u, null) === 'observer') throw new HttpError(403, 'Role của bạn trong phòng chỉ được xem, không tạo được board');
     if (roleId) { if (ws) throw new HttpError(400, ROLE_IN_COMPANY); await checkRole(req, roleId); }
     const id = await newBoard(text(b.name, 80, 'tên board'), BGS.includes(b.bg) ? b.bg : 'ocean', roleId, u.id,
@@ -589,7 +592,9 @@ export function registerBoards(api: Router) {
     if (customer) await run('UPDATE boards SET customer_id = ? WHERE id = ?', customer, id);
     // No date given: it starts now.
     await run('UPDATE boards SET view = ?, start_at = ? WHERE id = ?', viewIn(b.view), startIn(b.startAt) ?? now(), id);
-    json(res, 201, boardOut(await get(`${WITH_CUSTOMER} WHERE b.id = ?`, id), false, 0, 'admin'));
+    // Its type: the services it is for.
+    if (services.length) await saveBoardServices(id, services, u.id);
+    json(res, 201, { ...boardOut(await get(`${WITH_CUSTOMER} WHERE b.id = ?`, id), false, 0, 'admin'), services: (await boardServices([id])).get(id) || [] });
   });
   api.get('/api/boards/:id', async (req, res) => {
     const u = await me(req), b = await mustBoard(req, req.params.id, 'viewer');
@@ -604,18 +609,18 @@ export function registerBoards(api: Router) {
     ]);
     b.task_count = taskCountRow?.n || 0;
     json(res, 200, {
-      ...boardOut(b, !!starredRow, cards.length), about: b.about || '',
+      ...boardOut(b, !!starredRow, cards.length), about: b.about || '', services: (await boardServices([b.id])).get(b.id) || [],
       labels,
       members,
       lists: lists.map((l) => ({ id: l.id, name: l.name, folded: !!l.folded, color: l.color || null, cards: cards.filter((c) => c.listId === l.id) })),
     });
   });
-  // Name, background, how labels show, the description, its type and the date it starts: whoever may change the board. Who sees it (role, private,
+  // Name, background, how labels show, the description, its type (services), view and start date: whoever may change the board. Who sees it (role, private,
   // workspace), the customer it is for and whether its editors may change or share it: its managers.
   api.put('/api/boards/:id', async (req, res) => {
     const bd = await mustBoard(req, req.params.id), b = await readJson(req), u = await me(req);
-    if (['name', 'bg', 'about', 'labelText', 'view', 'startAt'].some((k) => b[k] !== undefined) && !shapes(bd)) throw new HttpError(403, NO_SHAPE);
-    const start = b.startAt !== undefined ? startIn(b.startAt) ?? bd.created_at : undefined;
+    if (['name', 'bg', 'about', 'labelText', 'view', 'startAt', 'services'].some((k) => b[k] !== undefined) && !shapes(bd)) throw new HttpError(403, NO_SHAPE);
+    const start = b.startAt !== undefined ? startIn(b.startAt) ?? bd.created_at : undefined, services = b.services !== undefined ? await serviceIds(b.services) : undefined;
     let roleId = bd.role_id, priv = 1, ws = bd.workspace_id || null;
     if ((b.memberEdit !== undefined || b.editorShare !== undefined || b.customerId !== undefined) && bd.level !== 'admin') throw new HttpError(403, DENIED.admin);
     if (b.customerId !== undefined && (b.customerId || null) !== (bd.customer_id || null)) {
@@ -638,6 +643,7 @@ export function registerBoards(api: Router) {
     }
     if (b.view !== undefined) await run('UPDATE boards SET view = ? WHERE id = ?', viewIn(b.view), bd.id);
     if (start !== undefined) await run('UPDATE boards SET start_at = ? WHERE id = ?', start, bd.id);
+    if (services) await saveBoardServices(bd.id, services, u.id);
     await run('UPDATE boards SET name = ?, bg = ?, role_id = ?, private = ?, workspace_id = ?, about = ?, member_edit = ?, label_text = ?, updated_at = ? WHERE id = ?', b.name !== undefined ? text(b.name, 80, 'tên board') : bd.name,
       b.bg !== undefined && BGS.includes(b.bg) ? b.bg : bd.bg, roleId, priv, ws, b.about !== undefined ? long(b.about, 4000) : bd.about,
       b.memberEdit !== undefined ? (b.memberEdit ? 1 : 0) : bd.member_edit || 0, b.labelText !== undefined ? (b.labelText ? 1 : 0) : bd.label_text || 0, now(), bd.id);
@@ -1513,6 +1519,7 @@ export function registerBoards(api: Router) {
     const person = (r: any) => ({ id: r.id, name: r.name, avatarAt: r.avatar_at ?? null });
     const byLabel = of(labels, 'card_id', ids, (r) => ({ name: r.name || '', color: r.color })), byPerson = of(people, 'card_id', ids, person), byAssignee = of(assignees, 'task_id', tasks, person);
     const byService = of(services, 'task_id', tasks, (r) => ({ id: r.id, name: r.name }));
+    const ofBoard = await boardServices([...boards.keys()]);
     // Where the work stands: finished (or called off), late, under way, or not started.
     const stage = (done: boolean, due: number | null, status: string) => {
       const k = statusKey(status || '');
@@ -1523,7 +1530,7 @@ export function registerBoards(api: Router) {
         const b = boards.get(c.board_id);
         return { id: c.id, cardId: c.id, taskId: c.task_id || null, parentTaskId: c.parent_id || null, title: c.title, boardId: b.id, boardName: b.name, boardBg: bgOf(b), listName: c.list, listPos: c.list_pos,
           stage: stage(!!c.done, c.due_at ?? null, c.list), done: !!c.done, startAt: c.start_at ?? null, dueAt: c.due_at ?? null, updatedAt: c.updated_at, customerId: c.customer_id, customerName: c.customer_name,
-          labels: byLabel.get(c.id) || [], members: byPerson.get(c.id) || [], services: c.task_id ? byService.get(c.task_id) || [] : [] };
+          labels: byLabel.get(c.id) || [], members: byPerson.get(c.id) || [], services: (c.task_id && byService.get(c.task_id)) || ofBoard.get(c.board_id) || [] };
       }),
       ...loose.map((t) => {
         const k = customerOf.get(t.id)!, st = stage(!!t.done_at, t.due_at ?? null, t.status);
