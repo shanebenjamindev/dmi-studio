@@ -1,7 +1,7 @@
 import {beginLoading} from './loading';
 import type { AdsService, AdsSummary } from '../../shared/ads-summary';
 // Typed client for the DMI Workspace REST API.
-import type { QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Outro, OutroOpts, Status, Project, ProjectItem, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, DriveFile, Source, Picked, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page, EditorLink } from './types';
+import type { QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardViewKind, ClientCard, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Outro, OutroOpts, Status, Project, ProjectItem, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, DriveFile, Source, Picked, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page, EditorLink } from './types';
 
 /** Called when the session has ended (401) so the app can show the sign-in page. */
 export const auth = { onSignedOut: () => {} };
@@ -84,8 +84,8 @@ export const api = {
   deletePosition: (id: string) => req('DELETE', `/api/positions/${id}`),
   boards: () => req<BoardItem[]>('GET', '/api/boards'),
   board: (id: string) => req<Board>('GET', `/api/boards/${id}`),
-  createBoard: (b: { name: string; bg: string; roleId: string | null; workspaceId?: string; private?: boolean; lists?: string[]; customerId?: string | null }) => req<BoardItem>('POST', '/api/boards', b),
-  updateBoard: (id: string, b: Partial<{ name: string; bg: string; roleId: string | null; private: boolean; workspaceId: string; about: string; memberEdit: boolean; labelText: boolean; customerId: string | null }>) => req('PUT', `/api/boards/${id}`, b),
+  createBoard: (b: { name: string; bg: string; roleId: string | null; workspaceId?: string; private?: boolean; lists?: string[]; customerId?: string | null; view?: BoardViewKind; startAt?: number | null }) => req<BoardItem>('POST', '/api/boards', b),
+  updateBoard: (id: string, b: Partial<{ name: string; bg: string; roleId: string | null; private: boolean; workspaceId: string; about: string; memberEdit: boolean; labelText: boolean; customerId: string | null; view: BoardViewKind; startAt: number | null }>) => req('PUT', `/api/boards/${id}`, b),
   boardMembers: (id: string) => req<{ members: BoardMember[]; people: Person[] }>('GET', `/api/boards/${id}/members`),
   setBoardMember: (id: string, userId: string, level: Level) => req<{ members: BoardMember[] }>('PUT', `/api/boards/${id}/members/${userId}`, { level }),
   removeBoardMember: (id: string, userId: string) => req<{ members: BoardMember[] }>('DELETE', `/api/boards/${id}/members/${userId}`),
@@ -136,6 +136,7 @@ export const api = {
   deleteAttachment: (id: string) => req('DELETE', `/api/attachments/${id}`),
   addCardFiles: (cardId: string, keys: string[]) => req<{ added: number }>('POST', `/api/cards/${cardId}/files`, { keys }),
   boardCustomers: () => req<{ id: string; name: string }[]>('GET', '/api/boards-customers'),
+  clientWork: (workspaceId: string) => req<ClientCard[]>('GET', `/api/client-work?workspace=${encodeURIComponent(workspaceId)}`),
   customerTasks: (customerId?: string) => req<CustomerTask[]>('GET', '/api/customer-tasks' + (customerId ? `?customer=${encodeURIComponent(customerId)}` : '')),
   inbox: () => req<InboxItem[]>('GET', '/api/inbox'),
   addInbox: (title: string, top = false) => req<InboxItem>('POST', '/api/inbox', { title, top }),

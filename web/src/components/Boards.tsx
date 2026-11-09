@@ -14,8 +14,11 @@ import { remember } from '../prefs';
 import { useStore, toast } from '../store';
 import { Icon } from './ui';
 import { CardModal } from './CardModal';
-import { QuickCard, BoardAlternative, VIEW_NAMES, type BoardViewKind } from './BoardViews';
-import { COLOR, COLOR_NAME, Avatar, Pop, fileToAvatarDataUrl, activityText, ago, dueState, shortDate } from './boardkit';
+import { TaskPanel } from './Tasks';
+import { QuickCard, BoardAlternative } from './BoardViews';
+import { BoardTypePicker, VIEW_NAMES, VIEW_ICONS, type BoardViewKind } from './BoardType';
+import { BoardList, ClientWork, WS_VIEWS, savedWsView, saveWsView, type WsView } from './WorkspaceViews';
+import { COLOR, COLOR_NAME, Avatar, Pop, fileToAvatarDataUrl, activityText, ago, dueState, shortDate, fullDate, dateIn, timeIn } from './boardkit';
 import { AvatarStack } from './AvatarStack';
 import { PlannerPanel, Dock, SwitchBoards, dragged, changed, useChanged, type Panels } from './BoardPanels';
 import { toggleMessenger, openConversation } from './Messenger';
@@ -83,6 +86,9 @@ export function BoardsPage() {
   const step=(delta:number)=>{const nav=trail.current,index=nav.at+delta;if(index<0||index>=nav.items.length)return;nav.at=index;applyNav(nav.items[index]);};
 
   const [creating, setCreating] = useState<string | null>(null); // the workspace a new board goes to
+  // A card or task picked in a workspace's list or dashboard opens right there, over it (the board stays closed).
+  const [peek, setPeek] = useState<{ board: Board; card: string } | null>(null), [peekTask, setPeekTask] = useState<string | null>(null);
+  const peekCard = (boardId: string, cardId: string) => api.board(boardId).then((b) => setPeek({ board: b, card: cardId }), (e) => toast(e.message, true));
   const [newWs, setNewWs] = useState(false);
   const [wsMenu, setWsMenu] = useState<HTMLElement | null>(null);
   const [boardMenu, setBoardMenu] = useState<{ b: BoardItem; el: HTMLElement } | null>(null);
@@ -179,9 +185,9 @@ export function BoardsPage() {
                 {boards.some((b) => b.starred) && <Tiles title="Board đã gắn sao" icon={<Icon name="star" size={16} />} list={boards.filter((b) => b.starred)} roles={roles} onOpen={go} onStar={star} onMore={moreOf} />}
                 <h2 className="bd-home-h">Các workspace của bạn</h2>
                 {ordered.map((w) => (
-                  <WorkspaceSection key={w.id} ws={w} me={me} roles={roles} boards={inWs(w.id)} onOpen={go} onStar={star} onMore={moreOf}
+                  <WorkspaceSection key={w.id} ws={w} me={me} roles={roles} boards={inWs(w.id)} onOpen={go} onCard={peekCard} onTask={setPeekTask} onStar={star} onMore={moreOf}
                     onSettings={w.kind === 'personal' && w.ownerId === me.id ? (el) => setWsAct(wsAct?.w.id === w.id ? null : { w, el }) : undefined}
-                    onCreate={w.level !== 'observer' ? () => setCreating(w.id) : undefined} onPeople={() => goPeople(w.id)} onHome={() => goHome(w.id)} />
+                    onCreate={w.level !== 'observer' ? () => setCreating(w.id) : undefined} onPeople={() => goPeople(w.id)} />
                 ))}
                 <button className="bd-ws-new" onClick={() => setNewWs(true)}><Icon name="plus" size={16} />Tạo workspace mới</button>
               </>}
@@ -259,30 +265,42 @@ export function BoardsPage() {
         </Pop>
       )}
       {creating && <CreateBoard me={me} roles={roles} spaces={spaces} wsId={creating} onClose={() => setCreating(null)} onCreated={(b) => { setCreating(null); go(b.id); }} />}
+      {peek && <CardModal key={peek.card} id={peek.card} board={peek.board} me={me} onClose={() => setPeek(null)}
+        onChanged={() => { void load(); api.board(peek.board.id).then((b) => setPeek((p) => p && { ...p, board: b }), () => {}); }} />}
+      {peekTask && <TaskPanel key={peekTask} id={peekTask} meta={null} statuses={[]} onOpen={setPeekTask} onClose={() => setPeekTask(null)} onChanged={() => void load()} />}
       {newWs && <CreateWorkspace onClose={() => setNewWs(false)} onCreated={(w) => { setNewWs(false); setSpaces((x) => [...x, w]); goPeople(w.id); }} />}
     </div>
   );
 }
 
-/** A workspace on the home page: its boards (the company's by role), with ways to its members and to a new board. */
-function WorkspaceSection({ ws, me, roles, boards, onOpen, onStar, onMore, onCreate, onPeople, onHome, onSettings }: {
-  ws: Workspace; me: User; roles: TeamRole[]; boards: BoardItem[]; onOpen: (id: string) => void; onStar: (b: BoardItem) => void;
-  onMore: (b: BoardItem) => ((el: HTMLElement) => void) | undefined; onCreate?: () => void; onPeople: () => void; onHome: () => void;
+/** A workspace on the home page: its boards (as tiles, a list, or the work by client), with ways to its members and to a
+ *  new board. */
+function WorkspaceSection({ ws, me, roles, boards, onOpen, onCard, onTask, onStar, onMore, onCreate, onPeople, onSettings }: {
+  ws: Workspace; me: User; roles: TeamRole[]; boards: BoardItem[]; onOpen: (id: string) => void; onCard: (boardId: string, cardId: string) => void; onTask: (taskId: string) => void; onStar: (b: BoardItem) => void;
+  onMore: (b: BoardItem) => ((el: HTMLElement) => void) | undefined; onCreate?: () => void; onPeople: () => void;
   onSettings?: (el: HTMLElement) => void;
 }) {
   const myRole = roles.find((r) => r.id === me.teamRole);
   const mine = boards.filter((b) => b.roleId && b.roleId === me.teamRole), byRole = boards.filter((b) => b.roleId && b.roleId !== me.teamRole), rest = boards.filter((b) => !b.roleId);
+  const [view, setViewState] = useState<WsView>(savedWsView), [viewEl, setViewEl] = useState<HTMLElement | null>(null);
+  const setView = (v: WsView) => { setViewState(v); saveWsView(v); setViewEl(null); };
+  const current = WS_VIEWS.find((v) => v.value === view)!;
   return (
     <section className="bd-wsec">
       <div className="bd-wsec-h">
         <WsMark ws={ws} size={30} />
         <div><b>{ws.name}</b><span>{wsKind(ws, me)}</span></div>
         <span className="bd-gap" />
-        <button className="bd-wsec-b" onClick={onHome}><Icon name="grid" size={14} />Board</button>
+        <button className={'bd-wsec-b' + (viewEl ? ' on' : '')} onClick={(e) => setViewEl(viewEl ? null : e.currentTarget)} aria-expanded={!!viewEl} aria-label="Chọn chế độ xem" title="Chọn chế độ xem"><Icon name={current.icon} size={14} />{current.label}<Icon name="chevron" size={12} /></button>
         <button className="bd-wsec-b" onClick={onPeople}><Icon name="users" size={14} />Thành viên ({ws.members})</button>
         {onSettings && <button className="bd-wsec-b bd-wsec-more" onClick={(e) => onSettings(e.currentTarget)} aria-label={`Thao tác với workspace ${ws.name}`} title="Cài đặt, xoá workspace"><Icon name="more" size={15} /></button>}
       </div>
-      <Tiles title="Board của bạn" list={boards} roles={roles} onOpen={onOpen} onStar={onStar} onMore={onMore} onCreate={onCreate} small />
+      {view === 'tiles' ? <Tiles title="Board của bạn" list={boards} roles={roles} onOpen={onOpen} onStar={onStar} onMore={onMore} onCreate={onCreate} small />
+        : view === 'list' ? <><BoardList boards={boards} bgOf={bg} onOpen={onOpen} onCard={onCard} />{onCreate && <button className="bd-wsec-b ws-new" onClick={onCreate}><Icon name="plus" size={14} />Tạo board mới</button>}</>
+        : <ClientWork wsId={ws.id} boards={boards} onCard={onCard} onTask={onTask} />}
+      {viewEl && <Pop anchor={viewEl} title="Chế độ xem" onClose={() => setViewEl(null)}><div className="bk-menu">
+        {WS_VIEWS.map((v) => <button key={v.value} onClick={() => setView(v.value)}><Icon name={v.icon} size={16} />{v.label}{view === v.value && <Icon name="check" size={15} />}</button>)}
+      </div></Pop>}
     </section>
   );
 }
@@ -343,7 +361,7 @@ function Tiles({ title, icon, list, roles, onOpen, onStar, onMore, onCreate, sma
               <button className="bd-tile-b" onClick={() => onOpen(b.id)}>
                 <b>{b.name}</b>
                 {(role && role.name !== b.name) || b.private || b.level === 'observer'
-                  ? <span>{b.private && <Icon name="lock" size={11} />}{role && role.name !== b.name ? role.name : b.private ? 'Riêng tư' : ''}{b.level === 'observer' ? `${role || b.private ? ' · ' : ''}Chỉ xem` : ''}</span> : null}
+                  ? <span>{b.private && <Icon name="lock" size={11} />}{role && role.name !== b.name ? role.name : b.private ? 'Riêng tư' : ''}{b.level === 'observer' ? `${role || b.private ? ' · ' : ''}Chỉ xem` : ''}{b.startAt ? <> · {shortDate(b.startAt)}</> : null}</span> : null}
               </button>
               {/* Who is on the board: four at most, the rest as +N (all of them on hover). */}
               {!!b.people?.length && <span className="bd-tile-avs" onClick={() => onOpen(b.id)}><AvatarStack people={b.people} max={4} count focusable={false} render={(m) => <Avatar key={m.id} m={m} size={24} />} /></span>}
@@ -358,8 +376,10 @@ function Tiles({ title, icon, list, roles, onOpen, onStar, onMore, onCreate, sma
   );
 }
 
-/** Name, background, workspace, the customer it is for (picked, or added on the spot), and who sees it: the workspace,
- *  one role (company only, members: their own) or only the people added. */
+/** How many shapes the preview of each type draws (columns, rows, days, tiles, bars). */
+const PREVIEW: Record<BoardViewKind, number> = { board: 3, table: 4, calendar: 14, dashboard: 4, timeline: 3 };
+/** Name, background, its type (the view it opens in), the day it starts, workspace, the customer it is for (picked, or
+ *  added on the spot), and who sees it: the workspace, one role (company only, members: their own) or only the people added. */
 function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User; roles: TeamRole[]; spaces: Workspace[]; wsId: string; onClose: () => void; onCreated: (b: BoardItem) => void }) {
   const[ownSpaces,setOwnSpaces]=useState(spaces);
   const targets = ownSpaces.filter((w) => w.level !== 'observer');
@@ -371,23 +391,31 @@ function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User
   const [customer, setCustomer] = useState(''), [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
   const loadCustomers = () => api.customersAll().then(setCustomers, () => {});
   useEffect(() => { void loadCustomers(); }, []);
+  // Its type (the view it opens in) and the day it starts: now unless changed (emptied: now as well).
+  const [type, setType] = useState<BoardViewKind>('board');
+  const [start, setStart] = useState(() => `${dateIn(Date.now())}T${timeIn(Date.now())}`);
   const [busy, setBusy] = useState(false);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || busy) return;
     setBusy(true);
-    const roleId = null;
-    try { onCreated(await api.createBoard({ name: name.trim(), bg: b, workspaceId: space, roleId, private: vis === 'private', customerId: customer || null })); } catch (err: any) { toast(err.message, true); setBusy(false); }
+    const roleId = null, startAt = start ? new Date(start).getTime() : null;
+    try { onCreated(await api.createBoard({ name: name.trim(), bg: b, workspaceId: space, roleId, private: vis === 'private', customerId: customer || null, view: type, startAt: Number.isFinite(startAt) ? startAt : null })); } catch (err: any) { toast(err.message, true); setBusy(false); }
   };
   return (
     <div className="bd-modal" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="bd-create" onSubmit={submit}>
         <header><b>Tạo board</b><button type="button" className="bd-icon" onClick={onClose} aria-label="Đóng"><Icon name="x" size={15} /></button></header>
-        <div className="bd-create-prev" style={{ background: bg(b) }}><span /><span /><span /></div>
+        <div className={'bd-create-prev v-' + type} style={{ background: bg(b) }}>{Array.from({ length: PREVIEW[type] }, (_, i) => <span key={i} />)}</div>
         <span className="bd-label">Phông nền</span>
         <div className="bd-swatches">{Object.keys(BG).map((k) => <button type="button" key={k} className={k === b ? 'on' : ''} style={{ background: BG[k] }} onClick={() => setB(k)} aria-label={`Nền ${k}`} />)}</div>
         <label className="bd-label" htmlFor="bd-name">Tiêu đề board <em>*</em></label>
         <input id="bd-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Ví dụ: Dynamic M · Black Friday" />
+        <span className="bd-label" id="bd-type">Loại board</span>
+        <BoardTypePicker value={type} onChange={setType} labelledBy="bd-type" />
+        <label className="bd-label" htmlFor="bd-start">Ngày bắt đầu</label>
+        <input id="bd-start" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
+        <p className="bd-create-hint">Để trống thì lấy thời điểm tạo board.</p>
         <label className="bd-label" htmlFor="bd-ws">Workspace</label>
         <EntitySelect kind="workspace" onCreated={async()=>setOwnSpaces(await api.workspaces())} id="bd-ws" value={space} onChange={setSpace}>
           {targets.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
@@ -706,7 +734,7 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
   id: string; card: string | null; me: User; roles: TeamRole[]; ws: Workspace | undefined; onStar: (b: BoardItem) => void; onGone: () => void; onChanged: () => void; onCard: (id: string | null) => void;
 }) {
   const [b, setB] = useState<Board | null>(null);
-  const [view, setView] = useState<BoardViewKind>('board');
+  const [picked, setPicked] = useState<BoardViewKind | null>(null); // the view chosen on the bar; until then, the board's type
   const [viewEl, setViewEl] = useState<HTMLElement | null>(null);
   const [quick, setQuick] = useState<{id: string; rect: DOMRect} | null>(null);
   const [err, setErr] = useState('');
@@ -737,6 +765,7 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
   };
   if (err) return <main className="bd-board"><p className="note err" style={{ padding: 24 }}>{err}</p></main>;
   if (!b) return <main className="bd-board"><p className="note" style={{ padding: 24 }}>Đang tải…</p></main>;
+  const view = picked ?? b.view ?? 'board';
   const role = roles.find((r) => r.id === b.roleId);
   // Who sees the board, like Trello's visibility button (a role board is usually named after its role).
   // In the company's workspace a board belongs to one department (role) or is private; in a person's, it is the workspace's or private.
@@ -752,6 +781,13 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
     const to = !b.lists.find((l) => l.id === lid)?.folded;
     mut((x) => { x.lists.find((l) => l.id === lid)!.folded = to; });
     act(() => api.updateList(lid, { folded: to }));
+  };
+  // A card added from the table, calendar, timeline or overview, due on the day picked there.
+  const addCard = async (listId: string, title: string, dueAt: number | null) => {
+    busy.current++;
+    try { const c = await api.createCard(listId, title); if (dueAt) await api.updateCard(c.id, { dueAt }); changed('planner'); }
+    catch (e: any) { toast(e.message, true); throw e; }
+    finally { busy.current--; if (!busy.current) load(); }
   };
   const toggleLabels = () => { if (!canShape) return; mut((x) => { x.labelText = !x.labelText; }); act(() => api.updateBoard(b.id, { labelText: !labelText })); };
   const on = filtering(filter);
@@ -883,7 +919,7 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
           ? <input className="bd-title-in" autoFocus value={naming} onChange={(e) => setNaming(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setNaming(null); }}
               onBlur={() => { const n = (naming || '').trim(); setNaming(null); if (n && n !== b.name) { mut((x) => { x.name = n; }); act(async () => { await api.updateBoard(b.id, { name: n }); onChanged(); }); } }} />
           : canShape ? <button className="bd-title" onClick={() => setNaming(b.name)} title="Đổi tên board">{b.name}</button> : <h1 className="bd-title">{b.name}</h1>}
-        <button className="bd-bar-btn bd-view-button" onClick={(e) => setViewEl(viewEl ? null : e.currentTarget)} aria-expanded={!!viewEl} aria-label="Chọn chế độ xem"><Icon name="boards" size={16} />{VIEW_NAMES[view]}<Icon name="chevron" size={12} /></button>
+        <button className="bd-bar-btn bd-view-button" onClick={(e) => setViewEl(viewEl ? null : e.currentTarget)} aria-expanded={!!viewEl} aria-label="Chọn chế độ xem"><Icon name={VIEW_ICONS[view]} size={16} />{VIEW_NAMES[view]}<Icon name="chevron" size={12} /></button>
         <button className={'bd-bar-btn bd-star' + (b.starred ? ' on' : '')} onClick={() => { mut((x) => { x.starred = !x.starred; }); onStar(b); }} aria-label={b.starred ? 'Bỏ sao' : 'Gắn sao'}><Icon name="star" size={16} /></button>
         {isAdmin
           ? <button className={'bd-bar-btn bd-vis' + (visEl ? ' on' : '')} onClick={(e) => setVisEl(visEl ? null : e.currentTarget)} title={visTip}><Icon name={role || priv ? 'lock' : 'users'} size={15} />{visText}</button>
@@ -897,7 +933,7 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
         <button className="bd-bar-btn" onClick={() => setDrawer(!drawer)} aria-label="Menu board" aria-expanded={drawer}><Icon name="more" size={16} /></button>
       </header>
       <div className="bd-body">
-        {view !== 'board' ? <BoardAlternative board={b} view={view} filter={(c) => !on || matches(c, filter, me.id)} onOpen={onCard} /> : <div className="bd-canvas" onDragOver={overCanvas} onDrop={dropList}>
+        {view !== 'board' ? <BoardAlternative board={b} view={view} filter={(c) => !on || matches(c, filter, me.id)} onOpen={onCard} onAdd={canEdit ? addCard : undefined} /> : <div className="bd-canvas" onDragOver={overCanvas} onDrop={dropList}>
           {cols}
           {!canShape ? null : adding
             ? <Composer className="bd-list bd-add-list" placeholder="Nhập tên danh sách…" button="Thêm danh sách" onDone={() => setAdding(false)}
@@ -907,7 +943,12 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
         }
         {drawer && <BoardMenu board={b} me={me} onShare={() => setSharing(true)} onClose={() => setDrawer(false)} onGone={onGone} onOpen={(cid) => onCard(cid)} act={async (fn) => { await act(fn); onChanged(); }} mut={mut} />}
       </div>
-      {viewEl && <Pop anchor={viewEl} title="Chế độ xem" onClose={() => setViewEl(null)}><div className="bk-menu">{(Object.keys(VIEW_NAMES) as BoardViewKind[]).map((v) => <button key={v} onClick={() => { setView(v); setViewEl(null); }}><Icon name={v === 'board' ? 'boards' : v === 'calendar' ? 'calendar' : 'lines'} size={16} />{VIEW_NAMES[v]}{view === v && <Icon name="check" size={15} />}</button>)}<button disabled title="Thẻ chưa có dữ liệu vị trí"><Icon name="folder" size={16} />Bản đồ · Chưa có vị trí</button></div></Pop>}
+      {viewEl && <Pop anchor={viewEl} title="Chế độ xem" onClose={() => setViewEl(null)}><div className="bk-menu">
+        {(Object.keys(VIEW_NAMES) as BoardViewKind[]).map((v) => <button key={v} onClick={() => { setPicked(v); setViewEl(null); }}><Icon name={VIEW_ICONS[v]} size={16} />{VIEW_NAMES[v]}{(b.view || 'board') === v && <small className="bd-view-default">Mặc định</small>}{view === v && <Icon name="check" size={15} />}</button>)}
+        <button disabled title="Thẻ chưa có dữ liệu vị trí"><Icon name="folder" size={16} />Bản đồ · Chưa có vị trí</button>
+        {/* The board's type: the view everyone opens it in. */}
+        {canShape && view !== (b.view || 'board') && <button className="bd-view-set" onClick={() => { const v = view; setViewEl(null); mut((x) => { x.view = v; }); act(async () => { await api.updateBoard(b.id, { view: v }); onChanged(); }); }}><Icon name="check" size={16} />Đặt làm chế độ xem mặc định</button>}
+      </div></Pop>}
       {quick && <QuickCard key={quick.id} id={quick.id} rect={quick.rect} board={b} me={me} onClose={() => setQuick(null)} onOpen={() => { onCard(quick.id); setQuick(null); }} onChanged={() => { load(); changed('planner'); }} />}
       {filterEl && <FilterPop anchor={filterEl} board={b} filter={filter} setFilter={setFilter} onClose={() => setFilterEl(null)} />}
       {visEl&&<Pop anchor={visEl} title="Board cá nhân" onClose={()=>setVisEl(null)}><p className="note">Chỉ chủ board và thành viên được thêm trực tiếp mới xem được board này.</p>{isAdmin&&<button className="btn btn-primary btn-sm" onClick={()=>{setVisEl(null);setSharing(true);}}>Quản lý thành viên</button>}</Pop>}
@@ -1161,13 +1202,18 @@ function BoardClient({ board, act, mut }: { board: Board; act: (fn: () => Promis
   </>;
 }
 
-/** The board's menu on the right: about, activity, archived items, background, labels, its customer, who sees it, delete. */
+/** A moment as a date-and-time field shows it ('' for none). */
+const stamp = (ms?: number | null) => (ms ? `${dateIn(ms)}T${timeIn(ms)}` : '');
+/** The board's menu on the right: about (its type, start date and description), activity, archived items, background,
+ *  labels, its customer, who sees it, delete. */
 function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { board: Board; me: User; onShare: () => void; onClose: () => void; onGone: () => void; onOpen: (cardId: string) => void; act: (fn: () => Promise<unknown>) => Promise<void>; mut: (fn: (x: Board) => void) => void }) {
   const [view, setView] = useState<'main' | 'about' | 'activity' | 'archived' | 'bg' | 'labels' | 'rights' | 'client'>('main');
   const [feed, setFeed] = useState<BoardActivity[] | null>(null);
   const [arch, setArch] = useState<Awaited<ReturnType<typeof api.boardArchived>> | null>(null);
   const [archTab, setArchTab] = useState<'cards' | 'lists'>('cards');
   const [about, setAbout] = useState(board.about);
+  const [start, setStart] = useState(stamp(board.startAt));
+  useEffect(() => setStart(stamp(board.startAt)), [board.startAt]);
   const [label, setLabel] = useState<BoardLabel | 'new' | null>(null);
   useEffect(() => {
     if (view === 'activity') api.boardActivity(board.id).then(setFeed).catch((e) => toast(e.message, true));
@@ -1199,6 +1245,16 @@ function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { 
           {canDelete && <><hr /><button className="bk-danger" onClick={async () => { if (!confirm(`Xoá vĩnh viễn board “${board.name}” cùng mọi danh sách và thẻ?`)) return; try { await api.deleteBoard(board.id); onGone(); } catch (e: any) { toast(e.message, true); } }}><Icon name="trash" size={16} />Xoá board</button></>}
         </div>}
         {view === 'about' && <>
+          <h5 id="bd-about-type">Loại board</h5>
+          {canShape
+            ? <BoardTypePicker value={board.view || 'board'} labelledBy="bd-about-type" onChange={(v) => { mut((x) => { x.view = v; }); act(() => api.updateBoard(board.id, { view: v })); }} />
+            : <p className="bd-about">{VIEW_NAMES[board.view || 'board']}</p>}
+          <p className="note">Board mở ở chế độ xem này; các chế độ khác vẫn chọn được ở thanh trên.</p>
+          <h5>Ngày bắt đầu</h5>
+          {canShape
+            ? <input className="bk-in" type="datetime-local" aria-label="Ngày bắt đầu" value={start} onChange={(e) => setStart(e.target.value)}
+                onBlur={() => { if (start === stamp(board.startAt)) return; const at = start ? new Date(start).getTime() : null; act(() => api.updateBoard(board.id, { startAt: Number.isFinite(at) ? at : null })); }} />
+            : <p className="bd-about">{board.startAt ? fullDate(board.startAt) : '—'}</p>}
           <h5>Mô tả</h5>
           {canShape ? <>
             <textarea className="bk-in" rows={6} value={about} onChange={(e) => setAbout(e.target.value)} placeholder="Board này dùng để làm gì, quy ước các cột, ai phụ trách…"

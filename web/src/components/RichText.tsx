@@ -1,10 +1,12 @@
 // Formatted text for descriptions and comments: an editor with a toolbar (bold, italic, underline, strike, quote, code,
-// alignment, headings, lists, sub/superscript, link, picture, text and highlight colour, clear) and a viewer. Stored as
+// alignment, headings, lists, sub/superscript, link, picture, text and highlight colour, clear) and a viewer. Where people
+// can be mentioned (MentionPeople), @ suggests them by name; a mention is kept as <span data-mention="their id">. Stored as
 // HTML, which is always cleaned to the few tags and styles the toolbar makes before it is shown or saved. Text written
 // before (plain) shows as it always has.
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from './ui';
-import { Rich } from './boardkit';
+import { Avatar, Rich } from './boardkit';
 import { toast } from '../store';
 import { isBlank, isRich } from '../../../shared/rich';
 
@@ -31,7 +33,8 @@ export function cleanRich(html: string) {
       const color = c.tagName === 'FONT' ? c.getAttribute('color') : null;
       for (const a of [...c.attributes]) {
         const ok = (c.tagName === 'A' && a.name === 'href' && HREF.test(a.value)) || (c.tagName === 'IMG' && ((a.name === 'src' && IMG.test(a.value)) || a.name === 'alt'))
-          || (c.tagName === 'UL' && a.name === 'data-check') || (c.tagName === 'LI' && a.name === 'data-checked');
+          || (c.tagName === 'UL' && a.name === 'data-check') || (c.tagName === 'LI' && a.name === 'data-checked')
+          || (c.tagName === 'SPAN' && a.name === 'data-mention' && /^[\w-]{1,64}$/.test(a.value));
         if (!ok) c.removeAttribute(a.name);
       }
       if (color && COLOR.test(color)) keep.push(`color: ${color}`);
@@ -76,13 +79,48 @@ export async function shrink(file: File, side = 900, quality = 0.8) {
   return c.toDataURL('image/jpeg', quality);
 }
 
+/** Who may be mentioned with @ in the editors inside (the people who see the card); none: no mentions. */
+export type Mentionable = { id: string; name: string; avatarAt?: number | null };
+export const MentionPeople = createContext<Mentionable[] | null>(null);
+const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase();
+
 /** The editor. `onChange` gets cleaned HTML ('' when nothing is written); ⌘/Ctrl+Enter calls `onSubmit`. */
 export function RichEditor({ value, onChange, placeholder = '', autoFocus, onSubmit, compact, disabled }: { value: string; onChange: (html: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void; compact?: boolean; disabled?: boolean }) {
   const body = useRef<HTMLDivElement>(null), file = useRef<HTMLInputElement>(null), saved = useRef<Range | null>(null);
   const [empty, setEmpty] = useState(isBlank(value)), [menu, setMenu] = useState<'' | 'color' | 'mark' | 'align'>('');
+  // @ and the words after it, being typed: where they are, and the people they match.
+  const people = useContext(MentionPeople);
+  const spot = useRef<{ node: Text; start: number; end: number } | null>(null);
+  const [mention, setMention] = useState<{ q: string; x: number; y: number } | null>(null), [pick, setPick] = useState(0);
+  const matches = mention && people ? people.filter((p) => fold(p.name).includes(fold(mention.q.trim()))).slice(0, 6) : [];
+  const look = () => {
+    const s = window.getSelection(), node = s?.anchorNode;
+    if (!people?.length || !s?.isCollapsed || !node || node.nodeType !== Node.TEXT_NODE || !body.current?.contains(node) || node.parentElement?.closest('[data-mention]')) { setMention(null); return; }
+    const before = (node.nodeValue || '').slice(0, s.anchorOffset);
+    const m = /(^|[\s\u00a0(])@([^\s\u00a0@]*(?:[ \u00a0][^\s\u00a0@]*){0,2})$/.exec(before);
+    if (!m) { setMention(null); return; }
+    const r = s.getRangeAt(0).getBoundingClientRect(), box = body.current.getBoundingClientRect();
+    spot.current = { node: node as Text, start: s.anchorOffset - m[2].length - 1, end: s.anchorOffset };
+    setMention((was) => { if (!was || was.q !== m[2]) setPick(0); return { q: m[2], x: r.left || box.left, y: (r.bottom || box.top + 24) + 4 }; });
+  };
+  /** The @words become the person's name, kept whole, with a space after it to type on. */
+  const mentionOf = (p: Mentionable) => {
+    const at = spot.current;
+    if (!at || !body.current?.contains(at.node)) return;
+    const range = document.createRange();
+    range.setStart(at.node, Math.min(at.start, at.node.length)); range.setEnd(at.node, Math.min(at.end, at.node.length));
+    range.deleteContents();
+    const tag = document.createElement('span'), gap = document.createTextNode('\u00a0');
+    tag.setAttribute('data-mention', p.id); tag.contentEditable = 'false'; tag.textContent = '@' + p.name;
+    range.insertNode(gap); range.insertNode(tag);
+    const s = window.getSelection(), after = document.createRange();
+    after.setStartAfter(gap); after.collapse(true); s?.removeAllRanges(); s?.addRange(after);
+    setMention(null); spot.current = null; changed();
+  };
   useEffect(() => {
     const el = body.current!;
     el.innerHTML = toHtml(value);
+    el.querySelectorAll('[data-mention]').forEach((m) => { (m as HTMLElement).contentEditable = 'false'; });
     setEmpty(isBlank(el.innerHTML));
     if (autoFocus) { el.focus(); const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = window.getSelection(); s?.removeAllRanges(); s?.addRange(r); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -120,9 +158,22 @@ export function RichEditor({ value, onChange, placeholder = '', autoFocus, onSub
       <div className="rt-area">
         {empty && <span className="rt-placeholder">{placeholder}</span>}
         <div ref={body} className="rt-body rt-view" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-multiline="true" aria-label={placeholder || 'Nội dung'}
-          onInput={changed} onPaste={paste} onKeyUp={keep} onMouseUp={keep} onBlur={keep}
-          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && onSubmit) { e.preventDefault(); onSubmit(); } }} />
+          onInput={() => { changed(); look(); }} onPaste={paste} onKeyUp={(e) => { keep(); if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) look(); }} onMouseUp={() => { keep(); look(); }} onBlur={() => { keep(); setTimeout(() => setMention(null), 150); }}
+          onKeyDown={(e) => {
+            // The suggestions take the arrows, Enter and Tab while they are open; Escape closes them only.
+            if (mention && matches.length) {
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setPick((pick + (e.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length); return; }
+              if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); mentionOf(matches[Math.min(pick, matches.length - 1)]); return; }
+            }
+            if (mention && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setMention(null); return; }
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && onSubmit) { e.preventDefault(); onSubmit(); }
+          }} />
       </div>
+      {mention && matches.length > 0 && createPortal(
+        <ul className="rt-mentions" role="listbox" aria-label="Nhắc tên" style={{ left: Math.min(mention.x, window.innerWidth - 260), top: Math.min(mention.y, window.innerHeight - 240) }}>
+          {matches.map((p, i) => <li key={p.id} role="option" aria-selected={i === pick} className={i === pick ? 'on' : ''}
+            onMouseDown={(e) => { e.preventDefault(); mentionOf(p); }} onMouseEnter={() => setPick(i)}><Avatar m={p} size={24} /><span>{p.name}</span></li>)}
+        </ul>, document.body)}
       <div className="rt-bar" role="toolbar" aria-label="Định dạng">
         <span>{tool('bold', 'Đậm (⌘B)', () => cmd('bold'))}{tool('italic', 'Nghiêng (⌘I)', () => cmd('italic'))}{tool('underline', 'Gạch chân (⌘U)', () => cmd('underline'))}{tool('strike', 'Gạch ngang', () => cmd('strikeThrough'))}</span>
         <span>{tool('quote', 'Trích dẫn', () => block('BLOCKQUOTE'))}{tool('code', 'Mã', code)}

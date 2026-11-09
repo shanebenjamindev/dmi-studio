@@ -21,7 +21,7 @@ export async function removeTaskRecord(id: string) {
     await run('UPDATE boards SET updated_at=? WHERE id=?',now(),card.board_id);
   }
   await run('UPDATE tasks SET parent_id=NULL WHERE parent_id=?',id);
-  for (const table of ['task_assignees','task_followers','task_label_links','task_board_links']) await run(`DELETE FROM ${table} WHERE task_id=?`,id);
+  for (const table of ['task_assignees','task_followers','task_label_links','task_board_links','task_services']) await run(`DELETE FROM ${table} WHERE task_id=?`,id);
   await run('DELETE FROM tasks WHERE id=?',id);
 }
 export async function removeProjectRecord(id: string) {

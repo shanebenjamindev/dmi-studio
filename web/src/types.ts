@@ -153,7 +153,10 @@ export interface BoardItem {
   people?: { id: string; name: string; avatarAt?: number | null }[];
   /** The customer the board is for (null: none). */
   customerId?: string | null; customerName?: string | null;
+  /** Its type, the view it opens in, and the date it starts (its creation, unless set). */
+  view?: BoardViewKind; startAt?: number | null;
 }
+export type BoardViewKind = 'board' | 'table' | 'calendar' | 'dashboard' | 'timeline';
 export interface BoardLabel { id: string; name: string; color: string }
 /** Someone who sees the board; `added`: given a level on the board itself (not just through its workspace or role). */
 export interface BoardMember extends Person { level?: Level; added?: boolean; auto?: boolean; owner?: boolean }
@@ -181,11 +184,13 @@ export interface TaskItem {
   canDelete?: boolean;
   id: string; externalId: string | null; title: string; status: string; state: TaskState; startAt: number | null; dueAt: number | null; doneAt: number | null;
   project: { id: string; name: string; customerId: string | null } | null; parent: { id: string; title: string } | null; children: number;
-  createdBy: { id: string; name: string } | null; assignees: TaskPerson[]; cardPeople?: TaskPerson[]; followers: { id: string; name: string; avatarAt?: number | null }[]; labels: string[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number;
+  createdBy: { id: string; name: string } | null; assignees: TaskPerson[]; cardPeople?: TaskPerson[]; followers: { id: string; name: string; avatarAt?: number | null }[]; labels: string[]; services?: ServiceRef[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number;
 }
 export interface TaskDetail extends TaskItem {
   statuses?: string[];
-  description: string; result: string | null; resultHidden: boolean; canEdit: boolean; canEditDescription: boolean; canDelete: boolean; hasBoardLink: boolean; boardLink: { cardId: string; boardId: string; listId: string; boardName: string; listName: string } | null; path: { id: string; title: string }[]; childTasks: TaskItem[];
+  description: string; result: string | null; resultHidden: boolean; canEdit: boolean; canEditDescription: boolean; canDelete: boolean; hasBoardLink: boolean; boardLink: { cardId: string; boardId: string; listId: string; boardName: string; listName: string } | null; path: { id: string; title: string }[];
+  /** The whole branch under it (subtasks, theirs, …), each with its `parent`, as far as this account sees them. */
+  childTasks: TaskItem[];
 }
 export interface TaskMeta {
   campaigns:TaskCampaign[]; teams:{id:string;name:string;color:string}[];
@@ -196,7 +201,7 @@ export interface TaskMeta {
 }
 export interface TaskWrite {
   title?: string; description?: string; result?: string; status?: string; startAt?: number | null; dueAt?: number | null;
-  campaignId?: string | null; projectId?: string | null; parentId?: string | null; assigneeIds?: string[]; assigneeUserIds?: string[]; followerUserIds?: string[]; labels?: string[];
+  campaignId?: string | null; projectId?: string | null; parentId?: string | null; assigneeIds?: string[]; assigneeUserIds?: string[]; followerUserIds?: string[]; labels?: string[]; services?: string[];
 }
 export interface TaskImportSheet { id: string; name: string; headers: string[]; rows: string[][]; taskIds: (string | null)[]; titleColumn: number; start: number; total: number; page: number; pages: number }
 export interface TaskImportResult { sheetRows: number; sheetColumns: number; importId: string; sourceName: string; rows: number; skipped: number; created: number; updated: number; parents: number; stubs: number; people: number; linked: number; projects: number; labels: number }
@@ -244,6 +249,14 @@ export interface ChatMember {
 /** One of someone's cards with a date, for the planner (Workspace ▸ Planner). */
 export interface PlannerCard { id: string; title: string; boardId: string; boardName: string; boardBg: string; listName: string; dueAt: number | null; startAt: number | null; done: boolean; canEdit: boolean }
 /** A card for a customer, with its videos (the Drive page's overview). */
+/** Work of a workspace's boards for a customer (the card's own, or its board's), with the subtasks under it: the Dashboard view of a workspace. */
+export interface ClientCard {
+  /** A card (`cardId`), or a subtask with no card here (`boardId` null; opens as its task). `parentTaskId`: the task it sits
+   *  under, for the tree. `stage`: where it stands. */
+  id: string; cardId: string | null; taskId: string | null; parentTaskId: string | null; stage: 'todo' | 'doing' | 'overdue' | 'done';
+  title: string; boardId: string | null; boardName: string; boardBg: string; listName: string; listPos: number; done: boolean; startAt: number | null; dueAt: number | null;
+  updatedAt: number; customerId: string; customerName: string; labels: { name: string; color: string }[]; members: { id: string; name: string; avatarAt: number | null }[]; services: ServiceRef[];
+}
 export interface CustomerTask {
   id: string; title: string; customerId: string; boardId: string; boardName: string; boardBg: string; listName: string; done: boolean; dueAt: number | null; updatedAt: number;
   /** The work's result: files of the customer's folder put on the card. */

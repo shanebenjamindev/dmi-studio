@@ -9,6 +9,21 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-09-2',
+    date: '09/11/2026',
+    items: [
+      { kind: 'new', vi: 'Chọn loại board khi tạo: Board, Danh sách, Lịch, Tổng quan hoặc Dòng thời gian. Board mở ở dạng đã chọn; các dạng khác vẫn xem được ở thanh trên.', en: 'Pick a board type when you create one: Board, Lists, Calendar, Overview or Timeline. The board opens in that view; the others stay on its top bar.' },
+      { kind: 'new', vi: 'Ngày bắt đầu của board: nhập khi tạo, để trống thì lấy thời điểm tạo. Sửa ở menu board › Về board này.', en: 'A board’s start date: enter it when you create the board, or leave it empty for now. Change it in the board menu › About this board.' },
+      { kind: 'new', vi: 'Thêm thẻ ngay ở dạng Danh sách, Lịch, Dòng thời gian và Tổng quan, kèm thời hạn nếu muốn.', en: 'Add cards right from the Lists, Calendar, Timeline and Overview views, with a due date if you like.' },
+      { kind: 'new', vi: 'Việc con nhiều tầng: thêm việc con cho cả việc con, xem cả nhánh dưới một việc gốc và thu gọn từng nhánh.', en: 'Subtasks at any depth: add subtasks to subtasks, see the whole branch under one task, and fold each branch.' },
+      { kind: 'new', vi: 'Thêm việc con và mục checklist liên tục: Enter thêm rồi giữ ô để gõ tiếp; dán nhiều dòng để thêm nhiều mục một lần.', en: 'Add subtasks and checklist items one after another: Enter adds and keeps the field open; paste several lines to add them all at once.' },
+      { kind: 'new', vi: 'Nhắc tên bằng @: gõ @ trong bình luận hoặc mô tả thẻ để chọn người trên board. Người được nhắc nhận thông báo và thấy ngay trong Nhắc việc.', en: 'Mention people with @: type @ in a comment or a card description to pick someone on the board. They get a notification and see it in Reminders.' },
+      { kind: 'new', vi: 'Thêm › Việc con ngay trong thẻ board: thẻ là công việc, nên việc con hiện cả trong thẻ lẫn trang công việc.', en: 'Add › Subtask right on a board card: a card is a task, so its subtasks show on the card and on the task’s page.' },
+      { kind: 'new', vi: 'Dịch vụ cho từng công việc (và thẻ): chọn gọn bằng nút +, dịch vụ của dự án được gợi ý trước. Ô chọn dịch vụ của dự án cũng gọn hơn.', en: 'Services on each task (and card): pick them with a small +, the project’s services suggested first. The project’s service picker is tidier too.' },
+      { kind: 'new', vi: 'Nút chọn chế độ xem ở mỗi workspace: Board, Danh sách board (bấm một board để xem các dự án và công việc bên trong dạng cây) hoặc Dashboard. Dashboard có số việc đang mở, quá hạn, sắp đến hạn và biểu đồ theo khách hàng, theo dịch vụ: bấm vào để lọc. Mỗi khách một khung với công việc dạng cây (việc con nằm dưới việc cha): kéo thả một việc lên việc khác để thành việc con, bấm để mở việc hoặc trang khách hàng. Danh sách dài có chọn trang.', en: 'A view switch on each workspace: Board, Board list (click a board to see its projects and tasks as a tree) or Dashboard. The dashboard shows open, overdue and due-soon work, with charts by client and by service that filter when clicked. Each client gets a box with its work as a tree (subtasks under their task): drag a task onto another to make it a subtask, click to open the task or the client. Long lists come in pages.' },
+    ],
+  },
+  {
     id: '2026-11-09',
     date: '09/11/2026',
     items: [

@@ -1,5 +1,5 @@
 // Nhắc việc: a round button at the bottom of the navigation with how much of the person's work is new, late or due
-// today, and a panel listing it: Quan trọng (just given to them, late or due today, then the week ahead), Hôm nay, Muộn.
+// today, and a panel listing it: Quan trọng (just given to them or mentioned, late or due today, then the week ahead), Hôm nay, Muộn.
 // Their tasks (assigned to them, not finished) and board cards (theirs, not done) with a due date; a card that is a
 // task's shows once, as the task. What was just given to them comes from their unread notifications, as soon as the
 // bell hears of it.
@@ -13,8 +13,8 @@ import type { NotificationInbox } from '../types';
 
 type Item = { id: string; title: string; where: string; dueAt: number; open: () => void };
 type Given = NotificationInbox['items'][number];
-/** Notifications that something was just given to the person: a task, or a place on a card. */
-const GIVEN = new Set(['Bạn được giao công việc', 'Bạn được thêm vào thẻ']);
+/** Notifications that something was just given to the person: a task, a place on a card, or a mention (@) on a card. */
+const GIVEN = new Set(['Bạn được giao công việc', 'Bạn được thêm vào thẻ', 'Bạn được nhắc đến']);
 const ago = (t: number) => { const m = Math.round((Date.now() - t) / 60e3); return m < 1 ? 'Vừa xong' : m < 60 ? `${m} phút trước` : m < 1440 ? `${Math.round(m / 60)} giờ trước` : `${Math.round(m / 1440)} ngày trước`; };
 type Tab = 'important' | 'today' | 'late';
 const DAY = 864e5;
@@ -121,7 +121,7 @@ export function Reminders() {
         ))}</nav>
         <div className="rm-body">
           {error ? <p className="note err" role="alert">{error}</p> : !items ? <p className="note">Đang tải…</p> : <>
-            {tab === 'important' && given.length > 0 && <section className="rm-new"><h3>Mới được giao cho bạn<span>{given.length}</span></h3><ul>{given.map((g) => (
+            {tab === 'important' && given.length > 0 && <section className="rm-new"><h3>Mới dành cho bạn<span>{given.length}</span></h3><ul>{given.map((g) => (
               <li key={g.id}><button onClick={() => openGiven(g)}>
                 <span className="rm-dot new" />
                 <span className="rm-text"><b>{g.body || g.title}</b><small>{g.title}{g.detail?.status ? ` · ${g.detail.status}` : ''}</small></span>

@@ -3,8 +3,10 @@ import {createPortal} from 'react-dom';
 import {api} from '../api';
 import {mayAddCustomer,setState,useStore} from '../store';
 import {Icon} from './ui';
-import type {ServiceRef,User} from '../types';
+import type {BoardViewKind,ServiceRef,User} from '../types';
 import {ServicePicker} from './ServicePicker';
+import {BoardTypePicker} from './BoardType';
+import {dateIn,timeIn} from './boardkit';
 
 type Kind='workspace'|'customer'|'project'|'campaign'|'employee'|'department'|'position'|'board'|'list'|'task'|'card'|'label';
 export type CreatedRecord={id:string;name:string;projectId?:string;customerId?:string};
@@ -46,6 +48,8 @@ export function QuickCreateDialog({kind,context={},onClose,onCreated}:{kind:Kind
  // A project's services start as its customer's (those of the customer's other projects), and can be changed here.
  const[services,setServices]=useState<string[]>([]),[known,setKnown]=useState<ServiceRef[]>([]);
  useEffect(()=>{if(kind!=='project')return;if(!customer){setServices([]);return;}let on=true;api.customerRecord(customer).then(r=>{if(on){setKnown(r.needs||[]);setServices((r.needs||[]).map(n=>n.id));}},()=>{});return()=>{on=false;};},[kind,customer]);
+ // A board's type (the view it opens in) and the day it starts: now unless changed (emptied: now as well).
+ const[boardView,setBoardView]=useState<BoardViewKind>('board'),[boardStart,setBoardStart]=useState(()=>`${dateIn(Date.now())}T${timeIn(Date.now())}`);
  const roles=useStore(s=>s.roles);
  const google=useStore(s=>s.googleSignin);
  const[busy,setBusy]=useState(false),[error,setError]=useState(''),[created,setCreated]=useState<CreatedRecord|null>(null);
@@ -67,7 +71,7 @@ export function QuickCreateDialog({kind,context={},onClose,onCreated}:{kind:Kind
     else if(kind==='employee'){const r=await api.createUser({name:name.trim(),email:email.trim(),password:password||undefined,role:'member',teamRole:department||null});record={id:r.id,name:r.name};}
     else if(kind==='department'){const r=await api.createRole({name:name.trim(),color:'#579dff',pages:['workspace']});record={id:r.id,name:r.name};}
     else if(kind==='position'){const r=await api.createPosition(context.departmentId!,{name:name.trim(),level:'normal'});record={id:r.id,name:r.name};}
-    else if(kind==='board'){const r=await api.createBoard({name:name.trim(),bg:'slate',roleId:null,private:true,lists:['Chưa thực hiện','Đang thực hiện','Hoàn thành'],customerId:customer||null});record={id:r.id,name:r.name};}
+    else if(kind==='board'){const r=await api.createBoard({name:name.trim(),bg:'slate',roleId:null,private:true,lists:['Chưa thực hiện','Đang thực hiện','Hoàn thành'],customerId:customer||null,view:boardView,startAt:boardStart&&Number.isFinite(new Date(boardStart).getTime())?new Date(boardStart).getTime():null});record={id:r.id,name:r.name};}
     else if(kind==='list'){const r=await api.createList(context.boardId!,name.trim());record={id:r.id,name:r.name};}
     else if(kind==='card'){const r=await api.createCard(context.listId!,name.trim());record={id:r.id,name:r.title};}
     else if(kind==='label'){const r=await api.createLabel(context.boardId!,{name:name.trim(),color:'blue'});record={id:r.id,name:r.name};}
@@ -85,6 +89,7 @@ export function QuickCreateDialog({kind,context={},onClose,onCreated}:{kind:Kind
   <label>Tên {labels[kind]}<input className="bk-in" autoFocus required maxLength={kind==='list'?80:200} value={name} onChange={e=>setName(e.target.value)}/></label>
   {kind==='project'&&<label>Khách hàng<EntitySelect kind="customer" className="bk-in" value={customer} onChange={setCustomer} onCreated={refresh} disabled={!!context.customerId}><option value="">Dự án nội bộ (không gắn khách hàng)</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</EntitySelect></label>}
   {kind==='board'&&<label>Khách hàng<EntitySelect kind="customer" className="bk-in" value={customer} onChange={setCustomer} onCreated={refresh}><option value="">Không gắn khách hàng</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</EntitySelect></label>}
+  {kind==='board'&&<><div className="qc-field"><span id="qc-board-type">Loại board</span><BoardTypePicker value={boardView} onChange={setBoardView} labelledBy="qc-board-type"/></div><label>Ngày bắt đầu<input className="bk-in" type="datetime-local" value={boardStart} onChange={e=>setBoardStart(e.target.value)}/><small>Để trống thì lấy thời điểm tạo board.</small></label></>}
   {kind==='project'&&<div className="qc-field"><span>Dịch vụ</span><ServicePicker value={services} onChange={setServices} known={known}/></div>}
   {kind==='campaign'&&<label>Dự án<EntitySelect kind="project" className="bk-in" value={project} onChange={setProject} onCreated={refresh} required disabled={!!context.projectId}><option value="">Chọn dự án</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</EntitySelect></label>}
   {kind==='employee'&&<><label>Email đăng nhập<input className="bk-in" type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Mật khẩu<input className="bk-in" type="password" required={!google} minLength={8} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)}/><small>{google?'Để trống nếu chỉ đăng nhập bằng Google đã kết nối.':'Ít nhất 8 ký tự.'}</small></label><label>Phòng ban<EntitySelect kind="department" className="bk-in" value={department} onChange={setDepartment}><option value="">Chưa có phòng ban</option>{roles.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</EntitySelect></label></>}

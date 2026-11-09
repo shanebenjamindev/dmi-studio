@@ -22,17 +22,11 @@ import { RichEditor, RichView } from './RichText';
 import { normName, readTaskExport, readTaskSheet } from '../../../server/taskimport';
 import { CardModal } from './CardModal';
 import type { Board, BoardItem, TaskWrite, TaskDetail, TaskImportResult, TaskItem, TaskMeta, TaskState } from '../types';
+import { STATE, Badge, when } from './taskkit';
+import { SubtaskTree, addSubtask } from './Subtasks';
+import { ServicePicker } from './ServicePicker';
 
-const STATE: Record<TaskState, [string, string, string]> = {
-  done: ['Hoàn thành', 'ok', 'check'], done_late: ['Hoàn thành muộn', 'late', 'check'], overdue: ['Quá hạn', 'bad', 'clock'], doing: ['Đang thực hiện', 'doing', 'play'],
-  todo: ['Chưa thực hiện', 'idle', 'clock'], paused: ['Tạm dừng', 'idle', 'pause'], cancelled: ['Đã huỷ', 'idle', 'x'], other: ['', 'idle', 'info'],
-};
-const when = (t: number | null) => (t ? new Date(t).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }) : '—');
 const initials = (n: string) => n.replace(/^@/, '').split(/[\s._-]+/).filter(Boolean).slice(-2).map((w) => w[0]).join('').toUpperCase() || '?';
-function Badge({ t }: { t: Pick<TaskItem, 'state' | 'status'> }) {
-  const [label, tone, icon] = STATE[t.state];
-  return <span className={'tk-badge ' + tone}><Icon name={icon} size={11} />{label || t.status || 'Chưa có trạng thái'}</span>;
-}
 
 const onTaskPage = () => /^#tasks\/tk_\w+\/page/.test(location.hash);
 
@@ -224,7 +218,7 @@ function TaskGroups({ tasks, groupBy, selected, onOpen, onNew, onChanged, select
   return <GroupedList foldKey={`dms.taskFold.${groupBy}`} groups={groups} nameLabel="Tên công việc" addLabel="Tạo công việc" onOpen={(t) => onOpen(t.id)} selected={selected}
     selection={selection}
     check={{ done: finished, toggle: (t) => void toggle(t), label: (t) => (finished(t) ? `Mở lại “${t.title}”` : `Hoàn thành “${t.title}”`) }}
-    name={(t) => <><span className={finished(t) ? 'tk-done-title' : ''}>{t.title}</span>{t.children > 0 && <small className="tk-kids">{t.children} việc con</small>}</>}
+    name={(t) => <><span className={finished(t) ? 'tk-done-title' : ''}>{t.title}</span>{t.children > 0 && <small className="tk-kids">{t.children} việc con</small>}{t.parent && <small className="tk-parent-of" title="Công việc cha"><Icon name="up" size={11} />{t.parent.title}</small>}</>}
     columns={[
       { key: 'status', label: 'Trạng thái', width: 130, render: (t) => <Badge t={t} /> },
       // Those given the task, then the people on its card (it is listed as their work too).
@@ -250,14 +244,14 @@ function TaskTable({ tasks, selected, onOpen, selection }: { tasks: TaskItem[]; 
         <thead>
           <tr>
             {selection && <th style={{ width: 36, minWidth: 36, textAlign: 'center' }} scope="col">{selection.toggleAll && <input type="checkbox" checked={!!selection.all} onChange={(e) => selection.toggleAll!(e.target.checked)} aria-label="Chọn tất cả để thao tác" />}</th>}
-            {['Mã công việc', 'Tên công việc', 'Trạng thái', 'Dự án', 'Board / thẻ', 'Giao cho', 'Ngày bắt đầu', 'Thời hạn', 'Hoàn thành', 'Công việc cha', 'Nhãn', 'Tạo bởi', 'Cập nhật'].map(label => <th key={label} scope="col">{label}</th>)}
+            {['Mã công việc', 'Tên công việc', 'Trạng thái', 'Dự án', 'Dịch vụ', 'Board / thẻ', 'Giao cho', 'Ngày bắt đầu', 'Thời hạn', 'Hoàn thành', 'Công việc cha', 'Nhãn', 'Tạo bởi', 'Cập nhật'].map(label => <th key={label} scope="col">{label}</th>)}
           </tr>
         </thead>
         <tbody>{pageTasks.map(t => <tr key={t.id} className={(selected === t.id ? 'on' : '') + (selection?.selected.includes(t.id) ? ' checked' : '')}>
           {selection && <td style={{ width: 36, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selection.selected.includes(t.id)} onChange={() => selection.toggle(t.id)} aria-label={`Chọn ${t.title}`} /></td>}
           <td>{t.externalId || '—'}</td>
           <th scope="row"><button className="tk-table-title" onClick={() => onOpen(t.id)}>{t.title}</button>{t.children > 0 && <small>{t.children} việc con</small>}</th>
-          <td><Badge t={t} /></td><td>{t.project?.name || '—'}</td><td>{t.boardLink?<button className="tk-board-shortcut" onClick={()=>openLinkedBoard(t.boardLink!)}><Icon name="boards" size={14}/><span>{t.boardLink.boardName}<small>{t.boardLink.listName}</small></span></button>:t.hasBoardLink?<small>Đã liên kết board</small>:'—'}</td><td><EmployeeAvatars people={[...t.assignees, ...(t.cardPeople || [])]}/></td>
+          <td><Badge t={t} /></td><td>{t.project?.name || '—'}</td><td>{t.services?.map((x) => x.name).join(', ') || '—'}</td><td>{t.boardLink?<button className="tk-board-shortcut" onClick={()=>openLinkedBoard(t.boardLink!)}><Icon name="boards" size={14}/><span>{t.boardLink.boardName}<small>{t.boardLink.listName}</small></span></button>:t.hasBoardLink?<small>Đã liên kết board</small>:'—'}</td><td><EmployeeAvatars people={[...t.assignees, ...(t.cardPeople || [])]}/></td>
           <td>{when(t.startAt)}</td><td className={t.state === 'overdue' ? 'bad' : ''}>{when(t.dueAt)}</td><td>{when(t.doneAt)}</td>
           <td>{t.parent ? <button className="btn btn-gray btn-sm" onClick={() => onOpen(t.parent!.id)}>{t.parent.title}</button> : '—'}</td>
           <td><span className="tk-labels">{t.labels.map(l => <i key={l}>{l}</i>)}</span></td><td>{t.createdBy?.name || '—'}</td><td>{when(t.sourceUpdatedAt || t.updatedAt)}</td>
@@ -288,16 +282,12 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
       {t.path.length > 0 && <nav className="tk-path" aria-label="Công việc cha">{t.path.map((p) => <button key={p.id} onClick={() => onOpen(p.id)}>{p.title}</button>)}</nav>}
       <dl className="tk-facts tk-card-facts">
         {!isLinked && <div><dt>Dự án</dt><dd><TaskInlineField task={t} field="projectId" label="Dự án" value={t.project?.id||''} meta={meta} onSaved={()=>{void load();onChanged();}}>{t.project?.name||'—'}</TaskInlineField></dd></div>}
+        <div><dt>Dịch vụ</dt><dd><TaskServices task={t} meta={meta} onSaved={()=>{void load();onChanged();}}/></dd></div>
         {!isLinked && <div><dt>Giao cho</dt><dd>{t.canEdit&&meta?<TaskInlineMembers key={t.id+':'+t.updatedAt} task={t} meta={meta} onSaved={()=>{void load();onChanged();}}/>:<EmployeeAvatars people={t.assignees}/>}</dd></div>}
         <div><dt>Người theo dõi</dt><dd>{t.canEdit&&meta?<TaskInlineFollowers key={t.id+':'+t.updatedAt} task={t} meta={meta} onSaved={()=>{void load();onChanged();}}/>:<EmployeeAvatars people={t.followers}/>}</dd></div>
         <div><dt>Tạo bởi</dt><dd>{t.createdBy?.name || '—'}</dd></div>
       </dl>
-      {t.childTasks.length > 0 && (
-        <div className="tk-child-tasks-block">
-          <h4>Việc con <em>{t.childTasks.length}</em></h4>
-          <ul className="tk-kids">{t.childTasks.map((k) => <li key={k.id}><button onClick={() => onOpen(k.id)}><Badge t={k} /><span>{k.title}</span><small>{when(k.dueAt)}</small></button></li>)}</ul>
-        </div>
-      )}
+      {(t.childTasks.length > 0 || t.canEdit) && <SubtaskTree task={t} onOpen={onOpen} onChanged={() => { void load(); onChanged(); }} />}
     </section>
   );
 
@@ -327,7 +317,20 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
   );
 }
 
-type TaskPopKind = 'status' | 'add' | 'labels' | 'dates' | 'subtask' | 'members' | 'actions';
+/** A task's services: picked on the task, its project's suggested first. */
+function TaskServices({ task, meta, onSaved }: { task: TaskDetail; meta: TaskMeta | null; onSaved: () => void }) {
+  const [ids, setIds] = useState((task.services || []).map((s) => s.id));
+  useEffect(() => setIds((task.services || []).map((s) => s.id)), [task.id, task.services]);
+  const suggested = (meta?.projects.find((p) => p.id === task.project?.id)?.services || []).map((s) => s.id);
+  const save = async (next: string[]) => {
+    const before = ids;
+    setIds(next);
+    try { await api.updateTask(task.id, { services: next }); onSaved(); } catch (e: any) { setIds(before); toast(e.message, true); }
+  };
+  return <ServicePicker value={ids} onChange={(next) => void save(next)} known={task.services} suggested={suggested} disabled={!task.canEdit} />;
+}
+
+type TaskPopKind = 'status' | 'add' | 'labels' | 'dates' | 'members' | 'actions';
 
 /** Renders a task without an accessible Workspace card using the exact same CardModal layout (Image 2). */
 function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActions, onClose, onChanged, onLink }: {
@@ -345,7 +348,6 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
   const [editingResult, setEditingResult] = useState(false);
   const [resultDraft, setResultDraft] = useState(t.result || '');
   const [labelsDraft, setLabelsDraft] = useState(t.labels.join(', '));
-  const [subtaskTitle, setSubtaskTitle] = useState('');
   const [hasStart, setHasStart] = useState(!!t.startAt);
   const [startDate, setStartDate] = useState(dateIn(t.startAt || Date.now()));
   const [hasDue, setHasDue] = useState(!!t.dueAt || !t.startAt);
@@ -433,7 +435,7 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
                 <button className="cm-chip cm-add-chip" onClick={openPop('add')} aria-haspopup="dialog" aria-expanded={pop?.kind === 'add'}><Icon name="plus" size={15} />Thêm</button>
                 {t.labels.length === 0 && <button className="cm-chip" onClick={openPop('labels')}><Icon name="tag" size={14} />Nhãn</button>}
                 {!t.dueAt && !t.startAt && <button className="cm-chip" onClick={openPop('dates')}><Icon name="clock" size={14} />Ngày</button>}
-                <button className="cm-chip" onClick={openPop('subtask')}><Icon name="checklist" size={14} />Việc cần làm</button>
+                <button className="cm-chip" onClick={() => addSubtask(t.id)}><Icon name="checklist" size={14} />Việc cần làm</button>
                 {t.assignees.length === 0 && <button className="cm-chip" onClick={openPop('members')}><Icon name="user" size={14} />Thành viên</button>}
               </div>
             ) : <p className="cm-readonly"><Icon name="info" size={15} />Bạn đang xem công việc ở chế độ chỉ đọc.</p>}
@@ -564,7 +566,7 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
           <div className="cm-add-menu">
             <button onClick={() => setPop({ kind: 'labels', el: pop.el })}><span className="cm-add-icon"><Icon name="tag" size={19} /></span><span><b>Nhãn</b><small>Phân loại công việc</small></span></button>
             <button onClick={() => setPop({ kind: 'dates', el: pop.el })}><span className="cm-add-icon"><Icon name="clock" size={19} /></span><span><b>Ngày</b><small>Đặt ngày bắt đầu và hạn hoàn thành</small></span></button>
-            <button onClick={() => setPop({ kind: 'subtask', el: pop.el })}><span className="cm-add-icon"><Icon name="checklist" size={19} /></span><span><b>Việc cần làm</b><small>Thêm công việc con</small></span></button>
+            <button onClick={() => { closePop(); addSubtask(t.id); }}><span className="cm-add-icon"><Icon name="checklist" size={19} /></span><span><b>Việc cần làm</b><small>Thêm công việc con</small></span></button>
             <button onClick={() => setPop({ kind: 'members', el: pop.el })}><span className="cm-add-icon"><Icon name="user" size={19} /></span><span><b>Thành viên</b><small>Giao công việc cho nhân viên</small></span></button>
             {!t.hasBoardLink && <button onClick={() => { closePop(); onLink(); }}><span className="cm-add-icon"><Icon name="boards" size={19} /></span><span><b>Workspace</b><small>Tạo thẻ trên board</small></span></button>}
           </div>
@@ -592,13 +594,6 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
             void act(() => api.updateTask(t.id, { startAt: hasStart && startDate ? ms(startDate) : null, dueAt: hasDue && dueDate ? ms(dueDate, dueTime || '00:00') : null }));
           }}>Lưu</button>
           <button className="btn btn-gray bk-wide" onClick={() => { closePop(); void act(() => api.updateTask(t.id, { startAt: null, dueAt: null })); }}>Gỡ bỏ</button>
-        </Pop>
-      )}
-      {pop?.kind === 'subtask' && (
-        <Pop anchor={pop.el} title="Thêm việc con" onClose={closePop}>
-          <h5>Tên công việc con</h5>
-          <input className="bk-in" autoFocus value={subtaskTitle} onChange={(e) => setSubtaskTitle(e.target.value)} placeholder="Nhập tên việc con…" onKeyDown={(e) => { if (e.key === 'Enter' && subtaskTitle.trim()) { const next = subtaskTitle.trim(); setSubtaskTitle(''); closePop(); void act(() => api.createTask({ title: next, projectId: t.project?.id || null, parentId: t.id, dueAt: t.dueAt })); } }} />
-          <button className="btn btn-primary btn-sm" disabled={!subtaskTitle.trim()} onClick={() => { const next = subtaskTitle.trim(); setSubtaskTitle(''); closePop(); void act(() => api.createTask({ title: next, projectId: t.project?.id || null, parentId: t.id, dueAt: t.dueAt })); }}>Thêm</button>
         </Pop>
       )}
       {pop?.kind === 'members' && meta && (

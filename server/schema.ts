@@ -225,6 +225,11 @@ CREATE TABLE IF NOT EXISTS project_services (
  added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(project_id,service_id)
 );
 CREATE INDEX IF NOT EXISTS project_services_service ON project_services(service_id);
+-- The services a task is for (picked on the task, its project's suggested first).
+CREATE TABLE IF NOT EXISTS task_services (
+ task_id TEXT NOT NULL, service_id TEXT NOT NULL, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(task_id,service_id)
+);
+CREATE INDEX IF NOT EXISTS task_services_service ON task_services(service_id);
 CREATE TABLE IF NOT EXISTS customer_tags (
  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, tag_id TEXT NOT NULL REFERENCES customer_categories(id) ON DELETE CASCADE,
  created_at INTEGER NOT NULL, PRIMARY KEY(customer_id,tag_id)

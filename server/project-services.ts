@@ -1,5 +1,5 @@
 // Dịch vụ: each project names the services of the catalogue (Quản trị › Dịch vụ) it is for, and a customer's services
-// are those of its projects. Services set on a customer itself (customer_needs, from before projects carried them) are
+// are those of its projects. A task names its own (task_services). Services set on a customer itself (customer_needs, from before projects carried them) are
 // handed to its projects: to those naming none yet, as soon as it has one; until then they still count as its own.
 import { all, get, run, now } from './db';
 import { HttpError } from './http';
@@ -36,6 +36,17 @@ export async function serviceIds(v: unknown) {
 export async function saveProjectServices(projectId: string, ids: string[], by: string) {
   await run('DELETE FROM project_services WHERE project_id = ? AND service_id NOT IN (SELECT value FROM json_each(?))', projectId, JSON.stringify(ids));
   for (const id of ids) await run('INSERT OR IGNORE INTO project_services(project_id, service_id, added_by, created_at) VALUES(?,?,?,?)', projectId, id, by, now());
+}
+
+/** Each task's services (of these tasks, or of all). */
+export async function taskServices(ids?: string[]) {
+  return byKey(await all<any>(`SELECT ts.task_id, s.id, s.name FROM task_services ts JOIN services s ON s.id = ts.service_id AND s.deleted_at IS NULL
+    WHERE 1=1${among('ts.task_id', ids)} ORDER BY s.name COLLATE NOCASE`, ...(ids ? [JSON.stringify(ids)] : [])), 'task_id');
+}
+/** Makes these the task's services. */
+export async function saveTaskServices(taskId: string, ids: string[], by: string) {
+  await run('DELETE FROM task_services WHERE task_id = ? AND service_id NOT IN (SELECT value FROM json_each(?))', taskId, JSON.stringify(ids));
+  for (const id of ids) await run('INSERT OR IGNORE INTO task_services(task_id, service_id, added_by, created_at) VALUES(?,?,?,?)', taskId, id, by, now());
 }
 
 /** Hands the services set on these customers to their projects that name none yet, once they have one (repairData in

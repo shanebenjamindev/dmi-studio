@@ -1406,6 +1406,92 @@ test('a board is made for a customer, moved to another or cleared by its admins;
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
+test('a board has a type it opens in and a start date (now unless given); a task holds a branch of subtasks at any depth',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-board-type-'));let server;
+ try{
+  server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'bt-boss@example.test',password:'test-password'})).cookie;
+  const before=Date.now();
+  const plain=(await server.call('POST','/api/boards',{name:'Mặc định',bg:'ocean',roleId:null,private:true},ac)).data;
+  assert.equal(plain.view,'board');
+  assert.ok(plain.startAt>=before&&plain.startAt<=Date.now(),'no date given: it starts now');
+  const day=Date.UTC(2026,9,1,2,0);
+  const cal=(await server.call('POST','/api/boards',{name:'Lịch',bg:'ocean',roleId:null,private:true,view:'calendar',startAt:day},ac)).data;
+  assert.equal(cal.view,'calendar');assert.equal(cal.startAt,day);
+  assert.equal((await server.call('POST','/api/boards',{name:'Lạ',bg:'ocean',roleId:null,private:true,view:'map'},ac)).data.view,'board');
+  assert.equal((await server.call('POST','/api/boards',{name:'Sai ngày',bg:'ocean',roleId:null,private:true,startAt:12},ac)).status,400);
+  assert.equal((await server.call('PUT',`/api/boards/${cal.id}`,{view:'timeline',startAt:day+864e5},ac)).status,200);
+  const read=(await server.call('GET',`/api/boards/${cal.id}`,undefined,ac)).data;
+  assert.equal(read.view,'timeline');assert.equal(read.startAt,day+864e5);
+  assert.ok((await server.call('GET','/api/boards',undefined,ac)).data.some((b)=>b.id===cal.id&&b.view==='timeline'));
+  // Subtasks of subtasks: the task shows the whole branch, each with its parent.
+  const root=(await server.call('POST','/api/tasks',{title:'Gốc'},ac)).data.id;
+  const a=(await server.call('POST','/api/tasks',{title:'Con A',parentId:root},ac)).data.id;
+  const b=(await server.call('POST','/api/tasks',{title:'Con B',parentId:root},ac)).data.id;
+  const a1=(await server.call('POST','/api/tasks',{title:'Cháu A1',parentId:a},ac)).data.id;
+  const a1x=(await server.call('POST','/api/tasks',{title:'Chắt A1x',parentId:a1},ac)).data.id;
+  const branch=(await server.call('GET',`/api/tasks/${root}`,undefined,ac)).data.childTasks;
+  assert.deepEqual(branch.map((k)=>[k.title,k.parent.id]).sort(),[['Chắt A1x',a1],['Cháu A1',a],['Con A',root],['Con B',root]].sort());
+  assert.deepEqual((await server.call('GET',`/api/tasks/${a1}`,undefined,ac)).data.path.map((p)=>p.id),[root,a]);
+  assert.equal((await server.call('PUT',`/api/tasks/${a}`,{parentId:a1x},ac)).status,400,'never under its own branch');
+  assert.ok(b);
+  // A task names its services; a client's work in a workspace lists its boards' cards with them.
+  const svc=(await server.call('POST','/api/admin/services',{name:'Quay video'},ac)).data;
+  assert.equal((await server.call('PUT',`/api/tasks/${a}`,{services:[svc.id]},ac)).status,200);
+  assert.deepEqual((await server.call('GET',`/api/tasks/${a}`,undefined,ac)).data.services.map((x)=>x.name),['Quay video']);
+  assert.equal((await server.call('PUT',`/api/tasks/${a}`,{services:['nope']},ac)).status,400);
+  const client=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách bảng'},ac)).data;
+  const cb=(await server.call('POST','/api/boards',{name:'Board của khách',bg:'ocean',roleId:null,private:true,customerId:client.id},ac)).data;
+  const list=(await server.call('GET',`/api/boards/${cb.id}`,undefined,ac)).data.lists[0];
+  const card=(await server.call('POST',`/api/lists/${list.id}/cards`,{title:'Dựng clip',syncTask:true},ac)).data;
+  const linked=(await server.call('GET',`/api/cards/${card.id}`,undefined,ac)).data.linkedTask;
+  assert.ok(linked,'a new card is a task');
+  await server.call('PUT',`/api/tasks/${linked.id}`,{services:[svc.id]},ac);
+  const work=(await server.call('GET','/api/client-work?workspace=company',undefined,ac)).data;
+  const row=work.find((x)=>x.id===card.id);
+  assert.ok(row,'the card of a client board is listed');
+  assert.equal(row.customerName,'Khách bảng');assert.equal(row.listName,list.name);
+  assert.deepEqual(row.services.map((x)=>x.name),['Quay video']);
+  assert.ok(!work.some((x)=>x.boardId===cal.id),'boards for no client stay out');
+  // The work reads as a tree: a subtask of the card's task is listed under it, in the same client.
+  const sub=(await server.call('POST','/api/tasks',{title:'Việc con của thẻ',parentId:linked.id},ac)).data.id;
+  const again=(await server.call('GET','/api/client-work?workspace=company',undefined,ac)).data;
+  const subRow=again.find((x)=>x.taskId===sub);
+  assert.ok(subRow,'the subtask is listed');
+  assert.equal(subRow.parentTaskId,linked.id);assert.equal(subRow.customerName,'Khách bảng');
+  assert.equal(again.find((x)=>x.id===card.id).stage,'todo');
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('@ in a comment or a card description tells the person mentioned, once, if they see the board',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-mention-'));let server;
+ try{
+  server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'mn-boss@example.test',password:'test-password'})).cookie;
+  const ann=(await server.call('POST','/api/users',{name:'Ann',email:'mn-ann@example.test',password:'test-password',role:'member'},ac)).data;
+  const bob=(await server.call('POST','/api/users',{name:'Bob',email:'mn-bob@example.test',password:'test-password',role:'member'},ac)).data;
+  const annC=(await server.call('POST','/api/auth/login',{email:'mn-ann@example.test',password:'test-password'})).cookie;
+  const bobC=(await server.call('POST','/api/auth/login',{email:'mn-bob@example.test',password:'test-password'})).cookie;
+  const board=(await server.call('POST','/api/boards',{name:'Nhắc tên',bg:'ocean',roleId:null,private:true},ac)).data;
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}/members/${ann.id}`,{level:'normal'},ac)).status,200);
+  const list=(await server.call('GET',`/api/boards/${board.id}`,undefined,ac)).data.lists[0];
+  const card=(await server.call('POST',`/api/lists/${list.id}/cards`,{title:'Quay video'},ac)).data;
+  const tag=(u)=>`<span data-mention="${u.id}">@${u.name}</span>`;
+  const mine=async(c)=>(await server.call('GET','/api/notifications/inbox',undefined,c)).data.items.filter((i)=>i.title==='Bạn được nhắc đến');
+  // Ann sees the board and is told; Bob does not see it and is not.
+  const made=(await server.call('POST',`/api/cards/${card.id}/comments`,{text:`<div>${tag(ann)} ${tag(bob)} xem giúp</div>`},ac)).data;
+  assert.equal((await mine(annC)).length,1);
+  assert.equal((await mine(annC))[0].link,`#boards/${board.id}/c/${card.id}`);
+  assert.equal((await mine(bobC)).length,0);
+  // Editing the comment does not tell her again.
+  await server.call('PUT',`/api/comments/${made.id}`,{text:`<div>${tag(ann)} xem giúp nhé</div>`},ac);
+  assert.equal((await mine(annC)).length,1);
+  // Named in the description: told once more.
+  await server.call('PUT',`/api/cards/${card.id}`,{description:`<div>Phụ trách: ${tag(ann)}</div>`},ac);
+  assert.equal((await mine(annC)).length,2);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
 test('chat unread counts follow what each person has read, on any device; support requests carry screenshots',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-chat-read-'));let server;
  try{

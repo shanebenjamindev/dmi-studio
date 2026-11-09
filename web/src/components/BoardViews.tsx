@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { toast } from '../store';
@@ -6,10 +6,8 @@ import { Icon } from './ui';
 import { ScheduleViews } from './ScheduleViews';
 import { CardPop, type PopKind } from './CardModal';
 import { COLOR } from './boardkit';
-import type { Board, BoardCard, CardDetail, User } from '../types';
+import type { Board, BoardCard, BoardViewKind, CardDetail, User } from '../types';
 
-export const VIEW_NAMES = { board: 'Board', table: 'Danh sách', calendar: 'Lịch', dashboard: 'Tổng quan', timeline: 'Dòng thời gian' };
-export type BoardViewKind = keyof typeof VIEW_NAMES;
 
 export function QuickCard({ id, rect, board, me, onClose, onOpen, onChanged }: { id: string; rect: DOMRect; board: Board; me: User; onClose: () => void; onOpen: () => void; onChanged: () => void }) {
   const [card, setCard] = useState<CardDetail | null>(null);
@@ -52,7 +50,37 @@ export function QuickCard({ id, rect, board, me, onClose, onOpen, onChanged }: {
   </div>, document.body);
 }
 
-export function BoardAlternative({ board, view, filter, onOpen }: { board: Board; view: BoardViewKind; filter: (c: BoardCard) => boolean; onOpen: (id: string) => void }) {
+/** A card added from a view other than the columns: into one of the lists, due on a day if one is picked (at 17:00, like
+ *  a card's usual due time). It stays open for the next one. */
+function AddCard({ lists, onAdd }: { lists: { id: string; name: string }[]; onAdd: (listId: string, title: string, dueAt: number | null) => Promise<unknown> }) {
+  const [open, setOpen] = useState(false), [title, setTitle] = useState(''), [list, setList] = useState(lists[0].id), [due, setDue] = useState(''), [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  if (!open) return <button className="bv-add-b" onClick={() => setOpen(true)}><Icon name="plus" size={15} />Thêm thẻ</button>;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const t = title.trim();
+    if (!t || busy) return;
+    setBusy(true);
+    try { await onAdd(lists.some((l) => l.id === list) ? list : lists[0].id, t, due ? new Date(`${due}T17:00`).getTime() : null); setTitle(''); }
+    catch { /* onAdd says what went wrong; the title stays to try again */ }
+    finally { setBusy(false); input.current?.focus(); }
+  };
+  return <form className="bv-add" onSubmit={submit}>
+    <input ref={input} autoFocus aria-label="Tên thẻ" placeholder="Nhập tên thẻ…" maxLength={500} value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }} />
+    <select aria-label="Danh sách" value={list} onChange={(e) => setList(e.target.value)}>{lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>
+    <input type="date" aria-label="Thời hạn" title="Thời hạn (không bắt buộc)" value={due} onChange={(e) => setDue(e.target.value)} />
+    <button className="btn btn-primary btn-sm" disabled={!title.trim() || busy}>{busy ? 'Đang thêm…' : 'Thêm thẻ'}</button>
+    <button type="button" className="bd-icon" onClick={() => setOpen(false)} aria-label="Đóng"><Icon name="x" size={15} /></button>
+  </form>;
+}
+
+export function BoardAlternative({ board, view, filter, onOpen, onAdd }: { board: Board; view: BoardViewKind; filter: (c: BoardCard) => boolean; onOpen: (id: string) => void; onAdd?: (listId: string, title: string, dueAt: number | null) => Promise<unknown> }) {
+  return <div className="bv-wrap">
+    {onAdd && board.lists.length > 0 && <AddCard lists={board.lists} onAdd={onAdd} />}
+    <AlternativeView board={board} view={view} filter={filter} onOpen={onOpen} />
+  </div>;
+}
+function AlternativeView({ board, view, filter, onOpen }: { board: Board; view: BoardViewKind; filter: (c: BoardCard) => boolean; onOpen: (id: string) => void }) {
   const cards = board.lists.flatMap((l) => l.cards.filter(filter).map((c) => ({ ...c, listName: l.name })));
   if (view === 'dashboard') return <section className="bv-panel"><h2>Tổng quan board</h2><div className="bv-stats">{[['Tổng số thẻ', cards.length], ['Hoàn thành', cards.filter((c) => c.done).length], ['Quá hạn', cards.filter((c) => !c.done && c.dueAt && c.dueAt < Date.now()).length], ['Chưa có hạn', cards.filter((c) => !c.dueAt).length]].map(([name, n]) => <div key={name}><strong>{n}</strong><span>{name}</span></div>)}</div>{board.lists.map((l) => { const list = cards.filter((c) => c.listId === l.id); return <div className="bv-progress" key={l.id}><b>{l.name}</b><progress max={list.length || 1} value={list.filter((c) => c.done).length} /><span>{list.filter((c) => c.done).length}/{list.length} hoàn thành</span></div>; })}</section>;
   return <ScheduleViews view={view === 'calendar' || view === 'timeline' ? view : 'table'} groups={board.lists.map((l) => l.name)} cards={cards.map((c) => ({ id: c.id, title: c.title, group: c.listName, labels: board.labels.filter((l) => c.labels.includes(l.id)).map((l) => ({ name: l.name, color: COLOR[l.color] })), members: board.members.filter((m) => c.members.includes(m.id)).map((m) => m.name), startAt: c.startAt, dueAt: c.dueAt, done: c.done }))} onOpen={onOpen} />;

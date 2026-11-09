@@ -11,11 +11,12 @@ import { toast, useStore, goto, openTask } from '../store';
 import { Icon } from './ui';
 import { MemberChoices } from './EmployeePicker';
 import { MemberAvatar } from './MemberAvatar';
-import { RichEditor, RichView } from './RichText';
+import { MentionPeople, RichEditor, RichView } from './RichText';
+import { CardSubtasks, addSubtask } from './Subtasks';
 import { COLOR, COLOR_NAME, Avatar, Pop, activityText, ago, dateIn, dueState, fullDate, timeIn, fileThumb } from './boardkit';
 import type { Board, BoardLabel, CardDetail, DriveFile, TaskDetail, TaskMeta, User } from '../types';
 
-export type PopKind = 'add' | 'members' | 'labels' | 'label' | 'checklist' | 'dates' | 'customer' | 'project' | 'files' | 'attach' | 'cover' | 'move' | 'copy' | 'actions';
+export type PopKind = 'add' | 'subtask' | 'members' | 'labels' | 'label' | 'checklist' | 'dates' | 'customer' | 'project' | 'files' | 'attach' | 'cover' | 'move' | 'copy' | 'actions';
 
 /** A card's window over the board; `embedded`: the same card laid into a page instead (a task's own page on Công việc,
  *  as task and card are one piece of work), with `extra` (the task's own facts) above its description. */
@@ -28,6 +29,8 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
   // Result files come from the customer's folder, which only people with the Drive page open.
   const drive = useStore((s) => s.pages.includes('workspace'));
   const load = () => api.card(id).then(setC).catch((e) => { toast(e.message, true); onClose(); });
+  // Whom @ suggests: the others who see the board.
+  const others = board.members.filter((m) => m.id !== me.id);
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (embedded) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('dialog.qc-dialog[open]')) onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose, embedded]);
   /** Do something to the card, then show it (and the board) as the server has it. */
@@ -120,8 +123,10 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
             )}
 
             
-            {extra}
-            <Description value={c.description} readOnly={!edit || !c.canEditDescription} onSave={(t) => act(() => api.updateCard(c.id, { description: t }))} />
+            {/* The card is a task: its subtasks (on a task's own page, `extra` shows them with the task's facts). */}
+            {extra ?? (c.linkedTask && <CardSubtasks taskId={c.linkedTask.id} onOpen={(taskId) => { onClose(); openTask(taskId); }} onChanged={onChanged} />)}
+            {/* @ in the description and the comments suggests the people who see the board; they are told (server/boards.ts). */}
+            <MentionPeople.Provider value={others}><Description value={c.description} readOnly={!edit || !c.canEditDescription} onSave={(t) => act(() => api.updateCard(c.id, { description: t }))} /></MentionPeople.Provider>
 
             <WorkResult card={c} edit={edit} drive={drive} act={act} onAddFiles={open('files')} />
 
@@ -143,7 +148,7 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
           </main>
 
           {commentsOpen && <ResizeHandle side="after" cssVar="--cm-side-w" storage="comments" min={260} max={640} label="Đổi độ rộng khung bình luận" />}
-          <aside id="card-comments" className="cm-right" hidden={!commentsOpen} aria-label="Bình luận và hoạt động">
+          <aside id="card-comments" className="cm-right" hidden={!commentsOpen} aria-label="Bình luận và hoạt động"><MentionPeople.Provider value={others}>
             <h3 className="cm-right-h"><Icon name="comment" size={18} />Bình luận và hoạt động<button className="btn btn-gray btn-sm" onClick={() => setDetails(!details)}>{details ? 'Ẩn chi tiết' : 'Hiện chi tiết'}</button></h3>
             <CommentBox me={me} onSave={(t) => act(() => api.addComment(c.id, t))} />
             {!c.comments.length&&(!details||!c.activity.length)&&<p className="cm-feed-empty">Chưa có bình luận{details?' hoặc hoạt động':''}. Trao đổi về công việc tại đây.</p>}
@@ -154,7 +159,7 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
                   ? <Comment key={e.x.id} x={e.x} me={me} canDelete={e.x.userId === me.id || board.level === 'admin'} who={board.members.find((m) => m.id === e.x.userId) || { id: e.x.userId, name: e.x.userName }} act={act} />
                   : <li key={e.x.id} className="cm-act"><Avatar m={board.members.find((m) => m.id === e.x.userId) || { id: e.x.userId, name: e.x.userName }} size={28} /><div><p><b>{e.x.userName}</b> {activityText(e.x, true)}</p><span>{ago(e.x.createdAt)}</span></div></li>)}
             </ul>
-          </aside>
+          </MentionPeople.Provider></aside>
         </div>
       </div>
       {pop && <CardPop pop={pop} card={c} board={board} me={me} edit={edit} setPop={setPop} act={act} onGone={() => { onChanged(); onClose(); }} />}
@@ -266,7 +271,16 @@ function Checklist({ list, readOnly, act }: { list: CardDetail['checklists'][num
   const [edit, setEdit] = useState<{ id: string; text: string } | null>(null);
   const done = list.items.filter((i) => i.done).length, pct = list.items.length ? Math.round((done / list.items.length) * 100) : 0;
   const [saving, setSaving] = useState(false);
-  const add = async () => { const t = adding.trim(); if (!t || saving) return; setSaving(true); try { if (await act(() => api.addItem(list.id, t))) setAdding(''); } finally { setSaving(false); } };
+  const field = useRef<HTMLTextAreaElement>(null);
+  // One item a line (several lines pasted: several items); the field stays open, and focused, for the next ones.
+  const lines = adding.split('\n').map((x) => x.trim()).filter(Boolean);
+  const add = async () => {
+    if (!lines.length || saving) return;
+    setSaving(true);
+    let made = 0;
+    try { await act(async () => { for (const t of lines) { await api.addItem(list.id, t); made++; } }); }
+    finally { setAdding(lines.slice(made).join('\n')); setSaving(false); requestAnimationFrame(() => field.current?.focus()); }
+  };
   return (
     <section className="cm-sec">
       <h3><Icon name="checklist" size={18} />
@@ -292,8 +306,8 @@ function Checklist({ list, readOnly, act }: { list: CardDetail['checklists'][num
       </ul>
       {readOnly ? null : open ? (
         <div className="cm-edit">
-          <textarea autoFocus rows={2} disabled={saving} value={adding} placeholder="Thêm một mục" onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } if (e.key === 'Escape' && !document.querySelector('dialog.qc-dialog[open]')) setOpen(false); }} />
-          <div className="cm-row"><button className="btn btn-primary btn-sm" onClick={add} disabled={saving || !adding.trim()}>{saving ? 'Đang lưu…' : 'Thêm'}</button><button className="btn btn-gray btn-sm" onClick={() => setOpen(false)}>Huỷ</button></div>
+          <textarea ref={field} autoFocus rows={lines.length > 1 ? Math.min(lines.length, 6) : 2} readOnly={saving} value={adding} placeholder="Thêm một mục (mỗi dòng một mục)" onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); add(); } if (e.key === 'Escape' && !document.querySelector('dialog.qc-dialog[open]')) setOpen(false); }} />
+          <div className="cm-row"><button className="btn btn-primary btn-sm" onClick={add} disabled={saving || !lines.length}>{saving ? 'Đang lưu…' : lines.length > 1 ? `Thêm ${lines.length} mục` : 'Thêm'}</button><button className="btn btn-gray btn-sm" onClick={() => setOpen(false)}>Xong</button></div>
         </div>
       ) : <button className="btn btn-gray btn-sm cm-additem" onClick={() => setOpen(true)}>Thêm một mục</button>}
     </section>
@@ -345,19 +359,27 @@ export function CardPop({ pop, card, board, me, edit, setPop, act, onGone }: {
   const close = () => setPop(null);
   const [q, setQ] = useState('');
   const drive = useStore((s) => s.pages.includes('workspace'));
+  // A subtask goes under the card's task; a card without one gets its task first.
+  const addChild = async () => {
+    close();
+    if (card.linkedTask) { addSubtask(card.linkedTask.id); return; }
+    let task: string | undefined;
+    if (await act(async () => { await api.updateCard(card.id, { linkTask: true }); task = (await api.card(card.id)).linkedTask?.id; }) && task) addSubtask(task);
+  };
   switch (pop.kind) {
     case 'add': {
       const items: { kind: PopKind; icon: string; title: string; desc: string }[] = [
         { kind: 'labels', icon: 'tag', title: 'Nhãn', desc: 'Phân loại và sắp xếp mức độ ưu tiên' },
         { kind: 'dates', icon: 'clock', title: 'Ngày', desc: 'Đặt ngày bắt đầu và hạn hoàn thành' },
         { kind: 'checklist', icon: 'checklist', title: 'Việc cần làm', desc: 'Thêm danh sách các việc nhỏ' },
+        { kind: 'subtask', icon: 'layers', title: 'Việc con', desc: 'Chia thành công việc con, nhiều tầng' },
         { kind: 'members', icon: 'user', title: 'Thành viên', desc: 'Giao thẻ cho thành viên trong board' },
         { kind: 'attach', icon: 'clip', title: 'Đính kèm', desc: 'Thêm liên kết và tài liệu' },
         { kind: 'cover', icon: 'cover', title: 'Ảnh bìa', desc: 'Chọn màu bìa cho thẻ' },
         { kind: 'customer', icon: 'folder', title: 'Khách hàng', desc: 'Liên kết thẻ với khách hàng' },
         { kind: 'project', icon: 'folder', title: 'Dự án', desc: 'Liên kết thẻ với dự án công việc' },
       ];
-      return <Pop anchor={pop.el} title="Thêm vào thẻ" onClose={close}><div className="cm-add-menu">{items.map((item) => <button key={item.kind} onClick={() => setPop({ kind: item.kind, el: pop.el })}><span className="cm-add-icon"><Icon name={item.icon} size={19} /></span><span><b>{item.title}</b><small>{item.desc}</small></span></button>)}{drive && card.customerId && <button onClick={() => setPop({ kind: 'files', el: pop.el })}><span className="cm-add-icon"><Icon name="check" size={19} /></span><span><b>Kết quả công việc</b><small>Chọn file từ thư mục khách hàng</small></span></button>}</div></Pop>;
+      return <Pop anchor={pop.el} title="Thêm vào thẻ" onClose={close}><div className="cm-add-menu">{items.map((item) => <button key={item.kind} onClick={() => (item.kind === 'subtask' ? void addChild() : setPop({ kind: item.kind, el: pop.el }))}><span className="cm-add-icon"><Icon name={item.icon} size={19} /></span><span><b>{item.title}</b><small>{item.desc}</small></span></button>)}{drive && card.customerId && <button onClick={() => setPop({ kind: 'files', el: pop.el })}><span className="cm-add-icon"><Icon name="check" size={19} /></span><span><b>Kết quả công việc</b><small>Chọn file từ thư mục khách hàng</small></span></button>}</div></Pop>;
     }
     case 'members': {
       return <Pop anchor={pop.el} title="Thành viên" onClose={close}><CardMemberChoices board={board} card={card} onToggle={id=>act(()=>api.cardMember(card.id,id,!card.members.includes(id)))}/><QuickCreateButton kind="employee" label="Tạo nhân viên và thêm vào board / thẻ" onCreated={async r=>{if(!await act(async()=>{await api.setBoardMember(board.id,r.id,'normal');await api.cardMember(card.id,r.id,true);}))throw new Error('Chưa thêm được nhân viên vào thẻ');}}/></Pop>;

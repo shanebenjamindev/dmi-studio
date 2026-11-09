@@ -13,7 +13,7 @@ import { assigneeUsers, placeTaskCard, projectCustomerChanged, projectHome, rena
 import { TASK_MASTER } from '../shared/task-master';
 import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
 import { isHold, projectStage } from '../shared/projects';
-import { projectServices, saveProjectServices, serviceIds, settleCustomerServices } from './project-services';
+import { projectServices, saveProjectServices, saveTaskServices, serviceIds, settleCustomerServices, taskServices } from './project-services';
 /** A description or result as written (formatted text is never cut, which would break it): too long is refused. */
 const richIn = (x: unknown) => { const v = String(x ?? ''); if (v.length > RICH_MAX) throw new HttpError(413, RICH_TOO_LONG); return v; };
 import type { Req } from './http';
@@ -563,9 +563,10 @@ export function registerTasks(api: Router) {
     const ofTeam = (t: ReturnType<typeof taskOut>) => t.assignees.some((a) => !!a.userId && team.has(a.userId)) || !!onCard.get(t.id)?.some((id) => team.has(id));
     const person = scope === 'mine' ? null : String(q.get('person') || '') || null;
     const state = String(q.get('state') || ''), hit = matcher(q.get('q'));
+    const svc = await taskServices();
     const rows = (await all<any>(`${TASK_SQL}${project ? ' WHERE t.project_id = ?' : ''} ORDER BY COALESCE(t.due_at, t.created_at) DESC`, ...(project ? [project] : [])))
       .filter(t=>(!t.project_id||allowedProjects.has(t.project_id))&&(!t.customer_id||allowedCustomers.has(t.customer_id)))
-      .map((t) => taskOut(t, l))
+      .map((t) => ({ ...taskOut(t, l), services: svc.get(t.id) || [] }))
       // Who lists a task is decided by its project, customer and the team asked for, not by the board its card is on: a
       // new task's card sits on its maker's own board, which a department head may not see (the task then opens as its
       // page instead of its card).
@@ -573,7 +574,7 @@ export function registerTasks(api: Router) {
       .filter((t) => { const e = q.get('employee'); return !e || t.assignees.some((a) => a.userId === e) || !!onCard.get(t.id)?.includes(e); })
       .filter((t) => !q.get('campaign') || t.campaign?.id === q.get('campaign'))
       .filter((t) => !state || (state === 'open' ? !['done', 'done_late', 'cancelled'].includes(t.state) : state === 'done' ? ['done', 'done_late'].includes(t.state) : t.state === state))
-      .filter((t) => hit(t.id, t.title, t.project?.name, t.labels.join(' '), t.externalId, t.status, t.state === 'overdue' ? 'Quá hạn' : '', t.createdBy?.name, t.assignees.map((a) => a.name).join(' ')));
+      .filter((t) => hit(t.id, t.title, t.project?.name, t.labels.join(' '), t.services.map((x) => x.name).join(' '), t.externalId, t.status, t.state === 'overdue' ? 'Quá hạn' : '', t.createdBy?.name, t.assignees.map((a) => a.name).join(' ')));
     json(res, 200, { tasks: rows, linked: ids.length > 0 });
   });
   // People (with their accounts and counts), projects and labels, for filters and linking names to accounts.
@@ -646,14 +647,27 @@ export function registerTasks(api: Router) {
     const visibleCustomers=await customerLevels((await me(req)).id), l = await links(req,visibleCustomers), visibleProjects=l.pLevels, own = (!t.project_id||visibleProjects.get(t.project_id)!=='observer')&&await mine(req, t);
     const chain: { id: string; title: string }[] = [];
     for (let up = t.parent_id, n = 0; up && n < 20; n++) { const p = await get<any>('SELECT t.id,t.title,t.parent_id,t.project_id,p.customer_id FROM tasks t LEFT JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',up); if (!p||p.project_id&&!visibleProjects.has(p.project_id)||p.customer_id&&!visibleCustomers.has(p.customer_id)) break; chain.unshift({ id: p.id, title: p.title }); up = p.parent_id; }
-    const kids = (await all<any>(`${TASK_SQL} WHERE t.parent_id = ? ORDER BY COALESCE(t.due_at, t.created_at)`, t.id)).filter(x=>(!x.project_id||visibleProjects.has(x.project_id))&&(!x.customer_id||visibleCustomers.has(x.customer_id))).map((x) => taskOut(x,l));
+    // The whole branch under it: its subtasks, theirs and so on (each with its parent), as far as this account sees each one,
+    // 20 levels and 500 tasks at most. D1 takes 100 values a query, so a level is read in parts.
+    const kids: any[] = [], seen = new Set<string>([t.id]);
+    for (let level: string[] = [t.id], n = 0; level.length && n < 20 && kids.length < 500; n++) {
+      const next: any[] = [];
+      for (let i = 0; i < level.length; i += 90) {
+        const part = level.slice(i, i + 90);
+        next.push(...await all<any>(`${TASK_SQL} WHERE t.parent_id IN (${part.map(() => '?').join(',')}) ORDER BY COALESCE(t.due_at, t.created_at), t.created_at`, ...part));
+      }
+      const shown = next.filter((x) => !seen.has(x.id) && (!x.project_id || visibleProjects.has(x.project_id)) && (!x.customer_id || visibleCustomers.has(x.customer_id))).slice(0, 500 - kids.length);
+      for (const x of shown) { seen.add(x.id); kids.push(taskOut(x, l)); }
+      level = shown.map((x) => x.id);
+    }
     let boardLink: any = null;
     const linked = await get<any>('SELECT c.id cardId, c.board_id boardId, c.list_id listId, b.name boardName, l.name listName FROM task_board_links x JOIN board_cards c ON c.id=x.card_id JOIN boards b ON b.id=c.board_id JOIN board_lists l ON l.id=c.list_id WHERE x.task_id=?', t.id);
     if (linked) { try { await mustBoard(req, linked.boardId, 'viewer'); boardLink = linked; } catch (e) { if (!(e instanceof HttpError) || ![403,404].includes(e.status)) throw e; } }
-    json(res, 200, { ...taskOut(t, l), canDelete: own&&await canDelete(req,t), statuses: boardLink ? (await all<any>('SELECT name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',boardLink.boardId)).map(l=>l.name) : await taskStatuses(), boardLink, hasBoardLink: !!linked, description: t.description || '', result: own ? t.result || '' : null, resultHidden: !own && !!t.result, canEdit: own, canEditDescription: own && mayWriteDescription(await me(req), t.description, await taskDescriptionWriter(t)), path: chain, childTasks: kids });
+    json(res, 200, { ...taskOut(t, l), canDelete: own&&await canDelete(req,t), statuses: boardLink ? (await all<any>('SELECT name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',boardLink.boardId)).map(l=>l.name) : await taskStatuses(), boardLink, hasBoardLink: !!linked, description: t.description || '', result: own ? t.result || '' : null, resultHidden: !own && !!t.result, canEdit: own, canEditDescription: own && mayWriteDescription(await me(req), t.description, await taskDescriptionWriter(t)), path: chain, childTasks: kids, services: (await taskServices([t.id])).get(t.id) || [] });
   });
   api.post('/api/tasks', async (req, res) => {
-    const u = await me(req), input = await taskInput(await readJson(req),undefined,u.id);
+    const u = await me(req), b = await readJson(req), input = await taskInput(b,undefined,u.id);
+    const services = b.services !== undefined ? await serviceIds(b.services) : null;
     let creator: any = await get('SELECT id FROM task_people WHERE user_id=? ORDER BY created_at LIMIT 1', u.id);
     if (!creator) { creator = { id: uid('tp_') }; await run('INSERT INTO task_people(id,name,user_id,created_at) VALUES(?,?,?,?)', creator.id, u.name, u.id, now()); }
     if (input.people === undefined && input.userIds === undefined) input.people = [creator.id];
@@ -661,6 +675,7 @@ export function registerTasks(api: Router) {
     await run('INSERT INTO tasks(id,title,status,start_at,due_at,done_at,project_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)', id,input.title,input.status,input.start,input.due,input.done,input.project,input.parent,input.description,input.result,creator.id,at,at);
     await run('UPDATE tasks SET campaign_id=?,description_by=? WHERE id=?',input.campaign,input.description?.trim()?u.id:null,id);
     await saveLinks(id,input,u.id);
+    if (services) await saveTaskServices(id, services, u.id);
     await inheritFollowers(id,input.project,input.parent);
     await routeTaskToWorkspace(id,u.id);
     await queueTaskNotifications(id,undefined,u.id).catch(()=>console.error('Không xếp được thông báo công việc'));
@@ -668,6 +683,7 @@ export function registerTasks(api: Router) {
   });
   api.put('/api/tasks/:id', async (req, res) => {
     const t = await writable(req), b = await readJson(req), input = await taskInput(b,t,(await me(req)).id);
+    const services = b.services !== undefined ? await serviceIds(b.services) : null;
     if ((input.description || '') !== (t.description || '')) {
       const u = await me(req), writer = await taskDescriptionWriter(t);
       await assertDescriptionWriter(u, t.description, writer);
@@ -680,6 +696,7 @@ export function registerTasks(api: Router) {
     await run('UPDATE tasks SET campaign_id=?,description_by=? WHERE id=?',input.campaign,t.description_by ?? null,t.id);
     const assignedBefore=await assigneeUsers(t.id);
     await saveLinks(t.id,input,(await me(req)).id);
+    if (services) await saveTaskServices(t.id, services, (await me(req)).id);
     // A task goes onto Workspace when it is made (or synced from the menu), not on a later edit: one taken off its card
     // stays off.
     if (linked && ['title','description','startAt','dueAt','status'].some((k) => b[k] !== undefined)) await syncTaskToCard(t.id);
