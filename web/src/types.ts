@@ -140,7 +140,8 @@ export interface TeamRole { id: string; name: string; color: string; pages: Page
 export type Level = 'admin' | 'normal' | 'observer';
 /** The company's workspace (id 'company': everyone) or one a person made, private until shared. */
 /** `visibility`: 'private' (its people only, the default) or 'company' (everyone in the company may view it). */
-export interface Workspace { avatar?: string | null; id: string; name: string; about: string; kind: 'company' | 'personal'; visibility: 'private' | 'company'; ownerId: string | null; level: Level; members: number }
+/** `customerId`: the customer a workspace of one's own is for (its new boards start out for that customer). */
+export interface Workspace { avatar?: string | null; id: string; name: string; about: string; kind: 'company' | 'personal'; visibility: 'private' | 'company'; ownerId: string | null; level: Level; members: number; customerId?: string | null; customerName?: string | null }
 export interface Person { id: string; name: string; email: string }
 export interface WorkspaceMember extends Person { level: Level; owner: boolean }
 export interface BoardItem {

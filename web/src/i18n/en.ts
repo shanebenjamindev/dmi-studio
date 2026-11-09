@@ -4060,5 +4060,7 @@ const EN: Record<string, string> = {
   "Bạn được nhắc đến": "You were mentioned",
   "Mới dành cho bạn": "New for you",
   "Nhắc tên": "Mention someone",
+  "Mở khách hàng": "Open client",
+  "Board tạo trong workspace này sẽ gắn sẵn khách hàng đó.": "Boards made in this workspace start out for that client.",
 };
 export default EN;

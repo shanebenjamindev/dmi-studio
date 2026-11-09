@@ -424,7 +424,10 @@ export function registerBoards(api: Router) {
   // The company's (everyone; managed in Quản trị) and the ones people make, private until shared with others.
   const wsOut = (w: any, level: Level, members: number) => ({
     id: w.id, name: w.name, about: w.about || '', kind: 'personal', visibility: w.visibility === 'company' ? 'company' : 'private', ownerId: w.owner_id, level, members,
+    customerId: w.customer_id || null, customerName: w.customer_id ? w.customer_name || null : null,
   });
+  /** Workspaces with the name of the customer they are for. */
+  const WS_SQL = 'SELECT w.*, k.name customer_name FROM workspaces w LEFT JOIN customers k ON k.id = w.customer_id';
   const visibilityIn = (x: any) => (x === 'company' ? 'company' : 'private');
   api.get('/api/workspaces', async (req, res) => {
     const u = await me(req);
@@ -432,7 +435,7 @@ export function registerBoards(api: Router) {
     const count = new Map((await all<any>('SELECT workspace_id, COUNT(*) n FROM workspace_members GROUP BY workspace_id')).map((r) => [r.workspace_id, Number(r.n)]));
     const everyone = Number((await get<any>('SELECT COUNT(*) n FROM users WHERE disabled = 0'))?.n || 0);
     const out: any[] = [{ id: COMPANY, name: 'Detailers Movement', about: '', kind: 'company', visibility: 'company', ownerId: null, level: wsLevel(u, null), members: everyone }];
-    for (const w of await all<any>('SELECT * FROM workspaces ORDER BY created_at')) {
+    for (const w of await all<any>(`${WS_SQL} ORDER BY w.created_at`)) {
       const level = wsLevel(u, w, mine.get(w.id));
       if (level) out.push(wsOut(w, level, (count.get(w.id) || 0) + 1));
     }
@@ -440,13 +443,19 @@ export function registerBoards(api: Router) {
     json(res, 200, out.map(w => ({ ...w, avatar: avatars.get('workspace-avatar:' + w.id) || null })));
   });
   api.post('/api/workspaces', async (req, res) => {
-    const u = await me(req), b = await readJson(req), id = uid('w_'), t = now();
+    const u = await me(req), b = await readJson(req), id = uid('w_'), t = now(), customer = await customerFor(req, b.customerId);
     // Private unless asked otherwise: only its owner sees it until they invite people.
-    await run('INSERT INTO workspaces(id, name, about, owner_id, visibility, created_at, updated_at) VALUES(?,?,?,?,?,?,?)', id, text(b.name, 80, 'tên workspace'), long(b.about, 2000), u.id, visibilityIn(b.visibility), t, t);
-    json(res, 201, wsOut(await get('SELECT * FROM workspaces WHERE id = ?', id), 'admin', 1));
+    await run('INSERT INTO workspaces(id, name, about, owner_id, visibility, created_at, updated_at, customer_id) VALUES(?,?,?,?,?,?,?,?)', id, text(b.name, 80, 'tên workspace'), long(b.about, 2000), u.id, visibilityIn(b.visibility), t, t, customer);
+    json(res, 201, wsOut(await get(`${WS_SQL} WHERE w.id = ?`, id), 'admin', 1));
   });
   api.put('/api/workspaces/:id', async (req, res) => {
     const w = await mustWorkspace(req, req.params.id, 'admin'), b = await readJson(req);
+    // For a customer its admins reach; taken off one by someone who works on that customer (as a board).
+    if (b.customerId !== undefined && (b.customerId || null) !== (w.customer_id || null)) {
+      const customer = await customerFor(req, b.customerId);
+      if (w.customer_id) await requireCustomer((await me(req)).id, w.customer_id, 'normal');
+      await run('UPDATE workspaces SET customer_id = ? WHERE id = ?', customer, w.id);
+    }
     await run('UPDATE workspaces SET name = ?, about = ?, visibility = ?, updated_at = ? WHERE id = ?', b.name !== undefined ? text(b.name, 80, 'tên workspace') : w.name,
       b.about !== undefined ? long(b.about, 2000) : w.about, b.visibility !== undefined ? visibilityIn(b.visibility) : w.visibility || 'private', now(), w.id);
     json(res, 200, { ok: true });
@@ -1473,14 +1482,15 @@ export function registerBoards(api: Router) {
   // Every card for a customer (or for `?customer=` only) on the boards this account sees, with its result files: the
   // overview on the Drive page, and on each file of a customer's folder, the cards it is a result of.
   // Workspace › Dashboard: the work cards on this workspace's boards that are for a customer (the card's own, else its
-  // board's), as far as this account sees them, and the subtasks under their tasks (those without a card here too), each
+  // board's, else the workspace's), as far as this account sees them, and the subtasks under their tasks (those without a card here too), each
   // with its parent task so the work reads as a tree: its status, stage, dates, labels, people and services.
   api.get('/api/client-work', async (req, res) => {
     const u = await me(req), level = await levels(u), ws = String(req.query.get('workspace') || COMPANY), t0 = now();
     const [visible, boardRows, projects] = await Promise.all([visibleCardIds(u.id), all<any>(BOARDS_SQL), projectLevels(u.id)]);
     const boards = new Map(boardRows.filter((b) => (b.workspace_id || COMPANY) === ws && level(b)).map((b) => [b.id, b]));
     const cards = (await all<any>(`SELECT c.id, c.title, c.board_id, k.id customer_id, k.name customer_name, c.done, c.start_at, c.due_at, c.updated_at, l.name list, l.pos list_pos, x.task_id, t.parent_id
-      FROM board_cards c JOIN board_lists l ON l.id = c.list_id JOIN boards b ON b.id = c.board_id JOIN customers k ON k.id = COALESCE(c.customer_id, b.customer_id)
+      FROM board_cards c JOIN board_lists l ON l.id = c.list_id JOIN boards b ON b.id = c.board_id LEFT JOIN workspaces w ON w.id = b.workspace_id
+      JOIN customers k ON k.id = COALESCE(c.customer_id, b.customer_id, w.customer_id)
       LEFT JOIN task_board_links x ON x.card_id = c.id LEFT JOIN tasks t ON t.id = x.task_id
       WHERE c.archived = 0 AND l.archived = 0 AND COALESCE(c.card_kind, 'task') = 'task'`)).filter((c) => boards.has(c.board_id) && visible.has(c.id));
     // Subtasks below those cards' tasks that have no card here: read level by level (20 at most), in their root's customer.

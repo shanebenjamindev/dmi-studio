@@ -7,7 +7,8 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './ui';
 import { Avatar, Rich } from './boardkit';
-import { toast } from '../store';
+import { openProfile, toast } from '../store';
+import { langPref } from '../i18n';
 import { isBlank, isRich } from '../../../shared/rich';
 
 const TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'DEL', 'SUB', 'SUP', 'CODE', 'PRE', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'P', 'DIV', 'BR', 'SPAN', 'FONT', 'OL', 'UL', 'LI', 'A', 'IMG']);
@@ -62,10 +63,18 @@ function linkify(html: string) {
   return root.innerHTML;
 }
 
-/** Shows a description or comment: formatted (cleaned) or, if it was written plain, as before. */
+/** Shows a description or comment: formatted (cleaned) or, if it was written plain, as before. A person mentioned with @
+ *  opens their profile. */
 export function RichView({ text }: { text: string }) {
   if (!isRich(text)) return <Rich text={text} />;
-  return <div className="rt-view" dangerouslySetInnerHTML={{ __html: linkify(cleanRich(text)) }} />;
+  // Set as HTML, out of the translator's reach: the hint is chosen by language here.
+  const html = linkify(cleanRich(text)).replace(/<span data-mention="([\w-]{1,64})">/g, `<span data-mention="$1" role="link" tabindex="0" title="${langPref() === 'en' ? 'View profile' : 'Xem hồ sơ'}">`);
+  const profile = (e: React.MouseEvent | React.KeyboardEvent) => {
+    const id = (e.target as HTMLElement).closest('[data-mention]')?.getAttribute('data-mention');
+    if (!id || ('key' in e && e.key !== 'Enter')) return;
+    e.preventDefault(); e.stopPropagation(); openProfile(id);
+  };
+  return <div className="rt-view" onClick={profile} onKeyDown={profile} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 const PALETTE = ['#172b4d', '#5e6c84', '#d62828', '#e8590c', '#e6a700', '#2b8a3e', '#0b7df2', '#1098ad', '#7048e8', '#c2255c'];

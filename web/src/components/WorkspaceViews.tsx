@@ -137,7 +137,7 @@ const soon = (c: ClientCard) => c.stage !== 'done' && c.stage !== 'overdue' && !
 type Focus = { client?: string; stage?: Stage | 'open' | 'soon'; service?: string };
 type Tip = { x: number; y: number; title: string; rows: { label: string; value: number; color: string }[] };
 
-export function ClientWork({ wsId, boards, onCard, onTask }: { wsId: string; boards: BoardItem[]; onCard: (boardId: string, cardId: string) => void; onTask: (taskId: string) => void }) {
+export function ClientWork({ wsId, client, boards, onCard, onTask }: { wsId: string; client?: { id: string; name: string }; boards: BoardItem[]; onCard: (boardId: string, cardId: string) => void; onTask: (taskId: string) => void }) {
   const [rows, setRows] = useState<ClientCard[] | null>(null), [error, setError] = useState('');
   const [q, setQ] = useState(''), [focus, setFocus] = useState<Focus>({ stage: 'open' }), [tip, setTip] = useState<Tip | null>(null);
   const [sort, setSortState] = useState<Sort>(() => { const v = read('dms.clientSort'); return SORTS.some((s) => s.value === v) ? v as Sort : 'due'; });
@@ -156,10 +156,12 @@ export function ClientWork({ wsId, boards, onCard, onTask }: { wsId: string; boa
   };
   const names = useMemo(() => {
     const m = new Map<string, string>();
+    // The workspace's customer, and those of its boards, show even with nothing to do.
+    if (client) m.set(client.id, client.name);
     for (const b of boards) if (b.customerId) m.set(b.customerId, b.customerName || '');
     for (const c of rows || []) m.set(c.customerId, c.customerName);
     return m;
-  }, [rows, boards]);
+  }, [rows, boards, client?.id, client?.name]);
   // The work the figures count: the client, service and words asked for (the stage is what they break it down by).
   const f = fold(q.trim());
   const said = (c: ClientCard) => !f || fold(`${c.title} ${c.customerName} ${c.boardName} ${c.listName} ${c.services.map((s) => s.name).join(' ')} ${c.labels.map((l) => l.name).join(' ')} ${c.members.map((p) => p.name).join(' ')}`).includes(f);

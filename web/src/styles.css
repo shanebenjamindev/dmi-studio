@@ -5854,3 +5854,8 @@ button.tk-fold:hover { background: var(--fill); color: var(--label); }
 .rt-mentions li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 13px; cursor: pointer; }
 .rt-mentions li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rt-mentions li.on { background: var(--bd-hover); }
+div.rt-view:not(.rt-body) [data-mention] { cursor: pointer; }
+div.rt-view:not(.rt-body) [data-mention]:hover, div.rt-view:not(.rt-body) [data-mention]:focus-visible { text-decoration: underline; outline: none; }
+/* The customer a workspace is for, beside its kind. */
+.bd-ws-client { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: 0; background: none; color: var(--tint); font: inherit; cursor: pointer; }
+.bd-ws-client:hover { text-decoration: underline; }

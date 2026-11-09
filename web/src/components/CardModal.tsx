@@ -201,7 +201,7 @@ function Description({ value, readOnly, onSave }: { value: string; readOnly?: bo
   const text = (
     <>
       <div ref={box} className={'cm-desc' + (readOnly ? ' cm-desc-ro' : '') + (tall && !open ? ' folded' : '')} style={tall && !open ? { maxHeight: FOLD } : undefined}
-        onClick={(e) => { if (!readOnly && !(e.target as HTMLElement).closest('a')) setEditing(true); }}><RichView text={value} /></div>
+        onClick={(e) => { if (!readOnly && !(e.target as HTMLElement).closest('a,[data-mention]')) setEditing(true); }}><RichView text={value} /></div>
       {tall && <button className="btn btn-gray btn-sm cm-desc-more" onClick={() => setOpen(!open)}><Icon name={open ? 'up' : 'down'} size={14} />{open ? 'Thu gọn' : 'Hiện thêm'}</button>}
     </>
   );

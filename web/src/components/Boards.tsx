@@ -11,7 +11,7 @@ import { ResizeHandle } from './ResizeHandle';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { remember } from '../prefs';
-import { useStore, toast } from '../store';
+import { useStore, toast, openLink } from '../store';
 import { Icon } from './ui';
 import { CardModal } from './CardModal';
 import { TaskPanel } from './Tasks';
@@ -289,7 +289,7 @@ function WorkspaceSection({ ws, me, roles, boards, onOpen, onCard, onTask, onSta
     <section className="bd-wsec">
       <div className="bd-wsec-h">
         <WsMark ws={ws} size={30} />
-        <div><b>{ws.name}</b><span>{wsKind(ws, me)}</span></div>
+        <div><b>{ws.name}</b><span>{wsKind(ws, me)}{ws.customerName && <> · <button className="bd-ws-client" onClick={() => openLink(`#customers/${ws.customerId}`)} title="Mở trang khách hàng"><Icon name="users" size={12} />{ws.customerName}</button></>}</span></div>
         <span className="bd-gap" />
         <button className={'bd-wsec-b' + (viewEl ? ' on' : '')} onClick={(e) => setViewEl(viewEl ? null : e.currentTarget)} aria-expanded={!!viewEl} aria-label="Chọn chế độ xem" title="Chọn chế độ xem"><Icon name={current.icon} size={14} />{current.label}<Icon name="chevron" size={12} /></button>
         <button className="bd-wsec-b" onClick={onPeople}><Icon name="users" size={14} />Thành viên ({ws.members})</button>
@@ -297,7 +297,7 @@ function WorkspaceSection({ ws, me, roles, boards, onOpen, onCard, onTask, onSta
       </div>
       {view === 'tiles' ? <Tiles title="Board của bạn" list={boards} roles={roles} onOpen={onOpen} onStar={onStar} onMore={onMore} onCreate={onCreate} small />
         : view === 'list' ? <><BoardList boards={boards} bgOf={bg} onOpen={onOpen} onCard={onCard} />{onCreate && <button className="bd-wsec-b ws-new" onClick={onCreate}><Icon name="plus" size={14} />Tạo board mới</button>}</>
-        : <ClientWork wsId={ws.id} boards={boards} onCard={onCard} onTask={onTask} />}
+        : <ClientWork wsId={ws.id} client={ws.customerId ? { id: ws.customerId, name: ws.customerName || '' } : undefined} boards={boards} onCard={onCard} onTask={onTask} />}
       {viewEl && <Pop anchor={viewEl} title="Chế độ xem" onClose={() => setViewEl(null)}><div className="bk-menu">
         {WS_VIEWS.map((v) => <button key={v.value} onClick={() => setView(v.value)}><Icon name={v.icon} size={16} />{v.label}{view === v.value && <Icon name="check" size={15} />}</button>)}
       </div></Pop>}
@@ -391,6 +391,8 @@ function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User
   const [customer, setCustomer] = useState(''), [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
   const loadCustomers = () => api.customersAll().then(setCustomers, () => {});
   useEffect(() => { void loadCustomers(); }, []);
+  // In a workspace for a customer, the board starts out for that customer (it can be changed).
+  useEffect(() => { const w = ownSpaces.find((x) => x.id === space); if (w?.customerId) setCustomer(w.customerId); }, [space]); // eslint-disable-line react-hooks/exhaustive-deps
   // Its type (the view it opens in) and the day it starts: now unless changed (emptied: now as well).
   const [type, setType] = useState<BoardViewKind>('board');
   const [start, setStart] = useState(() => `${dateIn(Date.now())}T${timeIn(Date.now())}`);
@@ -432,17 +434,34 @@ function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User
   );
 }
 
-/** A workspace of one's own: private until its owner shares it. */
+/** The customer a workspace is for, changed by its admins (a customer can be added on the spot). */
+function WorkspaceClient({ ws, onPick }: { ws: Workspace; onPick: (id: string) => void }) {
+  const [customers, setCustomers] = useState<{ id: string; name: string }[]>(ws.customerId ? [{ id: ws.customerId, name: ws.customerName || '' }] : []);
+  const load = () => api.customersAll().then((list) => setCustomers((had) => [...list, ...had.filter((c) => !list.some((x) => x.id === c.id))]), () => {});
+  useEffect(() => { void load(); }, []);
+  return <label className="bd-people-vis"><span>Khách hàng</span>
+    <EntitySelect kind="customer" className="bd-level-sel" value={ws.customerId || ''} onChange={onPick} onCreated={load}>
+      <option value="">Không gắn khách hàng</option>
+      {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+    </EntitySelect>
+    {ws.customerId && <button type="button" className="link" onClick={() => openLink(`#customers/${ws.customerId}`)}>Mở khách hàng</button>}
+  </label>;
+}
+
+/** A workspace of one's own: private until its owner shares it; for a customer (picked, or added on the spot) or none. */
 function CreateWorkspace({ onClose, onCreated }: { onClose: () => void; onCreated: (w: Workspace) => void }) {
   const [name, setName] = useState('');
   const [about, setAbout] = useState('');
   const [visibility, setVisibility] = useState<'private' | 'company'>('private');
+  const [customer, setCustomer] = useState(''), [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const loadCustomers = () => api.customersAll().then(setCustomers, () => {});
+  useEffect(() => { void loadCustomers(); }, []);
   const [busy, setBusy] = useState(false);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || busy) return;
     setBusy(true);
-    try { onCreated(await api.createWorkspace({ name: name.trim(), about: about.trim(), visibility })); } catch (err: any) { toast(err.message, true); setBusy(false); }
+    try { onCreated(await api.createWorkspace({ name: name.trim(), about: about.trim(), visibility, customerId: customer || null })); } catch (err: any) { toast(err.message, true); setBusy(false); }
   };
   return (
     <div className="bd-modal" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -458,6 +477,12 @@ function CreateWorkspace({ onClose, onCreated }: { onClose: () => void; onCreate
           <option value="private">Riêng tư: chỉ người được mời</option>
           <option value="company">Cả công ty xem được (chỉ xem; người được mời mới sửa)</option>
         </select>
+        <label className="bd-label" htmlFor="ws-customer">Khách hàng</label>
+        <EntitySelect kind="customer" id="ws-customer" value={customer} onChange={setCustomer} onCreated={loadCustomers}>
+          <option value="">Không gắn khách hàng</option>
+          {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </EntitySelect>
+        <p className="bd-create-hint">Board tạo trong workspace này sẽ gắn sẵn khách hàng đó.</p>
         <button className="btn btn-primary" disabled={!name.trim() || busy}>{busy ? 'Đang tạo…' : 'Tạo workspace'}</button>
       </form>
     </div>
@@ -533,7 +558,7 @@ function WorkspacePeople({ ws, me, onChanged, onGone }: { ws: Workspace | undefi
     if (!confirm(self ? `Rời workspace “${ws.name}”? Bạn sẽ không còn thấy các board trong đó.` : `Gỡ ${m.name} khỏi workspace “${ws.name}”?`)) return;
     try { const r = await api.removeWorkspaceMember(ws.id, m.id); if (self) { onChanged(); onGone(); } else done(r); } catch (e: any) { toast(e.message, true); }
   };
-  const save = (b: Partial<{ name: string; about: string; visibility: 'private' | 'company' }>) => api.updateWorkspace(ws.id, b).then(onChanged, (e) => toast(e.message, true));
+  const save = (b: Partial<{ name: string; about: string; visibility: 'private' | 'company'; customerId: string | null }>) => api.updateWorkspace(ws.id, b).then(onChanged, (e) => toast(e.message, true));
   const del = async () => {
     if (!confirm(`Xoá vĩnh viễn workspace “${ws.name}” cùng mọi board trong đó?`)) return;
     try { await api.deleteWorkspace(ws.id); onChanged(); onGone(); } catch (e: any) { toast(e.message, true); }
@@ -562,6 +587,8 @@ function WorkspacePeople({ ws, me, onChanged, onGone }: { ws: Workspace | undefi
           </select>
         </label>
       )}
+      {!company && (admin ? <WorkspaceClient ws={ws} onPick={(id) => save({ customerId: id || null })} />
+        : ws.customerName && <p className="bd-people-about-t">Khách hàng: <button className="link" onClick={() => openLink(`#customers/${ws.customerId}`)}>{ws.customerName}</button></p>)}
       {!company && (admin
         ? <textarea className="bd-people-about" rows={2} value={about} onChange={(e) => setAbout(e.target.value)} onBlur={() => about !== ws.about && save({ about })} placeholder="Mô tả workspace (không bắt buộc)" />
         : ws.about && <p className="bd-people-about-t">{ws.about}</p>)}

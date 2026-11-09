@@ -1492,6 +1492,29 @@ test('@ in a comment or a card description tells the person mentioned, once, if 
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
+test('a workspace of one\'s own can be for a customer; its boards\' work counts for that customer',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-ws-client-'));let server;
+ try{
+  server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'wc-boss@example.test',password:'test-password'})).cookie;
+  const one=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách workspace'},ac)).data, two=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách khác'},ac)).data;
+  const ws=(await server.call('POST','/api/workspaces',{name:'Dự án khách',customerId:one.id},ac)).data;
+  assert.equal(ws.customerName,'Khách workspace');
+  const find=async()=>(await server.call('GET','/api/workspaces',undefined,ac)).data.find((w)=>w.id===ws.id);
+  // A board in it with no customer of its own: its cards count for the workspace's customer.
+  const board=(await server.call('POST','/api/boards',{name:'Board trong workspace',bg:'ocean',roleId:null,private:true,workspaceId:ws.id},ac)).data;
+  const list=(await server.call('GET',`/api/boards/${board.id}`,undefined,ac)).data.lists[0];
+  const card=(await server.call('POST',`/api/lists/${list.id}/cards`,{title:'Việc của workspace'},ac)).data;
+  const row=(await server.call('GET',`/api/client-work?workspace=${ws.id}`,undefined,ac)).data.find((x)=>x.id===card.id);
+  assert.equal(row?.customerName,'Khách workspace');
+  assert.equal((await server.call('PUT',`/api/workspaces/${ws.id}`,{customerId:two.id},ac)).status,200);
+  assert.equal((await find()).customerName,'Khách khác');
+  assert.equal((await server.call('PUT',`/api/workspaces/${ws.id}`,{customerId:null},ac)).status,200);
+  assert.equal((await find()).customerId,null);
+  assert.equal((await server.call('POST','/api/workspaces',{name:'Sai',customerId:'nope'},ac)).status,404);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
 test('chat unread counts follow what each person has read, on any device; support requests carry screenshots',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-chat-read-'));let server;
  try{

@@ -105,6 +105,8 @@ async function upgrade() {
     ['boards', 'customer_id'], ['boards', 'editor_share', 'INTEGER NOT NULL DEFAULT 1'],
     // How a board opens (its type: board, table, calendar, dashboard, timeline) and the date it starts (its creation, if none).
     ['boards', 'view'], ['boards', 'start_at', 'INTEGER'],
+    // The customer a workspace is for (none: none); its boards start out for that customer.
+    ['workspaces', 'customer_id'],
     ['task_project_members', 'via_board'], ['customer_members', 'via_board'],
     // A project its managers put on hold or cancelled (shared/projects.ts); otherwise its stage follows its tasks.
     ['task_projects', 'hold'],

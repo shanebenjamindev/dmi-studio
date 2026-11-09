@@ -9,6 +9,14 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-09-3',
+    date: '09/11/2026',
+    items: [
+      { kind: 'new', vi: 'Workspace gắn được với khách hàng: chọn khi tạo workspace hoặc ở trang Thành viên của workspace. Board tạo trong đó gắn sẵn khách hàng, và Dashboard tính việc của workspace cho khách đó.', en: 'A workspace can be for a client: pick one when creating it or on the workspace’s Members page. Boards made in it start out for that client, and the Dashboard counts its work for them.' },
+      { kind: 'new', vi: 'Bấm vào tên được nhắc (@) để mở hồ sơ người đó.', en: 'Click a mentioned name (@) to open that person’s profile.' },
+    ],
+  },
+  {
     id: '2026-11-09-2',
     date: '09/11/2026',
     items: [
