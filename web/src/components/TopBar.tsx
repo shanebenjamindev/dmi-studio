@@ -125,7 +125,8 @@ export function TopBar() {
       </div>
       <Reminders />
       <button type="button" className={'rail-item rail-more-btn' + (rest.some(([k]) => k === current) ? ' here' : '')} aria-expanded={more} onClick={() => setMore(!more)}>
-        <Icon name="more" size={20} /><span>Thêm</span>
+        {/* "Thêm" here is "More" (elsewhere it is "Add", which is what the dictionary says). */}
+        <Icon name="more" size={20} /><span>{langPref() === 'en' ? 'More' : 'Thêm'}</span>
       </button>
     </nav>
   );

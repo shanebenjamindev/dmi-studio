@@ -82,7 +82,7 @@ export const Activity = () => <StatsPage view="activity" title="Thống kê ho�
   </div>
 </>} />;
 
-export const CustomerStats = () => <StatsPage view="customers" title="Thống kê khách hàng" sub="Khách hàng trong phạm vi (đang hoạt động, không tính lưu trữ) theo phân loại, nguồn, trạng thái, nhu cầu và người phụ trách." render={(d, f) => <>
+export const CustomerStats = () => <StatsPage view="customers" title="Thống kê khách hàng" sub="Khách hàng trong phạm vi (đang hoạt động, không tính lưu trữ) theo phân loại, nguồn, trạng thái, dịch vụ và người phụ trách." render={(d, f) => <>
   <div className="ax-kpis">
     <Kpi icon="card" label="Khách hàng" value={fmtNum(d.kpis.total)} /><Kpi icon="plus" label="Mới trong kỳ" value={fmtNum(d.kpis.new)} />
     <Kpi icon="user" label="Có người phụ trách" value={pct(d.kpis.withManager)} /><Kpi icon="archive" label="Đã lưu trữ" value={fmtNum(d.kpis.archived)} />
@@ -92,7 +92,7 @@ export const CustomerStats = () => <StatsPage view="customers" title="Thống k�
     <ChartCard title="Phân loại" table={distTable(d.byCategory, 'Phân loại')}><Donut dist={d.byCategory} center="khách hàng" /></ChartCard>
     <ChartCard title="Nguồn khách hàng" table={distTable(d.bySource, 'Nguồn')}><Bars dist={d.bySource} /></ChartCard>
     <ChartCard title="Trạng thái" table={distTable(d.byStatus, 'Trạng thái')}><Bars dist={d.byStatus} /></ChartCard>
-    <ChartCard title="Nhu cầu dịch vụ" table={distTable(d.byNeed, 'Dịch vụ')}><Bars dist={d.byNeed.map((x: any) => ({ ...x, color: SERIES(0) }))} /></ChartCard>
+    <ChartCard title="Dịch vụ của khách hàng" table={distTable(d.byNeed, 'Dịch vụ')}><Bars dist={d.byNeed.map((x: any) => ({ ...x, color: SERIES(0) }))} /></ChartCard>
     <ChartCard title="Theo người phụ trách" table={distTable(d.byManager, 'Người phụ trách')}><Bars dist={d.byManager.map((x: any) => ({ ...x, color: SERIES(0) }))} /></ChartCard>
   </div>
 </>} />;

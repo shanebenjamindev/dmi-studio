@@ -218,6 +218,13 @@ CREATE TABLE IF NOT EXISTS customer_needs (
  added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(customer_id,service_id)
 );
 CREATE INDEX IF NOT EXISTS customer_needs_service ON customer_needs(service_id);
+-- The services each project is for (a customer has those of its projects, server/project-services.ts). No semicolons in
+-- these notes: D1 runs the schema split at each one.
+CREATE TABLE IF NOT EXISTS project_services (
+ project_id TEXT NOT NULL REFERENCES task_projects(id) ON DELETE CASCADE, service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+ added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(project_id,service_id)
+);
+CREATE INDEX IF NOT EXISTS project_services_service ON project_services(service_id);
 CREATE TABLE IF NOT EXISTS customer_tags (
  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, tag_id TEXT NOT NULL REFERENCES customer_categories(id) ON DELETE CASCADE,
  created_at INTEGER NOT NULL, PRIMARY KEY(customer_id,tag_id)

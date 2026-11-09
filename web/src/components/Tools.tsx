@@ -5,6 +5,7 @@ import {BrandLoading} from './BrandLoading';
 import { useEffect, useRef, useState } from 'react';
 import { toast, goto, useStore } from '../store';
 import { Icon, Popup } from './ui';
+import { langPref } from '../i18n';
 import { KINDS, label, extOf, kindOf, outputsFor, defaultTarget, outName, convert, imagesToPdf, zipAll, canReadGif, type Kind, type Opts } from '../tools/formats';
 
 type Item = {
@@ -136,7 +137,7 @@ export function ToolsPage() {
               <button key={k.id} className="tools-kind" onClick={() => pick([k])}>
                 <span className="tools-kind-h"><Icon name={k.icon} size={18} />{k.label}</span>
                 <span><em>Từ</em>{k.inputs.filter((e) => e !== 'jpeg' && e !== 'heif').map(label).join(', ')}</span>
-                <span><em>Sang</em>{[...k.outputs, ...(k.audio || [])].map(label).join(', ')}{k.id === 'image' && canReadGif() ? ' · GIF động → MP4' : ''}</span>
+                <span><em>{langPref() === 'en' ? 'To' : 'Sang'}</em>{[...k.outputs, ...(k.audio || [])].map(label).join(', ')}{k.id === 'image' && canReadGif() ? ' · GIF động → MP4' : ''}</span>
               </button>
             ))}
           </div>

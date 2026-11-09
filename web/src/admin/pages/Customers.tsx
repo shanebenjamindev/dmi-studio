@@ -1,5 +1,5 @@
 // Khách hàng in Quản trị: the customers the scope reaches with category, source, status, the staff member in charge and
-// needs; archiving; and the category and source lists. Drive folders stay on the Customers page.
+// services (those of their projects); archiving; and the category and source lists. Drive folders stay on the Customers page.
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { goto, toast } from '../../store';
@@ -41,7 +41,7 @@ export function CustomerList() {
     { key: 'name', label: 'Khách hàng', sort: true, render: (c) => <span className="ax-stack"><b>{c.name}{c.archivedAt && <Badge tone="muted">Lưu trữ</Badge>}</b><small>{[c.contact, c.phone, c.email].filter(Boolean).join(' · ') || 'Chưa có liên hệ'}</small></span> },
     { key: 'status', label: 'Trạng thái', render: (c) => c.status ? <Badge tone={STATUS_TONE[c.status]}>{STATUS[c.status]||c.status}</Badge> : <span className="ax-muted">—</span> },
     { key: 'category', label: 'Phân loại · Nguồn', render: (c) => <span className="ax-badges">{(c.tags?.length ? c.tags : c.category ? [c.category] : []).map((t) => <Badge key={t.id} color={t.color}>{t.name}</Badge>)}{c.source && <Badge color={c.source.color}>{c.source.name}</Badge>}{!c.category && !c.tags?.length && !c.source && <span className="ax-muted">—</span>}</span>, hideSm: true },
-    { key: 'needs', label: 'Nhu cầu', render: (c) => c.needs.map((n) => n.name).join(', ') || <span className="ax-muted">—</span>, hideSm: true },
+    { key: 'needs', label: 'Dịch vụ', render: (c) => c.needs.map((n) => n.name).join(', ') || <span className="ax-muted">—</span>, hideSm: true },
     { key: 'manager', label: 'Phụ trách', render: (c) => c.manager?.name || <span className="ax-muted">Chưa có</span> },
   ];
   return (
@@ -55,7 +55,7 @@ export function CustomerList() {
         <Select value={status} onChange={setStatus} label="Trạng thái"><option value="">Mọi trạng thái</option><option value="none">Chưa đặt</option>{Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
         <Select value={category} onChange={setCategory} label="Phân loại"><option value="">Mọi phân loại</option><option value="none">Chưa phân loại</option>{(cats.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
         <Select value={source} onChange={setSource} label="Nguồn"><option value="">Mọi nguồn</option><option value="none">Chưa rõ nguồn</option>{(srcs.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
-        {!!services.data?.length && <Select value={need} onChange={setNeed} label="Nhu cầu"><option value="">Mọi nhu cầu</option><option value="none">Chưa có nhu cầu</option>{services.data.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>}
+        {!!services.data?.length && <Select value={need} onChange={setNeed} label="Dịch vụ"><option value="">Mọi dịch vụ</option><option value="none">Chưa có dịch vụ</option>{services.data.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>}
         <Select value={archived} onChange={setArchived} label="Lưu trữ"><option value="0">Đang hoạt động</option><option value="1">Đã lưu trữ</option><option value="all">Tất cả</option></Select>
       </Toolbar>
       <div className="ax-card flush"><Async load={load}>{(d) => <>
@@ -90,7 +90,7 @@ function CustomerDrawer({ id, onClose, onChanged }: { id: string; onClose: () =>
         {tab === 'info' && <dl className="ax-facts">
           <dt>Trạng thái</dt><dd>{c.status ? STATUS[c.status]||c.status : '—'}{c.archivedAt && <Badge tone="muted">Lưu trữ từ {fmtDate(c.archivedAt)}</Badge>}</dd>
           <dt>Phân loại</dt><dd>{c.category?.name || '—'}</dd><dt>Nguồn</dt><dd>{c.source?.name || '—'}</dd>
-          <dt>Nhu cầu</dt><dd>{c.needs.map((n) => n.name).join(', ') || '—'}</dd>
+          <dt>Dịch vụ</dt><dd>{c.needs.map((n) => n.name).join(', ') || '—'}</dd>
           <dt>Người liên hệ</dt><dd>{c.contact || '—'}</dd><dt>Điện thoại</dt><dd>{c.phone || '—'}</dd><dt>Email</dt><dd>{c.email || '—'}</dd>
           <dt>Phụ trách</dt><dd>{c.manager?.name || '—'}</dd><dt>Người tạo</dt><dd>{c.owner?.name || '—'}</dd>
           <dt>Thành viên</dt><dd>{c.members.map((m) => m.name).join(', ') || '—'}</dd>
@@ -137,7 +137,7 @@ function CustomerForm({ customer, onClose, onSaved }: { customer?: CustomerDetai
           <Field label="Nguồn"><select className="bk-in" value={f.sourceId} onChange={(e) => set('sourceId', e.target.value)}><option value="">Chưa rõ</option>{(srcs.data || []).filter((c) => c.active || c.id === f.sourceId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
         </div>
         <Field label="Khác"><textarea className="bk-in" rows={4} maxLength={20000} value={f.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Ghi chú, thông tin thêm" /></Field>
-        <p className="note">Nhu cầu và thư mục Drive sửa ở form khách hàng trên trang Khách hàng.</p>
+        <p className="note">Dịch vụ của khách hàng là dịch vụ của các dự án (chọn ở từng dự án); thư mục Drive sửa ở form khách hàng trên trang Khách hàng.</p>
       </form>
     </Drawer>
   );

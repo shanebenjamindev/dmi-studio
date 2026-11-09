@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { goto, openCard, openLink, openTask } from '../store';
+import { langPref } from '../i18n';
 import { Icon } from './ui';
 import type { NotificationInbox } from '../types';
 
@@ -17,15 +18,17 @@ const GIVEN = new Set(['Bạn được giao công việc', 'Bạn được thêm
 const ago = (t: number) => { const m = Math.round((Date.now() - t) / 60e3); return m < 1 ? 'Vừa xong' : m < 60 ? `${m} phút trước` : m < 1440 ? `${Math.round(m / 60)} giờ trước` : `${Math.round(m / 1440)} ngày trước`; };
 type Tab = 'important' | 'today' | 'late';
 const DAY = 864e5;
+const EN = langPref() === 'en';
 const dayStart = (t = Date.now()) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
 const time = (t: number) => new Date(t).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 /** When it is due, said the short way: "14:30", "Mai 09:00", "Th 5 · 17:00", "12/11 · 17:00". */
 function due(t: number) {
   const today = dayStart(), d = dayStart(t);
   if (d === today) return time(t);
-  if (d === today + DAY) return `Mai ${time(t)}`;
+  // "Mai" has no accents for the English interface to know it by, so English is chosen here (the weekday too).
+  if (d === today + DAY) return `${EN ? 'Tomorrow' : 'Mai'} ${time(t)}`;
   if (d === today - DAY) return `Hôm qua ${time(t)}`;
-  if (d > today && d < today + 7 * DAY) return `${new Date(t).toLocaleDateString('vi-VN', { weekday: 'short' })} · ${time(t)}`;
+  if (d > today && d < today + 7 * DAY) return `${new Date(t).toLocaleDateString(EN ? 'en-GB' : 'vi-VN', { weekday: 'short' })} · ${time(t)}`;
   return `${new Date(t).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} · ${time(t)}`;
 }
 

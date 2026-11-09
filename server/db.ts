@@ -133,6 +133,10 @@ export async function repairData() {
   await db.execute('UPDATE boards SET private=1 WHERE private<>1');
   await db.execute("INSERT OR IGNORE INTO task_campaigns(id,project_id,name,created_at) SELECT 'tc_existing_'||p.id,p.id,'Công việc hiện có',p.created_at FROM task_projects p WHERE EXISTS(SELECT 1 FROM tasks t WHERE t.project_id=p.id AND t.campaign_id IS NULL)");
   await db.execute("UPDATE tasks SET campaign_id='tc_existing_'||project_id WHERE project_id IS NOT NULL AND campaign_id IS NULL");
+  // Services set on a customer go to its projects that name none yet, once it has one (settleCustomerServices in
+  // project-services.ts; SQLite reads the whole SELECT before inserting, as it reads the table it fills).
+  await db.execute('INSERT OR IGNORE INTO project_services(project_id,service_id,added_by,created_at) SELECT p.id,n.service_id,n.added_by,n.created_at FROM customer_needs n JOIN task_projects p ON p.customer_id=n.customer_id WHERE NOT EXISTS(SELECT 1 FROM project_services x WHERE x.project_id=p.id)');
+  await db.execute('DELETE FROM customer_needs WHERE customer_id IN (SELECT customer_id FROM task_projects WHERE customer_id IS NOT NULL)');
   // A task dragged into a board's done column before the column's meaning was used took the column's name as its status
   // ("Xong"): it gets the task workflow's own, done late when finished after its due date.
   await db.execute("UPDATE tasks SET status=CASE WHEN due_at IS NOT NULL AND done_at > due_at THEN 'Hoàn thành muộn' ELSE 'Hoàn thành' END WHERE status IN ('Xong','Đã xong','Hoàn tất','Đã hoàn thành','Done','Completed')");

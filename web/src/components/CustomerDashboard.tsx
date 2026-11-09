@@ -87,13 +87,13 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
   <div className="tk-toolbar">
    {manage&&<button className="tk-new" onClick={onAdd}><Icon name="plus" size={15}/>Thêm mới</button>}
    {selectedIds.length>0&&<><button className="btn btn-sm cm-danger" disabled={busyId==='bulk'} onClick={()=>void bulkDelete()}><Icon name="trash" size={14}/>Xoá đã chọn ({selectedIds.length})</button><button className="btn btn-gray btn-sm" onClick={()=>setSelectedIds([])}>Bỏ chọn</button></>}
-   <label className="tk-find"><Icon name="search" size={14}/><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==='Escape'&&q){e.stopPropagation();setQ('');}}} placeholder="Tìm tên, liên hệ, email, điện thoại, nhu cầu…" aria-label="Tìm khách hàng"/>{q&&<button type="button" className="tk-find-x" onClick={()=>setQ('')} aria-label="Xoá tìm kiếm" title="Xoá tìm kiếm"><Icon name="x" size={12}/></button>}</label>
+   <label className="tk-find"><Icon name="search" size={14}/><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==='Escape'&&q){e.stopPropagation();setQ('');}}} placeholder="Tìm tên, liên hệ, email, điện thoại, dịch vụ…" aria-label="Tìm khách hàng"/>{q&&<button type="button" className="tk-find-x" onClick={()=>setQ('')} aria-label="Xoá tìm kiếm" title="Xoá tìm kiếm"><Icon name="x" size={12}/></button>}</label>
    <button className={'tk-pick cd-filter-btn'+(active?' on':'')} onClick={()=>setFilters(!filters)} aria-expanded={filters}><Icon name="filter" size={14}/><span>Lọc</span>{active?` (${active})`:''}</button>
    {view!=='grid'&&<label className="tk-pick"><Icon name="layers" size={14}/><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={e=>setGroupBy(e.target.value as GroupBy)}><option value="status">Trạng thái</option><option value="category">Tag</option><option value="source">Nguồn</option><option value="manager">Người phụ trách</option>{view==='list'&&<option value="none">Không nhóm</option>}</select></label>}
    {!selected&&<span className="cd-count">{active||q?`${rows.length}/${customers.length}`:''}</span>}
   </div>
   {filters&&<div className="cd-filters">
-   {sel('need','Nhu cầu','Chưa có nhu cầu',needs)}
+   {sel('need','Dịch vụ','Chưa có dịch vụ',needs)}
    <label className="cd-filter"><span>Trạng thái</span><select className="bk-in" value={f.status} onChange={e=>setF({...f,status:e.target.value})}><option value="">Tất cả</option><option value="none">Chưa đặt</option>{STATUS_ORDER.map(s=><option key={s} value={s}>{CUSTOMER_STATUS[s]}</option>)}</select></label>
    {sel('category','Tag','Chưa gắn tag',categories)}{sel('source','Nguồn','Chưa rõ nguồn',sources)}{sel('manager','Phụ trách','Chưa có người phụ trách',managers)}
    <label className="cd-filter"><span>Drive</span><select className="bk-in" value={f.drive} onChange={e=>setF({...f,drive:e.target.value})}><option value="">Tất cả</option><option value="yes">Đã liên kết</option><option value="no">Chưa liên kết</option></select></label>
@@ -107,7 +107,7 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
     columns={[
      {key:'phone',label:'Liên hệ',width:170,render:c=><span className="crm-sub-lines" onClick={e=>e.stopPropagation()}>{c.phone&&<a href={'tel:'+c.phone.replace(/[^+\d]/g,'')}>{c.phone}</a>}{c.email&&<TextLinks text={c.email}/>}{!c.phone&&!c.email&&'—'}</span>},
      {key:'tags',label:'Tag',width:150,render:c=><Tags c={c}/>},
-     {key:'needs',label:'Nhu cầu',width:180,wide:true,render:c=>c.needs?.length?<span className="crm-need-chips">{c.needs.map(n=><span key={n.id} className="crm-need-chip plain">{n.name}</span>)}</span>:'—'},
+     {key:'needs',label:'Dịch vụ',width:180,wide:true,render:c=>c.needs?.length?<span className="crm-need-chips">{c.needs.map(n=><span key={n.id} className="crm-need-chip plain">{n.name}</span>)}</span>:'—'},
      ...(groupBy==='status'?[]:[{key:'status',label:'Trạng thái',width:140,render:(c:CustomerRecord)=>c.status?<span className="crm-pill" style={{['--c' as any]:STATUS_COLOR[c.status]}}>{CUSTOMER_STATUS[c.status]||c.status}</span>:'—'}]),
      ...(groupBy==='manager'?[]:[{key:'manager',label:'Phụ trách',width:130,render:(c:CustomerRecord)=>(c.manager||c.owner)?.name||'—'}]),
      {key:'tasks',label:'Công việc',width:130,render:c=><span className="cd-progress compact"><progress max={c.tasks||1} value={c.completed||0}/><small>{c.completed||0}/{c.tasks||0} · {c.projects||0} dự án</small></span>},

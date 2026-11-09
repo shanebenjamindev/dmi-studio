@@ -169,8 +169,8 @@ export const api = {
   renameCampaign:(project:string,id:string,name:string)=>req('PUT',`/api/task-projects/${project}/campaigns/${id}`,{name}),
   deleteCampaign:(project:string,id:string)=>req('DELETE',`/api/task-projects/${project}/campaigns/${id}`),
   renameTaskProject:(id:string,name:string)=>req<{ok:true;id:string;name:string}>('PUT',`/api/task-projects/${id}`,{name}),
-  updateTaskProject:(id:string,b:{name?:string;customerId?:string|null;teamId?:string|null;hold?:'paused'|'cancelled'|null})=>req<{ok:true;id:string;name:string;customerId:string|null;teamId:string|null}>('PUT',`/api/task-projects/${id}`,b),
-  createTaskProject:(b:{name:string;customerId?:string|null;teamId?:string|null})=>req<{id:string;name:string;customerId:string|null;teamId:string|null}>('POST','/api/task-projects',b),
+  updateTaskProject:(id:string,b:{name?:string;customerId?:string|null;teamId?:string|null;hold?:'paused'|'cancelled'|null;services?:string[]})=>req<{ok:true;id:string;name:string;customerId:string|null;teamId:string|null}>('PUT',`/api/task-projects/${id}`,b),
+  createTaskProject:(b:{name:string;customerId?:string|null;teamId?:string|null;services?:string[]})=>req<{id:string;name:string;customerId:string|null;teamId:string|null}>('POST','/api/task-projects',b),
   deleteTaskProject:(id:string)=>req<{ok:true}>('DELETE',`/api/task-projects/${id}`),
   bulkDeleteTaskProjects:(ids:string[])=>req<{ok:true;deleted:number}>('POST','/api/task-projects/bulk-delete',{ids}),
   taskMeta: () => req<TaskMeta>('GET', '/api/tasks/meta'),
@@ -281,7 +281,7 @@ export const api = {
   addCustomerSource: (name: string) => req<{id:string;name:string;color:string;active:number}>('POST', '/api/customers/sources', { name }),
   customerManagers: () => req<{id:string;name:string;email:string;teamId:string|null}[]>('GET', '/api/customers/managers'),
   customerRecord: (id: string) => req<CustomerRecord>('GET', `/api/customers/${id}/record`),
-  saveCustomerRecord: (id: string, data: Partial<Omit<CustomerRecord,'id'|'needs'|'status'|'tags'>> & { needs?: string[]; tags?: TagChoice[]; categoryId?: string | null; sourceId?: string | null; managerId?: string | null; status?: string | null }) => req<CustomerRecord>('PUT', `/api/customers/${id}/record`,data),
+  saveCustomerRecord: (id: string, data: Partial<Omit<CustomerRecord,'id'|'needs'|'status'|'tags'>> & { tags?: TagChoice[]; categoryId?: string | null; sourceId?: string | null; managerId?: string | null; status?: string | null }) => req<CustomerRecord>('PUT', `/api/customers/${id}/record`,data),
   /** Links a customer to the Drive folder of a pasted link (a connected Google account must be able to open it). */
   linkCustomerDrive: (id: string, link: string) => req<Customer>('PUT', `/api/customers/${id}/folder`, { link }),
   /** Unlinks the customer's folder; the folder and its files stay on Drive. */
@@ -301,10 +301,10 @@ export const api = {
   /** Adds a service to the catalogue by name (needs the services.create permission of Quản trị). */
   createService: (name: string) => req<ServiceRef>('POST', '/api/admin/services', { name }),
   customerDirectory: () => req<CustomerRecord[]>('GET', '/api/customers/directory'),
-  customerProjects: (id: string) => req<{ id: string; name: string; tasks: number }[]>('GET', `/api/customers/${id}/projects`),
-  createCustomerProject: (id: string, b: { name?: string; projectId?: string }) => req<{id: string; name: string}>('POST', `/api/customers/${id}/projects`, b),
+  customerProjects: (id: string) => req<{ id: string; name: string; tasks: number; services: ServiceRef[] }[]>('GET', `/api/customers/${id}/projects`),
+  createCustomerProject: (id: string, b: { name?: string; projectId?: string; services?: string[] }) => req<{id: string; name: string}>('POST', `/api/customers/${id}/projects`, b),
   updateCustomerProject: (id: string, campaign: string, b: { name?: string; unlink?: boolean }) => req('PUT', `/api/customers/${id}/projects/${campaign}`, b),
-  createCustomer: (c: Partial<Customer> & { existingFolder?: Loc; databaseOnly?: boolean; status?: string | null; tags?: TagChoice[]; categoryId?: string | null; sourceId?: string | null; managerId?: string | null; needs?: string[]; contact?: string; email?: string; phone?: string }, at: Loc | null = null) => req<Customer>('POST', `/api/customers${atQ(at, '?')}`, c),
+  createCustomer: (c: Partial<Customer> & { existingFolder?: Loc; databaseOnly?: boolean; status?: string | null; tags?: TagChoice[]; categoryId?: string | null; sourceId?: string | null; managerId?: string | null; contact?: string; email?: string; phone?: string }, at: Loc | null = null) => req<Customer>('POST', `/api/customers${atQ(at, '?')}`, c),
   updateCustomer: (id: string, c: Partial<Customer>) => req<Customer>('PUT', `/api/customers/${id}`, c),
   deleteCustomer: (id: string) => req('DELETE', `/api/customers/${id}`),
   bulkDeleteCustomers: (ids: string[]) => req<{ ok: true; deleted: number }>('POST', '/api/customers/bulk-delete', { ids }),

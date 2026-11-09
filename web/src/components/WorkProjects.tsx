@@ -9,6 +9,7 @@ import { api } from '../api';
 import { goto, toast, useStore } from '../store';
 import { Icon, Menu } from './ui';
 import { ProjectCampaigns } from './ProjectCampaigns';
+import { ServicePicker } from './ServicePicker';
 import type { TaskMeta } from '../types';
 import { PROJECT_STAGES, type ProjectStage } from '../../../shared/projects';
 
@@ -38,6 +39,21 @@ function ProjectStageControl({ p, onChanged }: { p: ProjectRow; onChanged: () =>
   return <label className="tk-pick" title="Trạng thái dự án"><Icon name="activity" size={14} /><select aria-label="Trạng thái dự án" disabled={busy} value={p.hold || ''} onChange={(e) => void set((e.target.value || null) as 'paused' | 'cancelled' | null)}>
     <option value="">Theo tiến độ công việc</option><option value="paused">Tạm dừng</option><option value="cancelled">Đã huỷ</option>
   </select></label>;
+}
+/** The services a project is for, as chips. */
+const ServiceChips = ({ p }: { p: ProjectRow }) => (p.services?.length ? <span className="crm-need-chips">{p.services.map((s) => <span key={s.id} className="crm-need-chip plain">{s.name}</span>)}</span> : <>—</>);
+/** What the project is for, from Quản trị › Dịch vụ: its managers choose, others see. Its customer's services are those
+ *  of its projects. */
+function ProjectServices({ p, canEdit, onChanged }: { p: ProjectRow; canEdit: boolean; onChanged: () => void }) {
+  const [ids, setIds] = useState<string[]>([]);
+  useEffect(() => setIds((p.services || []).map((s) => s.id)), [p.id, p.services]);
+  const save = async (next: string[]) => {
+    const before = ids;
+    setIds(next);
+    try { await api.updateTaskProject(p.id, { services: next }); onChanged(); } catch (e: any) { setIds(before); toast(e.message, true); }
+  };
+  if (!canEdit && !ids.length) return null;
+  return <section className="project-services"><h3>Dịch vụ</h3><ServicePicker value={ids} onChange={(next) => void save(next)} known={p.services} disabled={!canEdit} /></section>;
 }
 
 /** Work projects and their tasks. Video projects live in the editor under Tools. */
@@ -226,11 +242,12 @@ export function WorkProjects() {
               name={(p) => <b className="cd-name">{p.name}</b>}
               columns={[
                 { key: 'status', label: 'Trạng thái', width: 135, render: (p) => <ProjectStateBadge p={p} /> },
+                { key: 'services', label: 'Dịch vụ', width: 170, wide: true, render: (p) => <ServiceChips p={p} /> },
                 { key: 'who', label: 'Người làm', width: 115, render: (p) => <EmployeeAvatars people={p.assignees || []} /> },
                 ...(groupBy === 'customer' ? [] : [{ key: 'customer', label: 'Khách hàng', width: 155, wide: true, render: (p: ProjectRow) => p.customerName || '—' }]),
                 { key: 'tasks', label: 'Tiến độ', width: 130, render: (p) => p.tasks > 0 ? `${p.completed || 0}/${p.tasks} công việc` : '0 công việc' },
                 {
-                  key: 'actions', label: 'Thao tác', width: 145, render: (p) => canManage(p) ? (
+                  key: 'actions', label: 'Thao tác', width: 145, end: true, render: (p) => canManage(p) ? (
                     <span className="crm-campaign-actions" onClick={(e) => e.stopPropagation()}>
                       <button type="button" className="btn btn-gray btn-sm" disabled={busyId === p.id} onClick={() => void renameProject(p)}>Đổi tên</button>
                       <button type="button" className="btn btn-sm cm-danger" disabled={busyId === p.id} onClick={() => void deleteProject(p)}>Xoá</button>
@@ -246,6 +263,7 @@ export function WorkProjects() {
                   <header><span className="cd-monogram">{p.name.replace(/^\W*(\[[^\]]*\]\s*)?/, '').split(/\s+/).slice(0, 2).map((s) => s[0]).join('').toUpperCase() || 'DA'}</span><ProjectStateBadge p={p} /></header>
                   <h3>{p.name}</h3>
                   <p>{p.customerName || 'Chưa phân loại'}</p>
+                  {!!p.services?.length && <ServiceChips p={p} />}
                   <div className="cd-card-stats"><span><b>{p.tasks}</b>Công việc</span><span><b>{p.completed || 0}/{p.tasks}</b>Hoàn thành</span></div>
                   <footer>
                     <EmployeeAvatars people={p.assignees || []} />
@@ -262,13 +280,14 @@ export function WorkProjects() {
           ) : (
             <div className="cd-table work-project-list">
               <table>
-                <thead><tr>{deletableRows.length > 0 && <th style={{ width: 36 }}><input type="checkbox" checked={allChecked} onChange={(e) => toggleAll(e.target.checked)} aria-label="Chọn tất cả dự án" /></th>}<th>Tên dự án</th><th>Trạng thái</th><th>Người làm</th><th>Khách hàng</th><th>Tiến độ</th><th>Thao tác</th></tr></thead>
+                <thead><tr>{deletableRows.length > 0 && <th style={{ width: 36 }}><input type="checkbox" checked={allChecked} onChange={(e) => toggleAll(e.target.checked)} aria-label="Chọn tất cả dự án" /></th>}<th>Tên dự án</th><th>Trạng thái</th><th>Dịch vụ</th><th>Người làm</th><th>Khách hàng</th><th>Tiến độ</th><th>Thao tác</th></tr></thead>
                 <tbody>
                   {tasks.map((p) => (
                     <tr key={p.id} className="crm-row" onClick={() => select(p.id)}>
                       {deletableRows.length > 0 && <td onClick={(e) => e.stopPropagation()}>{canManage(p) && <input type="checkbox" checked={selectedIds.includes(p.id)} onChange={() => toggleOne(p)} aria-label={`Chọn dự án ${p.name}`} />}</td>}
                       <td><button className="work-project-name" onClick={() => select(p.id)}><Icon name="folder" size={17} /><b>{p.name}</b></button></td>
                       <td><ProjectStateBadge p={p} /></td>
+                      <td><ServiceChips p={p} /></td>
                       <td><EmployeeAvatars people={p.assignees || []} /></td>
                       <td>{p.customerName || '—'}</td>
                       <td>{p.tasks > 0 ? `${p.completed || 0}/${p.tasks} công việc` : '0 công việc'}</td>
@@ -291,7 +310,8 @@ export function WorkProjects() {
       {selected && meta && (
         <article className="tk-reading-pane project-reading-pane" aria-label="Chi tiết dự án">
           <ReadingHeader label="Chi tiết dự án" onClose={() => select(null)} actions={current && <>{current.stage && <ProjectStateBadge p={current} />}{current.level === 'admin' && <ProjectStageControl p={current} onChanged={refresh} />}</>} />
-          {current ? (
+          {current ? (<>
+            <ProjectServices p={current} canEdit={canManage(current)} onChanged={refresh} />
             <ProjectCampaigns
               key={current.id}
               id={current.id}
@@ -300,7 +320,7 @@ export function WorkProjects() {
               onRenamed={refresh}
               onDeleted={() => { select(null); refresh(); }}
             />
-          ) : <p className="note">Không tìm thấy dự án này.</p>}
+          </>) : <p className="note">Không tìm thấy dự án này.</p>}
         </article>
       )}
       {creating && <QuickCreateDialog kind="project" onClose={() => setCreating(false)} onCreated={(r) => { setCreating(false); refresh(); select(r.id); }} />}

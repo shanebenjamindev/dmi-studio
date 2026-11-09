@@ -8,6 +8,7 @@ import { useStore, toast } from '../store';
 import { Icon } from './ui';
 import { Avatar } from './boardkit';
 import type { ChatMessage, ChatMember } from '../types';
+import { WEEKDAYS } from '../i18n';
 
 export interface OpenWindow {
   id: string; // 'general' | memberId
@@ -91,9 +92,8 @@ export const formatChatTime = (t: number) => {
 export const formatChatDateDivider = (t: number) => {
   const d = new Date(t), now = new Date();
   const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  const dayNames = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
   if (d.toDateString() === now.toDateString()) return timeStr;
-  return `${timeStr} ${dayNames[d.getDay()]}, ${d.getDate()}/${d.getMonth() + 1}`;
+  return `${timeStr} ${WEEKDAYS[d.getDay()]}, ${d.getDate()}/${d.getMonth() + 1}`;
 };
 
 let messengerState: MessengerState = {
@@ -836,8 +836,43 @@ function ChatWindowView({
 }
 
 /** Full floating Messenger component with Chat Heads and side-by-side windows */
+/** Where someone dragged the chat heads (their gap to the right and bottom edges), remembered in this browser; null: the
+ *  corner the stylesheet gives them. A drag starts after a few pixels, so a tap still opens the chat. */
+const HEADS_KEY = 'dms.chatHeads';
+function useMovableHeads() {
+  const [pos, setPos] = useState<{ right: number; bottom: number } | null>(() => {
+    try { const v = JSON.parse(localStorage.getItem(HEADS_KEY) || 'null'); return v && typeof v.right === 'number' && typeof v.bottom === 'number' ? v : null; } catch { return null; }
+  });
+  const dragged = useRef(false);
+  const start = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const box = e.currentTarget.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+    const right0 = innerWidth - box.right, bottom0 = innerHeight - box.bottom;
+    let last: { right: number; bottom: number } | null = null;
+    dragged.current = false;
+    const move = (m: PointerEvent) => {
+      const dx = m.clientX - x0, dy = m.clientY - y0;
+      if (!dragged.current && Math.hypot(dx, dy) < 6) return;
+      dragged.current = true;
+      last = { right: Math.round(Math.min(Math.max(4, right0 - dx), innerWidth - box.width - 4)), bottom: Math.round(Math.min(Math.max(4, bottom0 - dy), innerHeight - box.height - 4)) };
+      setPos(last);
+    };
+    const up = () => {
+      removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+      if (last) try { localStorage.setItem(HEADS_KEY, JSON.stringify(last)); } catch { /* private mode */ }
+    };
+    addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+  };
+  // The click that ends a drag does not open a chat.
+  const swallow = (e: React.MouseEvent) => { if (dragged.current) { e.preventDefault(); e.stopPropagation(); dragged.current = false; } };
+  // Kept on screen when the window gets smaller.
+  const style = pos ? { right: Math.max(4, Math.min(pos.right, innerWidth - 64)), bottom: Math.max(4, Math.min(pos.bottom, innerHeight - 64)) } : undefined;
+  return { style, start, swallow };
+}
+
 export function Messenger() {
   const { openWindows, heads, unreadMap } = useMessengerState();
+  const place = useMovableHeads();
   const me = useStore((s) => s.user);
   const currentUserId = me?.id;
   const lastUserRef = useRef<string | undefined>(currentUserId);
@@ -935,7 +970,7 @@ export function Messenger() {
   return (
     <>
       {/* ----------------- Floating Chat Heads Stack (Right Edge) ----------------- */}
-      <div className="fmsg-heads-stack" aria-label="Messenger chat heads">
+      <div className="fmsg-heads-stack" aria-label="Messenger chat heads" title="Kéo để di chuyển" style={place.style} onPointerDown={place.start} onClickCapture={place.swallow}>
         {/* Main Messenger Bubble (bottom) */}
         <div className="fmsg-head-item">
           <button

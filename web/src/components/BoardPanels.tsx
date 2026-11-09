@@ -8,6 +8,7 @@ import { Icon } from './ui';
 import { dueState } from './boardkit';
 import type { BoardItem, PlannerCard, Workspace } from '../types';
 import { useMessengerState } from './Messenger';
+import { WEEKDAYS } from '../i18n';
 
 /** What is being dragged from one panel to another: an inbox item (onto a list) or a board card (onto a planner day). */
 export const dragged: { inbox: { id: string; h: number } | null; card: { id: string; dueAt: number | null; startAt: number | null } | null } = { inbox: null, card: null };
@@ -34,7 +35,6 @@ const DAY = 864e5;
 /** Midnight on the Monday of the week of `t`. */
 const monday = (t: number) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime(); };
 const addDays = (t: number, n: number) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n).getTime(); };
-const WEEKDAY = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 const two = (n: number) => String(n).padStart(2, '0');
 const hm = (t: number) => { const d = new Date(t); return `${two(d.getHours())}:${two(d.getMinutes())}`; };
 
@@ -90,7 +90,7 @@ export function PlannerPanel({ bgOf, onOpen, onHide }: { bgOf: (k: string) => st
             <section key={d} className={'bp-day' + (isToday ? ' today' : '') + (over === i ? ' over' : '')}
               onDragOver={(e) => { if (own.current || dragged.card) { e.preventDefault(); if (over !== i) setOver(i); } }} onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(null); }}
               onDrop={(e) => dropOn(e, d)}>
-              <h3><span>{WEEKDAY[new Date(d).getDay()]}</span><b>{new Date(d).getDate()}</b>{isToday && <em>Hôm nay</em>}</h3>
+              <h3><span>{WEEKDAYS[new Date(d).getDay()]}</span><b>{new Date(d).getDate()}</b>{isToday && <em>Hôm nay</em>}</h3>
               {list.map((c) => {
                 const due = dueState(c.dueAt, c.done);
                 return (

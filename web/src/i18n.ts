@@ -9,6 +9,8 @@ const VI = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềế
 export function langPref(): Lang {
   try { return localStorage.getItem(KEY) === 'en' ? 'en' : 'vi'; } catch { return 'vi'; }
 }
+/** Short weekday names, Sunday first ("T2" has no accents for the dictionary to know it by). */
+export const WEEKDAYS = langPref() === 'en' ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 /** Switching reloads the page, so every screen is drawn again in the new language. */
 export function setLang(lang: Lang) {
   try { localStorage.setItem(KEY, lang); } catch { /* private mode: nothing to remember */ }

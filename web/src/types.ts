@@ -103,7 +103,7 @@ export interface DriveFolder { key: string; name: string; driveUrl: string | nul
 export interface CustomerLink { label: string; url: string }
 /** A service from the catalogue (Quản trị › Dịch vụ), as a customer's need. */
 export interface ServiceRef { id: string; name: string; category?: string | null }
-/** `drive`: the folder the customer is linked to (null: database only); `needs`: the services it wants. */
+/** `drive`: the folder the customer is linked to (null: database only); `needs`: its services, those of its projects. */
 /** On the Customers page list: what Quản trị › Khách hàng sets (status, category, source, the staff member in charge). */
 export interface CustomerStatusOption {id:string;name:string;color:string;pos:number;active:number|boolean}
 /** `tags`: its tags (the list is Quản trị › Khách hàng › Phân loại); `category` is the first of them. */
@@ -188,7 +188,7 @@ export interface TaskDetail extends TaskItem {
 export interface TaskMeta {
   campaigns:TaskCampaign[]; teams:{id:string;name:string;color:string}[];
   workTeams?:{id:string;name:string;color:string;departmentId:string|null;memberIds:string[];leaderIds:string[]}[];
-  people: (TaskPerson & { userName: string | null; tasks: number })[]; projects: { id: string; name: string; customerId: string | null; customerName?: string | null; teamId:string|null;createdBy:string|null;level:Level;tasks: number; completed?: number; overdue?: number; assignees?: TaskPerson[]; stage?: import('../../shared/projects').ProjectStage; hold?: import('../../shared/projects').ProjectHold | null }[];
+  people: (TaskPerson & { userName: string | null; tasks: number })[]; projects: { id: string; name: string; customerId: string | null; customerName?: string | null; teamId:string|null;createdBy:string|null;level:Level;tasks: number; completed?: number; overdue?: number; assignees?: TaskPerson[]; stage?: import('../../shared/projects').ProjectStage; hold?: import('../../shared/projects').ProjectHold | null; services?: ServiceRef[] }[];
   mine: string[]; statuses: string[]; users: { id: string; name: string; email: string; teamId: string | null; workTeamIds?: string[] }[];
   imports: { id: string; rows: number; created: number; updated: number; at: number; by: string; sourceName: string; hasSheet: boolean }[];
 }

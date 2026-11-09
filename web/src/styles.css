@@ -2939,6 +2939,11 @@ button.cm-list-b:hover { background: var(--bd-line); }
 .crm-need-chip button:hover { background:rgba(11,125,242,.16); }
 .crm-inline-add { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .crm-inline-add input { flex:1 1 200px; min-width:0; }
+/* Dịch vụ of a project: chips, then the list to add from (ServicePicker). */
+.svc-pick { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.project-services { flex:none; padding:12px 20px; border-bottom:1px solid var(--sep); }
+.project-services h3 { margin:0 0 8px; font-size:12px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--label-3); }
+.project-services .svc-pick > .bk-in, .project-services .crm-inline-add { max-width:420px; }
 .crm-drive-link { margin:4px 0 14px; max-width:720px; }
 .crm-drive-on { display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--bd-line); border-radius:10px; }
 .crm-drive-on > div { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
@@ -3173,7 +3178,7 @@ button.cm-list-b:hover { background: var(--bd-line); }
 .qc-dialog header,.qc-dialog footer { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .qc-dialog h2 { margin:0; font-size:18px; }
 .qc-dialog fieldset { display:flex; flex-direction:column; gap:14px; border:0; padding:0; margin:0; }
-.qc-dialog label { display:flex; flex-direction:column; gap:6px; font-size:12px; }
+.qc-dialog label,.qc-dialog .qc-field { display:flex; flex-direction:column; gap:6px; font-size:12px; }
 .qc-dialog small { color:var(--bd-muted); }
 .qc-dialog footer { justify-content:flex-end; }
 .qc-add { color:var(--tint); }
@@ -3345,7 +3350,8 @@ button.cm-list-b:hover { background: var(--bd-line); }
 .ax-stack { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .ax-stack small, .ax-person small { font-size: 12px; color: var(--ax-ink-3); }
 .ax-person { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.ax-person > span:not(.bk-av) { display: flex; flex-direction: column; min-width: 0; }
+/* The name-and-detail column; a picture placeholder keeps its own centring. */
+.ax-person > span:not(.bk-av):not(.ax-thumb) { display: flex; flex-direction: column; min-width: 0; }
 .ax-person b { font-weight: 600; }
 .ax-avatar { border-radius: 50%; object-fit: cover; flex: none; }
 .ax-thumb { flex: none; width: 36px; height: 36px; border-radius: 8px; object-fit: cover; display: grid; place-items: center; background: var(--ax-hover); color: var(--ax-ink-3); }
@@ -3599,6 +3605,8 @@ button.ax-role:hover { border-color: var(--tint); }
 .crm-ov-card progress { width:100%; height:6px; }
 .crm-ov-drive { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0; font-size:13.5px; }
 .crm-ov-drive .ico { color:#e0a33a; }
+.crm-ov-card > .crm-inline-add, .crm-ov-relink { margin-top:10px; }
+.crm-ov-relink { align-self:flex-start; }
 .crm-ov-notes { font-size:13.5px; white-space:pre-wrap; }
 .crm-tab-pane { display:flex; flex-direction:column; gap:14px; padding:20px 24px; }
 .crm-tab-tools { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
@@ -3835,7 +3843,8 @@ a.rail-item { text-decoration: none; }
 }
 @media (max-width: 640px) {
   :root { --rail-w: 0px; --bn-h: 60px; }
-  .app-head { grid-template-columns: auto 1fr auto; padding: 0 8px; gap: 8px; }
+  /* minmax(0, …): the search box gives way, so the buttons after it stay on screen (a long placeholder pushed them off). */
+  .app-head { grid-template-columns: auto minmax(0, 1fr) auto; padding: 0 8px; gap: 8px; }
   .app-head .tb-logo { height: 22px; width: 18px; } .app-search kbd, .app-head .tb-user-name, .app-head .tb-user-btn > .ico, .app-head .tb-theme { display: none; }
   .shell-body { flex-direction: column-reverse; }
   .shell-main { height: auto; flex: 1; min-height: 0; }
@@ -4768,6 +4777,11 @@ body.resizing iframe, body.resizing video { pointer-events: none; }
   align-items: center;
   pointer-events: none;
 }
+/* Dragged by its bubbles (useMovableHeads); a touch drag moves them instead of scrolling the page. */
+.fmsg-head-item { touch-action: none; cursor: grab; }
+.fmsg-head-item:active { cursor: grabbing; }
+/* A side panel's buttons sit in that corner: the heads step aside while one is open. */
+body:has(.ax-drawer-back) .fmsg-heads-stack { visibility: hidden; }
 .fmsg-head-item {
   position: relative;
   pointer-events: auto;
@@ -5594,11 +5608,16 @@ body.resizing iframe, body.resizing video { pointer-events: none; }
   cursor: default;
 }
 
-@media (max-width: 600px) {
-  .fmsg-bubble {
-    bottom: 68px; /* above bottom navigation bar on phones */
+/* Phones: the chat heads sit above the bottom bar (the stack is what is placed, not the bubble in it). */
+@media (max-width: 640px) {
+  .fmsg-heads-stack {
+    bottom: calc(var(--bn-h) + 12px);
     right: 14px;
   }
+  /* …and step aside while the "Thêm" menu is open over the same corner. */
+  body:has(.rail-more.open) .fmsg-heads-stack { visibility: hidden; }
+}
+@media (max-width: 600px) {
   .fmsg-window {
     bottom: 0 !important;
     right: 0 !important;

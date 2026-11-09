@@ -13,6 +13,7 @@ import { assigneeUsers, placeTaskCard, projectCustomerChanged, projectHome, rena
 import { TASK_MASTER } from '../shared/task-master';
 import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
 import { isHold, projectStage } from '../shared/projects';
+import { projectServices, saveProjectServices, serviceIds, settleCustomerServices } from './project-services';
 /** A description or result as written (formatted text is never cut, which would break it): too long is refused. */
 const richIn = (x: unknown) => { const v = String(x ?? ''); if (v.length > RICH_MAX) throw new HttpError(413, RICH_TOO_LONG); return v; };
 import type { Req } from './http';
@@ -376,8 +377,12 @@ export function registerTasks(api: Router) {
     if(customerId)await requireCustomer(user.id,customerId,'admin');
     const teamId=body.teamId!==undefined?(body.teamId?String(body.teamId):null):user.team_role||null;
     if(teamId&&!await get('SELECT id FROM team_roles WHERE id=?',teamId))throw new HttpError(400,'Phòng ban không tồn tại');
+    const services=body.services!==undefined?await serviceIds(body.services):null;
     const id=uid('tj_');
     await run('INSERT INTO task_projects(id,name,customer_id,created_by,team_id,created_at) VALUES(?,?,?,?,?,?)',id,name,customerId,user.id,teamId,now());
+    // The services chosen for it (the form offers its customer's as defaults), or else those still set on the customer.
+    if(services){await saveProjectServices(id,services,user.id);if(customerId)await run('DELETE FROM customer_needs WHERE customer_id=?',customerId);}
+    else if(customerId)await settleCustomerServices([customerId]);
     // On Workspace at once: a card on its customer's board (or its own board), where its tasks will go.
     if(await getSetting('task_workspace_auto',true))await projectHome(id);
     json(res,201,{id,name,customerId,teamId});
@@ -397,7 +402,10 @@ export function registerTasks(api: Router) {
       if(cid)await requireCustomer(user.id,cid,'admin');
       customerChanged=cid!==((await get<any>('SELECT customer_id FROM task_projects WHERE id=?',id))?.customer_id||null);
       await run('UPDATE task_projects SET customer_id=? WHERE id=?',cid,id);
+      if(cid)await settleCustomerServices([cid]);
     }
+    // What the project is for: services of the catalogue (its customer's services are those of its projects).
+    if(body.services!==undefined)await saveProjectServices(id,await serviceIds(body.services),user.id);
     // Put on hold or cancelled by its managers, or (null) back to following its tasks.
     if(body.hold!==undefined){
       if(body.hold!==null&&!isHold(body.hold))throw new HttpError(400,'Trạng thái dự án không hợp lệ');
@@ -587,6 +595,7 @@ export function registerTasks(api: Router) {
       if (!['todo', 'cancelled'].includes(st) && !(st === 'overdue' && statusKey(r.status) === 'todo')) s.started++;
       projStats.set(r.project_id, s);
     }
+    const services = await projectServices([...projectIds]);
     const projAssignees = new Map<string, { id: string; name: string; userId: string | null; avatarAt?: number | null }[]>();
     for (const r of await all<any>('SELECT DISTINCT t.project_id, p.id, COALESCE(u.name, p.name) name, p.user_id, u.avatar_at FROM tasks t JOIN task_assignees a ON a.task_id = t.id JOIN task_people p ON p.id = a.person_id LEFT JOIN users u ON u.id = p.user_id WHERE t.project_id IS NOT NULL ORDER BY 3')) {
       if (!projectIds.has(r.project_id)) continue;
@@ -597,7 +606,7 @@ export function registerTasks(api: Router) {
         .map((p) => ({ id: p.id, name: p.name, userId: p.user_id || null, userName: p.user_name || null, avatarAt: p.avatar_at ?? null, tasks: counts.get(p.id) || 0 })),
       projects: (await all<any>('SELECT j.*, c.name customer_name, (SELECT COUNT(*) FROM tasks t WHERE t.project_id = j.id) n FROM task_projects j LEFT JOIN customers c ON c.id = j.customer_id ORDER BY j.name COLLATE NOCASE')).filter(j=>projectIds.has(j.id)).map((j) => {
         const st = projStats.get(j.id);
-        return { id: j.id, name: j.name, customerId: j.customer_id || null, customerName: j.customer_name || null, teamId:j.team_id||null,createdBy:j.created_by,level:allowedProjects.get(j.id), tasks: Number(j.n), completed: st?.completed || 0, overdue: st?.overdue || 0, hold: j.hold || null, stage: projectStage({ tasks: st?.live || 0, started: st?.started || 0, done: st?.completed || 0 }, j.hold), assignees: projAssignees.get(j.id) || [] };
+        return { id: j.id, name: j.name, customerId: j.customer_id || null, customerName: j.customer_name || null, teamId:j.team_id||null,createdBy:j.created_by,level:allowedProjects.get(j.id), tasks: Number(j.n), completed: st?.completed || 0, overdue: st?.overdue || 0, hold: j.hold || null, services: services.get(j.id) || [], stage: projectStage({ tasks: st?.live || 0, started: st?.started || 0, done: st?.completed || 0 }, j.hold), assignees: projAssignees.get(j.id) || [] };
       }),
       campaigns: (await all<any>('SELECT c.*, (SELECT COUNT(*) FROM tasks t WHERE t.campaign_id=c.id) tasks FROM task_campaigns c ORDER BY c.name')).filter(c=>projectIds.has(c.project_id)).map(c=>({id:c.id,name:c.name,projectId:c.project_id,tasks:c.tasks})),
       teams:await all('SELECT id,name,color FROM team_roles ORDER BY pos'),

@@ -24,6 +24,7 @@ import { driveId, locate } from './sources';
 import {customerStatuses,customerStatus,defaultCustomerStatus} from './customer-statuses';
 import { renameProjectBoard, projectHome, projectCustomerChanged } from './taskworkspace';
 import { syncProjectCards } from './work-sync';
+import { customerServices, projectServices, saveProjectServices, serviceIds, settleCustomerServices } from './project-services';
 import { customerBoardId, syncBoardPeople } from './board-people';
 
 const pexec = promisify(execFile);
@@ -141,13 +142,8 @@ const customerRecord = (c: any) => {
   return { id:c.id, name:c.name, contact:c.contact || '', phone:c.phone || '', email:c.email || '', notes:c.notes || '',createdBy:c.created_by||null,
     drive: g ? { label: String(g.label || c.folder || ''), url: `https://drive.google.com/drive/folders/${g.id}` } : c.folder ? { label: path.basename(String(c.folder)), url: null } : null };
 };
-/** The services each customer wants (Nhu cầu), from the catalogue in Quản trị › Dịch vụ. */
-async function needsOf(ids?: string[]) {
-  const out = new Map<string, { id: string; name: string }[]>();
-  for (const r of await all<any>(`SELECT n.customer_id, s.id, s.name FROM customer_needs n JOIN services s ON s.id = n.service_id AND s.deleted_at IS NULL${ids ? ' WHERE n.customer_id IN (SELECT value FROM json_each(?))' : ''} ORDER BY s.name`, ...(ids ? [JSON.stringify(ids)] : [])))
-    out.set(r.customer_id, [...(out.get(r.customer_id) || []), { id: r.id, name: r.name }]);
-  return out;
-}
+/** A customer's services are those of its projects (server/project-services.ts). */
+const needsOf = customerServices;
 /** Each customer's tags (Quản trị › Khách hàng › Phân loại is the list of tags), in the order of that list. */
 async function tagsOf(ids?: string[]) {
   const out = new Map<string, { id: string; name: string; color: string }[]>();
@@ -182,18 +178,6 @@ async function saveTags(customerId: string, ids: string[]) {
   await run('DELETE FROM customer_tags WHERE customer_id = ? AND tag_id NOT IN (SELECT value FROM json_each(?))', customerId, JSON.stringify(ids));
   for (const id of ids) await run('INSERT OR IGNORE INTO customer_tags(customer_id, tag_id, created_at) VALUES(?,?,?)', customerId, id, now());
   await run('UPDATE customers SET category_id = ? WHERE id = ?', ids[0] || null, customerId);
-}
-/** Replaces what a customer wants with these services (they must be in the catalogue). */
-async function validateNeeds(v: unknown) {
-  if (!Array.isArray(v) || v.length > 100 || v.some((x) => typeof x !== 'string')) throw new HttpError(400, 'Danh sách nhu cầu không hợp lệ');
-  const ids = [...new Set(v as string[])];
-  for (const id of ids) if (!(await get('SELECT 1 FROM services WHERE id = ? AND deleted_at IS NULL', id))) throw new HttpError(400, 'Không tìm thấy dịch vụ trong danh mục');
-  return ids;
-}
-async function saveNeeds(customerId: string, v: unknown, by: string) {
-  const ids=await validateNeeds(v);
-  await run('DELETE FROM customer_needs WHERE customer_id = ? AND service_id NOT IN (SELECT value FROM json_each(?))', customerId, JSON.stringify(ids));
-  for (const id of ids) await run('INSERT OR IGNORE INTO customer_needs(customer_id, service_id, added_by, created_at) VALUES(?,?,?,?)', customerId, id, by, now());
 }
 async function customerClassification(b: any, old?: any) {
   const status=!old&&b.status===undefined?await defaultCustomerStatus():await customerStatus(b.status,old?.status||null);
@@ -695,14 +679,12 @@ export function registerWorkspace(api: Router) {
     const creator=(await currentUser(req))!.id;
     const fields=customerFields(b), classification=await customerClassification(b);
     const managerId = b.managerId === undefined ? creator : classification.manager;
-    if(b.needs!==undefined)await validateNeeds(b.needs);
     const tags = await tagsIn(b, classification.category);
     if (b.databaseOnly === true) {
       const id=uid('c_');
       await run('INSERT INTO customers(id,name,contact,phone,email,notes,links,folder,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',id,fields.name,fields.contact,fields.phone,fields.email,fields.notes,'[]','',now(),now());
       await run('UPDATE customers SET created_by=?,status=?,category_id=?,source_id=?,manager_id=? WHERE id=?',creator,classification.status,classification.category,classification.source,managerId,id);
       if(managerId&&managerId!==creator)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',id,managerId,'admin',creator,now());
-      if(b.needs!==undefined)await saveNeeds(id,b.needs,creator);
       if(tags)await saveTags(id,tags);
       json(res,201,await customerOut(await mustCustomer(id),true));return;
     }
@@ -716,7 +698,6 @@ export function registerWorkspace(api: Router) {
       await setHidden(folderKey(l), false);
       await run('UPDATE customers SET created_by=?,status=?,category_id=?,source_id=?,manager_id=? WHERE id=?',creator,classification.status,classification.category,classification.source,managerId,id);
       if(managerId&&managerId!==creator)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',id,managerId,'admin',creator,now());
-    if(b.needs!==undefined)await saveNeeds(id,b.needs,creator);
     if(tags)await saveTags(id,tags);
     json(res, 201, await customerOut(await mustCustomer(id), true)); return;
     }
@@ -740,7 +721,6 @@ export function registerWorkspace(api: Router) {
       id, String(b.name).trim(), JSON.stringify(b.links ? cleanLinks(b.links) : []), b.notes || '', folder, gloc, now(), now());
     await run('UPDATE customers SET created_by=?,status=?,category_id=?,source_id=?,manager_id=? WHERE id=?',creator,classification.status,classification.category,classification.source,managerId,id);
     if(managerId&&managerId!==creator)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',id,managerId,'admin',creator,now());
-    if(b.needs!==undefined)await saveNeeds(id,b.needs,creator);
     if(tags)await saveTags(id,tags);
     json(res, 201, await customerOut(await mustCustomer(id), true));
   });
@@ -841,7 +821,9 @@ export function registerWorkspace(api: Router) {
   api.get('/api/customers/:id/projects', async (req, res) => {
     await mustCustomer(req.params.id);
     const visible=await projectLevels((await currentUser(req))!.id);
-    json(res, 200, (await all<any>('SELECT p.id, p.name, (SELECT COUNT(*) FROM task_campaigns c WHERE c.project_id=p.id) campaigns, (SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id AND t.stub=0) tasks FROM task_projects p WHERE p.customer_id=? ORDER BY p.created_at DESC', req.params.id)).filter(p=>visible.has(p.id)));
+    const rows=(await all<any>('SELECT p.id, p.name, (SELECT COUNT(*) FROM task_campaigns c WHERE c.project_id=p.id) campaigns, (SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id AND t.stub=0) tasks FROM task_projects p WHERE p.customer_id=? ORDER BY p.created_at DESC', req.params.id)).filter(p=>visible.has(p.id));
+    const services=await projectServices(rows.map(p=>p.id));
+    json(res, 200, rows.map(p=>({...p,services:services.get(p.id)||[]})));
   });
   api.post('/api/customers/:id/projects', async (req, res) => {
     await requireCustomer((await currentUser(req))!.id,req.params.id,'admin');
@@ -853,12 +835,17 @@ export function registerWorkspace(api: Router) {
       await requireProject((await currentUser(req))!.id,p.id,'admin');
       if (p.customer_id && p.customer_id !== req.params.id) throw new HttpError(409, 'Dự án đã thuộc khách hàng khác');
       await run('UPDATE task_projects SET customer_id=? WHERE id=?', req.params.id, p.id);
+      await settleCustomerServices([req.params.id]);
       json(res, 200, { id: p.id, name: p.name }); return;
     }
     if (!name || name.length > 200) throw new HttpError(400, 'Tên dự án cần từ 1 đến 200 ký tự');
+    const services = b.services !== undefined ? await serviceIds(b.services) : null;
     const id = uid('tj_');
     await run('INSERT INTO task_projects(id,name,customer_id,created_at) VALUES(?,?,?,?)', id, name, req.params.id, now());
     const creator=(await currentUser(req))!;await run('UPDATE task_projects SET created_by=?,team_id=? WHERE id=?',creator.id,creator.team_role||null,id);
+    // The services chosen for it (the form offers the customer's as its defaults), or else those still set on the customer.
+    if (services) { await saveProjectServices(id, services, creator.id); await run('DELETE FROM customer_needs WHERE customer_id=?', req.params.id); }
+    else await settleCustomerServices([req.params.id]);
     if(await getSetting('task_workspace_auto',true))await projectHome(id);
     json(res, 201, { id, name });
   });
@@ -911,18 +898,16 @@ export function registerWorkspace(api: Router) {
     const user=(await currentUser(req))!;
     await requireCustomer(user.id,req.params.id,'admin');
     const current=await mustCustomer(req.params.id), body=await readJson(req), fields=customerFields(body,current),classification=await customerClassification(body,current);
-    if(body.needs!==undefined)await validateNeeds(body.needs);
     const tags=await tagsIn(body,classification.category);
     await run('UPDATE customers SET name=?,contact=?,phone=?,email=?,notes=?,status=?,category_id=?,source_id=?,manager_id=?,updated_by=?,updated_at=? WHERE id=?',fields.name,fields.contact,fields.phone,fields.email,fields.notes,classification.status,classification.category,classification.source,classification.manager,user.id,now(),current.id);
     if(classification.manager&&classification.manager!==current.manager_id&&classification.manager!==current.created_by)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',current.id,classification.manager,'admin',user.id,now());
-    if(body.needs!==undefined)await saveNeeds(current.id,body.needs,user.id);
     if(tags)await saveTags(current.id,tags);
     // The customer's own board keeps its name (unless someone renamed it) and its manager.
     await run('UPDATE boards SET name=? WHERE id=? AND name=?',fields.name,customerBoardId(current.id),current.name);
     if(classification.manager!==current.manager_id)await syncBoardPeople(customerBoardId(current.id));
     json(res,200,await recordOut(await mustCustomer(current.id)));
   });
-  // The services catalogue (Quản trị › Dịch vụ), to say what a customer wants: names only, for everyone signed in.
+  // The services catalogue (Quản trị › Dịch vụ), to say what a project is for: names only, for everyone signed in.
   api.get('/api/services',async(_req,res)=>json(res,200,(await all<any>("SELECT s.id,s.name,c.name category FROM services s LEFT JOIN service_categories c ON c.id=s.category_id WHERE s.deleted_at IS NULL AND s.status<>'inactive' ORDER BY c.pos,s.name")).map(s=>({id:s.id,name:s.name,category:s.category||null}))));
   api.get('/api/customers/:id', async (req, res) => json(res, 200, await customerOut(await mustCustomer(req.params.id), true, req.query.get('fresh') === '1')));
   api.put('/api/customers/:id', async (req, res) => {

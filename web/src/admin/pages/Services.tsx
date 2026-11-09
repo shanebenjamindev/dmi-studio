@@ -1,4 +1,4 @@
-// Dịch vụ: the catalogue of services (also what customers' needs are chosen from), their categories, and packages.
+// Dịch vụ: the catalogue of services (what each project is for is chosen from it), their categories, and packages.
 import { useEffect, useState } from 'react';
 import { toast } from '../../store';
 import { Icon } from '../../components/ui';
@@ -26,7 +26,7 @@ export function ServiceList() {
   ];
   return (
     <>
-      <PageHead title="Danh sách dịch vụ" sub="Dịch vụ công ty cung cấp. Nhu cầu của khách hàng được chọn từ danh sách này."
+      <PageHead title="Danh sách dịch vụ" sub="Dịch vụ công ty cung cấp. Dịch vụ của mỗi dự án (và từ đó của khách hàng) được chọn từ danh sách này."
         actions={can('services.create') && <button className="btn btn-primary btn-sm" onClick={() => setEdit('new')}><Icon name="plus" size={14} />Thêm dịch vụ</button>} />
       <Toolbar search={q} onSearch={setQ} placeholder="Tìm tên, mã, mô tả…">
         <Select value={category} onChange={setCategory} label="Danh mục"><option value="">Mọi danh mục</option><option value="none">Chưa có danh mục</option>{(cats.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>

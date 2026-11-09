@@ -140,7 +140,8 @@ export function StackBars({ rows, parts }: { rows: { key: string; label: string;
       <li key={r.key} title={`${r.label}: ${r.values.map((v, i) => `${parts[i].name} ${fmtNum(v)}`).join(' · ')}`} tabIndex={0}>
         <span className="ax-bar-label">{r.label}</span>
         <span className="ax-bar-track stack">{r.values.map((v, i) => (v ? <span key={i} className="ax-bar-fill" style={{ width: `${(v / max) * 100}%`, background: parts[i].color }} /> : null))}</span>
-        <span className="ax-bar-value">{r.values.map((v, i) => `${fmtNum(v)} ${parts[i].name.toLocaleLowerCase('vi')}`).join(' · ')}</span>
+        {/* Each part's name is its own text, so the English interface can put it in English. */}
+        <span className="ax-bar-value">{r.values.map((v, i) => <span key={i}>{i > 0 && ' · '}{fmtNum(v)} {parts[i].name.toLocaleLowerCase('vi')}</span>)}</span>
       </li>
     ))}</ul>
   );

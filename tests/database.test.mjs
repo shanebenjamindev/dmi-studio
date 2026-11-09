@@ -1337,6 +1337,36 @@ test('someone given a task of a customer finds it on Khách hàng without Drive;
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
+test('a customer\'s services are its projects\'; services once set on a customer go to its projects',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-project-services-'));let server;
+ try{
+  server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'ps-boss@example.test',password:'test-password'})).cookie;
+  const web=(await server.call('POST','/api/admin/services',{name:'Website'},ac)).data, ads=(await server.call('POST','/api/admin/services',{name:'Meta Ads'},ac)).data;
+  const names=async(id)=>(await server.call('GET',`/api/customers/${id}/record`,undefined,ac)).data.needs.map(n=>n.name);
+  // Set on a customer before projects carried them (no project yet): still its services, until its first project takes them.
+  const old=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách cũ'},ac)).data;
+  const db=new DatabaseSync(path.join(dir,'studio.db'));
+  db.prepare('INSERT INTO customer_needs(customer_id,service_id,created_at) VALUES(?,?,?),(?,?,?)').run(old.id,web.id,1,old.id,ads.id,1);
+  db.close();
+  assert.deepEqual(await names(old.id),['Meta Ads','Website']);
+  const first=(await server.call('POST',`/api/customers/${old.id}/projects`,{name:'Dự án đầu'},ac)).data;
+  const listed=async(id)=>(await server.call('GET',`/api/customers/${id}/projects`,undefined,ac)).data;
+  assert.deepEqual((await listed(old.id)).find(p=>p.id===first.id).services.map(n=>n.name),['Meta Ads','Website']);
+  // From then on they are the project's: dropping one there drops it from the customer.
+  assert.equal((await server.call('PUT',`/api/task-projects/${first.id}`,{services:[web.id]},ac)).status,200);
+  assert.deepEqual(await names(old.id),['Website']);
+  // A new project gets the services it is created with (the form offers the customer's); the customer has them all.
+  const second=(await server.call('POST','/api/task-projects',{name:'Dự án quảng cáo',customerId:old.id,services:[ads.id]},ac)).data;
+  assert.deepEqual(await names(old.id),['Meta Ads','Website']);
+  const meta=(await server.call('GET','/api/tasks/meta',undefined,ac)).data;
+  assert.deepEqual(meta.projects.find(p=>p.id===second.id).services.map(n=>n.name),['Meta Ads']);
+  // Deleting a project takes its services off the customer.
+  assert.equal((await server.call('DELETE',`/api/task-projects/${second.id}`,undefined,ac)).status,200);
+  assert.deepEqual(await names(old.id),['Website']);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
 test('each account has its own notification email, and whatever concerns that person is sent there',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-notify-people-'));let server;
  try{

@@ -14,6 +14,11 @@ const TONE: Record<string, string> = { done: 'ok', done_late: 'late', overdue: '
 const day = (t: number | null) => (t ? new Date(t).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' }) : '');
 const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
 /** The text with the searched words marked (matching without marks, shown as written). */
+/** "Label: value · Label: value", each label its own text so the English interface can put it in English. */
+function Facts({ list }: { list: (false | null | undefined | '' | [string, string])[] }) {
+  return <>{list.filter((f): f is [string, string] => !!f).map(([label, value], i) => <span key={label}>{i > 0 && ' · '}{label} {value}</span>)}</>;
+}
+
 function Mark({ text, words }: { text: string; words: string[] }) {
   if (!words.length || !text) return <>{text}</>;
   const norm = text.normalize('NFC');
@@ -66,10 +71,10 @@ export function GlobalSearch() {
   for (const g of groups) for (const it of data![g].items) {
     if (g === 'members') hits.push({ key: `m${it.id}`, group: g, open: go(() => openProfile(it.id)), node: <><span className="gs-av">{it.avatarAt ? <img src={`/api/avatars/${it.id}?v=${it.avatarAt}`} alt="" /> : it.name.charAt(0).toUpperCase()}</span><span className="gs-main"><b><Mark text={it.name} words={words} /></b><small><Mark text={[it.email, it.position, it.department].filter(Boolean).join(' · ')} words={words} /></small></span></> });
     if (g === 'tasks') hits.push({ key: `t${it.id}`, group: g, open: go(() => openTask(it.id)), node: <><span className="gs-ico"><Icon name="checklist" size={16} /></span><span className="gs-main"><b><Mark text={it.title} words={words} /></b>
-      <small>{[it.project && `Dự án: ${it.project.name}`, it.assignees.length && `Người thực hiện: ${it.assignees.join(', ')}`, it.dueAt && `Thời hạn: ${day(it.dueAt)}`].filter(Boolean).join(' · ')}</small>
+      <small><Facts list={[it.project && ['Dự án:', it.project.name], it.assignees.length > 0 && ['Người thực hiện:', it.assignees.join(', ')], !!it.dueAt && ['Thời hạn:', day(it.dueAt)]]} /></small>
       {it.snippet && <small className="gs-snip">Mô tả: <Mark text={it.snippet} words={words} /></small>}</span><span className={'tk-badge ' + (TONE[it.state] || 'idle')}>{it.state === 'overdue' ? 'Quá hạn' : it.status}</span></> });
     if (g === 'customers') hits.push({ key: `c${it.id}`, group: g, open: go(() => openLink(`#customers/${it.id}`)), node: <><span className="gs-ico"><Icon name="users" size={16} /></span><span className="gs-main"><b><Mark text={it.name} words={words} /></b><small><Mark text={[it.contact, it.phone, it.email].filter(Boolean).join(' · ')} words={words} /></small></span></> });
-    if (g === 'projects') hits.push({ key: `p${it.id}`, group: g, open: go(() => openLink(`#projects/${it.id}`)), node: <><span className="gs-ico"><Icon name="folder" size={16} /></span><span className="gs-main"><b><Mark text={it.name} words={words} /></b><small>{[it.customer && `Khách hàng: ${it.customer}`, `${it.tasks} công việc`].filter(Boolean).join(' · ')}</small></span></> });
+    if (g === 'projects') hits.push({ key: `p${it.id}`, group: g, open: go(() => openLink(`#projects/${it.id}`)), node: <><span className="gs-ico"><Icon name="folder" size={16} /></span><span className="gs-main"><b><Mark text={it.name} words={words} /></b><small>{it.customer && <Facts list={[['Khách hàng:', it.customer]]} />}{it.customer && ' · '}{`${it.tasks} công việc`}</small></span></> });
     if (g === 'boards') hits.push({ key: `b${it.id}`, group: g, open: go(() => (it.kind === 'card' ? openCard(it.boardId, it.id) : openLink(`#boards/${it.id}`))), node: <><span className="gs-ico"><Icon name={it.kind === 'card' ? 'card' : 'boards'} size={16} /></span><span className="gs-main"><b><Mark text={it.kind === 'card' ? it.title : it.name} words={words} /></b><small>{it.kind === 'card' ? `${it.boardName} · ${it.listName}` : 'Board'}</small></span></> });
     if (g === 'notes') hits.push({ key: `n${it.id}`, group: g, open: go(() => openNote(it.id)), node: <><span className={'gs-ico gs-note c-' + it.color}><Icon name="note" size={16} /></span><span className="gs-main"><b><Mark text={it.title} words={words} /></b>{it.snippet && <small><Mark text={it.snippet} words={words} /></small>}</span></> });
   }

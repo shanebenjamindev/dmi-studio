@@ -2,14 +2,21 @@
 // numbered callouts for each screen. The callouts' texts are the legend the manual prints under each picture
 // (build.mjs reads SHOTS), so picture and text always agree.
 //   PLAYWRIGHT=/path/to/node_modules/playwright-core node scripts/guide/shots.mjs http://127.0.0.1:5394 docs/huong-dan-dmi-workspace/anh [id…]
+// With --en, the interface is shown in English and the pictures go to the English guide (en.mjs has their texts):
+//   … shots.mjs --en http://127.0.0.1:5394 docs/huong-dan-dmi-workspace/en/images [id…]
 import fs from 'node:fs';
 import path from 'node:path';
+import { english } from './en.mjs';
 
 const PASSWORD = 'demo-12345';
 const W = 1440, H = 900;
-const role = (r, name, o = {}) => (p) => p.getByRole(r, { name, ...o }).first();
-const text = (t) => (p) => p.getByText(t, { exact: true }).first();
-const css = (s, has) => (p) => (has ? p.locator(s, { hasText: has }) : p.locator(s)).first();
+// Interface text is written here in Vietnamese; T turns it into what the screen shows in the language being captured
+// (quoted text inside a selector too).
+let T = (s) => s;
+const ui = (sel) => sel.replace(/"([^"]*)"/g, (_, q) => `"${T(q)}"`);
+const role = (r, name, o = {}) => (p) => p.getByRole(r, { name: T(name), ...o }).first();
+const text = (t) => (p) => p.getByText(T(t), { exact: true }).first();
+const css = (s, has) => (p) => (has ? p.locator(ui(s), { hasText: T(has) }) : p.locator(ui(s))).first();
 
 /** Each screen: who looks at it, how to get there, and what its numbers point at (with what the manual says of each). */
 export const SHOTS = [
@@ -59,7 +66,7 @@ export const SHOTS = [
     [css('.bd-list:has-text("Cần làm") .bd-add-card'), 'Thêm thẻ (công việc) vào cột.'],
     [text('Thêm danh sách khác'), 'Thêm cột mới.'],
   ] },
-  { id: '06-mau-cot', title: 'Menu của cột: chọn màu cho cả cột', user: 'an', go: (s) => `#boards/${s.board}`, act: async (p) => { await p.locator('.bd-list', { hasText: 'Cần làm' }).first().locator('.bd-list-h .bd-icon').last().click(); await p.waitForTimeout(400); }, notes: [
+  { id: '06-mau-cot', title: 'Menu của cột: chọn màu cho cả cột', user: 'an', go: (s) => `#boards/${s.board}`, act: async (p) => { await p.locator('.bd-list', { hasText: T('Cần làm') }).first().locator('.bd-list-h .bd-icon').last().click(); await p.waitForTimeout(400); }, notes: [
     [css('.bk-colors'), 'Màu danh sách: tô màu cả cột (mọi người cùng thấy).'],
     [css('.bk-menu button', 'Thêm thẻ'), 'Thêm thẻ vào đầu cột.'],
     [css('.bk-menu button', 'Sắp xếp theo'), 'Sắp xếp thẻ trong cột theo ngày tạo, tên hoặc hạn.'],
@@ -227,9 +234,11 @@ export const SHOTS = [
   ] },
 ];
 
-export async function capture(base, outDir, only = []) {
+export async function capture(base, outDir, only = [], lang = 'vi') {
   const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright-core');
-  fs.mkdirSync(path.join(outDir, 'goc'), { recursive: true });
+  T = lang === 'en' ? english() : (s) => s;
+  const plain = lang === 'en' ? 'plain' : 'goc';
+  fs.mkdirSync(path.join(outDir, plain), { recursive: true });
   const sid = async (who) => { const r = await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: `${who}@demo.dmi`, password: PASSWORD }) }); return r.headers.get('set-cookie').match(/dms_sid=([^;]+)/)[1]; };
   const api = (cookie) => async (m, p, b) => (await fetch(base + p, { method: m, headers: { 'content-type': 'application/json', cookie: 'dms_sid=' + cookie }, body: b && JSON.stringify(b) })).json();
   const an = await sid('an');
@@ -240,8 +249,8 @@ export async function capture(base, outDir, only = []) {
     const cookie = s.user ? await sid(s.user) : null;
     const ctx = await browser.newContext(s.mobile ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true } : { viewport: { width: W, height: H }, deviceScaleFactor: 1.5 });
     if (cookie) await ctx.addCookies([{ name: 'dms_sid', value: cookie, url: base }]);
-    // The guide shows the interface in Vietnamese, light theme.
-    await ctx.addInitScript(() => { try { localStorage.setItem('dms.lang', 'vi'); localStorage.setItem('dms.theme', 'light'); } catch {} });
+    // The interface in the guide's language, light theme.
+    await ctx.addInitScript((l) => { try { localStorage.setItem('dms.lang', l); localStorage.setItem('dms.theme', 'light'); } catch {} }, lang);
     const page = await ctx.newPage();
     try {
       if (s.before) await s.before(api(cookie));
@@ -251,7 +260,7 @@ export async function capture(base, outDir, only = []) {
       if (s.act) await s.act(page);
       await page.mouse.move(W - 4, H - 4);
       await page.waitForTimeout(500);
-      await page.screenshot({ path: path.join(outDir, 'goc', `${s.id}.png`) });
+      await page.screenshot({ path: path.join(outDir, plain, `${s.id}.png`) });
       const boxes = [], missing = [];
       for (const [i, [find, label]] of s.notes.entries()) {
         let box = find ? await find(page).boundingBox({ timeout: 1500 }).catch(() => null) : null;
@@ -288,6 +297,7 @@ function drawNotes(boxes) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const [base = 'http://127.0.0.1:5394', out = 'docs/huong-dan-dmi-workspace/anh', ...only] = process.argv.slice(2);
-  capture(base, out, only).then((r) => console.log(r.join('\n')));
+  const args = process.argv.slice(2), lang = args.includes('--en') ? 'en' : 'vi';
+  const [base = 'http://127.0.0.1:5394', out = lang === 'en' ? 'docs/huong-dan-dmi-workspace/en/images' : 'docs/huong-dan-dmi-workspace/anh', ...only] = args.filter((a) => a !== '--en');
+  capture(base, out, only, lang).then((r) => console.log(r.join('\n')));
 }

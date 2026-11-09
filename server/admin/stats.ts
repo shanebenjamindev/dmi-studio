@@ -118,7 +118,7 @@ async function compute(c: Ctx, req: Req) {
       bySource: dist(count(live, (x) => x.source?.name || 'Chưa rõ nguồn'), undefined, (k) => live.find((x) => x.source?.name === k)?.source?.color),
       byStatus: dist(count(live, (x) => x.status || 'none'), (k) => (k === 'none' ? 'Chưa đặt' : statuses.get(k)?.name || k), (k)=>statuses.get(k)?.color),
       byManager: dist(count(live, (x) => x.manager?.name || 'Chưa có người phụ trách'), undefined, undefined, 10),
-      byNeed: dist(count(live.flatMap((x) => (x.needs.length ? x.needs : [{ id: '', name: 'Chưa có nhu cầu' }])), (n) => n.name), undefined, undefined, 10) };
+      byNeed: dist(count(live.flatMap((x) => (x.needs.length ? x.needs : [{ id: '', name: 'Chưa có dịch vụ' }])), (n) => n.name), undefined, undefined, 10) };
   }
   if (view === 'staff') {
     const staff = await staffRows(ids), active = staff.filter((s) => !s.disabled), t = now();

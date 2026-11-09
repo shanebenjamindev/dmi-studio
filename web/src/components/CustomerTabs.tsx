@@ -10,7 +10,7 @@ import { Avatar, Pop, Rich } from './boardkit';
 import { MemberAvatar } from './MemberAvatar';
 import { MemberChoices } from './EmployeePicker';
 import { BrandLoading } from './BrandLoading';
-import type { CustomerMembersData, CustomerRecord, CustomerTag, CustomerTaskRow, RecordChange, ServiceRef } from '../types';
+import type { CustomerMembersData, CustomerRecord, CustomerTag, CustomerTaskRow, RecordChange } from '../types';
 import type { CustomerView } from './CustomerDashboard';
 
 const TZ = { timeZone: 'Asia/Ho_Chi_Minh' } as const;
@@ -182,11 +182,18 @@ export function CustomerContext({c,onTab,onChanged}:{c:CustomerRecord;onTab:(tab
   const [metaTags, setMetaTags] = useState<(CustomerTag | { id?: undefined; name: string; color?: undefined })[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [metaSourceId, setMetaSourceId] = useState('');
-  const [metaNeeds, setMetaNeeds] = useState<string[]>([]);
   const [categories, setCategories] = useState<{ id: string; name: string; color: string; active: number }[]>([]);
   const [sources, setSources] = useState<{ id: string; name: string; color: string; active: number }[]>([]);
-  const [catalog, setCatalog] = useState<ServiceRef[]>([]);
   const [savingMeta, setSavingMeta] = useState(false);
+  // Linking the customer's Drive folder by pasting its link, right here (also in Sửa thông tin and on the Drive tab).
+  const [driveLink, setDriveLink] = useState(''), [linking, setLinking] = useState(false), [relink, setRelink] = useState(false);
+  const linkDrive = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!driveLink.trim() || linking) return;
+    setLinking(true);
+    try { await api.linkCustomerDrive(c.id, driveLink.trim()); setDriveLink(''); setRelink(false); await rec.reload(); onChanged?.(); toast('Đã liên kết thư mục Drive'); }
+    catch (err: any) { toast(err.message, true); } finally { setLinking(false); }
+  };
 
   const [memberAnchor, setMemberAnchor] = useState<HTMLElement | null>(null);
   const [memberBusy, setMemberBusy] = useState(false);
@@ -222,10 +229,8 @@ export function CustomerContext({c,onTab,onChanged}:{c:CustomerRecord;onTab:(tab
     setMetaTags(tags);
     setTagInput('');
     setMetaSourceId(source?.id || '');
-    setMetaNeeds((needs || []).map((n) => n.id));
     if (!categories.length) api.customerClassifications().then(setCategories).catch(() => {});
     if (!sources.length) api.customerSources().then(setSources).catch(() => {});
-    if (!catalog.length) api.serviceCatalog().then(setCatalog).catch(() => {});
     setEditMeta(true);
   };
   const addMetaTag = (raw: string) => {
@@ -244,12 +249,11 @@ export function CustomerContext({c,onTab,onChanged}:{c:CustomerRecord;onTab:(tab
       await api.saveCustomerRecord(c.id, {
         tags: nextTags.map((t) => (t.id ? { id: t.id } : { name: t.name })),
         sourceId: metaSourceId || null,
-        needs: metaNeeds,
       });
       setEditMeta(false);
       await rec.reload();
       onChanged?.();
-      toast('Đã cập nhật Tag, nguồn và nhu cầu');
+      toast('Đã cập nhật Tag và nguồn');
     } catch (err: any) { toast(err.message, true); } finally { setSavingMeta(false); }
   };
 
@@ -315,11 +319,6 @@ export function CustomerContext({c,onTab,onChanged}:{c:CustomerRecord;onTab:(tab
               </div>
             </div>
             <label className="tm-field"><span>Nguồn</span><select className="bk-in" value={metaSourceId} onChange={(e) => setMetaSourceId(e.target.value)}><option value="">Chưa rõ nguồn</option>{sources.filter((s) => s.active || s.id === metaSourceId).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
-            <div className="tm-field crm-needs">
-              <span>Nhu cầu</span>
-              {metaNeeds.length > 0 && <div className="crm-need-chips">{metaNeeds.map((nid) => { const s = catalog.find((x) => x.id === nid) || needs?.find((x) => x.id === nid); return <span key={nid} className="crm-need-chip">{s?.name || 'Dịch vụ'}<button type="button" onClick={() => setMetaNeeds(metaNeeds.filter((x) => x !== nid))}><Icon name="x" size={12} /></button></span>; })}</div>}
-              {catalog.some((s) => !metaNeeds.includes(s.id)) && <select className="bk-in" value="" onChange={(e) => { if (e.target.value) setMetaNeeds([...metaNeeds, e.target.value]); }}><option value="">Thêm dịch vụ…</option>{catalog.filter((s) => !metaNeeds.includes(s.id)).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
-            </div>
             <div className="tk-action-row" style={{ marginTop: 8 }}>
               <button type="submit" className="btn btn-primary btn-sm" disabled={savingMeta}>{savingMeta ? 'Đang lưu…' : 'Lưu'}</button>
               <button type="button" className="btn btn-gray btn-sm" disabled={savingMeta} onClick={() => setEditMeta(false)}>Huỷ</button>
@@ -329,13 +328,18 @@ export function CustomerContext({c,onTab,onChanged}:{c:CustomerRecord;onTab:(tab
           <dl className="crm-facts" style={c.canManage ? { cursor: 'pointer' } : undefined} title={c.canManage ? 'Bấm để chỉnh sửa trực tiếp' : undefined} onClick={(e) => { if (c.canManage && !(e.target as HTMLElement).closest('a,button')) startEditMeta(); }}>
             <dt>Tag</dt><dd>{tags.length ? <span className="crm-tag-list">{tags.map((t) => <span key={t.id} className="crm-pill" style={{ ['--c' as any]: t.color }}>{t.name}</span>)}</span> : '—'}</dd>
             <dt>Nguồn</dt><dd>{source ? <span className="crm-pill" style={{ ['--c' as any]: source.color }}>{source.name}</span> : '—'}</dd>
-            <dt>Nhu cầu</dt><dd>{needs?.length ? <span className="crm-need-chips">{needs.map((n) => <span key={n.id} className="crm-need-chip plain">{n.name}</span>)}</span> : '—'}</dd>
+            <dt title="Dịch vụ của các dự án của khách hàng">Dịch vụ</dt><dd>{needs?.length ? <span className="crm-need-chips">{needs.map((n) => <span key={n.id} className="crm-need-chip plain">{n.name}</span>)}</span> : <span className="ax-muted">Chọn ở từng dự án</span>}</dd>
           </dl>
         )}
       </section>
       <section className="crm-ov-card">
         <header><h3>Drive</h3>{mayDrive && <button className="btn btn-gray btn-sm" onClick={() => onTab('drive')}><Icon name="folder" size={13} />Mở Drive</button>}</header>
-        {rec.error ? <p className="note err" role="alert">{rec.error}</p> : !r ? <BrandLoading compact /> : drive ? <p className="crm-ov-drive"><Icon name="folder" size={16} /><b>{drive.label}</b>{drive.url && <a href={drive.url} target="_blank" rel="noreferrer">Mở trên Google Drive ↗</a>}</p> : <p className="note">Chưa liên kết thư mục Drive.{mayDrive && ' Liên kết ở tab Drive hoặc trong Sửa thông tin.'}</p>}
+        {rec.error ? <p className="note err" role="alert">{rec.error}</p> : !r ? <BrandLoading compact /> : <>
+          {drive ? <p className="crm-ov-drive"><Icon name="folder" size={16} /><b>{drive.label}</b>{drive.url && <a href={drive.url} target="_blank" rel="noreferrer">Mở trên Google Drive ↗</a>}</p> : <p className="note">Chưa liên kết thư mục Drive.</p>}
+          {mayDrive && c.canManage && (!drive || relink
+            ? <form className="crm-inline-add" onSubmit={linkDrive}><input className="bk-in" value={driveLink} onChange={(e) => setDriveLink(e.target.value)} placeholder="Dán link thư mục Google Drive" aria-label="Link thư mục Google Drive" /><button className="btn btn-primary btn-sm" disabled={linking || !driveLink.trim()}><Icon name="link" size={13} />{linking ? 'Đang liên kết…' : 'Liên kết'}</button>{relink && <button type="button" className="btn btn-gray btn-sm" onClick={() => { setRelink(false); setDriveLink(''); }}>Huỷ</button>}</form>
+            : <button type="button" className="btn btn-gray btn-sm crm-ov-relink" onClick={() => setRelink(true)}><Icon name="link" size={13} />Đổi thư mục</button>)}
+        </>}
       </section>
       <section className="crm-ov-card" aria-label="Thành viên khách hàng">
         <header>

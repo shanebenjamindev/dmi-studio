@@ -9,6 +9,7 @@ import { need, reach, text, exists, page, sendCsv, csvDate, changed, logAction, 
 import type { Perm } from '../../shared/permissions';
 
 import {customerStatuses,customerStatus,defaultCustomerStatus} from '../customer-statuses';
+import { customerServices } from '../project-services';
 
 /** Every customer with what describes it; `ids`: only those reached through these accounts (null: all). */
 export async function customerRows(ids: Set<string> | null) {
@@ -20,8 +21,7 @@ export async function customerRows(ids: Set<string> | null) {
     (SELECT COUNT(*) FROM tasks t JOIN task_projects p ON p.id = t.project_id WHERE p.customer_id = c.id AND t.stub = 0) tasks
     FROM customers c LEFT JOIN users o ON o.id = c.created_by LEFT JOIN users m ON m.id = c.manager_id LEFT JOIN customer_categories cat ON cat.id = c.category_id LEFT JOIN customer_sources src ON src.id = c.source_id
     WHERE ${ids === null ? '1=1' : `(${own} OR ${man} OR EXISTS(SELECT 1 FROM customer_members cm WHERE cm.customer_id = c.id AND ${mem}))`}`, ...args);
-  const needs = new Map<string, { id: string; name: string }[]>();
-  for (const r of await all<any>('SELECT n.customer_id, s.id, s.name FROM customer_needs n JOIN services s ON s.id = n.service_id AND s.deleted_at IS NULL ORDER BY s.name')) needs.set(r.customer_id, [...(needs.get(r.customer_id) || []), { id: r.id, name: r.name }]);
+  const needs = await customerServices();
   const tags = new Map<string, { id: string; name: string; color: string }[]>();
   for (const r of await all<any>('SELECT t.customer_id, cc.id, cc.name, cc.color FROM customer_tags t JOIN customer_categories cc ON cc.id = t.tag_id ORDER BY cc.pos, cc.name')) tags.set(r.customer_id, [...(tags.get(r.customer_id) || []), { id: r.id, name: r.name, color: r.color || '#64748b' }]);
   const statusMap = new Map((await customerStatuses()).map((s) => [s.id, s.name]));
@@ -99,7 +99,7 @@ export function registerCustomers(api: Router) {
     const c = await need(req, 'customers.export'), rows = (await filtered(await need(req, 'customers.view'), req.query)).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
     await logAction(c, 'Xuất danh sách khách hàng (CSV)', `${rows.length} khách hàng`, 'customer');
     const statuses=new Map((await customerStatuses()).map(s=>[s.id,s.name]));
-    sendCsv(res, 'khach-hang.csv', [['Tên', 'Người liên hệ', 'Điện thoại', 'Email', 'Nhu cầu', 'Phân loại', 'Nguồn', 'Trạng thái', 'Phụ trách', 'Người tạo', 'Dự án', 'Công việc', 'Ngày tạo', 'Lưu trữ'],
+    sendCsv(res, 'khach-hang.csv', [['Tên', 'Người liên hệ', 'Điện thoại', 'Email', 'Dịch vụ', 'Phân loại', 'Nguồn', 'Trạng thái', 'Phụ trách', 'Người tạo', 'Dự án', 'Công việc', 'Ngày tạo', 'Lưu trữ'],
       ...rows.map((x) => [x.name, x.contact, x.phone, x.email, x.needs.map((n) => n.name).join('; '), x.category?.name, x.source?.name, x.status ? statuses.get(x.status)||x.status : '', x.manager?.name, x.owner?.name, x.projects, x.tasks, csvDate(x.createdAt), x.archivedAt ? csvDate(x.archivedAt) : ''])]);
   });
   api.get('/api/admin/customers/:id', async (req, res) => {

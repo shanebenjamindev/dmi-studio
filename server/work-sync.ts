@@ -33,6 +33,7 @@ export async function removeProjectRecord(id: string) {
   await run('UPDATE reports SET project_id=NULL WHERE project_id=?',id);
   await run('DELETE FROM task_campaigns WHERE project_id=?',id);
   await run('DELETE FROM task_project_members WHERE project_id=?',id);
+  await run('DELETE FROM project_services WHERE project_id=?',id);
   await run('DELETE FROM task_projects WHERE id=?',id);
 }
 export async function syncProjectCards(id: string) {

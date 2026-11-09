@@ -3,6 +3,7 @@ import {TextLinks} from './TextLinks';
 // windows (Trello's popovers) and the words for what happened on a board.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from './ui';
+import { langPref } from '../i18n';
 import type { BoardActivity, CardAttachment } from '../types';
 
 /** Label and cover colours, by the names the server keeps. */
@@ -108,7 +109,10 @@ export function dueState(due: number | null, done: boolean) {
   const left = due - Date.now();
   return left < 0 ? 'over' : left < 864e5 ? 'soon' : '';
 }
-export const shortDate = (ms: number) => { const d = new Date(ms); return `${d.getDate()} thg ${d.getMonth() + 1}${d.getFullYear() !== new Date().getFullYear() ? `, ${d.getFullYear()}` : ''}`; };
+// "8 thg 11" has no accents for the English interface to know it by, so English gets its month names here ("8 Nov");
+// changing language reloads the page.
+const MONTHS = langPref() === 'en' ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] : null;
+export const shortDate = (ms: number) => { const d = new Date(ms); return `${d.getDate()} ${MONTHS ? MONTHS[d.getMonth()] : `thg ${d.getMonth() + 1}`}${d.getFullYear() !== new Date().getFullYear() ? `, ${d.getFullYear()}` : ''}`; };
 export const fullDate = (ms: number) => { const d = new Date(ms); return `${shortDate(ms)} lúc ${two(d.getHours())}:${two(d.getMinutes())}`; };
 export function ago(ms: number) {
   const s = (Date.now() - ms) / 1000;

@@ -2,13 +2,24 @@
 // shots.mjs and the scenes of video.mjs: the manual, quick start and FAQ as HTML and PDF, the video's narration script,
 // storyboard and recording checklist, its cover picture, and the index.
 //   PLAYWRIGHT=…/playwright-core node scripts/guide/build.mjs [video-workdir]
+// With --en it builds the English edition in en/ instead (manual, quick start and FAQ; there is no English video):
+//   PLAYWRIGHT=…/playwright-core node scripts/guide/build.mjs --en
 import fs from 'node:fs';
 import path from 'node:path';
 import { SHOTS } from './shots.mjs';
+import { SHOTS_EN } from './en.mjs';
 import { SCENES, SHOW } from './video.mjs';
 
-const ROOT = path.resolve('docs/huong-dan-dmi-workspace'), SRC = path.join(ROOT, 'nguon');
+const ROOT = path.resolve('docs/huong-dan-dmi-workspace');
 const VERSION = '2.0', DATE = '09/11/2026';
+/** What differs between the two editions: where they live, and the few words the build itself writes. */
+const LANGS = {
+  vi: { root: ROOT, src: 'nguon', img: 'anh', plain: 'goc', lang: 'vi', date: DATE, contents: ['muc-luc', 'Mục lục'], version: 'phiên bản', page: ['Trang', '/'],
+    shot: (id) => { const s = SHOTS.find((x) => x.id === id); return s && { title: s.title, notes: s.notes.map(([, text]) => text) }; } },
+  en: { root: path.join(ROOT, 'en'), src: 'source', img: 'images', plain: 'plain', lang: 'en', date: '9 November 2026', contents: ['contents', 'Contents'], version: 'version', page: ['Page', 'of'],
+    shot: (id) => SHOTS_EN[id] },
+};
+const VI = LANGS.vi, SRC = path.join(ROOT, VI.src);
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const slug = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -25,7 +36,7 @@ th,td{padding:7px 10px;border:1px solid var(--line);text-align:left;vertical-ali
 figure{margin:18px 0 22px;break-inside:avoid} figure img{display:block;width:100%;border:1px solid var(--line);border-radius:8px;box-shadow:0 2px 10px rgba(16,40,80,.08)}
 figcaption{margin-top:8px;font-weight:600;color:#0c2d5e} figcaption small{font-weight:400;color:var(--muted)}
 ol.legend{list-style:none;margin:8px 0 0;padding:0;font-size:14px;columns:2;column-gap:28px}
-ol.legend li{position:relative;padding-left:32px;margin:0 0 6px;break-inside:avoid}
+ol.legend li{position:relative;min-height:24px;padding-left:32px;margin:0 0 6px;break-inside:avoid}
 ol.legend li b{position:absolute;left:0;top:1px;width:22px;height:22px;border-radius:50%;background:var(--orange);color:#fff;font-size:12px;line-height:22px;text-align:center}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start} .pair ol.legend{columns:1}
 .pair figure img{max-height:520px;object-fit:contain}
@@ -57,19 +68,19 @@ ol.steps h3{margin:4px 0 6px}
 `;
 
 /** A screenshot with its title and the meaning of each number on it. */
-function figure(id, plain = false) {
-  const s = SHOTS.find((x) => x.id === id);
-  if (!s) throw new Error(`Không có ảnh ${id}`);
-  const legend = !plain && s.notes.length ? `<ol class="legend">${s.notes.map(([, text], i) => `<li><b>${i + 1}</b>${esc(text)}</li>`).join('')}</ol>` : '';
-  return `<figure id="anh-${id}"><img src="anh/${plain ? 'goc/' : ''}${id}.png" alt="${esc(s.title)}"><figcaption>${esc(s.title)}</figcaption>${legend}</figure>`;
+function figure(L, id, plain = false) {
+  const s = L.shot(id);
+  if (!s) throw new Error(`No screenshot ${id}`);
+  const legend = !plain && s.notes.length ? `<ol class="legend">${s.notes.map((text, i) => `<li><b>${i + 1}</b>${esc(text)}</li>`).join('')}</ol>` : '';
+  return `<figure id="anh-${id}"><img src="${L.img}/${plain ? L.plain + '/' : ''}${id}.png" alt="${esc(s.title)}"><figcaption>${esc(s.title)}</figcaption>${legend}</figure>`;
 }
-const fill = (html) => html
+const fill = (L, html) => html
   .replace(/<!--[\s\S]*?-->/g, '')
-  .replace(/<div data-include="([a-z-]+)"><\/div>/g, (_, f) => fs.readFileSync(path.join(SRC, `${f}.html`), 'utf8').replace(/<!--[\s\S]*?-->/g, ''))
-  .replace(/<figure data-shot="([^"]+)"( data-plain)?><\/figure>/g, (_, id, plain) => figure(id, !!plain));
+  .replace(/<div data-include="([a-z-]+)"><\/div>/g, (_, f) => fs.readFileSync(path.join(L.root, L.src, `${f}.html`), 'utf8').replace(/<!--[\s\S]*?-->/g, ''))
+  .replace(/<figure data-shot="([^"]+)"( data-plain)?><\/figure>/g, (_, id, plain) => figure(L, id, !!plain));
 
 /** Headings get ids, and the table of contents lists the numbered sections and their parts. */
-function toc(html) {
+function toc(L, html) {
   const items = []; let cur = null;
   html = html.replace(/<h([23])(?![^>]*no-toc)([^>]*)>([\s\S]*?)<\/h\1>/g, (all, lvl, attrs, inner) => {
     const text = inner.replace(/<[^>]+>/g, '').trim();
@@ -78,19 +89,19 @@ function toc(html) {
     if (lvl === '2') { cur = { id, text, kids: [] }; items.push(cur); } else if (cur && !/class="[^"]*task/.test(attrs)) cur.kids.push({ id, text });
     return `<h${lvl}${attrs}>${inner}</h${lvl}>`;
   });
-  const list = `<h2 class="no-toc" id="muc-luc">Mục lục</h2><ol>${items.map((i) => `<li><a href="#${i.id}">${esc(i.text)}</a>${i.kids.length ? `<ol>${i.kids.map((k) => `<li><a href="#${k.id}">${esc(k.text)}</a></li>`).join('')}</ol>` : ''}</li>`).join('')}</ol>`;
+  const list = `<h2 class="no-toc" id="${L.contents[0]}">${L.contents[1]}</h2><ol>${items.map((i) => `<li><a href="#${i.id}">${esc(i.text)}</a>${i.kids.length ? `<ol>${i.kids.map((k) => `<li><a href="#${k.id}">${esc(k.text)}</a></li>`).join('')}</ol>` : ''}</li>`).join('')}</ol>`;
   return html.replace('<nav class="toc" data-toc></nav>', `<nav class="toc">${list}</nav>`);
 }
-const page = (title, body, cls = '') => `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${CSS}</style></head><body><main class="${cls}">${body}</main></body></html>`;
-const header = (title) => `<div class="doc-head"><img src="anh/logo.png" alt="DMI Workspace"><span>DMI Workspace · phiên bản ${VERSION} · ${DATE}</span></div><h1 class="doc-title">${esc(title)}</h1>`;
+const page = (L, title, body, cls = '') => `<!doctype html><html lang="${L.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${CSS}</style></head><body><main class="${cls}">${body}</main></body></html>`;
+const header = (L, title) => `<div class="doc-head"><img src="${L.img}/logo.png" alt="DMI Workspace"><span>DMI Workspace · ${L.version} ${VERSION} · ${L.date}</span></div><h1 class="doc-title">${esc(title)}</h1>`;
 
-async function pdf(browser, file, title) {
+async function pdf(L, browser, file, title) {
   const p = await browser.newPage();
-  await p.goto('file://' + path.join(ROOT, file), { waitUntil: 'load' });
+  await p.goto('file://' + path.join(L.root, file), { waitUntil: 'load' });
   await p.emulateMedia({ media: 'print' });
-  await p.pdf({ path: path.join(ROOT, file.replace(/\.html$/, '.pdf')), format: 'A4', printBackground: true, margin: { top: '18mm', bottom: '20mm', left: '16mm', right: '16mm' },
+  await p.pdf({ path: path.join(L.root, file.replace(/\.html$/, '.pdf')), format: 'A4', printBackground: true, margin: { top: '18mm', bottom: '20mm', left: '16mm', right: '16mm' },
     displayHeaderFooter: true, headerTemplate: '<div></div>',
-    footerTemplate: `<div style="font:8px -apple-system,Segoe UI,sans-serif;width:100%;padding:0 16mm;display:flex;justify-content:space-between;color:#7a8394"><span>${esc(title)} · v${VERSION}</span><span>Trang <span class="pageNumber"></span> / <span class="totalPages"></span></span></div>` });
+    footerTemplate: `<div style="font:8px -apple-system,Segoe UI,sans-serif;width:100%;padding:0 16mm;display:flex;justify-content:space-between;color:#7a8394"><span>${esc(title)} · v${VERSION}</span><span>${L.page[0]} <span class="pageNumber"></span> ${L.page[1]} <span class="totalPages"></span></span></div>` });
   await p.close();
 }
 
@@ -136,6 +147,11 @@ Video được quay tự động bằng script, nên “quay lại” nghĩa là
 - [ ] Tên nút trong lời đọc trùng với giao diện (Thêm mới, Tạo công việc, Di chuyển…).
 - [ ] Sổ tay: mọi ảnh có số đều có danh sách giải thích; các mục “Chưa kiểm chứng” vẫn đúng.
 - [ ] Khi giao diện thay đổi: sửa \`shots.mjs\` / \`video.mjs\` / \`nguon/*.html\`, rồi chạy lại toàn bộ.
+
+## Bản tiếng Anh (en/)
+- [ ] Dùng một server thử **khác** với dữ liệu tạm mới (mỗi tài khoản nhớ ngôn ngữ của nó, dùng chung sẽ chụp sai ngôn ngữ), rồi chạy \`seed.mjs\` như trên.
+- [ ] Ảnh: \`node scripts/guide/shots.mjs --en http://127.0.0.1:5397 docs/huong-dan-dmi-workspace/en/images\` (chữ trên ảnh nằm trong \`scripts/guide/en.mjs\`).
+- [ ] Tài liệu: \`node scripts/guide/build.mjs --en\` (nguồn ở \`en/source/\`).
 `;
 
 const THUMB = (logo) => `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -149,10 +165,10 @@ h1{margin:10px 0 18px;font-size:84px;line-height:1;letter-spacing:-.02em} p{marg
 // ------------------------------------------------------------------------------------------------ build
 export async function buildAll(work) {
   fs.copyFileSync(path.resolve('web/public/brand/logo.png'), path.join(ROOT, 'anh', 'logo.png'));
-  const manual = toc(fill(fs.readFileSync(path.join(SRC, 'so-tay.html'), 'utf8')));
-  fs.writeFileSync(path.join(ROOT, 'so-tay-dmi-workspace.html'), page('Sổ tay sử dụng DMI Workspace', manual));
-  fs.writeFileSync(path.join(ROOT, 'bat-dau-nhanh.html'), page('Bắt đầu nhanh với DMI Workspace', header('Bắt đầu nhanh') + fill(fs.readFileSync(path.join(SRC, 'bat-dau-nhanh.html'), 'utf8')), 'single'));
-  fs.writeFileSync(path.join(ROOT, 'hoi-dap.html'), page('Hỏi đáp và khắc phục sự cố — DMI Workspace', header('Hỏi đáp và khắc phục sự cố') + fill(fs.readFileSync(path.join(SRC, 'hoi-dap.html'), 'utf8')), 'single'));
+  const manual = toc(VI, fill(VI, fs.readFileSync(path.join(SRC, 'so-tay.html'), 'utf8')));
+  fs.writeFileSync(path.join(ROOT, 'so-tay-dmi-workspace.html'), page(VI, 'Sổ tay sử dụng DMI Workspace', manual));
+  fs.writeFileSync(path.join(ROOT, 'bat-dau-nhanh.html'), page(VI, 'Bắt đầu nhanh với DMI Workspace', header(VI, 'Bắt đầu nhanh') + fill(VI, fs.readFileSync(path.join(SRC, 'bat-dau-nhanh.html'), 'utf8')), 'single'));
+  fs.writeFileSync(path.join(ROOT, 'hoi-dap.html'), page(VI, 'Hỏi đáp và khắc phục sự cố — DMI Workspace', header(VI, 'Hỏi đáp và khắc phục sự cố') + fill(VI, fs.readFileSync(path.join(SRC, 'hoi-dap.html'), 'utf8')), 'single'));
   const v = videoPapers(work);
   fs.mkdirSync(path.join(ROOT, 'video'), { recursive: true });
   fs.writeFileSync(path.join(ROOT, 'video', 'kich-ban-loi-doc.md'), v.script);
@@ -161,9 +177,9 @@ export async function buildAll(work) {
   fs.writeFileSync(path.join(ROOT, 'video', 'y-tuong-anh-bia.md'), `# Ý tưởng ảnh bìa video\n\nNền xanh thương hiệu (giống thẻ mở đầu video), logo trắng góc trên trái, chữ lớn “DMI Workspace” với dòng nhỏ “Hướng dẫn sử dụng” phía trên và “Board · Công việc · Dự án · Khách hàng” phía dưới; nhãn cam “Từ A đến Z cho người mới”. Bên phải: ảnh chụp thật của một board (cột Cần làm / Đang làm / Xong có màu), nghiêng nhẹ, đổ bóng. Kích thước 1280 × 720, chữ đọc được khi thu nhỏ còn 320 px.\n\nTệp: \`anh-bia.png\` (tạo bởi scripts/guide/build.mjs).\n`);
   const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright-core');
   const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
-  await pdf(browser, 'so-tay-dmi-workspace.html', 'Sổ tay sử dụng DMI Workspace');
-  await pdf(browser, 'bat-dau-nhanh.html', 'Bắt đầu nhanh với DMI Workspace');
-  await pdf(browser, 'hoi-dap.html', 'Hỏi đáp và khắc phục sự cố');
+  await pdf(VI, browser, 'so-tay-dmi-workspace.html', 'Sổ tay sử dụng DMI Workspace');
+  await pdf(VI, browser, 'bat-dau-nhanh.html', 'Bắt đầu nhanh với DMI Workspace');
+  await pdf(VI, browser, 'hoi-dap.html', 'Hỏi đáp và khắc phục sự cố');
   const t = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   fs.writeFileSync(path.join(ROOT, '.thumb.html'), THUMB('anh/logo.png'));
   await t.goto('file://' + path.join(ROOT, '.thumb.html')); await t.waitForTimeout(300);
@@ -172,4 +188,20 @@ export async function buildAll(work) {
   return { videoSeconds: v.total, shots: SHOTS.length };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) buildAll(process.argv[2]).then((r) => console.log(JSON.stringify(r))).catch((e) => { console.error(e); process.exit(1); });
+/** The English edition: the manual, quick start and FAQ from en/source, with the English screenshots of en/images. */
+export async function buildEnglish() {
+  const L = LANGS.en, read = (f) => fs.readFileSync(path.join(L.root, L.src, f), 'utf8');
+  fs.copyFileSync(path.resolve('web/public/brand/logo.png'), path.join(L.root, L.img, 'logo.png'));
+  fs.writeFileSync(path.join(L.root, 'user-manual.html'), page(L, 'DMI Workspace User Manual', toc(L, fill(L, read('user-manual.html')))));
+  fs.writeFileSync(path.join(L.root, 'quick-start.html'), page(L, 'DMI Workspace Quick Start', header(L, 'Quick start') + fill(L, read('quick-start.html')), 'single'));
+  fs.writeFileSync(path.join(L.root, 'faq.html'), page(L, 'DMI Workspace Troubleshooting and FAQ', header(L, 'Troubleshooting and FAQ') + fill(L, read('faq.html')), 'single'));
+  const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright-core');
+  const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
+  await pdf(L, browser, 'user-manual.html', 'DMI Workspace User Manual');
+  await pdf(L, browser, 'quick-start.html', 'DMI Workspace Quick Start');
+  await pdf(L, browser, 'faq.html', 'DMI Workspace Troubleshooting and FAQ');
+  await browser.close();
+  return { shots: Object.keys(SHOTS_EN).length };
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) (process.argv[2] === '--en' ? buildEnglish() : buildAll(process.argv[2])).then((r) => console.log(JSON.stringify(r))).catch((e) => { console.error(e); process.exit(1); });

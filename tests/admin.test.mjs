@@ -186,7 +186,7 @@ test('admin module: task and customer records, their history, and the lists the 
     ok(await s.call('PUT', `/api/admin/tasks/${t1.id}/priority`, { priorityId: high.id }, ann.cookie));
     assert.equal((await s.call('DELETE', `/api/admin/task-priorities/${high.id}`, undefined, b)).status, 409);
 
-    // Customers: a category, needs from the services catalogue, archiving hides it from the Customers page lists.
+    // Customers: a category, services from their projects (chosen from the catalogue), archiving hides it from the Customers page lists.
     const vip = ok(await s.call('POST', '/api/admin/customer-categories', { name: 'VIP', color: '#2a78d6' }, b));
     const ppf = ok(await s.call('POST', '/api/admin/services', { name: 'Dán PPF', price: 25000000 }, b));
     assert.ok(ok(await s.call('GET','/api/customers/classifications',undefined,b)).some(x=>x.id===vip.id));
@@ -205,20 +205,25 @@ test('admin module: task and customer records, their history, and the lists the 
       assert.equal(detail.category.id,directory.category.id);assert.equal(detail.category.id,admin.category.id);
       assert.equal(detail.status,directory.status);assert.equal(detail.status,admin.status);
     }
-    for(const invalid of [{status:'toString'},{status:42},{categoryId:'missing'},{needs:['missing']}]){
+    for(const invalid of [{status:'toString'},{status:42},{categoryId:'missing'}]){
       assert.equal((await s.call('PUT',`/api/customers/${legacy.id}/record`,{name:'Must not change',...invalid},b)).status,400);
       assert.equal(ok(await s.call('GET',`/api/customers/${legacy.id}/record`,undefined,b)).name,'Unclassified existing customer');
     }
-    assert.equal((await s.call('POST','/api/customers',{name:'Invalid create',databaseOnly:true,needs:['missing']},b)).status,400);
-    assert.ok(!ok(await s.call('GET','/api/customers/directory',undefined,b)).some(x=>x.name==='Invalid create'));
+    // A project names only services of the catalogue; nothing is made when one is unknown.
+    assert.equal((await s.call('POST',`/api/customers/${legacy.id}/projects`,{name:'Invalid project',services:['missing']},b)).status,400);
+    assert.ok(!ok(await s.call('GET',`/api/customers/${legacy.id}/projects`,undefined,b)).some(x=>x.name==='Invalid project'));
     ok(await s.call('PUT',`/api/customers/${legacy.id}/record`,{status:null,categoryId:null},b));
     assert.equal(ok(await s.call('GET',`/api/customers/${legacy.id}/record`,undefined,b)).category,null);
 
     assert.equal((await s.call('POST', '/api/admin/services', { name: 'x', image: 'http://insecure.test/a.png' }, b)).status, 400);
     const c = ok(await s.call('POST', '/api/admin/customers', { name: 'Garage A', categoryId: vip.id, managerId: ann.id, status: 'lead' }, b));
-    ok(await s.call('PUT', `/api/customers/${c.id}/record`, { needs: [ppf.id] }, b));
+    // Its services are those of its projects: set on a project, seen on the customer, gone when the project drops them.
+    const garageProject = ok(await s.call('POST', `/api/customers/${c.id}/projects`, { name: 'Dán PPF Garage A', services: [ppf.id] }, b));
     assert.deepEqual(ok(await s.call('GET', `/api/customers/${c.id}/record`, undefined, b)).needs.map((n) => n.name), ['Dán PPF']);
-    assert.equal((await s.call('PUT', `/api/customers/${c.id}/record`, { needs: ['sv_missing'] }, b)).status, 400);
+    assert.deepEqual(ok(await s.call('GET', `/api/customers/${c.id}/projects`, undefined, b)).find((p) => p.id === garageProject.id).services.map((n) => n.name), ['Dán PPF']);
+    assert.equal((await s.call('PUT', `/api/task-projects/${garageProject.id}`, { services: ['sv_missing'] }, b)).status, 400);
+    ok(await s.call('PUT', `/api/customers/${c.id}/record`, { needs: [] }, b));
+    assert.deepEqual(ok(await s.call('GET', `/api/customers/${c.id}/record`, undefined, b)).needs.map((n) => n.name), ['Dán PPF'], 'a customer no longer sets its own');
     assert.ok(ok(await s.call('GET', `/api/admin/customers?need=${ppf.id}`, undefined, b)).items.some((x) => x.id === c.id));
     assert.ok(ok(await s.call('GET', '/api/admin/customers', undefined, ann.cookie)).items.some((x) => x.id === c.id), 'the staff member in charge reaches it');
     assert.equal((await s.call('GET', `/api/customers/${c.id}/record`, undefined, ann.cookie)).status, 200, 'and may open it on the Customers page');
