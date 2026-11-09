@@ -1367,6 +1367,80 @@ test('a customer\'s services are its projects\'; services once set on a customer
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
+test('a role given customers.create adds customers without Drive; Drive folders still need Drive',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-create-customer-'));let server;
+ try{
+  server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'cc-boss@example.test',password:'test-password'})).cookie;
+  const dept=(await server.call('POST','/api/roles',{name:'Content',pages:['editor']},ac)).data;
+  const maxx=(await server.call('POST','/api/users',{name:'Maxx',email:'cc-maxx@example.test',password:'test-password',role:'member',teamRole:dept.id},ac)).data;
+  const mc=(await server.call('POST','/api/auth/login',{email:'cc-maxx@example.test',password:'test-password'})).cookie;
+  assert.equal((await server.call('POST','/api/customers',{databaseOnly:true,name:'Chưa được'},mc)).status,403);
+  const roles=(await server.call('GET','/api/admin/roles',undefined,ac)).data;
+  const adminRole=(roles.items||roles).find(r=>r.key==='admin').id;
+  assert.equal((await server.call('PUT',`/api/admin/staff/${maxx.id}/roles`,{roles:[{roleId:adminRole,scope:null}]},ac)).status,200);
+  const made=await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách của Maxx'},mc);
+  assert.equal(made.status,201,JSON.stringify(made.data));
+  assert.equal((await server.call('GET',`/api/customers/${made.data.id}/record`,undefined,mc)).status,200,'and opens it');
+  assert.equal((await server.call('POST','/api/customers',{name:'Có thư mục'},mc)).status,403,'a Drive folder still needs Drive');
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('a board is made for a customer, moved to another or cleared by its admins; only customers they reach',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-board-customer-'));let server;
+ try{
+  server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'bc-boss@example.test',password:'test-password'})).cookie;
+  const one=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách một'},ac)).data, two=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách hai'},ac)).data;
+  const board=(await server.call('POST','/api/boards',{name:'Board khách',bg:'ocean',roleId:null,private:true,customerId:one.id},ac)).data;
+  const read=async()=>(await server.call('GET',`/api/boards/${board.id}`,undefined,ac)).data;
+  assert.equal((await read()).customerName,'Khách một');
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}`,{customerId:two.id},ac)).status,200);
+  assert.equal((await read()).customerName,'Khách hai');
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}`,{customerId:null},ac)).status,200);
+  assert.equal((await read()).customerId,null);
+  // Someone else may not tie their board to a customer they cannot reach.
+  await server.call('POST','/api/users',{name:'Other',email:'bc-other@example.test',password:'test-password',role:'member'},ac);
+  const oc=(await server.call('POST','/api/auth/login',{email:'bc-other@example.test',password:'test-password'})).cookie;
+  assert.equal((await server.call('POST','/api/boards',{name:'Của tôi',bg:'ocean',roleId:null,private:true,customerId:one.id},oc)).status,404);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('chat unread counts follow what each person has read, on any device; support requests carry screenshots',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-chat-read-'));let server;
+ try{
+  server=await start(dir);
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'cr-boss@example.test',password:'test-password'})).cookie;
+  const boss=(await server.call('GET','/api/auth/me',undefined,ac)).data.user;
+  const aeris=(await server.call('POST','/api/users',{name:'Aeris',email:'cr-aeris@example.test',password:'test-password',role:'member'},ac)).data;
+  const xc=(await server.call('POST','/api/auth/login',{email:'cr-aeris@example.test',password:'test-password'})).cookie;
+  const unread=async(c)=>(await server.call('GET','/api/chat/unread',undefined,c)).data;
+  assert.equal((await server.call('POST','/api/chat/messages',{message:'Chào',channel:'dm',recipientId:aeris.id},ac)).status,201);
+  assert.equal((await server.call('POST','/api/chat/messages',{message:'Có việc gấp',channel:'dm',recipientId:aeris.id},ac)).status,201);
+  assert.deepEqual((await unread(xc)).dms.map(d=>[d.senderId,d.count]),[[boss.id,2]]);
+  // Opening the chat reads it: nothing unread any more, on this device or another.
+  await server.call('GET',`/api/chat/messages?channel=dm&recipientId=${boss.id}`,undefined,xc);
+  const other=(await server.call('POST','/api/auth/login',{email:'cr-aeris@example.test',password:'test-password'})).cookie;
+  assert.deepEqual((await unread(other)).dms,[]);
+  await new Promise(r=>setTimeout(r,5));
+  await server.call('POST','/api/chat/messages',{message:'Thêm một tin',channel:'dm',recipientId:aeris.id},ac);
+  assert.deepEqual((await unread(xc)).dms.map(d=>d.count),[1]);
+  // The general channel: what came after reading it.
+  await server.call('POST','/api/chat/messages',{message:'Cả nhà',channel:'general'},ac);
+  assert.equal((await unread(xc)).general,1);
+  await server.call('GET','/api/chat/messages?channel=general',undefined,xc);
+  assert.equal((await unread(xc)).general,0);
+  // A support request: screenshots, text optional with them; the list says how many, the pictures load on their own.
+  const png='data:image/png;base64,'+Buffer.from('fake-png').toString('base64');
+  assert.equal((await server.call('POST','/api/support',{message:'',images:[png]},xc)).status,201);
+  assert.equal((await server.call('POST','/api/support',{message:'Lỗi',images:['javascript:alert(1)']},xc)).status,400);
+  assert.equal((await server.call('POST','/api/support',{message:'Lỗi',images:[png,png,png,png]},xc)).status,400);
+  const list=(await server.call('GET','/api/admin/support',undefined,ac)).data.items;
+  assert.equal(list.length,1);assert.equal(list[0].images,1);assert.equal(list[0].message,'');
+  assert.deepEqual((await server.call('GET',`/api/admin/support/${list[0].id}/images`,undefined,ac)).data,[png]);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
 test('each account has its own notification email, and whatever concerns that person is sent there',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-notify-people-'));let server;
  try{

@@ -151,6 +151,8 @@ export interface BoardItem {
   starred: boolean; cards: number; taskCount?: number; updatedAt: number; level: Level; memberEdit: boolean; canShape: boolean; labelText: boolean;
   /** Who is on it (its maker, then the people added), in the board list only. */
   people?: { id: string; name: string; avatarAt?: number | null }[];
+  /** The customer the board is for (null: none). */
+  customerId?: string | null; customerName?: string | null;
 }
 export interface BoardLabel { id: string; name: string; color: string }
 /** Someone who sees the board; `added`: given a level on the board itself (not just through its workspace or role). */

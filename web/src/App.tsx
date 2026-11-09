@@ -7,6 +7,7 @@ import { LoginPage } from './components/Login';
 import { ProjectsDialog, ExportDialog } from './components/Dialogs';
 import { pageFor, prefetchPages } from './pages';
 import { QuickNotes } from './components/QuickNotes';
+import { WhatsNew } from './components/WhatsNew';
 import { GlobalSearch } from './components/GlobalSearch';
 import { Messenger } from './components/Messenger';
 
@@ -58,7 +59,7 @@ export function App() {
               </div>
             </div>
           </div>
-          <ProjectsDialog /><ExportDialog /><QuickNotes key={user.id} /><GlobalSearch key={'s' + user.id} /><Messenger key={'msg' + user.id} />
+          <ProjectsDialog /><ExportDialog /><QuickNotes key={user.id} /><GlobalSearch key={'s' + user.id} /><Messenger key={'msg' + user.id} /><WhatsNew key={'wn' + user.id} />
         </>
       ) : <LoginPage />)}
       {ready&&<NetworkLoading busy={busy}/>}

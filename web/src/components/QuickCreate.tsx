@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState,type ReactNode,type SelectHTMLAttributes} from 'react';
 import {createPortal} from 'react-dom';
 import {api} from '../api';
-import {setState,useStore} from '../store';
+import {mayAddCustomer,setState,useStore} from '../store';
 import {Icon} from './ui';
 import type {ServiceRef,User} from '../types';
 import {ServicePicker} from './ServicePicker';
@@ -25,7 +25,8 @@ export function useEntityRefresh(refresh:()=>void){
 function permitted(kind:Kind,user:User|null){
  if(!user)return false;
  if(['employee','department','position'].includes(kind))return user.role==='admin';
- if(['customer','project','campaign'].includes(kind))return user.role==='admin'||user.level!=='observer';
+ if(kind==='customer')return mayAddCustomer();
+ if(['project','campaign'].includes(kind))return user.role==='admin'||user.level!=='observer';
  return user.role==='admin'||user.level!=='observer';
 }
 export function EntitySelect({kind,context,onCreated,onChange,createdValue,allowCreate=true,children,...props}:Omit<SelectHTMLAttributes<HTMLSelectElement>,'onChange'> & {kind:Kind;context?:Context;onCreated?:(r:CreatedRecord)=>void|Promise<void>;onChange:(value:string)=>void;createdValue?:(r:CreatedRecord)=>string;allowCreate?:boolean;children:ReactNode}){
@@ -49,7 +50,7 @@ export function QuickCreateDialog({kind,context={},onClose,onCreated}:{kind:Kind
  const google=useStore(s=>s.googleSignin);
  const[busy,setBusy]=useState(false),[error,setError]=useState(''),[created,setCreated]=useState<CreatedRecord|null>(null);
  const busyRef=useRef(false);
- const refresh=async()=>{if(kind==='project')setCustomers(await api.customersAll());if(kind==='campaign')setProjects((await api.taskMeta()).projects);};
+ const refresh=async()=>{if(kind==='project'||kind==='board')setCustomers(await api.customersAll());if(kind==='campaign')setProjects((await api.taskMeta()).projects);};
  useEffect(()=>{if(!dialog.current?.open)dialog.current?.showModal();void refresh().catch(e=>setError(e.message));},[]);
  const save=async(e:React.FormEvent)=>{
   e.preventDefault();e.stopPropagation();if(busyRef.current)return;busyRef.current=true;setBusy(true);setError('');
@@ -66,7 +67,7 @@ export function QuickCreateDialog({kind,context={},onClose,onCreated}:{kind:Kind
     else if(kind==='employee'){const r=await api.createUser({name:name.trim(),email:email.trim(),password:password||undefined,role:'member',teamRole:department||null});record={id:r.id,name:r.name};}
     else if(kind==='department'){const r=await api.createRole({name:name.trim(),color:'#579dff',pages:['workspace']});record={id:r.id,name:r.name};}
     else if(kind==='position'){const r=await api.createPosition(context.departmentId!,{name:name.trim(),level:'normal'});record={id:r.id,name:r.name};}
-    else if(kind==='board'){const r=await api.createBoard({name:name.trim(),bg:'slate',roleId:null,private:true,lists:['Chưa thực hiện','Đang thực hiện','Hoàn thành']});record={id:r.id,name:r.name};}
+    else if(kind==='board'){const r=await api.createBoard({name:name.trim(),bg:'slate',roleId:null,private:true,lists:['Chưa thực hiện','Đang thực hiện','Hoàn thành'],customerId:customer||null});record={id:r.id,name:r.name};}
     else if(kind==='list'){const r=await api.createList(context.boardId!,name.trim());record={id:r.id,name:r.name};}
     else if(kind==='card'){const r=await api.createCard(context.listId!,name.trim());record={id:r.id,name:r.title};}
     else if(kind==='label'){const r=await api.createLabel(context.boardId!,{name:name.trim(),color:'blue'});record={id:r.id,name:r.name};}
@@ -83,6 +84,7 @@ export function QuickCreateDialog({kind,context={},onClose,onCreated}:{kind:Kind
  return createPortal(<dialog ref={dialog} className="qc-dialog" aria-label={`Tạo ${labels[kind]} mới`} onCancel={e=>{e.preventDefault();e.stopPropagation();if(!busyRef.current)onClose();}} onClick={e=>{e.stopPropagation();if(e.target===e.currentTarget&&!busyRef.current)onClose();}}><form onSubmit={save}><header><h2>Tạo {labels[kind]} mới</h2><button type="button" className="bd-icon" disabled={busy} onClick={onClose} aria-label="Đóng"><Icon name="x" size={17}/></button></header><fieldset disabled={busy||!!created}>
   <label>Tên {labels[kind]}<input className="bk-in" autoFocus required maxLength={kind==='list'?80:200} value={name} onChange={e=>setName(e.target.value)}/></label>
   {kind==='project'&&<label>Khách hàng<EntitySelect kind="customer" className="bk-in" value={customer} onChange={setCustomer} onCreated={refresh} disabled={!!context.customerId}><option value="">Dự án nội bộ (không gắn khách hàng)</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</EntitySelect></label>}
+  {kind==='board'&&<label>Khách hàng<EntitySelect kind="customer" className="bk-in" value={customer} onChange={setCustomer} onCreated={refresh}><option value="">Không gắn khách hàng</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</EntitySelect></label>}
   {kind==='project'&&<div className="qc-field"><span>Dịch vụ</span><ServicePicker value={services} onChange={setServices} known={known}/></div>}
   {kind==='campaign'&&<label>Dự án<EntitySelect kind="project" className="bk-in" value={project} onChange={setProject} onCreated={refresh} required disabled={!!context.projectId}><option value="">Chọn dự án</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</EntitySelect></label>}
   {kind==='employee'&&<><label>Email đăng nhập<input className="bk-in" type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Mật khẩu<input className="bk-in" type="password" required={!google} minLength={8} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)}/><small>{google?'Để trống nếu chỉ đăng nhập bằng Google đã kết nối.':'Ít nhất 8 ký tự.'}</small></label><label>Phòng ban<EntitySelect kind="department" className="bk-in" value={department} onChange={setDepartment}><option value="">Chưa có phòng ban</option>{roles.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</EntitySelect></label></>}

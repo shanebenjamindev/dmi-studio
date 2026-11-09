@@ -172,9 +172,12 @@ export async function guard(req: Req): Promise<User | null> {
   if (u.role === 'admin') return u;
   if (matches(ADMIN, req) && !await delegated(req, u)) throw new HttpError(403, 'Chỉ quản trị viên mới làm được việc này');
   const crm = matches(CRM, req), page = crm ? undefined : PAGE_OF.find(([r]) => r.test(pathOf(req)))?.[1];
-  if (page) { const mine = await pagesOf(u); if (!page.some((p) => mine.includes(p))) throw new HttpError(403, 'Tài khoản của bạn chưa được cấp quyền vào trang này'); }
+  // Adding a customer is also for those given customers.create in Phân quyền, without Drive (its folder stays with Drive:
+  // the route asks for Drive when a folder is made or linked).
+  const addsCustomer = req.method === 'POST' && pathOf(req) === '/api/customers' && (await accessOf(u)).perms.has('customers.create');
+  if (page && !addsCustomer) { const mine = await pagesOf(u); if (!page.some((p) => mine.includes(p))) throw new HttpError(403, 'Tài khoản của bạn chưa được cấp quyền vào trang này'); }
   if (matches(MANAGE, req) && !(scopedCustomer&&await customerLevel(u.id,scopedCustomer)==='admin') && deptLevel(u) !== 'admin') throw new HttpError(403, 'Chỉ quản trị viên hoặc admin của phòng mới làm được việc này');
-  if ((page || crm) && req.method !== 'GET' && deptLevel(u) === 'observer' && !VIEW_ONLY_OK.test(pathOf(req))) throw new HttpError(403, 'Role của bạn trong phòng chỉ được xem');
+  if ((page || crm) && req.method !== 'GET' && deptLevel(u) === 'observer' && !VIEW_ONLY_OK.test(pathOf(req)) && !addsCustomer) throw new HttpError(403, 'Role của bạn trong phòng chỉ được xem');
   return u;
 }
 

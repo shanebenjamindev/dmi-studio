@@ -5,7 +5,7 @@ import {CustomerMembers} from './CustomerMembers';
 import {EntitySelect,useEntityRefresh} from './QuickCreate';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { api } from '../api';
-import { toast, useStore } from '../store';
+import { mayAddCustomer, toast, useStore } from '../store';
 import {BrandLoading} from './BrandLoading';
 import {CustomerStages} from './CustomerStages';
 import { Icon, Menu } from './ui';
@@ -28,9 +28,11 @@ const readView = (): CustomerView => { try { const v = localStorage.getItem(LS_V
 export function CustomersPage() {
   const statuses=useCustomerStatuses();
   const user = useStore((s) => s.user)!;
-  // Everyone sees the customers they work on here; adding them, and their Drive folders, are for those given Drive.
+  // Everyone sees the customers they work on here. Adding them is for those given Drive (not view-only) or given
+  // "Tạo khách hàng" in Phân quyền (mayAddCustomer); their Drive folders stay with Drive.
   const drive = useStore((s) => s.pages).includes('workspace');
-  const canCreate=drive&&(user.role==='admin'||user.level!=='observer');
+  useStore((s) => s.admin); // drawn again when the account's rights arrive
+  const canCreate = mayAddCustomer();
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const[sharing,setSharing]=useState(false);
   const [selected, setSelected] = useState<string | null>(() => window.location.hash.match(/^#customers\/(c_\w+)/)?.[1] || null);

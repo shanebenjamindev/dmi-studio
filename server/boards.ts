@@ -1264,6 +1264,10 @@ export function registerBoards(api: Router) {
     json(res, 201, (await fronts(l.board_id,0,(await me(req)).id)).find((c) => c.id === id));
   });
   // Chat between workspace members (General channel or Direct Messages)
+  /** Someone has read a conversation up to now: 'general', or the other person of a direct chat. */
+  const markChatRead = (userId: string, conversation: string) =>
+    run('INSERT INTO chat_reads(user_id, conversation, read_at) VALUES(?,?,?) ON CONFLICT(user_id, conversation) DO UPDATE SET read_at = MAX(read_at, excluded.read_at)', userId, conversation, now());
+
   api.get('/api/chat/messages', async (req, res) => {
     const u = await me(req);
     const channel = req.query.get('channel') || 'general';
@@ -1292,6 +1296,8 @@ export function registerBoards(api: Router) {
         since
       );
     }
+    // Loading a conversation is reading it (its window is open).
+    await markChatRead(u.id, channel === 'dm' && recipientId ? recipientId : 'general');
     json(res, 200, rows.map((r) => ({
       id: r.id,
       senderId: r.sender_id,
@@ -1308,7 +1314,10 @@ export function registerBoards(api: Router) {
   api.get('/api/chat/unread', async (req, res) => {
     const u = await me(req);
     await run('UPDATE users SET updated_at = ? WHERE id = ?', now(), u.id).catch(() => {});
-    const since = Number(req.query.get('since')) || 0;
+    // What came after this person last read each conversation (on any device; `since` is the browser's own mark for the
+    // general channel, from before reads were kept here).
+    const read = await get<any>("SELECT read_at FROM chat_reads WHERE user_id = ? AND conversation = 'general'", u.id);
+    const since = Math.max(Number(req.query.get('since')) || 0, Number(read?.read_at) || 0);
 
     const genRow = await get<any>(
       `SELECT COUNT(*) c FROM chat_messages
@@ -1320,7 +1329,8 @@ export function registerBoards(api: Router) {
       `SELECT m.sender_id senderId, COUNT(*) c, MAX(m.created_at) lastAt, u.name senderName, u.email senderEmail
        FROM chat_messages m
        JOIN users u ON u.id = m.sender_id
-       WHERE m.channel = 'dm' AND m.recipient_id = ?
+       LEFT JOIN chat_reads r ON r.user_id = m.recipient_id AND r.conversation = m.sender_id
+       WHERE m.channel = 'dm' AND m.recipient_id = ? AND m.created_at > COALESCE(r.read_at, 0)
        GROUP BY m.sender_id`,
       u.id
     );
@@ -1350,6 +1360,7 @@ export function registerBoards(api: Router) {
     if (channel === 'dm' && !recipientId) throw new HttpError(400, 'Thiếu thông tin người nhận');
     const id = uid('msg_'), t = now();
     await run('INSERT INTO chat_messages(id, sender_id, recipient_id, channel, message, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, u.id, recipientId, channel, msg, t);
+    await markChatRead(u.id, recipientId || 'general');
     // Tự động dọn dẹp tin nhắn cũ hơn 60 ngày để tối ưu dung lượng DB
     await run('DELETE FROM chat_messages WHERE created_at < ?', t - 60 * 864e5).catch(() => {});
     json(res, 201, {

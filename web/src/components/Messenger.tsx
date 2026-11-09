@@ -20,6 +20,7 @@ export interface MessengerState {
   activeId: string | null;   // Currently focused window id
   heads: ChatMember[];       // Minimized member chat heads stacked on right
   unreadMap: Record<string, number>; // 'general': count, [memberId]: count
+  unreadFrom: ChatMember[];  // Who the unread direct messages are from, newest first (their heads may be closed)
 }
 
 const getHeadsStorageKey = (userId?: string) => `dms.${userId || 'guest'}.chat_active_heads`;
@@ -44,6 +45,15 @@ const saveStoredHeads = (heads: ChatMember[], userId?: string) => {
   } catch {
     /* private mode */
   }
+};
+
+/** When someone closed a person's chat head (×): it pops up again only for a message sent after that. */
+const DISMISSED = 'dms.chat.dismissed';
+const dismissedAt = (memberId: string): number => {
+  try { return Number(JSON.parse(localStorage.getItem(DISMISSED) || '{}')[memberId]) || 0; } catch { return 0; }
+};
+const rememberDismissed = (memberId: string) => {
+  try { const all = JSON.parse(localStorage.getItem(DISMISSED) || '{}'); all[memberId] = Date.now(); localStorage.setItem(DISMISSED, JSON.stringify(all)); } catch { /* private mode */ }
 };
 
 export const getConvReadAt = (id: string): number => {
@@ -101,6 +111,7 @@ let messengerState: MessengerState = {
   activeId: null,
   heads: [],
   unreadMap: {},
+  unreadFrom: [],
 };
 
 const subs = new Set<() => void>();
@@ -207,6 +218,7 @@ export const toggleMessenger = () => toggleConversation('general');
 
 /** Dismiss a member chat head entirely from the stack */
 export const dismissChatHead = (memberId: string, currentUserId?: string) => {
+  rememberDismissed(memberId);
   const updatedHeads = messengerState.heads.filter((h) => h.id !== memberId && h.id !== currentUserId);
   saveStoredHeads(updatedHeads, currentUserId);
   const remainingWindows = messengerState.openWindows.filter((w) => w.id !== memberId);
@@ -265,7 +277,12 @@ export function MessengerTopButton() {
     <button
       type="button"
       className={'tb-theme-btn tb-msg-top' + (hasOpen ? ' on' : '')}
-      onClick={() => toggleConversation('general')}
+      onClick={() => {
+        // The count above it is for every chat: open the one with unread messages, else the general channel.
+        const member = messengerState.unreadFrom.find((m) => (unreadMap[m.id] || 0) > 0);
+        if (member) openConversation(member.id, member);
+        else toggleConversation('general');
+      }}
       title="Tin nhắn (Messenger)"
       aria-label="Mở tin nhắn"
       aria-expanded={hasOpen}
@@ -378,10 +395,8 @@ function ChatWindowView({
     }
   };
 
-  // Send photo
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Send a photo: chosen with the picture button, or pasted (Ctrl/⌘ V) into the message box.
+  const sendPhoto = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       toast('Chỉ cho phép tải lên tệp hình ảnh', true);
       return;
@@ -392,9 +407,16 @@ function ChatWindowView({
       await handleSend(dataUrl);
     } catch (err: any) {
       toast('Lỗi khi tải ảnh: ' + (err.message || ''), true);
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) await sendPhoto(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+  const pastePhoto = (e: React.ClipboardEvent) => {
+    const file = [...e.clipboardData.files].find((f) => f.type.startsWith('image/'));
+    if (file) { e.preventDefault(); void sendPhoto(file); }
   };
 
   // Clear conversation
@@ -785,6 +807,7 @@ function ChatWindowView({
             ref={inputRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onPaste={pastePhoto}
             placeholder="Aa"
             aria-label="Nội dung tin nhắn"
           />
@@ -889,6 +912,7 @@ export function Messenger() {
         activeId: null,
         heads: loaded,
         unreadMap: {},
+        unreadFrom: [],
       };
       emit();
     }
@@ -923,22 +947,20 @@ export function Messenger() {
         };
 
         let headsChanged = false;
+        const unreadFrom: ChatMember[] = [];
         if (res.dms && res.dms.length > 0) {
-          for (const dm of res.dms) {
+          for (const dm of [...res.dms].sort((a, b) => b.lastAt - a.lastAt)) {
             if (dm.senderId === currentUserId) continue;
+            const fullMember = allMembers.find((m) => m.id === dm.senderId);
+            const sender: ChatMember = fullMember || { id: dm.senderId, name: dm.senderName || 'Thành viên', email: dm.senderEmail || '', lastAt: dm.lastAt };
+            unreadFrom.push(sender);
             const isThisDmOpen = openWindows.some((w) => w.id === dm.senderId);
             nextUnreadMap[dm.senderId] = isThisDmOpen ? 0 : dm.count;
 
-            // If someone messaged this user and their head isn't visible, auto-pop their Chat Head!
-            if (!curHeads.some((h) => h.id === dm.senderId)) {
-              const fullMember = allMembers.find((m) => m.id === dm.senderId);
-              const newHead: ChatMember = fullMember || {
-                id: dm.senderId,
-                name: dm.senderName || 'Thành viên',
-                email: dm.senderEmail || '',
-                lastAt: dm.lastAt,
-              };
-              curHeads = [newHead, ...curHeads].slice(0, 6);
+            // If someone messaged this user and their head isn't visible, auto-pop their Chat Head (not again for
+            // messages from before it was closed).
+            if (!curHeads.some((h) => h.id === dm.senderId) && dm.lastAt > dismissedAt(dm.senderId)) {
+              curHeads = [sender, ...curHeads].slice(0, 6);
               headsChanged = true;
             }
           }
@@ -948,10 +970,12 @@ export function Messenger() {
           saveStoredHeads(curHeads, currentUserId);
         }
 
+        // The server's counts replace the old ones: a chat read on another device is no longer unread here.
         messengerState = {
           ...messengerState,
           heads: curHeads,
-          unreadMap: { ...messengerState.unreadMap, ...nextUnreadMap },
+          unreadMap: nextUnreadMap,
+          unreadFrom,
         };
         emit();
       } catch {

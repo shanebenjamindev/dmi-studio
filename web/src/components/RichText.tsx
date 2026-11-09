@@ -67,13 +67,13 @@ export function RichView({ text }: { text: string }) {
 
 const PALETTE = ['#172b4d', '#5e6c84', '#d62828', '#e8590c', '#e6a700', '#2b8a3e', '#0b7df2', '#1098ad', '#7048e8', '#c2255c'];
 const MARKS = ['#fff3bf', '#ffe066', '#d3f9d8', '#c5f6fa', '#d0ebff', '#e5dbff', '#ffdeeb', '#ffd8a8'];
-/** A picture made small enough to keep in the text (longest side 900 px, JPEG). */
-async function shrink(file: File) {
+/** A picture made small enough to keep in the text (longest side 900 px unless asked otherwise, JPEG). */
+export async function shrink(file: File, side = 900, quality = 0.8) {
   const img = await createImageBitmap(file);
-  const k = Math.min(1, 900 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+  const k = Math.min(1, side / Math.max(img.width, img.height)), c = document.createElement('canvas');
   c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
   c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
-  return c.toDataURL('image/jpeg', 0.8);
+  return c.toDataURL('image/jpeg', quality);
 }
 
 /** The editor. `onChange` gets cleaned HTML ('' when nothing is written); ⌘/Ctrl+Enter calls `onSubmit`. */

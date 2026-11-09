@@ -16,7 +16,7 @@ import { HttpError, json, readJson, sendFile, publicOrigin } from './http';
 import { all, get, run, uid, now, getSetting, setSetting } from './db';
 import { DATA_DIR, CLOUD_STORAGE_ONLY, IS_CLOUDFLARE } from './config';
 import * as G from './google';
-import { currentUser, finishGoogleSignin, deptLevel, type User } from './auth';
+import { currentUser, finishGoogleSignin, deptLevel, pagesOf, type User } from './auth';
 
 import { readCustomerImport } from '../shared/customer-import';
 import { normName } from './taskimport';
@@ -677,6 +677,8 @@ export function registerWorkspace(api: Router) {
   api.post('/api/customers', async (req, res) => {
     const b = await readJson(req);
     const creator=(await currentUser(req))!.id;
+    // Making or linking its Drive folder needs Drive (adding one without a folder may also come from Phân quyền).
+    if(b.databaseOnly!==true&&!(await pagesOf((await currentUser(req))!)).includes('workspace'))throw new HttpError(403,'Tạo thư mục Drive cho khách hàng cần quyền trang Drive');
     const fields=customerFields(b), classification=await customerClassification(b);
     const managerId = b.managerId === undefined ? creator : classification.manager;
     const tags = await tagsIn(b, classification.category);

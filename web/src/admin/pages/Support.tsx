@@ -1,6 +1,6 @@
 // Quản trị: Danh sách yêu cầu hỗ trợ từ người dùng gửi tới lập trình viên.
 // Thông tin người phát triển: Dylan - phone 0962099349 VN.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from '../../components/ui';
 import { admin, type SupportTicket } from '../api';
 import {
@@ -29,6 +29,15 @@ export function SupportList() {
   const filter = { q: term, status: status === 'all' ? undefined : status, page, size: 25 };
   const load = useLoad(() => admin.supportTickets(filter), [JSON.stringify(filter), page]);
   const [open, setOpen] = useState<SupportTicket | null>(null);
+  // The open request's screenshots, loaded when it opens (the list carries only how many there are).
+  const [shots, setShots] = useState<string[]>([]);
+  useEffect(() => {
+    setShots([]);
+    if (!open?.images) return;
+    let on = true;
+    admin.supportTicketImages(open.id).then((x) => { if (on) setShots(x); }, () => {});
+    return () => { on = false; };
+  }, [open?.id, open?.images]);
 
   const toggleStatus = async (item: SupportTicket, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -83,7 +92,7 @@ export function SupportList() {
       label: 'Nội dung cần hỗ trợ',
       render: (t) => (
         <div className="sp-msg-preview" title={t.message}>
-          {t.message}
+          {t.images > 0 && <><Icon name="photo" size={13} /> {t.images} · </>}{t.message}
         </div>
       ),
     },
@@ -244,6 +253,7 @@ export function SupportList() {
           <div className="sp-detail-msg-box">
             <h4>Nội dung yêu cầu</h4>
             <div className="sp-detail-msg-body">{open.message}</div>
+            {open.images > 0 && <div className="sp-detail-shots">{shots.length ? shots.map((src, i) => <a key={i} href={src} target="_blank" rel="noreferrer" download={`anh-ho-tro-${i + 1}.jpg`}><img src={src} alt={`Ảnh ${i + 1}`} /></a>) : <small>{`Đang tải ${open.images} ảnh…`}</small>}</div>}
           </div>
 
           <div className="sp-drawer-contact">

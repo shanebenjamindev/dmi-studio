@@ -136,6 +136,10 @@ function accountPrefs(userId: string, saved: Record<string, string> | null | und
 }
 /** Does the account hold this permission of Quản trị (shared/permissions.ts), at any scope? */
 export const canDo = (perm: string) => !!state.admin?.perms[perm];
+/** Who may add customers: those given Drive who are not view-only, or given "Tạo khách hàng" in Phân quyền (the
+ *  server's rule in auth.ts). */
+export const mayAddCustomer = () =>
+  state.user?.role === 'admin' || (state.pages.includes('workspace') && state.user?.level !== 'observer') || canDo('customers.create');
 /** Pages this account can open. On a server that cannot run the editor (the cloud site), its tab says where it runs. */
 export function openPages(): View[] {
   // Khách hàng: everyone sees the customers they work on; Drive (their folders) only those given it.

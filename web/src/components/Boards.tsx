@@ -358,7 +358,8 @@ function Tiles({ title, icon, list, roles, onOpen, onStar, onMore, onCreate, sma
   );
 }
 
-/** Name, background, workspace and who sees it: the workspace, one role (company only, members: their own) or only the people added. */
+/** Name, background, workspace, the customer it is for (picked, or added on the spot), and who sees it: the workspace,
+ *  one role (company only, members: their own) or only the people added. */
 function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User; roles: TeamRole[]; spaces: Workspace[]; wsId: string; onClose: () => void; onCreated: (b: BoardItem) => void }) {
   const[ownSpaces,setOwnSpaces]=useState(spaces);
   const targets = ownSpaces.filter((w) => w.level !== 'observer');
@@ -367,13 +368,16 @@ function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User
   const [space, setSpace] = useState(targets.some((w) => w.id === wsId) ? wsId : targets[0]?.id || 'company');
   // 'ws' (a person's workspace), 'private', or a department (company role): a company board belongs to one, or is private.
   const vis='private';
+  const [customer, setCustomer] = useState(''), [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const loadCustomers = () => api.customersAll().then(setCustomers, () => {});
+  useEffect(() => { void loadCustomers(); }, []);
   const [busy, setBusy] = useState(false);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || busy) return;
     setBusy(true);
     const roleId = null;
-    try { onCreated(await api.createBoard({ name: name.trim(), bg: b, workspaceId: space, roleId, private: vis === 'private' })); } catch (err: any) { toast(err.message, true); setBusy(false); }
+    try { onCreated(await api.createBoard({ name: name.trim(), bg: b, workspaceId: space, roleId, private: vis === 'private', customerId: customer || null })); } catch (err: any) { toast(err.message, true); setBusy(false); }
   };
   return (
     <div className="bd-modal" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -387,6 +391,11 @@ function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User
         <label className="bd-label" htmlFor="bd-ws">Workspace</label>
         <EntitySelect kind="workspace" onCreated={async()=>setOwnSpaces(await api.workspaces())} id="bd-ws" value={space} onChange={setSpace}>
           {targets.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+        </EntitySelect>
+        <label className="bd-label" htmlFor="bd-customer">Khách hàng</label>
+        <EntitySelect kind="customer" id="bd-customer" value={customer} onChange={setCustomer} onCreated={loadCustomers}>
+          <option value="">Không gắn khách hàng</option>
+          {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </EntitySelect>
         <p className="note"><Icon name="lock" size={14}/> Board cá nhân. Chỉ bạn và thành viên được thêm vào board mới xem được.</p>
         <button className="btn btn-primary" disabled={!name.trim() || busy}>{busy ? 'Đang tạo…' : 'Tạo mới'}</button>
@@ -1130,9 +1139,31 @@ function CardFront({ card, board, canEdit, hidden, labelText, onLabels, onDragSt
   );
 }
 
-/** The board's menu on the right: about, activity, archived items, background, labels, who sees it, delete. */
+/** The customer a board is for: its admins pick one, add one on the spot or clear it; everyone else sees which. */
+function BoardClient({ board, act, mut }: { board: Board; act: (fn: () => Promise<unknown>) => Promise<void>; mut: (fn: (x: Board) => void) => void }) {
+  const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const made = useRef<{ id: string; name: string } | null>(null);
+  const load = () => api.customersAll().then(setCustomers, () => {});
+  useEffect(() => { void load(); }, []);
+  if (board.level !== 'admin') return <p className="bd-about">{board.customerName ? <><Icon name="users" size={14} /> {board.customerName}</> : 'Board chưa gắn khách hàng.'}</p>;
+  const pick = (id: string) => {
+    const name = customers.find((c) => c.id === id)?.name || (made.current?.id === id ? made.current.name : null);
+    mut((x) => { x.customerId = id || null; x.customerName = id ? name : null; });
+    void act(() => api.updateBoard(board.id, { customerId: id || null }));
+  };
+  const shown = board.customerId && !customers.some((c) => c.id === board.customerId) ? [{ id: board.customerId, name: board.customerName || '' }, ...customers] : customers;
+  return <>
+    <p className="note">Board này phục vụ khách hàng nào. Chọn khách có sẵn, hoặc tạo khách hàng mới ngay tại đây.</p>
+    <EntitySelect kind="customer" className="bk-in" aria-label="Khách hàng của board" value={board.customerId || ''} onChange={pick} onCreated={async (r) => { made.current = r; await load(); }}>
+      <option value="">Không gắn khách hàng</option>
+      {shown.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+    </EntitySelect>
+  </>;
+}
+
+/** The board's menu on the right: about, activity, archived items, background, labels, its customer, who sees it, delete. */
 function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { board: Board; me: User; onShare: () => void; onClose: () => void; onGone: () => void; onOpen: (cardId: string) => void; act: (fn: () => Promise<unknown>) => Promise<void>; mut: (fn: (x: Board) => void) => void }) {
-  const [view, setView] = useState<'main' | 'about' | 'activity' | 'archived' | 'bg' | 'labels' | 'rights'>('main');
+  const [view, setView] = useState<'main' | 'about' | 'activity' | 'archived' | 'bg' | 'labels' | 'rights' | 'client'>('main');
   const [feed, setFeed] = useState<BoardActivity[] | null>(null);
   const [arch, setArch] = useState<Awaited<ReturnType<typeof api.boardArchived>> | null>(null);
   const [archTab, setArchTab] = useState<'cards' | 'lists'>('cards');
@@ -1144,7 +1175,7 @@ function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { 
   }, [view, board.id]);
   const reloadArch = () => api.boardArchived(board.id).then(setArch).catch(() => {});
   const canEdit = board.level !== 'observer', canDelete = board.level === 'admin', canShape = board.canShape;
-  const titles = { main: 'Menu', about: 'Về board này', activity: 'Hoạt động', archived: 'Mục đã lưu trữ', bg: 'Đổi hình nền', labels: 'Nhãn', rights: 'Quyền sửa board' };
+  const titles = { main: 'Menu', about: 'Về board này', activity: 'Hoạt động', archived: 'Mục đã lưu trữ', bg: 'Đổi hình nền', labels: 'Nhãn', rights: 'Quyền sửa board', client: 'Khách hàng của board' };
   return (
     <aside className="bd-drawer" aria-label="Menu board">
       <header>
@@ -1158,6 +1189,7 @@ function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { 
           <button onClick={() => setView('activity')}><Icon name="activity" size={16} />Hoạt động</button>
           <button onClick={() => setView('archived')}><Icon name="archive" size={16} />Mục đã lưu trữ</button>
           <button onClick={() => { onClose(); onShare(); }}><Icon name="users" size={16} />Chia sẻ và quyền</button>
+          <button onClick={() => setView('client')}><Icon name="user" size={16} />Khách hàng{board.customerName ? `: ${board.customerName}` : ''}</button>
           <hr />
           {canShape && <button onClick={() => setView('bg')}><span className="bd-bg-dot" style={{ background: bg(board.bg) }} />Đổi hình nền</button>}
           {canShape && <button onClick={() => setView('labels')}><Icon name="tag" size={16} />Nhãn</button>}
@@ -1194,6 +1226,7 @@ function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { 
           <p className="note">Mọi người trên board đều thấy hình nền này.</p>
           <div className="bd-bgs">{Object.keys(BG).map((k) => <button key={k} className={k === board.bg ? 'on' : ''} style={{ background: BG[k] }} aria-label={`Nền ${k}`} onClick={() => { mut((x) => { x.bg = k; }); act(() => api.boardBackground(board.id, k)); }} />)}</div>
         </>}
+        {view === 'client' && <BoardClient board={board} act={act} mut={mut} />}
         {view === 'rights' && <>
           <p className="note">Thành viên luôn làm việc được trên thẻ (thêm, sửa, kéo thẻ, bình luận). Ai được sửa chính board: tên, hình nền, mô tả, cách hiển thị, danh sách và nhãn?</p>
           <label className="bk-check"><input type="radio" name="bd-rights" checked={!board.memberEdit} onChange={() => act(async () => { mut((x) => { x.memberEdit = false; x.canShape = x.level === 'admin'; }); await api.updateBoard(board.id, { memberEdit: false }); })} />Chỉ admin board</label>

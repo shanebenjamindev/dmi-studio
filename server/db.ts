@@ -107,7 +107,9 @@ async function upgrade() {
     // A project its managers put on hold or cancelled (shared/projects.ts); otherwise its stage follows its tasks.
     ['task_projects', 'hold'],
     // A list's own colour (the whole column), one of the cards' cover colours.
-    ['board_lists', 'color']]) {
+    ['board_lists', 'color'],
+    // Screenshots sent with a support request (a JSON list of pictures).
+    ['support_tickets', 'images']]) {
     // One look at each table's columns, not one per column: every cold start on D1 runs this.
     const info = columns.get(table) || (await db.execute(`PRAGMA table_info(${table})`)).rows.map(c => c.name as string);
     columns.set(table, info);

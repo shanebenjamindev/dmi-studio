@@ -84,8 +84,8 @@ export const api = {
   deletePosition: (id: string) => req('DELETE', `/api/positions/${id}`),
   boards: () => req<BoardItem[]>('GET', '/api/boards'),
   board: (id: string) => req<Board>('GET', `/api/boards/${id}`),
-  createBoard: (b: { name: string; bg: string; roleId: string | null; workspaceId?: string; private?: boolean; lists?: string[] }) => req<BoardItem>('POST', '/api/boards', b),
-  updateBoard: (id: string, b: Partial<{ name: string; bg: string; roleId: string | null; private: boolean; workspaceId: string; about: string; memberEdit: boolean; labelText: boolean }>) => req('PUT', `/api/boards/${id}`, b),
+  createBoard: (b: { name: string; bg: string; roleId: string | null; workspaceId?: string; private?: boolean; lists?: string[]; customerId?: string | null }) => req<BoardItem>('POST', '/api/boards', b),
+  updateBoard: (id: string, b: Partial<{ name: string; bg: string; roleId: string | null; private: boolean; workspaceId: string; about: string; memberEdit: boolean; labelText: boolean; customerId: string | null }>) => req('PUT', `/api/boards/${id}`, b),
   boardMembers: (id: string) => req<{ members: BoardMember[]; people: Person[] }>('GET', `/api/boards/${id}/members`),
   setBoardMember: (id: string, userId: string, level: Level) => req<{ members: BoardMember[] }>('PUT', `/api/boards/${id}/members/${userId}`, { level }),
   removeBoardMember: (id: string, userId: string) => req<{ members: BoardMember[] }>('DELETE', `/api/boards/${id}/members/${userId}`),
@@ -331,7 +331,7 @@ export const api = {
     }
     await xhrSend('POST', `/api/customers/${id}/videos?${new URLSearchParams({ name: file.name, folder })}`, file, onProgress);
   },
-  sendSupport: (message: string) => req<{ ok: true; id: string }>('POST', '/api/support', { message }),
+  sendSupport: (message: string, images: string[] = []) => req<{ ok: true; id: string }>('POST', '/api/support', { message, images }),
 };
 
 /** XHR instead of fetch so the page can show upload progress. Rejects with `network: true` when the request never got an answer. */

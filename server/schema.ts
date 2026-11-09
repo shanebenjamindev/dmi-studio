@@ -264,4 +264,12 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 CREATE INDEX IF NOT EXISTS chat_messages_channel ON chat_messages(channel, created_at);
 CREATE INDEX IF NOT EXISTS chat_messages_dm ON chat_messages(sender_id, recipient_id, created_at);
+-- When each person last read each conversation (general, or the other person of a direct chat), kept on the server so
+-- unread counts agree on every device. No semicolons in these notes: D1 runs the schema split at each one.
+CREATE TABLE IF NOT EXISTS chat_reads (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  conversation TEXT NOT NULL,
+  read_at INTEGER NOT NULL,
+  PRIMARY KEY(user_id, conversation)
+);
 `;

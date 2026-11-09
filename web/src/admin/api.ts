@@ -38,6 +38,8 @@ export interface SupportTicket {
   message: string;
   status: 'pending' | 'resolved';
   createdAt: number;
+  /** How many screenshots came with it. */
+  images: number;
 }
 export interface TaskStatus extends DictItem { category: string; locked: boolean }
 export interface TaskTemplate { id: string; name: string; about: string; title: string; checklist: string[]; status: string | null; priorityId: string | null; labels: string[]; dueDays: number | null; createdBy: string | null; updatedBy: string | null; createdAt: number; updatedAt: number }
@@ -154,5 +156,6 @@ export const admin = {
   backup: () => req<{ name: string; bytes: number }>('POST', '/api/admin/backups'),
   supportTickets: (p: Query) => req<Paged<SupportTicket>>('GET', `/api/admin/support${q(p)}`),
   updateSupportTicket: (id: string, b: { status: string }) => req<{ ok: true }>('PUT', `/api/admin/support/${id}`, b),
+  supportTicketImages: (id: string) => req<string[]>('GET', `/api/admin/support/${id}/images`),
   removeSupportTicket: (id: string) => req<{ ok: true }>('DELETE', `/api/admin/support/${id}`),
 };

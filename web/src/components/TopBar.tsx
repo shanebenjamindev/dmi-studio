@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore, signOut, openPages, goto, openProfile, openLink, HASH } from '../store';
 import { Icon } from './ui';
 import { Avatar } from './boardkit';
+import { openWhatsNew } from './WhatsNew';
 import { PasswordSheet } from './PasswordSheet';
 import type { View } from '../store';
 import { themePref, setThemePref, onTheme, type ThemePref } from '../theme';
@@ -65,6 +66,7 @@ export function AppHeader() {
               <div className="tb-menu-h"><b>{user.name}</b><span>{user.email}</span><em>{user.role === 'admin' ? 'Quản trị' : roleName ? `${roleName}${user.deptRoleName ? ` · ${user.deptRoleName}` : ''}` : 'Chưa có phòng ban'}</em></div>
               <button role="menuitem" onClick={()=>{setMenu(false);openProfile(user.id);}}><Icon name="user" size={15}/>Hồ sơ của tôi</button>
               <button role="menuitem" onClick={() => { setMenu(false); setPw(true); }}><Icon name="key" size={15} />{user.hasPassword ? 'Đổi mật khẩu' : 'Đặt mật khẩu'}</button>
+              <button role="menuitem" onClick={() => { setMenu(false); openWhatsNew(); }}><Icon name="sparkle" size={15} />Có gì mới</button>
               <LangChoice />
               <button role="menuitem" className="danger" onClick={() => { setMenu(false); signOut(); }}><Icon name="back" size={15} />Đăng xuất</button>
             </div>
