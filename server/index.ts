@@ -11,7 +11,7 @@ import { startWorker } from './jobs';
 import { publicCatalog } from './providers/registry';
 import { guard, type User } from './auth';
 import { withTrail, logError } from './audit';
-import { cloudDatabase } from './db';
+import { cloudDatabase, repairData } from './db';
 
 // Hostnames this server answers to. Checking Host blocks DNS rebinding; checking Origin on writes
 // blocks other websites from driving the API (and spending API credit) through the user's browser.
@@ -88,3 +88,6 @@ server.listen(PORT, HOST, () => {
 
 const mailTimer=setInterval(()=>{void drainNotifications().catch(()=>console.error('Chưa xử lý được hàng đợi email'));},60000);
 mailTimer.unref();
+// As the cloud's cron does: data a change may leave out of step is set right every ten minutes.
+const repairTimer=setInterval(()=>{void repairData().catch(()=>console.error('Chưa sửa được dữ liệu lệch'));},600000);
+repairTimer.unref();

@@ -11,6 +11,8 @@ import { ChartCard, LineChart, Columns, Bars, StackBars, Donut, SERIES, periodLa
 
 const PERIODS: [string, string][] = [['day', 'Ngày'], ['week', 'Tuần'], ['month', 'Tháng'], ['quarter', 'Quý'], ['year', 'Năm']];
 const SPAN: Record<string, number> = { day: 30, week: 84, month: 365, quarter: 730, year: 1825 };
+/** What each SPAN covers, in its own unit. */
+const SPAN_LABEL: Record<string, string> = { day: '30 ngày', week: '12 tuần', month: '12 tháng', quarter: '8 quý', year: '5 năm' };
 const STATES: [string, string][] = [['', 'Mọi trạng thái'], ['open', 'Đang mở'], ['done', 'Đã hoàn thành'], ['overdue', 'Quá hạn'], ['doing', 'Đang làm'], ['todo', 'Chưa làm'], ['paused', 'Tạm dừng'], ['cancelled', 'Đã huỷ']];
 /** A task state keeps one colour on every chart: done, late and overdue are status colours (always labelled). */
 const STATE_COLOR: Record<string, string> = { todo: '#94a3b8', doing: 'var(--viz-1)', review: 'var(--viz-7)', paused: 'var(--st-warning)', overdue: 'var(--st-critical)', done: 'var(--st-good)', done_late: 'var(--st-serious)', cancelled: '#64748b', other: 'var(--viz-3)' };
@@ -44,7 +46,7 @@ function StatsPage({ view, title, sub, render, taskFilter }: { view: string; tit
         {(from || to || dept || team || user || status) && <button className="btn btn-plain btn-sm" onClick={() => { setFrom(''); setTo(''); setDept(''); setTeam(''); setUser(''); setStatus(''); }}>Bỏ lọc</button>}
       </div>
       <Async load={load}>{(d) => <>
-        <p className="ax-card-note">Từ {fmtDate(d.from)} đến {fmtDate(d.to - 1)} · {SPAN[period] && !from && !to ? `${PERIODS.find(([k]) => k === period)?.[1]} gần nhất` : 'khoảng tự chọn'}{d.since ? ` · Nhật ký có từ ${fmtDate(d.since)}` : ''}</p>
+        <p className="ax-card-note">Từ {fmtDate(d.from)} đến {fmtDate(d.to - 1)} · {SPAN[period] && !from && !to ? `${SPAN_LABEL[period]} gần nhất` : 'khoảng tự chọn'}{d.since ? ` · Nhật ký có từ ${fmtDate(d.since)}` : ''}</p>
         {render(d, { period })}
       </>}</Async>
     </>
@@ -54,14 +56,14 @@ function StatsPage({ view, title, sub, render, taskFilter }: { view: string; tit
 export const Overview = () => <StatsPage view="overview" taskFilter title="Thống kê tổng quan" sub="Công việc, khách hàng và nhân sự trong phạm vi của bạn. Công việc thuộc kỳ theo thời hạn; hoàn thành tính theo ngày xong." render={(d, f) => <>
   <div className="ax-kpis">
     <Kpi icon="checklist" label="Công việc đến hạn trong kỳ" value={fmtNum(d.kpis.inPeriod)} />
-    <Kpi icon="check" label="Hoàn thành trong kỳ" value={fmtNum(d.kpis.done)} hint={`Đúng hạn ${pct(d.kpis.onTimeRate)}`} />
+    <Kpi icon="check" label="Hoàn thành trong kỳ" value={fmtNum(d.kpis.done)} hint={`Theo ngày xong · đúng hạn ${pct(d.kpis.onTimeRate)}`} />
     <Kpi icon="clock" label="Đang quá hạn" value={<button className="ax-kpi-link" onClick={() => goAdmin('tasks', 'overdue')}>{fmtNum(d.kpis.overdue)}</button>} tone={d.kpis.overdue ? 'bad' : undefined} />
     <Kpi icon="card" label="Khách hàng" value={fmtNum(d.kpis.customers)} hint={`${fmtNum(d.kpis.newCustomers)} mới trong kỳ`} />
     <Kpi icon="users" label="Nhân sự đang hoạt động" value={fmtNum(d.kpis.staff)} hint={`${fmtNum(d.kpis.logins)} lượt đăng nhập trong kỳ`} />
   </div>
   <div className="ax-charts">
     <ChartCard wide title="Công việc đến hạn và hoàn thành" legend={d.trend.lines.map((l: any, i: number) => ({ label: l.name, color: SERIES(i) }))} table={trendTable(d.trend, f.period)}><LineChart trend={d.trend} period={f.period} /></ChartCard>
-    <ChartCard title="Tình trạng công việc trong kỳ" table={distTable(d.byState, 'Tình trạng')}><Donut dist={states(d.byState)} center="công việc" /></ChartCard>
+    <ChartCard title="Tình trạng việc đến hạn trong kỳ" table={distTable(d.byState, 'Tình trạng')}><Donut dist={states(d.byState)} center="công việc" /></ChartCard>
     <ChartCard title="Việc đang mở theo phòng ban" legend={[{ label: 'Đang làm', color: SERIES(0) }, { label: 'Quá hạn', color: 'var(--st-critical)' }]} table={{ head: ['Phòng ban', 'Đang làm', 'Quá hạn'], rows: d.byDept.map((r: any) => [r.label, ...r.values]) }}>
       <StackBars rows={d.byDept} parts={[{ name: 'Đang làm', color: SERIES(0) }, { name: 'Quá hạn', color: 'var(--st-critical)' }]} /></ChartCard>
     <ChartCard title="Khách hàng mới" table={trendTable(d.newCustomers, f.period)}><Columns keys={d.newCustomers.keys} values={d.newCustomers.lines[0].values} period={f.period} name="Khách hàng mới" /></ChartCard>

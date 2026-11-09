@@ -3,15 +3,16 @@ import { createServer } from 'node:http';
 import { httpServerHandler } from 'cloudflare:node';
 import {drainNotifications} from './notifications';
 import { handleApi } from './app';
-import { initDatabase, type D1Binding } from './db';
+import { initDatabase, repairData, type D1Binding } from './db';
 
 createServer(handleApi).listen(8787);
 const nodeHandler = httpServerHandler({ port: 8787 });
 type WorkerRequest = Parameters<NonNullable<typeof nodeHandler.fetch>>[0];
 
 export default {
-  async scheduled(_event:ScheduledEvent,env:{DB?:D1Binding},ctx:ExecutionContext){
-    ctx.waitUntil((async()=>{await initDatabase(env.DB);await drainNotifications();})());
+  async scheduled(event:ScheduledEvent,env:{DB?:D1Binding},ctx:ExecutionContext){
+    // Every tenth minute the data repairs run as well (they read whole tables).
+    ctx.waitUntil((async()=>{await initDatabase(env.DB);if(new Date(event.scheduledTime).getUTCMinutes()%10===0)await repairData();await drainNotifications();})());
   },
   async fetch(request: WorkerRequest, env: { ASSETS: Fetcher; DB?: D1Binding }, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);

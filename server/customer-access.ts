@@ -18,11 +18,13 @@ export async function canDeleteCustomer(userId:string,customer:{id:string;create
  return await customerLevel(userId,customer.id)==='admin';
 }
 export async function customerLevels(userId:string){
- const map=new Map<string,CustomerLevel>(),dept=await headedDepartment(userId);
- for(const row of await all<any>('SELECT customer_id,role FROM customer_members WHERE user_id=?',userId))map.set(row.customer_id,row.role);
- if(dept)for(const row of await all<any>('SELECT c.id FROM customers c JOIN users o ON (o.id=c.created_by OR o.id=c.manager_id) WHERE o.team_role=?',dept))map.set(row.id,'admin');
- for(const row of await all<any>('SELECT id FROM customers WHERE created_by=? OR manager_id=?',userId,userId))map.set(row.id,'admin');
- for(const row of await all<any>(`
+ // All at once (each is a round trip to D1), then applied in this order: membership, head of the owner's department,
+ // owner or manager, and only then what working on its projects and cards opens.
+ const [members,headed,owned,viaProjects,viaCards]=await Promise.all([
+  all<any>('SELECT customer_id,role FROM customer_members WHERE user_id=?',userId),
+  all<any>(`SELECT c.id FROM customers c JOIN users o ON (o.id=c.created_by OR o.id=c.manager_id) WHERE o.team_role=(SELECT u.team_role FROM users u JOIN dept_roles d ON d.id=u.dept_role AND d.team_role_id=u.team_role WHERE u.id=? AND d.level='admin')`,userId),
+  all<any>('SELECT id FROM customers WHERE created_by=? OR manager_id=?',userId,userId),
+  all<any>(`
    SELECT DISTINCT p.customer_id FROM task_projects p
    WHERE p.customer_id IS NOT NULL AND (
      p.id IN (SELECT t.project_id FROM tasks t JOIN task_assignees a ON a.task_id=t.id JOIN task_people tp ON tp.id=a.person_id WHERE tp.user_id=?)
@@ -30,16 +32,17 @@ export async function customerLevels(userId:string){
      OR p.id IN (SELECT pm.project_id FROM task_project_members pm WHERE pm.user_id=?)
      OR p.id IN (SELECT bc.work_project_id FROM board_cards bc JOIN card_members cm ON cm.card_id=bc.id WHERE cm.user_id=? AND bc.work_project_id IS NOT NULL)
    )
- `, userId, userId, userId, userId)) {
-   if (!map.has(row.customer_id)) map.set(row.customer_id, 'normal');
- }
- for(const row of await all<any>(`
+  `, userId, userId, userId, userId),
+  all<any>(`
    SELECT DISTINCT bc.customer_id FROM board_cards bc
    JOIN card_members cm ON cm.card_id=bc.id
    WHERE cm.user_id=? AND bc.customer_id IS NOT NULL
- `, userId)) {
-   if (!map.has(row.customer_id)) map.set(row.customer_id, 'normal');
- }
+  `, userId),
+ ]);
+ const map=new Map<string,CustomerLevel>();
+ for(const row of members)map.set(row.customer_id,row.role);
+ for(const row of [...headed,...owned])map.set(row.id,'admin');
+ for(const row of [...viaProjects,...viaCards])if(!map.has(row.customer_id))map.set(row.customer_id,'normal');
  return map;
 }
 export async function customerLevel(userId:string,id:string):Promise<CustomerLevel|null>{

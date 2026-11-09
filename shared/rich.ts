@@ -1,7 +1,10 @@
 // Descriptions and comments written in the formatting editor are HTML; older ones (and imported ones) are plain text.
 // Both stay readable: the app shows HTML through its sanitizer (web/src/components/RichText.tsx), and places that need
 // words only (notification previews, search) take the text out of it here.
-export const isRich = (s: string | null | undefined) => /^\s*<(p|div|h[1-3]|ul|ol|blockquote|pre|b|strong|i|em|u|s|strike|span|font|a|br|code|sub|sup|img)\b/i.test(s || '');
+// The editor's HTML can also start with words ("text<div>next line</div>" once Enter is pressed after typing), so a
+// closing tag, a line break, a picture or an escaped character anywhere marks it too.
+export const isRich = (s: string | null | undefined) => /^\s*<(p|div|h[1-3]|ul|ol|blockquote|pre|b|strong|i|em|u|s|strike|span|font|a|br|code|sub|sup|img)\b/i.test(s || '')
+  || /<\/(p|div|h[1-3]|ul|ol|li|blockquote|pre|b|strong|i|em|u|s|strike|span|font|a|code|sub|sup)>|<(br|img)\b[^>]*>|&(nbsp|amp|lt|gt|quot|#39);/i.test(s || '');
 /** The words of a text, formatted or not. */
 export function richToText(s: string | null | undefined) {
   if (!isRich(s)) return s || '';

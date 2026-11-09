@@ -34,6 +34,22 @@ export async function assertDescriptionWriter(user: { id: string; role: string }
   if (!mayWriteDescription(user, current, writer)) throw new HttpError(403, 'Chỉ người viết mô tả mới sửa được mô tả');
 }
 
+/** The column a task of this status goes to: one of that name, else one meaning the same (Cần làm for Chưa thực hiện,
+ *  Xong for Hoàn thành; done late goes with done); a status of a board's own workflow needs a column of its name. */
+export function columnFor<L extends { name: string }>(lists: L[], status: string): L | undefined {
+  const key = statusKey(status), same = (k: string) => lists.find((l) => statusKey(l.name) === k);
+  return lists.find((l) => l.name === status) || (key !== 'other' ? same(key) : undefined) || (key === 'done_late' ? same('done') : undefined);
+}
+/** The task status a column stands for: one with a common meaning (to do, doing, done, paused, cancelled) gives the
+ *  task status of that meaning (done after its due date: done late), so tasks keep the statuses of their own workflow;
+ *  a column of a board's own (Chờ duyệt, Cần sửa…) is the status itself. */
+async function columnStatus(name: string, doneAt: number | null, due: number | null) {
+  const key = statusKey(name);
+  if (key === 'other' || key === 'overdue') return name;
+  const want = key === 'done' && due && doneAt && doneAt > due ? 'done_late' : key;
+  const statuses = (await all<any>('SELECT name FROM task_statuses WHERE active = 1 ORDER BY pos')).map((r) => r.name as string);
+  return statuses.find((n) => statusKey(n) === want) || name;
+}
 export async function syncTaskToCard(taskId: string) {
   const t = await get<any>('SELECT t.*, l.card_id FROM tasks t JOIN task_board_links l ON l.task_id=t.id WHERE t.id=?', taskId);
   if (!t) return;
@@ -43,7 +59,7 @@ export async function syncTaskToCard(taskId: string) {
   if (!card) return;
   await run('UPDATE board_cards SET project_card_id=(SELECT id FROM board_cards WHERE board_id=? AND work_project_id=? AND card_kind=\'project\' ORDER BY created_at LIMIT 1) WHERE id=?',card.board_id,t.project_id,t.card_id);
   const lists=await all<any>('SELECT id,name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',card.board_id);
-  const target=lists.find(l=>l.name===t.status) || lists.find(l=>statusKey(l.name)!=='other' && statusKey(l.name)===statusKey(t.status));
+  const target=columnFor(lists,t.status);
   if(target && target.id!==card.list_id) {
     const pos=(await get<any>('SELECT MAX(pos) n FROM board_cards WHERE list_id=?',target.id))?.n || 0;
     await run('UPDATE board_cards SET list_id=?,pos=? WHERE id=?',target.id,pos+1,t.card_id);
@@ -59,7 +75,7 @@ export async function syncCardToTask(cardId: string, moved = false, actorId?: st
   const column=moved ? await get<any>('SELECT name FROM board_lists WHERE id=?',c.list_id) : null;
   const completed = c.done ? true : (column ? ['done', 'done_late'].includes(statusKey(column.name)) : false);
   const doneAt = completed ? c.task_done || now() : null;
-  const status = column ? column.name : c.done ? (c.due_at && doneAt > c.due_at ? 'Hoàn thành muộn' : 'Hoàn thành') : wasDone ? 'Chưa thực hiện' : c.task_status;
+  const status = column ? await columnStatus(column.name, doneAt, c.due_at) : c.done ? (c.due_at && doneAt > c.due_at ? 'Hoàn thành muộn' : 'Hoàn thành') : wasDone ? 'Chưa thực hiện' : c.task_status;
   if(moved) await run('UPDATE board_cards SET done=? WHERE id=?',completed?1:0,cardId);
   await run('UPDATE tasks SET title=?, description=?, description_by=?, start_at=?, due_at=?, status=?, done_at=?, updated_at=? WHERE id=?',
     c.title, c.description || '', c.description_by ?? null, c.start_at, c.due_at, status, doneAt, now(), c.task_id);

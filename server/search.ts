@@ -33,6 +33,10 @@ export function registerSearch(api: Router) {
     const hit = matcher(q);
     const take = <T,>(rows: T[]) => ({ items: rows.slice(0, limit), total: rows.length });
     const want = (t: (typeof TYPES)[number]) => !only || only === t;
+    // What this person may open, looked up once for every kind of result (each look is several reads).
+    let customerAccess: ReturnType<typeof customerLevels> | undefined, projectAccess: ReturnType<typeof projectLevels> | undefined;
+    const myCustomers = () => customerAccess ||= customerLevels(user.id);
+    const myProjects = () => projectAccess ||= myCustomers().then((c) => projectLevels(user.id, c));
 
     if (want('members')) {
       const rows = (await all<any>(`SELECT u.id, u.name, u.email, u.phone, u.avatar_at, d.name dept, p.name position FROM users u LEFT JOIN team_roles d ON d.id = u.team_role
@@ -40,7 +44,7 @@ export function registerSearch(api: Router) {
       out.members = take(rows.map((u) => ({ id: u.id, name: u.name, email: u.email, department: u.dept || null, position: u.position || null, avatarAt: u.avatar_at || null })));
     }
     if (want('tasks')) {
-      const projects = await projectLevels(user.id), customers = await customerLevels(user.id);
+      const [projects, customers] = await Promise.all([myProjects(), myCustomers()]);
       // A task on a private board's card opens only for the board's people, or the task's own.
       const closed = new Set((await all<any>(`SELECT l.task_id FROM task_board_links l JOIN board_cards c ON c.id = l.card_id JOIN boards b ON b.id = c.board_id
         WHERE (b.created_by IS NULL OR b.created_by <> ?) AND NOT EXISTS (SELECT 1 FROM board_members m WHERE m.board_id = b.id AND m.user_id = ?)`, user.id, user.id)).map((r) => r.task_id));
@@ -57,12 +61,12 @@ export function registerSearch(api: Router) {
         snippet: hit(t.title, t.project?.name) ? '' : around(desc.get(t.id) || '', words) })));
     }
     if (want('customers')) {
-      const levels = await customerLevels(user.id);
-      const rows = (await all<any>('SELECT id, name, code, contact, phone, email, notes FROM customers WHERE archived_at IS NULL ORDER BY name')).filter((c) => levels.has(c.id) && hit(c.id, c.name, c.code, c.contact, c.phone, c.email, c.notes));
+      const levels = await myCustomers();
+      const rows = (await all<any>('SELECT id, name, code, contact, phone, email, notes FROM customers WHERE archived_at IS NULL ORDER BY name COLLATE NOCASE')).filter((c) => levels.has(c.id) && hit(c.id, c.name, c.code, c.contact, c.phone, c.email, c.notes));
       out.customers = take(rows.map((c) => ({ id: c.id, name: c.name, contact: c.contact || '', phone: c.phone || '', email: c.email || '' })));
     }
     if (want('projects')) {
-      const levels = await projectLevels(user.id);
+      const levels = await myProjects();
       const rows = (await all<any>('SELECT p.id, p.name, c.name customer, (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.stub = 0) tasks FROM task_projects p LEFT JOIN customers c ON c.id = p.customer_id ORDER BY p.name'))
         .filter((p) => levels.has(p.id) && hit(p.name, p.customer));
       out.projects = take(rows.map((p) => ({ id: p.id, name: p.name, customer: p.customer || null, tasks: Number(p.tasks) })));

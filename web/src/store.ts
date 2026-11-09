@@ -58,7 +58,7 @@ export interface AppState {
   brandMode: boolean;
 }
 
-export const HASH: Partial<Record<View, string>> = { profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', editor: '#editor', reports: '#reports', ads: '#ads', tools: '#tools', admin: '#admin' };
+export const HASH: Partial<Record<View, string>> = { profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', editor: '#editor', reports: '#reports', ads: '#ads', tools: '#tools', admin: '#admin', templates: '#templates', analyze: '#analyze' };
 /** The page an address opens (the reverse of HASH); any other address opens the boards. */
 const viewOfHash = (hash: string) => (Object.keys(HASH) as View[]).find((v) => hash.startsWith(HASH[v]!)) ?? 'boards';
 
@@ -73,9 +73,14 @@ export const getState = () => state;
 export function setState(patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) {
   const view = state.view;
   state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) };
-  if (state.view !== view) history.replaceState(null, '', state.view === 'workspace' ? location.pathname : '#' + state.view);
+  // Another page is a step the browser's Back returns from; an address that already names it stays as it is.
+  if (state.view !== view && viewOfHash(location.hash) !== state.view) history.pushState(null, '', HASH[state.view] || '#' + state.view);
   subs.forEach((f) => f());
 }
+// Back, Forward, a pasted link or an edited address: the page follows the address (each page reads the rest of it).
+const follow = () => { const view = viewOfHash(location.hash); if (view !== state.view) setState({ view }); };
+window.addEventListener('hashchange', follow);
+window.addEventListener('popstate', follow);
 export function useStore<T>(sel: (s: AppState) => T): T {
   return useSyncExternalStore((cb) => { subs.add(cb); return () => subs.delete(cb); }, () => sel(state));
 }
@@ -147,14 +152,14 @@ export function openPages(): View[] {
 }
 /** Open a page (and keep it in the address, so a reload comes back to it). */
 export function goto(view: View) {
-  setState({ view });
   const h = view === 'editor' && state.project ? `#editor/${state.project.id}` : HASH[view];
-  if (h && !location.hash.startsWith(h)) history.replaceState(null, '', h);
+  if (h && !location.hash.startsWith(h)) history.pushState(null, '', h);
+  setState({ view });
 }
-/** Leave a page this account may not open for the first one it may. */
+/** Leave a page this account may not open for the first one it may (in place: Back does not return to it). */
 export function fixView() {
   const ok = openPages();
-  if (ok.length && !ok.includes(state.view)) setState({ view: ok[0] });
+  if (ok.length && !ok.includes(state.view)) { history.replaceState(null, '', HASH[ok[0]] || '#' + ok[0]); setState({ view: ok[0] }); }
 }
 export async function signOut() {
   await api.logout().catch(() => {});
@@ -656,23 +661,25 @@ export function cancelExport() { exportSignal.cancelled = true; }
 export const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 export { sid };
 
-// The view first: changing it rewrites the address to the bare page, which would drop the id.
+/** A step to another address inside the app, which Back returns from (none when it is the address already). */
+const step = (hash: string) => { if (location.hash !== hash) history.pushState(null, '', hash); };
+// The address first: the page then opens on it as it is.
 export function openProfile(id:string) {
+  step(`#profile/${encodeURIComponent(id)}`);
   setState({view:'profile'});
-  history.replaceState(null,'',`#profile/${encodeURIComponent(id)}`);
   window.dispatchEvent(new HashChangeEvent('hashchange'));
 }
 /** Go to an address inside the app (a board, a card, a project, a customer) from any page. */
 export function openLink(hash: string) {
+  step(hash);
   setState({ view: viewOfHash(hash) });
-  history.replaceState(null, '', hash);
   setTimeout(() => window.dispatchEvent(new HashChangeEvent('hashchange')), 0);
 }
 /** Open a card on its board. */
 export const openCard = (boardId: string, cardId: string) => openLink(`#boards/${boardId}/c/${cardId}`);
 /** Open a task's own page, also when the task list is already on screen. */
 export function openTask(id:string) {
+  step(`#tasks/${id}/page`);
   setState({view:'tasks'});
-  history.replaceState(null,'',`#tasks/${id}/page`);
   window.dispatchEvent(new HashChangeEvent('hashchange'));
 }

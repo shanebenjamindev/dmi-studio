@@ -1,5 +1,5 @@
 import {projectLevels} from './project-access';
-import {customerLevel,visibleCardIds} from './customer-access';
+import {customerLevel,customerLevels,visibleCardIds} from './customer-access';
 import {gmailEnableUrl} from '../shared/gmail-errors';
 import {richToText} from '../shared/rich';
 import {createHash,randomInt,timingSafeEqual} from 'node:crypto';
@@ -153,14 +153,18 @@ export function registerNotifications(api:Router){
   catch(e:any){await run("UPDATE mail_outbox SET state='failed',attempts=1,error=? WHERE id=?",e.message,id);throw e;}
  });
  // Asked every few seconds by each open page: only when something new came is the whole inbox read again.
- api.get('/api/notifications/latest',async(req,res)=>{const user=(await currentUser(req))!;json(res,200,{latest:Number((await get<any>('SELECT MAX(created_at) n FROM notifications WHERE user_id=?',user.id))?.n)||0});});
+ // The bell's check every few seconds: the newest notification, and how many are unread (read on another device or tab
+ // changes it), in one look.
+ api.get('/api/notifications/latest',async(req,res)=>{const user=(await currentUser(req))!,r=await get<any>('SELECT MAX(created_at) n, SUM(CASE WHEN read_at IS NULL THEN 1 ELSE 0 END) u FROM notifications WHERE user_id=?',user.id);json(res,200,{latest:Number(r?.n)||0,unread:Number(r?.u)||0});});
  api.get('/api/notifications/inbox',async(req,res)=>{
   const user=(await currentUser(req))!;const rows=await all<any>('SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 100',user.id);
   const items:{id:string;taskId:string|null;link:string|null;title:string;body:string;createdAt:number;read:boolean;detail:Awaited<ReturnType<typeof detailOf>>}[]=[];
-  let projects:Map<string,string>|null=null,cards:Set<string>|null=null;
+  let projects:Map<string,string>|null=null,customers:Awaited<ReturnType<typeof customerLevels>>|null=null,cards:Set<string>|null=null;
   const seesCard=async(id:string)=>(cards??=await visibleCardIds(user.id)).has(id);
+  // The person's customers are looked up once for the whole list, not once per notification.
+  const myCustomers=async()=>customers??=await customerLevels(user.id);
   for(const row of rows){
-   if(row.task_id){const task=await get<any>('SELECT t.project_id,p.customer_id FROM tasks t LEFT JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',row.task_id);if(!task||task.project_id&&!(projects??=await projectLevels(user.id)).has(task.project_id)||task.customer_id&&!await customerLevel(user.id,task.customer_id))continue;if(!await concerns(user.id,row.task_id))continue;}
+   if(row.task_id){const task=await get<any>('SELECT t.project_id,p.customer_id FROM tasks t LEFT JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',row.task_id);if(!task||task.project_id&&!(projects??=await projectLevels(user.id,await myCustomers())).has(task.project_id)||task.customer_id&&!(await myCustomers()).has(task.customer_id))continue;if(!await concerns(user.id,row.task_id))continue;}
    const p=JSON.parse(row.payload);if(p.cardId&&!await get('SELECT 1 FROM board_cards WHERE id=?',p.cardId))continue;
    // The newest ones show what they are about, read now, so never more than the person may still see.
    items.push({id:row.id,taskId:row.task_id,link:p.link||null,title:p.title,body:p.task||'',createdAt:row.created_at,read:!!row.read_at,detail:items.length<30?await detailOf(row.task_id,p,user.id,seesCard):null});

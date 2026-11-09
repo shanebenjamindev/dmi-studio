@@ -8,7 +8,7 @@ import { historyOf } from '../audit';
 import { need, reach, text, exists, page, sendCsv, csvDate, changed, logAction, registerDict, matcher, inSet, type Ctx } from './common';
 import type { Perm } from '../../shared/permissions';
 
-import {customerStatuses,customerStatus} from '../customer-statuses';
+import {customerStatuses,customerStatus,defaultCustomerStatus} from '../customer-statuses';
 
 /** Every customer with what describes it; `ids`: only those reached through these accounts (null: all). */
 export async function customerRows(ids: Set<string> | null) {
@@ -71,7 +71,7 @@ async function fields(b: any, old?: any) {
   if (phone && !/^[+0-9 ().\-/]{6,60}$/.test(phone)) throw new HttpError(400, 'Số điện thoại không hợp lệ');
   return {
     name: pick('name', 200, 'tên khách hàng', true), contact: pick('contact', 200, 'người liên hệ'), phone, email, notes: pick('notes', 20000, 'ghi chú'),
-    status: await customerStatus(b.status,old?.status||null),
+    status: !old && b.status === undefined ? await defaultCustomerStatus() : await customerStatus(b.status,old?.status||null),
     category: b.categoryId !== undefined ? await exists('customer_categories', b.categoryId, 'phân loại') : old?.category_id || null,
     source: b.sourceId !== undefined ? await exists('customer_sources', b.sourceId, 'nguồn khách hàng') : old?.source_id || null,
   };

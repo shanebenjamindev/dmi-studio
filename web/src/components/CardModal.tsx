@@ -1,4 +1,5 @@
 import {EntitySelect,QuickCreateButton,useEntityRefresh} from './QuickCreate';
+import { ResizeHandle } from './ResizeHandle';
 // The back of a card (the window a card opens in, like Trello's): title and list, members, labels, dates and the
 // "done" mark, the customer the task is for, description, the work's result (files of that customer's Drive folder and
 // a note), attachments (links), checklists, and the comments with the card's history; on the side, what can be added to
@@ -18,10 +19,10 @@ export type PopKind = 'add' | 'members' | 'labels' | 'label' | 'checklist' | 'da
 
 /** A card's window over the board; `embedded`: the same card laid into a page instead (a task's own page on Công việc,
  *  as task and card are one piece of work), with `extra` (the task's own facts) above its description. */
-export function CardModal({ id, board, me, onClose, onChanged, embedded = false, extra }: { id: string; board: Board; me: User; onClose: () => void; onChanged: () => void; embedded?: boolean; extra?: ReactNode }) {
+export function CardModal({ id, board, me, onClose, onChanged, embedded = false, extra, topActions }: { id: string; board: Board; me: User; onClose: () => void; onChanged: () => void; embedded?: boolean; extra?: ReactNode; topActions?: ReactNode }) {
   const [c, setC] = useState<CardDetail | null>(null);
   const [pop, setPop] = useState<{ kind: PopKind; el: HTMLElement; label?: BoardLabel | null } | null>(null);
-  const [commentsOpen,setCommentsOpen]=useState(true);
+  const [commentsOpen,setCommentsOpen]=useState(!embedded);
   const [details, setDetails] = useState(false);
   const [pending, setPending] = useState(0);
   // Result files come from the customer's folder, which only people with the Drive page open.
@@ -57,7 +58,7 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
       <button className="cm-top-b" onClick={()=>setCommentsOpen(v=>!v)} aria-label={commentsOpen?'Ẩn bình luận':'Hiện bình luận'} aria-expanded={commentsOpen} aria-controls="card-comments" title={commentsOpen?'Ẩn bình luận':'Hiện bình luận'}><Icon name="comment" size={16}/></button>
       {edit && <button className="cm-top-b" onClick={open('cover')} aria-label="Ảnh bìa" title="Ảnh bìa"><Icon name="cover" size={16} /></button>}
       <button className="cm-top-b" onClick={open('actions')} aria-label="Thao tác với thẻ" title="Thao tác"><Icon name="more" size={16} /></button>
-      {!embedded && <button className="cm-top-b" onClick={onClose} aria-label="Đóng" title="Đóng (Esc)"><Icon name="x" size={18} /></button>}
+      {embedded ? topActions : <button className="cm-top-b" onClick={onClose} aria-label="Đóng" title="Đóng (Esc)"><Icon name="x" size={18} /></button>}
     </div>
   );
 
@@ -91,10 +92,10 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
                 {!c.customerId && <button className="cm-chip" onClick={open('customer')}><Icon name="folder" size={14} />Khách hàng</button>}
                 {!c.projectId && <button className="cm-chip" onClick={open('project')}><Icon name="folder" size={14} />Dự án</button>}
                 {!c.members.includes(me.id) && <button className="cm-chip" onClick={() => act(() => api.cardMember(c.id, me.id, true))}><Icon name="user" size={14} />Tham gia</button>}
-                <button className="cm-chip" onClick={open('labels')}><Icon name="tag" size={14} />Nhãn</button>
-                <button className="cm-chip" onClick={open('dates')}><Icon name="clock" size={14} />Ngày</button>
+                {labels.length === 0 && <button className="cm-chip" onClick={open('labels')}><Icon name="tag" size={14} />Nhãn</button>}
+                {!c.dueAt && !c.startAt && <button className="cm-chip" onClick={open('dates')}><Icon name="clock" size={14} />Ngày</button>}
                 <button className="cm-chip" onClick={open('checklist')}><Icon name="checklist" size={14} />Việc cần làm</button>
-                <button className="cm-chip" onClick={open('members')}><Icon name="user" size={14} />Thành viên</button>
+                {members.length === 0 && <button className="cm-chip" onClick={open('members')}><Icon name="user" size={14} />Thành viên</button>}
               </div>
             ) : <p className="cm-readonly"><Icon name="info" size={15} />Bạn chỉ có quyền xem board này: đọc và bình luận được, không sửa được thẻ.</p>}
             {(members.length > 0 || labels.length > 0 || c.dueAt || c.startAt || c.customerId || c.projectId) && (
@@ -141,6 +142,7 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
             {c.checklists.map((k) => <Checklist key={k.id} list={k} readOnly={!edit} act={act} />)}
           </main>
 
+          {commentsOpen && <ResizeHandle side="after" cssVar="--cm-side-w" storage="comments" min={260} max={640} label="Đổi độ rộng khung bình luận" />}
           <aside id="card-comments" className="cm-right" hidden={!commentsOpen} aria-label="Bình luận và hoạt động">
             <h3 className="cm-right-h"><Icon name="comment" size={18} />Bình luận và hoạt động<button className="btn btn-gray btn-sm" onClick={() => setDetails(!details)}>{details ? 'Ẩn chi tiết' : 'Hiện chi tiết'}</button></h3>
             <CommentBox me={me} onSave={(t) => act(() => api.addComment(c.id, t))} />

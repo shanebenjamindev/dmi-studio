@@ -1,7 +1,7 @@
 import {beginLoading} from './loading';
 import type { AdsService, AdsSummary } from '../../shared/ads-summary';
 // Typed client for the DMI Workspace REST API.
-import type { QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Outro, OutroOpts, Status, Project, ProjectItem, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, DriveFile, Source, Picked, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page, EditorLink } from './types';
+import type { QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Outro, OutroOpts, Status, Project, ProjectItem, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, DriveFile, Source, Picked, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page, EditorLink } from './types';
 
 /** Called when the session has ended (401) so the app can show the sign-in page. */
 export const auth = { onSignedOut: () => {} };
@@ -51,9 +51,11 @@ export const api = {
   setup: (b: { name: string; email: string; password: string; code?: string }) => req<{ user: User }>('POST', '/api/auth/setup', b),
   login: (email: string, password: string, turnstileToken?: string) => req<{ user: User }>('POST', '/api/auth/login', { email, password, turnstileToken }),
   logout: () => req('POST', '/api/auth/logout'),
+  forgotPassword: (email: string, turnstileToken?: string) => req<{ ok: true }>('POST', '/api/auth/forgot', { email, turnstileToken }),
+  resetPassword: (token: string, password: string) => req<{ ok: true }>('POST', '/api/auth/reset', { token, password }),
   changePassword: (current: string, next: string) => req('PUT', '/api/auth/password', { current, next }),
   notificationInbox:()=>req<NotificationInbox>('GET','/api/notifications/inbox'),
-  notificationLatest:()=>req<{latest:number}>('GET','/api/notifications/latest'),
+  notificationLatest:()=>req<{latest:number;unread:number}>('GET','/api/notifications/latest'),
   readNotifications:(id?:string)=>req('POST','/api/notifications/read',{id}),
   requestNotificationEmail:(email:string)=>req<{sent:boolean}>('POST','/api/notifications/email/request',{email}),
   verifyNotificationEmail:(code:string)=>req('POST','/api/notifications/email/verify',{code}),
@@ -87,6 +89,7 @@ export const api = {
   boardMembers: (id: string) => req<{ members: BoardMember[]; people: Person[] }>('GET', `/api/boards/${id}/members`),
   setBoardMember: (id: string, userId: string, level: Level) => req<{ members: BoardMember[] }>('PUT', `/api/boards/${id}/members/${userId}`, { level }),
   removeBoardMember: (id: string, userId: string) => req<{ members: BoardMember[] }>('DELETE', `/api/boards/${id}/members/${userId}`),
+  transferBoardOwner: (id: string, userId: string) => req<{ ok: boolean; ownerId: string; members: BoardMember[] }>('POST', `/api/boards/${id}/transfer-owner`, { userId }),
   workspaces: () => req<Workspace[]>('GET', '/api/workspaces'),
   createWorkspace: (w: { name: string; about?: string; visibility?: 'private' | 'company' }) => req<Workspace>('POST', '/api/workspaces', w),
   updateWorkspace: (id: string, w: Partial<{ name: string; about: string; visibility: 'private' | 'company' }>) => req('PUT', `/api/workspaces/${id}`, w),
@@ -95,6 +98,7 @@ export const api = {
   workspaceMembers: (id: string) => req<{ members: WorkspaceMember[]; people: Person[] }>('GET', `/api/workspaces/${id}/members`),
   setWorkspaceMember: (id: string, userId: string, level: Level) => req<{ members: WorkspaceMember[] }>('PUT', `/api/workspaces/${id}/members/${userId}`, { level }),
   removeWorkspaceMember: (id: string, userId: string) => req<{ members: WorkspaceMember[] }>('DELETE', `/api/workspaces/${id}/members/${userId}`),
+  transferWorkspaceOwner: (id: string, userId: string) => req<{ ok: boolean; ownerId: string; members: WorkspaceMember[] }>('POST', `/api/workspaces/${id}/transfer-owner`, { userId }),
   boardActivity: (id: string) => req<BoardActivity[]>('GET', `/api/boards/${id}/activity`),
   boardArchived: (id: string) => req<{ cards: (BoardCard & { listName: string })[]; lists: { id: string; name: string }[] }>('GET', `/api/boards/${id}/archived`),
   searchBoards: (q: string) => req<{ boards: BoardItem[]; cards: { id: string; title: string; boardId: string; boardName: string; boardBg: string; listName: string }[] }>('GET', `/api/boards-search?q=${encodeURIComponent(q)}`),
@@ -105,7 +109,7 @@ export const api = {
   starBoard: (id: string, on: boolean) => req('PUT', `/api/boards/${id}/star`, { on }),
   boardBackground: (id: string, bg: string) => req('PUT', `/api/boards/${id}/background`, { bg }),
   createList: (boardId: string, name: string) => req<BoardList>('POST', `/api/boards/${boardId}/lists`, { name }),
-  updateList: (id: string, l: Partial<{ name: string; index: number; archived: boolean; folded: boolean }>) => req('PUT', `/api/lists/${id}`, l),
+  updateList: (id: string, l: Partial<{ name: string; index: number; archived: boolean; folded: boolean; color: string | null }>) => req('PUT', `/api/lists/${id}`, l),
   sortList: (id: string, by: 'newest' | 'oldest' | 'name' | 'due') => req('POST', `/api/lists/${id}/sort`, { by }),
   moveListCards: (id: string, to: string) => req('POST', `/api/lists/${id}/move-cards`, { to }),
   archiveListCards: (id: string) => req<{ archived: string[]; kept: number }>('POST', `/api/lists/${id}/archive-cards`),
@@ -138,6 +142,20 @@ export const api = {
   updateInbox: (id: string, c: Partial<{ title: string; done: boolean; index: number }>) => req<InboxItem>('PUT', `/api/inbox/${id}`, c),
   deleteInbox: (id: string) => req('DELETE', `/api/inbox/${id}`),
   inboxToList: (id: string, listId: string, index: number) => req<BoardCard>('POST', `/api/inbox/${id}/to-list`, { listId, index }),
+  chatMessages: (channel: 'general' | 'dm' = 'general', recipientId?: string, since = 0) =>
+    req<ChatMessage[]>('GET', `/api/chat/messages?channel=${channel}${recipientId ? `&recipientId=${recipientId}` : ''}${since ? `&since=${since}` : ''}`),
+  sendChatMessage: (message: string, channel: 'general' | 'dm' = 'general', recipientId?: string) =>
+    req<ChatMessage>('POST', '/api/chat/messages', { message, channel, recipientId }),
+  chatMembers: () => req<ChatMember[]>('GET', '/api/chat/members'),
+  chatUnread: (since = 0) =>
+    req<{
+      unread: number;
+      general: number;
+      dms: Array<{ senderId: string; count: number; lastAt: number; senderName: string; senderEmail: string }>;
+    }>('GET', `/api/chat/unread${since ? `?since=${since}` : ''}`),
+  deleteChatMessage: (id: string) => req('DELETE', `/api/chat/messages/${id}`),
+  clearChatMessages: (channel: 'general' | 'dm' = 'general', recipientId?: string) =>
+    req('DELETE', `/api/chat/messages?channel=${channel}${recipientId ? `&recipientId=${recipientId}` : ''}`),
   planner: (from: number, to: number) => req<PlannerCard[]>('GET', `/api/planner?from=${from}&to=${to}`),
   syncTasksToBoard:()=>req<{total:number;created:number;linked:number;remaining:number}>('POST','/api/tasks/sync-board',{}),
   tasks: (q: { scope?: 'mine' | 'team' | 'all'; rel?: string; team?: string; person?: string; employee?:string; project?: string; campaign?:string; state?: string; q?: string }) =>
@@ -151,7 +169,7 @@ export const api = {
   renameCampaign:(project:string,id:string,name:string)=>req('PUT',`/api/task-projects/${project}/campaigns/${id}`,{name}),
   deleteCampaign:(project:string,id:string)=>req('DELETE',`/api/task-projects/${project}/campaigns/${id}`),
   renameTaskProject:(id:string,name:string)=>req<{ok:true;id:string;name:string}>('PUT',`/api/task-projects/${id}`,{name}),
-  updateTaskProject:(id:string,b:{name?:string;customerId?:string|null;teamId?:string|null})=>req<{ok:true;id:string;name:string;customerId:string|null;teamId:string|null}>('PUT',`/api/task-projects/${id}`,b),
+  updateTaskProject:(id:string,b:{name?:string;customerId?:string|null;teamId?:string|null;hold?:'paused'|'cancelled'|null})=>req<{ok:true;id:string;name:string;customerId:string|null;teamId:string|null}>('PUT',`/api/task-projects/${id}`,b),
   createTaskProject:(b:{name:string;customerId?:string|null;teamId?:string|null})=>req<{id:string;name:string;customerId:string|null;teamId:string|null}>('POST','/api/task-projects',b),
   deleteTaskProject:(id:string)=>req<{ok:true}>('DELETE',`/api/task-projects/${id}`),
   bulkDeleteTaskProjects:(ids:string[])=>req<{ok:true;deleted:number}>('POST','/api/task-projects/bulk-delete',{ids}),
@@ -256,6 +274,7 @@ export const api = {
   customerMembers:(id:string)=>req<CustomerMembersData>('GET',`/api/customers/${id}/members`),
   setCustomerMember:(id:string,userId:string,level:Level)=>req('PUT',`/api/customers/${id}/members/${userId}`,{level}),
   removeCustomerMember:(id:string,userId:string)=>req('DELETE',`/api/customers/${id}/members/${userId}`),
+  transferCustomerOwner:(id:string,userId:string)=>req<{ok:boolean;ownerId:string}>('POST',`/api/customers/${id}/transfer-owner`,{userId}),
   customerStatuses: () => req<import('./types').CustomerStatusOption[]>('GET', '/api/customers/statuses'),
   customerClassifications: () => req<{id:string;name:string;color:string;active:number}[]>('GET', '/api/customers/classifications'),
   customerSources: () => req<{id:string;name:string;color:string;active:number}[]>('GET', '/api/customers/sources'),

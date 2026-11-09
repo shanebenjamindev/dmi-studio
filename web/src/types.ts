@@ -149,10 +149,12 @@ export interface BoardItem {
    *  members when `memberEdit`. */
   id: string; name: string; bg: string; roleId: string | null; workspaceId: string; private: boolean; createdBy: string | null;
   starred: boolean; cards: number; taskCount?: number; updatedAt: number; level: Level; memberEdit: boolean; canShape: boolean; labelText: boolean;
+  /** Who is on it (its maker, then the people added), in the board list only. */
+  people?: { id: string; name: string; avatarAt?: number | null }[];
 }
 export interface BoardLabel { id: string; name: string; color: string }
 /** Someone who sees the board; `added`: given a level on the board itself (not just through its workspace or role). */
-export interface BoardMember extends Person { level?: Level; added?: boolean }
+export interface BoardMember extends Person { level?: Level; added?: boolean; auto?: boolean; owner?: boolean }
 /** The front of a card on the board: what it shows (`checks`: [done, total] of its checklist items). */
 export interface BoardCard {
   kind?: 'customer' | 'project' | 'task'; projectCardId?: string | null;
@@ -162,7 +164,7 @@ export interface BoardCard {
   projectId?: string | null; projectName?: string | null;
 }
 /** `folded`: shown as a narrow strip, for everyone (set by whoever may change the board). */
-export interface BoardList { id: string; name: string; folded?: boolean; cards: BoardCard[] }
+export interface BoardList { id: string; name: string; folded?: boolean; color?: string | null; cards: BoardCard[] }
 export interface Board extends BoardItem { about: string; labels: BoardLabel[]; members: BoardMember[]; lists: BoardList[] }
 export interface BoardActivity { id: string; cardId: string | null; cardTitle: string; userId: string; userName: string; action: string; data: any; createdAt: number }
 /** A link on a card, or a video of its customer's folder (`key`: the file there, `customerId`: whose folder). */
@@ -177,7 +179,7 @@ export interface TaskItem {
   canDelete?: boolean;
   id: string; externalId: string | null; title: string; status: string; state: TaskState; startAt: number | null; dueAt: number | null; doneAt: number | null;
   project: { id: string; name: string; customerId: string | null } | null; parent: { id: string; title: string } | null; children: number;
-  createdBy: { id: string; name: string } | null; assignees: TaskPerson[]; followers: { id: string; name: string; avatarAt?: number | null }[]; labels: string[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number;
+  createdBy: { id: string; name: string } | null; assignees: TaskPerson[]; cardPeople?: TaskPerson[]; followers: { id: string; name: string; avatarAt?: number | null }[]; labels: string[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number;
 }
 export interface TaskDetail extends TaskItem {
   statuses?: string[];
@@ -186,7 +188,7 @@ export interface TaskDetail extends TaskItem {
 export interface TaskMeta {
   campaigns:TaskCampaign[]; teams:{id:string;name:string;color:string}[];
   workTeams?:{id:string;name:string;color:string;departmentId:string|null;memberIds:string[];leaderIds:string[]}[];
-  people: (TaskPerson & { userName: string | null; tasks: number })[]; projects: { id: string; name: string; customerId: string | null; customerName?: string | null; teamId:string|null;createdBy:string|null;level:Level;tasks: number; completed?: number; overdue?: number; assignees?: TaskPerson[] }[];
+  people: (TaskPerson & { userName: string | null; tasks: number })[]; projects: { id: string; name: string; customerId: string | null; customerName?: string | null; teamId:string|null;createdBy:string|null;level:Level;tasks: number; completed?: number; overdue?: number; assignees?: TaskPerson[]; stage?: import('../../shared/projects').ProjectStage; hold?: import('../../shared/projects').ProjectHold | null }[];
   mine: string[]; statuses: string[]; users: { id: string; name: string; email: string; teamId: string | null; workTeamIds?: string[] }[];
   imports: { id: string; rows: number; created: number; updated: number; at: number; by: string; sourceName: string; hasSheet: boolean }[];
 }
@@ -217,6 +219,26 @@ export interface AdsReport {
 export interface AdsSettings { metaToken: string; metaConnected: boolean; metaVersion: string; who?: { name: string; accounts: number } | null }
 /** A card in someone's own inbox (Workspace ▸ Inbox): jotted down, then dragged onto a board. */
 export interface InboxItem { id: string; title: string; done: boolean; createdAt: number }
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderEmail: string;
+  recipientId: string | null;
+  channel: 'general' | 'dm';
+  message: string;
+  createdAt: number;
+  isMe: boolean;
+}
+export interface ChatMember {
+  id: string;
+  name: string;
+  email: string;
+  teamRole?: string | null;
+  lastMessage?: string | null;
+  lastAt?: number | null;
+  lastActive?: number | null;
+}
 /** One of someone's cards with a date, for the planner (Workspace ▸ Planner). */
 export interface PlannerCard { id: string; title: string; boardId: string; boardName: string; boardBg: string; listName: string; dueAt: number | null; startAt: number | null; done: boolean; canEdit: boolean }
 /** A card for a customer, with its videos (the Drive page's overview). */

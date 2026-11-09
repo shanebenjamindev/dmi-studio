@@ -1,3 +1,4 @@
+import { defaultCustomerStatus } from './customer-statuses';
 import {assertTaskDelete,removeCardRecord,removeTaskRecord,removeProjectRecord,syncProjectCards} from './work-sync';
 import {grantAccess,requireProject} from './project-access';
 import {customerLevels,customerAccessSql,requireCustomer,visibleCardIds} from './customer-access';
@@ -132,10 +133,11 @@ export async function boardLevelForUser(u: any, b: any) {
   return boardLevel(u, b, ws, wm, bm);
 }
 /** One person's level on every board at once (board list, search). */
-async function levels(u: any) {
-  const spaces = new Map((await all<any>('SELECT * FROM workspaces')).map((w) => [w.id, w]));
-  const wm = new Map((await all<any>('SELECT workspace_id, role FROM workspace_members WHERE user_id = ?', u.id)).map((r) => [r.workspace_id, r.role]));
-  const bm = new Map((await all<any>('SELECT board_id, role FROM board_members WHERE user_id = ?', u.id)).map((r) => [r.board_id, r.role]));
+export async function levels(u: any) {
+  const [workspaces, mineWs, mineBoards] = await Promise.all([all<any>('SELECT * FROM workspaces'), all<any>('SELECT workspace_id, role FROM workspace_members WHERE user_id = ?', u.id), all<any>('SELECT board_id, role FROM board_members WHERE user_id = ?', u.id)]);
+  const spaces = new Map(workspaces.map((w) => [w.id, w]));
+  const wm = new Map(mineWs.map((r) => [r.workspace_id, r.role]));
+  const bm = new Map(mineBoards.map((r) => [r.board_id, r.role]));
   return (b: any) => (b.workspace_id && !spaces.has(b.workspace_id) ? null : boardLevel(u, b, b.workspace_id ? spaces.get(b.workspace_id) : null, wm.get(b.workspace_id), bm.get(b.id)));
 }
 const DENIED: Record<BoardLevel, string> = { viewer: 'Không tìm thấy board', observer: 'Bạn chỉ có quyền xem board này, không bình luận được', normal: 'Bạn chỉ có quyền xem board này', admin: 'Chỉ quản lý board mới làm được việc này' };
@@ -484,6 +486,35 @@ export function registerBoards(api: Router) {
     await run('DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?', w.id, req.params.userId);
     json(res, 200, { members: self ? [] : await wsMembers(w) });
   });
+  api.post('/api/workspaces/:id/transfer-owner', async (req, res) => {
+    const user = await me(req);
+    const w = await mustWorkspace(req, req.params.id, 'admin');
+    if (w.id === COMPANY) throw new HttpError(400, 'Không thể chuyển quyền workspace công ty');
+    if (w.owner_id !== user.id && user.role !== 'admin') {
+      throw new HttpError(403, 'Chỉ chủ sở hữu workspace hoặc quản trị viên mới được chuyển quyền');
+    }
+    const body = await readJson(req);
+    const newOwnerId = String(body.userId || '').trim();
+    if (!newOwnerId) throw new HttpError(400, 'Thiếu thông tin người nhận quyền');
+    const newOwner = await get<any>('SELECT id, name FROM users WHERE id = ? AND disabled = 0', newOwnerId);
+    if (!newOwner) throw new HttpError(404, 'Không tìm thấy nhân viên');
+    const oldOwnerId = w.owner_id;
+    const t = now();
+    if (oldOwnerId && oldOwnerId !== newOwnerId) {
+      await run("INSERT INTO workspace_members(workspace_id, user_id, role, added_by, created_at) VALUES (?, ?, 'admin', ?, ?) ON CONFLICT(workspace_id, user_id) DO UPDATE SET role = 'admin'", w.id, oldOwnerId, user.id, t);
+    }
+    await run("INSERT INTO workspace_members(workspace_id, user_id, role, added_by, created_at) VALUES (?, ?, 'admin', ?, ?) ON CONFLICT(workspace_id, user_id) DO UPDATE SET role = 'admin'", w.id, newOwnerId, user.id, t);
+    await run('UPDATE workspaces SET owner_id = ?, updated_at = ? WHERE id = ?', newOwnerId, t, w.id);
+    await run("INSERT INTO board_members(board_id, user_id, role, added_by, created_at) SELECT id, ?, 'admin', ?, ? FROM boards WHERE workspace_id = ? ON CONFLICT(board_id, user_id) DO UPDATE SET role = 'admin'", newOwnerId, user.id, t, w.id);
+    if (newOwnerId !== user.id) {
+      await notifyPeople([newOwnerId], user.id, {
+        title: 'Bạn đã trở thành chủ sở hữu workspace',
+        body: w.name,
+        link: '#boards',
+      });
+    }
+    json(res, 200, { ok: true, ownerId: newOwnerId, members: await wsMembers({ ...w, owner_id: newOwnerId }) });
+  });
 
   // ---------------------------------------------------------------- boards
   api.get('/api/boards', async (req, res) => {
@@ -491,7 +522,12 @@ export function registerBoards(api: Router) {
     const u = await me(req), level = await levels(u);
     const stars = new Set((await all<any>('SELECT board_id FROM board_stars WHERE user_id = ?', u.id)).map((r) => r.board_id));
     const rows = await all<any>('SELECT b.*, k.name customer_name, (SELECT COUNT(*) FROM board_cards c WHERE c.board_id = b.id AND c.archived = 0) cards, (SELECT COUNT(*) FROM board_cards c WHERE c.board_id=b.id AND COALESCE(c.card_kind,\'task\')=\'task\') task_count FROM boards b LEFT JOIN customers k ON k.id = b.customer_id ORDER BY b.pos');
-    json(res, 200, rows.map((b) => [b, level(b)] as const).filter(([, l]) => l).map(([b, l]) => boardOut(b, stars.has(b.id), b.cards, l)));
+    // Who is on each board, for its tile: its maker first, then the people added to it.
+    const users = new Map((await all<any>('SELECT id, name, avatar_at FROM users WHERE disabled = 0')).map((x) => [x.id, { id: x.id, name: x.name, avatarAt: x.avatar_at ?? null }]));
+    const added = new Map<string, string[]>();
+    for (const r of await all<any>('SELECT board_id, user_id FROM board_members ORDER BY created_at')) added.set(r.board_id, [...(added.get(r.board_id) || []), r.user_id]);
+    const people = (b: any) => [...new Set([b.created_by, ...(added.get(b.id) || [])])].map((id) => users.get(id)).filter(Boolean);
+    json(res, 200, rows.map((b) => [b, level(b)] as const).filter(([, l]) => l).map(([b, l]) => ({ ...boardOut(b, stars.has(b.id), b.cards, l), people: people(b) })));
   });
   /** A workspace boards may go to: the company's (null) or one this account edits in. */
   const workspaceFor = async (req: Req, id: any) => (id && id !== COMPANY ? (await mustWorkspace(req, String(id), 'normal')).id as string : null);
@@ -526,7 +562,7 @@ export function registerBoards(api: Router) {
     const u = await me(req), b = await mustBoard(req, req.params.id, 'viewer');
     if (!(await get('SELECT id FROM board_labels WHERE board_id = ?', b.id))) await defaultLabels(b.id); // boards made before labels existed
     const [lists, cards, taskCountRow, starredRow, labels, members] = await Promise.all([
-      all<any>('SELECT id, name, folded FROM board_lists WHERE board_id = ? AND archived = 0 ORDER BY pos', b.id),
+      all<any>('SELECT id, name, folded, color FROM board_lists WHERE board_id = ? AND archived = 0 ORDER BY pos', b.id),
       fronts(b.id, 0, u.id),
       get<any>("SELECT COUNT(*) n FROM board_cards WHERE board_id=? AND COALESCE(card_kind,'task')='task'", b.id),
       get('SELECT 1 x FROM board_stars WHERE user_id = ? AND board_id = ?', u.id, b.id),
@@ -538,7 +574,7 @@ export function registerBoards(api: Router) {
       ...boardOut(b, !!starredRow, cards.length), about: b.about || '',
       labels,
       members,
-      lists: lists.map((l) => ({ id: l.id, name: l.name, folded: !!l.folded, cards: cards.filter((c) => c.listId === l.id) })),
+      lists: lists.map((l) => ({ id: l.id, name: l.name, folded: !!l.folded, color: l.color || null, cards: cards.filter((c) => c.listId === l.id) })),
     });
   });
   // Name, background, how labels show and the description: whoever may change the board. Who sees it (role, private,
@@ -635,6 +671,32 @@ export function registerBoards(api: Router) {
     await log(b.id, null, u.id, 'board.member', { name: who?.name || '', level: null, self });
     json(res, 200, { members: await membersOf(b) });
   });
+  api.post('/api/boards/:id/transfer-owner', async (req, res) => {
+    const user = await me(req);
+    const b = await mustBoard(req, req.params.id, 'admin');
+    const isAdmin = user.role === 'admin' || b.created_by === user.id || b.level === 'admin';
+    if (!isAdmin) throw new HttpError(403, 'Chỉ chủ board hoặc quản trị viên mới được chuyển quyền');
+    const body = await readJson(req);
+    const newOwnerId = String(body.userId || '').trim();
+    if (!newOwnerId) throw new HttpError(400, 'Thiếu thông tin người nhận quyền');
+    const newOwner = await get<any>('SELECT id, name FROM users WHERE id = ? AND disabled = 0', newOwnerId);
+    if (!newOwner) throw new HttpError(404, 'Không tìm thấy nhân viên');
+    const oldOwnerId = b.created_by;
+    const t = now();
+    if (oldOwnerId && oldOwnerId !== newOwnerId) {
+      await run("INSERT INTO board_members(board_id, user_id, role, added_by, created_at) VALUES (?, ?, 'admin', ?, ?) ON CONFLICT(board_id, user_id) DO UPDATE SET role = 'admin'", b.id, oldOwnerId, user.id, t);
+    }
+    await run("INSERT INTO board_members(board_id, user_id, role, added_by, created_at) VALUES (?, ?, 'admin', ?, ?) ON CONFLICT(board_id, user_id) DO UPDATE SET role = 'admin'", b.id, newOwnerId, user.id, t);
+    await run('UPDATE boards SET created_by = ?, updated_at = ? WHERE id = ?', newOwnerId, t, b.id);
+    if (newOwnerId !== user.id) {
+      await notifyPeople([newOwnerId], user.id, {
+        title: 'Bạn đã trở thành chủ board',
+        body: b.name,
+        link: `#boards/${b.id}`,
+      });
+    }
+    json(res, 200, { ok: true, ownerId: newOwnerId, members: await membersOf({ ...b, created_by: newOwnerId }) });
+  });
   api.get('/api/boards/:id/activity',async(req,res)=>{const b=await mustBoard(req,req.params.id,'viewer'),visible=await visibleCardIds((await me(req)).id);json(res,200,(await activityOf('board_id',b.id,100)).filter(a=>!a.cardId||visible.has(a.cardId)));});
   api.get('/api/boards/:id/archived', async (req, res) => {
     const b = await mustBoard(req, req.params.id, 'viewer');
@@ -681,6 +743,7 @@ export function registerBoards(api: Router) {
   api.put('/api/lists/:id', async (req, res) => {
     const l = await mustShapeList(req, req.params.id), b = await readJson(req), u = await me(req);
     if (b.folded !== undefined) await run('UPDATE board_lists SET folded = ? WHERE id = ?', b.folded ? 1 : 0, l.id);
+    if (b.color !== undefined) await run('UPDATE board_lists SET color = ? WHERE id = ?', COLORS.includes(b.color) ? b.color : null, l.id);
     if (b.name !== undefined) {
       const cards=await all<any>('SELECT id FROM board_cards WHERE list_id=?',l.id);
       for(const c of cards) await assertLinkedTaskEditable(c.id,u.id);
@@ -795,7 +858,7 @@ export function registerBoards(api: Router) {
         let cust = await get<any>('SELECT id FROM customers WHERE LOWER(name) = LOWER(?)', title);
         if (!cust) {
           const custId = uid('cust_');
-          await run('INSERT INTO customers(id, name, created_by, created_at, updated_at) VALUES(?,?,?,?,?)', custId, title, u.id, t, t);
+          await run('INSERT INTO customers(id, name, created_by, status, created_at, updated_at) VALUES(?,?,?,?,?,?)', custId, title, u.id, await defaultCustomerStatus(), t, t);
           cust = { id: custId };
         }
         customerId = cust.id;
@@ -1200,6 +1263,150 @@ export function registerBoards(api: Router) {
     await touch(l.board_id);
     json(res, 201, (await fronts(l.board_id,0,(await me(req)).id)).find((c) => c.id === id));
   });
+  // Chat between workspace members (General channel or Direct Messages)
+  api.get('/api/chat/messages', async (req, res) => {
+    const u = await me(req);
+    const channel = req.query.get('channel') || 'general';
+    const recipientId = req.query.get('recipientId') || '';
+    const since = Number(req.query.get('since')) || 0;
+    let rows: any[];
+    if (channel === 'dm' && recipientId) {
+      rows = await all<any>(
+        `SELECT m.*, u.name sender_name, u.email sender_email
+         FROM chat_messages m
+         JOIN users u ON u.id = m.sender_id
+         WHERE m.channel = 'dm'
+           AND ((m.sender_id = ? AND m.recipient_id = ?) OR (m.sender_id = ? AND m.recipient_id = ?))
+           AND m.created_at > ?
+         ORDER BY m.created_at ASC LIMIT 100`,
+        u.id, recipientId, recipientId, u.id, since
+      );
+    } else {
+      rows = await all<any>(
+        `SELECT m.*, u.name sender_name, u.email sender_email
+         FROM chat_messages m
+         JOIN users u ON u.id = m.sender_id
+         WHERE m.channel = 'general'
+           AND m.created_at > ?
+         ORDER BY m.created_at ASC LIMIT 100`,
+        since
+      );
+    }
+    json(res, 200, rows.map((r) => ({
+      id: r.id,
+      senderId: r.sender_id,
+      senderName: r.sender_name,
+      senderEmail: r.sender_email,
+      recipientId: r.recipient_id,
+      channel: r.channel,
+      message: r.message,
+      createdAt: r.created_at,
+      isMe: r.sender_id === u.id,
+    })));
+  });
+
+  api.get('/api/chat/unread', async (req, res) => {
+    const u = await me(req);
+    await run('UPDATE users SET updated_at = ? WHERE id = ?', now(), u.id).catch(() => {});
+    const since = Number(req.query.get('since')) || 0;
+
+    const genRow = await get<any>(
+      `SELECT COUNT(*) c FROM chat_messages
+       WHERE channel = 'general' AND sender_id != ? AND created_at > ?`,
+      u.id, since
+    );
+
+    const dmRows = await all<any>(
+      `SELECT m.sender_id senderId, COUNT(*) c, MAX(m.created_at) lastAt, u.name senderName, u.email senderEmail
+       FROM chat_messages m
+       JOIN users u ON u.id = m.sender_id
+       WHERE m.channel = 'dm' AND m.recipient_id = ?
+       GROUP BY m.sender_id`,
+      u.id
+    );
+
+    const generalUnread = Number(genRow?.c) || 0;
+    const dmUnreadTotal = dmRows.reduce((acc, r) => acc + (Number(r.c) || 0), 0);
+
+    json(res, 200, {
+      unread: generalUnread + dmUnreadTotal,
+      general: generalUnread,
+      dms: dmRows.map((r) => ({
+        senderId: r.senderId,
+        count: Number(r.c) || 0,
+        lastAt: Number(r.lastAt) || 0,
+        senderName: r.senderName,
+        senderEmail: r.senderEmail,
+      })),
+    });
+  });
+
+  api.post('/api/chat/messages', async (req, res) => {
+    const u = await me(req), b = await readJson(req);
+    const msg = String(b.message || '').trim();
+    if (!msg) throw new HttpError(400, 'Tin nhắn không được để trống');
+    const channel = b.channel === 'dm' ? 'dm' : 'general';
+    const recipientId = channel === 'dm' ? String(b.recipientId || '').trim() : null;
+    if (channel === 'dm' && !recipientId) throw new HttpError(400, 'Thiếu thông tin người nhận');
+    const id = uid('msg_'), t = now();
+    await run('INSERT INTO chat_messages(id, sender_id, recipient_id, channel, message, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, u.id, recipientId, channel, msg, t);
+    // Tự động dọn dẹp tin nhắn cũ hơn 60 ngày để tối ưu dung lượng DB
+    await run('DELETE FROM chat_messages WHERE created_at < ?', t - 60 * 864e5).catch(() => {});
+    json(res, 201, {
+      id,
+      senderId: u.id,
+      senderName: u.name,
+      senderEmail: u.email,
+      recipientId,
+      channel,
+      message: msg,
+      createdAt: t,
+      isMe: true,
+    });
+  });
+
+  api.delete('/api/chat/messages/:id', async (req, res) => {
+    const u = await me(req);
+    const msg = await get<any>('SELECT * FROM chat_messages WHERE id = ?', req.params.id);
+    if (!msg) throw new HttpError(404, 'Không tìm thấy tin nhắn');
+    if (msg.sender_id !== u.id && u.role !== 'admin') throw new HttpError(403, 'Chỉ người gửi hoặc quản trị viên mới được xoá tin nhắn này');
+    await run('DELETE FROM chat_messages WHERE id = ?', msg.id);
+    json(res, 200, { ok: true });
+  });
+
+  api.delete('/api/chat/messages', async (req, res) => {
+    const u = await me(req);
+    const channel = req.query.get('channel') || 'general';
+    const recipientId = req.query.get('recipientId') || '';
+    if (channel === 'general') {
+      if (u.role !== 'admin') throw new HttpError(403, 'Chỉ quản trị viên mới được xoá toàn bộ lịch sử Kênh chung');
+      await run("DELETE FROM chat_messages WHERE channel = 'general'");
+    } else if (channel === 'dm' && recipientId) {
+      await run(
+        "DELETE FROM chat_messages WHERE channel = 'dm' AND ((sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?))",
+        u.id, recipientId, recipientId, u.id
+      );
+    } else {
+      throw new HttpError(400, 'Thiếu thông tin cuộc trò chuyện cần xoá');
+    }
+    json(res, 200, { ok: true });
+  });
+
+  api.get('/api/chat/members', async (req, res) => {
+    const u = await me(req);
+    await run('UPDATE users SET updated_at = ? WHERE id = ?', now(), u.id).catch(() => {});
+    const users = await all<any>(
+      `SELECT u.id, u.name, u.email, u.team_role teamRole,
+              MAX(COALESCE(u.updated_at, 0), COALESCE(u.last_login, 0), COALESCE((SELECT MAX(created_at) FROM chat_messages WHERE sender_id = u.id), 0)) lastActive,
+              (SELECT message FROM chat_messages m WHERE m.channel = 'dm' AND ((m.sender_id = u.id AND m.recipient_id = ?) OR (m.sender_id = ? AND m.recipient_id = u.id)) ORDER BY m.created_at DESC LIMIT 1) lastMessage,
+              (SELECT created_at FROM chat_messages m WHERE m.channel = 'dm' AND ((m.sender_id = u.id AND m.recipient_id = ?) OR (m.sender_id = ? AND m.recipient_id = u.id)) ORDER BY m.created_at DESC LIMIT 1) lastAt
+       FROM users u
+       WHERE u.disabled = 0 AND u.id != ?
+       ORDER BY CASE WHEN lastAt IS NOT NULL THEN 0 ELSE 1 END, lastAt DESC, u.name COLLATE NOCASE`,
+      u.id, u.id, u.id, u.id, u.id
+    );
+    json(res, 200, users);
+  });
   // The planner: this person's cards (made by them or with them on it) with a start or due date in [from, to), on the
   // boards they see.
   api.get('/api/planner', async (req, res) => {
@@ -1219,7 +1426,7 @@ export function registerBoards(api: Router) {
 
   // ---------------------------------------------------------------- customers' tasks
   /** The customers a card can be for (names only: anyone who edits cards picks one). */
-  api.get('/api/boards-customers',async(req,res)=>{const u=await me(req);json(res,200,await all(`SELECT c.id,c.name FROM customers c WHERE ${customerAccessSql()} ORDER BY c.name`,u.id,u.id,u.id));});
+  api.get('/api/boards-customers',async(req,res)=>{const u=await me(req);json(res,200,await all(`SELECT c.id,c.name FROM customers c WHERE ${customerAccessSql()} ORDER BY c.name COLLATE NOCASE`,u.id,u.id,u.id));});
   // Every card for a customer (or for `?customer=` only) on the boards this account sees, with its result files: the
   // overview on the Drive page, and on each file of a customer's folder, the cards it is a result of.
   api.get('/api/customer-tasks', async (req, res) => {

@@ -5,8 +5,9 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { toast } from '../store';
 import { Icon } from './ui';
-import { Pop, dueState } from './boardkit';
-import type { BoardItem, InboxItem, PlannerCard, Workspace } from '../types';
+import { dueState } from './boardkit';
+import type { BoardItem, PlannerCard, Workspace } from '../types';
+import { useMessengerState } from './Messenger';
 
 /** What is being dragged from one panel to another: an inbox item (onto a list) or a board card (onto a planner day). */
 export const dragged: { inbox: { id: string; h: number } | null; card: { id: string; dueAt: number | null; startAt: number | null } | null } = { inbox: null, card: null };
@@ -26,103 +27,7 @@ export function useChanged(what: Topic, f: () => void) {
 }
 
 export type Panels = { inbox: boolean; planner: boolean; board: boolean };
-export const PANEL_NAME: Record<keyof Panels, string> = { inbox: 'Inbox', planner: 'Planner', board: 'Board' };
-
-// ---------------------------------------------------------------- inbox
-export function InboxPanel({ onHide }: { onHide: () => void }) {
-  const [items, setItems] = useState<InboxItem[] | null>(null);
-  const [text, setText] = useState('');
-  const [edit, setEdit] = useState<{ id: string; title: string } | null>(null);
-  const [hideDone, setHideDone] = useState(false);
-  const [menu, setMenu] = useState<HTMLElement | null>(null);
-  const [drag, setDrag] = useState<string | null>(null);
-  const [ph, setPh] = useState<number | null>(null);
-  const phRef = useRef<number | null>(null);
-  const load = () => api.inbox().then(setItems).catch((e) => toast(e.message, true));
-  useEffect(() => { load(); }, []);
-  useChanged('inbox', load);
-  const act = async (fn: () => Promise<unknown>) => { try { await fn(); } catch (e: any) { toast(e.message, true); } load(); };
-  const add = () => {
-    const t = text.trim();
-    if (!t) return;
-    setText('');
-    act(async () => { const x = await api.addInbox(t, true); setItems((l) => [x, ...(l || [])]); });
-  };
-  const save = () => {
-    const e = edit, t = e?.title.trim();
-    setEdit(null);
-    if (!e || !t || t === items?.find((x) => x.id === e.id)?.title) return;
-    setItems((l) => l && l.map((x) => (x.id === e.id ? { ...x, title: t } : x)));
-    act(() => api.updateInbox(e.id, { title: t }));
-  };
-  const shown = (items || []).filter((x) => !hideDone || !x.done);
-  const doneCount = (items || []).filter((x) => x.done).length;
-  const end = () => { dragged.inbox = null; setDrag(null); setPh(null); phRef.current = null; };
-  const over = (e: React.DragEvent<HTMLElement>) => {
-    if (!dragged.inbox) return;
-    e.preventDefault();
-    const els = [...e.currentTarget.querySelectorAll<HTMLElement>('[data-inbox]')].filter((el) => el.dataset.inbox !== dragged.inbox!.id);
-    let i = els.findIndex((el) => { const r = el.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
-    if (i < 0) i = els.length;
-    if (phRef.current !== i) { phRef.current = i; setPh(i); }
-  };
-  const drop = (e: React.DragEvent) => {
-    const d = dragged.inbox, to = phRef.current;
-    if (!d || to === null) return;
-    e.preventDefault();
-    end();
-    // The place among the items shown becomes the place among all of them.
-    const rest = (items || []).filter((x) => x.id !== d.id), anchor = rest.filter((x) => !hideDone || !x.done)[to];
-    const index = anchor ? rest.indexOf(anchor) : rest.length;
-    setItems((l) => { if (!l) return l; const x = l.find((y) => y.id === d.id)!, r = l.filter((y) => y.id !== d.id); r.splice(index, 0, x); return r; });
-    act(() => api.updateInbox(d.id, { index }));
-  };
-  const rows = shown.map((x) => (
-    <li key={x.id} data-inbox={x.id} className={'bp-item' + (x.done ? ' done' : '') + (drag === x.id ? ' dragging' : '')} draggable={edit?.id !== x.id}
-      onDragStart={(e) => { dragged.inbox = { id: x.id, h: e.currentTarget.offsetHeight }; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', x.title); setTimeout(() => setDrag(x.id), 0); }}
-      onDragEnd={end}>
-      <button className={'bp-mark' + (x.done ? ' on' : '')} onClick={() => { setItems((l) => l && l.map((y) => (y.id === x.id ? { ...y, done: !x.done } : y))); act(() => api.updateInbox(x.id, { done: !x.done })); }}
-        aria-label={x.done ? 'Bỏ đánh dấu hoàn thành' : 'Đánh dấu hoàn thành'}>{x.done && <Icon name="check" size={11} />}</button>
-      {edit?.id === x.id
-        ? <textarea className="bp-edit" autoFocus rows={2} value={edit.title} onChange={(e) => setEdit({ id: x.id, title: e.target.value })} onBlur={save}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); } if (e.key === 'Escape') setEdit(null); }} />
-        : <span className="bp-title" onClick={() => setEdit({ id: x.id, title: x.title })} title="Sửa">{x.title}</span>}
-      <button className="bp-x" onClick={() => { setItems((l) => l && l.filter((y) => y.id !== x.id)); act(() => api.deleteInbox(x.id)); }} aria-label="Xoá thẻ"><Icon name="x" size={13} /></button>
-    </li>
-  ));
-  if (ph !== null) {
-    let seen = 0, at = rows.length;
-    for (let i = 0; i < shown.length; i++) { if (shown[i].id === drag) continue; if (seen === ph) { at = i; break; } seen++; }
-    rows.splice(at, 0, <li key="ph" className="bp-ph" style={{ height: dragged.inbox?.h || 40 }} />);
-  }
-  return (
-    <aside className="bp-panel bp-inbox" aria-label="Inbox">
-      <header className="bp-head">
-        <Icon name="inbox" size={18} /><h2>Inbox</h2>
-        <button className={'bd-icon' + (hideDone ? ' on' : '')} onClick={() => setHideDone(!hideDone)} aria-pressed={hideDone} title={hideDone ? 'Hiện thẻ đã xong' : 'Ẩn thẻ đã xong'}><Icon name="filter" size={15} /></button>
-        <button className="bd-icon" onClick={(e) => setMenu(menu ? null : e.currentTarget)} aria-label="Thao tác với Inbox"><Icon name="more" size={15} /></button>
-      </header>
-      <form className="bp-add" onSubmit={(e) => { e.preventDefault(); add(); }}>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Thêm thẻ" aria-label="Thêm thẻ vào Inbox" />
-      </form>
-      <ul className="bp-list" onDragOver={over} onDrop={drop}>
-        {items === null ? <li className="bp-note">Đang tải…</li> : rows}
-        {items && !shown.length && ph === null && <li className="bp-note">{items.length ? 'Mọi thẻ đã xong.' : 'Ghi nhanh việc cần làm ở đây, rồi kéo thẻ sang một danh sách để đưa lên board.'}</li>}
-      </ul>
-      <p className="bp-foot"><Icon name="info" size={13} />Kéo thẻ sang danh sách trên board để giao việc.</p>
-      {menu && (
-        <Pop anchor={menu} title="Inbox" onClose={() => setMenu(null)}>
-          <div className="bk-menu">
-            <button disabled={!doneCount} onClick={() => { setMenu(null); const done = (items || []).filter((x) => x.done); setItems((l) => l && l.filter((x) => !x.done)); act(() => Promise.all(done.map((x) => api.deleteInbox(x.id)))); }}>
-              <Icon name="trash" size={15} />Xoá {doneCount || ''} thẻ đã xong
-            </button>
-            <button onClick={() => { setMenu(null); onHide(); }}><Icon name="left" size={15} />Ẩn Inbox</button>
-          </div>
-        </Pop>
-      )}
-    </aside>
-  );
-}
+export const PANEL_NAME: Record<keyof Panels, string> = { inbox: 'Tin nhắn', planner: 'Planner', board: 'Board' };
 
 // ---------------------------------------------------------------- planner
 const DAY = 864e5;
@@ -208,12 +113,22 @@ export function PlannerPanel({ bgOf, onOpen, onHide }: { bgOf: (k: string) => st
 
 // ---------------------------------------------------------------- the dock and "Switch boards"
 export function Dock({ panels, onToggle, onSwitch, switching }: { panels: Panels; onToggle: (k: keyof Panels) => void; onSwitch: () => void; switching: boolean }) {
-  const icon: Record<keyof Panels, string> = { inbox: 'inbox', planner: 'calendar', board: 'boards' };
+  const icon: Record<keyof Panels, string> = { inbox: 'messenger', planner: 'calendar', board: 'boards' };
+  const msg = useMessengerState();
+  const totalUnread = Object.values(msg.unreadMap).reduce((a, b) => a + b, 0);
+  const isInboxOpen = msg.openWindows.length > 0;
   return (
     <nav className="bd-dock" aria-label="Bảng điều khiển">
-      {(Object.keys(icon) as (keyof Panels)[]).map((k) => (
-        <button key={k} className={panels[k] ? 'on' : ''} aria-pressed={panels[k]} onClick={() => onToggle(k)}><Icon name={icon[k]} size={16} />{PANEL_NAME[k]}</button>
-      ))}
+      {(Object.keys(icon) as (keyof Panels)[]).map((k) => {
+        const active = k === 'inbox' ? isInboxOpen : panels[k];
+        return (
+          <button key={k} className={active ? 'on' : ''} aria-pressed={active} onClick={() => onToggle(k)}>
+            <Icon name={icon[k]} size={16} />
+            {k === 'inbox' ? 'Messenger' : PANEL_NAME[k]}
+            {k === 'inbox' && totalUnread > 0 && <span className="bd-dock-badge">{totalUnread > 9 ? '9+' : totalUnread}</span>}
+          </button>
+        );
+      })}
       <span className="bd-dock-sep" />
       <button className={switching ? 'on' : ''} onClick={onSwitch}><Icon name="grid" size={16} />Đổi board</button>
     </nav>

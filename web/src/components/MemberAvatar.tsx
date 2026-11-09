@@ -4,6 +4,7 @@ import {Avatar, Pop, fileToAvatarDataUrl, hasUserAvatar, notifyAvatarChanged} fr
 import {api} from '../api';
 import {setState, useStore, openProfile} from '../store';
 import {Icon} from './ui';
+import {openConversation} from './Messenger';
 
 export type MemberPerson={id:string;name:string;email?:string;userId?:string|null};
 /** Avatar opens the person's card; the adjacent + button remains the member picker. */
@@ -74,6 +75,7 @@ export function MemberAvatar({person,size=32,onRemove,onUpdated}:{person:MemberP
           <div className="member-profile-actions"><button type="submit" className="btn btn-primary btn-sm" disabled={busy||!name.trim()}>{busy?'Đang lưu…':'Lưu'}</button><button type="button" className="btn btn-gray btn-sm" disabled={busy} onClick={()=>setEditing(false)}>Huỷ</button></div>
         </form>:<>
           {accountId&&<button type="button" className="member-profile-action" onClick={()=>{close();openProfile(accountId!);}}>Xem hồ sơ</button>}
+          {accountId&&me?.id!==accountId&&<button type="button" className="member-profile-action member-profile-msg" onClick={()=>{close();openConversation(accountId,{id:accountId,name:member.name,email:member.email||''},me?.id);}}><Icon name="messenger" size={14}/> Gửi tin nhắn</button>}
           {me?.id===accountId&&<button type="button" className="member-profile-action" disabled={busy} onClick={()=>fileRef.current?.click()}>Đổi ảnh đại diện</button>}
           {me?.id===accountId&&(hasUserAvatar(accountId)||!!me?.avatarAt)&&<button type="button" className="member-profile-action" disabled={busy} onClick={()=>void removeAvatar()}>Gỡ ảnh đại diện</button>}
           {me?.id===accountId&&<button type="button" className="member-profile-action" disabled={busy} onClick={()=>{setName(member.name);setPhone(me?.phone||'');setEditing(true);}}>Sửa thông tin cá nhân</button>}

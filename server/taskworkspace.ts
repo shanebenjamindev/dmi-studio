@@ -7,7 +7,8 @@ import { all, get, getSetting, setSetting, run, now } from './db';
 import { USER_SQL,deptLevel } from './auth';
 import { taskBoardCategory, type TaskBoardCategory } from '../shared/task-routing';
 import { boardLevelForUser } from './boards';
-import { syncTaskToCard } from './tasklinks';
+import { columnFor, syncTaskToCard } from './tasklinks';
+import { statusKey } from './taskimport';
 import { customerBoardId, syncBoardGrants, syncBoardPeople, syncProjectBoards } from './board-people';
 
 const CATEGORIES: [TaskBoardCategory, string, string][] = [['media','Media Execute','ocean'],['content','Content / Script','sunset'],['ads','Ads / Performance','grape'],['website','Website','forest'],['account','Account / Sale','sky'],['general','Việc chung','slate']];
@@ -105,9 +106,11 @@ export const syncProjectBoardMembers = (projectId: string) => syncProjectBoards(
 async function listFor(board: any, task: any) {
   const status=task.status || 'Chưa thực hiện';
   // Reuse matching columns, so the task belongs to the board's existing workflow.
-  const names=task.done_at ? [status,'Đã giao','Đã xong','Hoàn tất','Xong','Đã báo cáo'] : /đánh giá|duyệt/i.test(status) ? [status,'Chờ duyệt'] : [status];
   const lists=await all<any>('SELECT * FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',board.id);
-  const found=names.map((n)=>lists.find((l)=>l.name===n)).find(Boolean);
+  // A column of its name or meaning (see columnFor); a done task in a board's own last step (Đã giao, Đã báo cáo); one
+  // waiting for review in Chờ duyệt; one not started in the board's first column. Only then a column of its own.
+  const named=(...n:string[])=>n.map((x)=>lists.find((l)=>l.name===x)).find(Boolean);
+  const found=columnFor(lists,status)||(task.done_at?named('Đã giao','Đã báo cáo'):/đánh giá|duyệt/i.test(status)?named('Chờ duyệt'):statusKey(status)==='todo'?lists[0]:undefined);
   if (found) return found;
   const id=listId(board.id,status);
   await run('INSERT OR IGNORE INTO board_lists(id,board_id,name,pos,created_at) VALUES(?,?,?,?,?)',id,board.id,status,(lists.at(-1)?.pos||0)+1,now());

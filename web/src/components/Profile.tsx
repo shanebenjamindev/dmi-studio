@@ -6,6 +6,7 @@ import {api} from '../api';
 import {goto,setState,toast,useStore} from '../store';
 import {Avatar,fileToAvatarDataUrl,hasUserAvatar,notifyAvatarChanged} from './boardkit';
 import {Icon} from './ui';
+import {openConversation} from './Messenger';
 import {PasswordSheet} from './PasswordSheet';
 import type {TaskItem,TeamRole,UserProfile} from '../types';
 
@@ -142,12 +143,23 @@ export function ProfilePage(){
          {p.createdAt&&<span className="profile-meta-muted">Tham gia từ {date(p.createdAt)}</span>}
        </div>
      </div>
-     {canEditProfile&&<div className="profile-buttons">
-       <button className="btn btn-gray btn-sm" disabled={avatarBusy} onClick={()=>fileRef.current?.click()}><Icon name="user" size={14}/>{avatarBusy?'Đang tải…':'Đổi ảnh đại diện'}</button>
-       <button className="btn btn-primary btn-sm" onClick={startEdit}><Icon name="edit" size={14}/>Sửa hồ sơ</button>
-       {p.canEdit&&<button className="btn btn-gray btn-sm" onClick={()=>setPw(true)}>Đổi mật khẩu</button>}
-     </div>}
-   </section>
+    <div className="profile-buttons">
+      {p.id !== me.id && (
+        <button
+          type="button"
+          className="btn btn-primary btn-sm profile-msg-btn"
+          onClick={() => openConversation(p.id, { id: p.id, name: p.name, email: p.email || '' }, me.id)}
+        >
+          <Icon name="messenger" size={14} /> Gửi tin nhắn
+        </button>
+      )}
+      {canEditProfile && <>
+        <button className="btn btn-gray btn-sm" disabled={avatarBusy} onClick={()=>fileRef.current?.click()}><Icon name="user" size={14}/>{avatarBusy?'Đang tải…':'Đổi ảnh đại diện'}</button>
+        <button className="btn btn-primary btn-sm" onClick={startEdit}><Icon name="edit" size={14}/>Sửa hồ sơ</button>
+        {p.canEdit&&<button className="btn btn-gray btn-sm" onClick={()=>setPw(true)}>Đổi mật khẩu</button>}
+      </>}
+    </div>
+  </section>
    <div className="profile-layout"><aside className="profile-info"><h2>Thông tin cá nhân</h2>{editing?<form onSubmit={save}>
      <div className="profile-avatar-actions">
        <button type="button" className="btn btn-gray btn-sm" disabled={avatarBusy} onClick={()=>fileRef.current?.click()}><Icon name="user" size={14}/>{hasAvatar?'Đổi ảnh đại diện':'Tải ảnh đại diện'}</button>

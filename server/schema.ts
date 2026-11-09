@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS oauth_states (
 CREATE TABLE IF NOT EXISTS login_attempts (
   id TEXT PRIMARY KEY, n INTEGER NOT NULL, expires_at INTEGER NOT NULL
 );
+-- Forgotten-password links: the hash of each link's secret (never the secret), good once until expires_at.
+CREATE TABLE IF NOT EXISTS password_resets (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL, used_at INTEGER, created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL
 );
@@ -243,4 +247,14 @@ CREATE TABLE IF NOT EXISTS support_tickets (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS support_tickets_status ON support_tickets(status, created_at);
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id TEXT PRIMARY KEY,
+  sender_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recipient_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  channel TEXT NOT NULL DEFAULT 'general',
+  message TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_messages_channel ON chat_messages(channel, created_at);
+CREATE INDEX IF NOT EXISTS chat_messages_dm ON chat_messages(sender_id, recipient_id, created_at);
 `;

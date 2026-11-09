@@ -57,7 +57,16 @@ async function startSession(req: http.IncomingMessage, res: Res, u: User) {
 const clearCookie = (req: http.IncomingMessage, res: Res) => res.setHeader('set-cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure(req)}`);
 const cookieToken = (req: http.IncomingMessage) => (req.headers.cookie || '').split(/;\s*/).find((c) => c.startsWith(COOKIE + '='))?.slice(COOKIE.length + 1) || '';
 
-export async function currentUser(req: http.IncomingMessage): Promise<User | null> {
+// A request asks who is signed in from several places (the guard, the route, its helpers); a GET changes nobody, so it
+// reads them once. Other requests may change the account mid-way and read it afresh.
+const asked = new WeakMap<http.IncomingMessage, Promise<User | null>>();
+export function currentUser(req: http.IncomingMessage): Promise<User | null> {
+  if (req.method !== 'GET') return readUser(req);
+  let u = asked.get(req);
+  if (!u) asked.set(req, u = readUser(req));
+  return u;
+}
+async function readUser(req: http.IncomingMessage): Promise<User | null> {
   const t = cookieToken(req);
   if (!t) return null;
   const u = await get<User>('SELECT u.*, d.level dept_level, d.name dept_role_name FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN dept_roles d ON d.id = u.dept_role AND d.team_role_id = u.team_role WHERE s.id = ? AND s.expires_at > ? AND u.disabled = 0', tokenId(t), now());
@@ -208,6 +217,7 @@ async function prefsOf(userId: string): Promise<Record<string, string> | null> {
   try { return row ? JSON.parse(row.data) : null; } catch { return null; }
 }
 export const notifyEmails = async () => new Map((await all<any>('SELECT user_id, email FROM notification_preferences WHERE email IS NOT NULL AND verified_at IS NOT NULL')).map((r) => [r.user_id, r.email as string]));
+const resetId = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 export function validPass(p: any) { const s = String(p || ''); if (s.length < 8) throw new HttpError(400, 'Mật khẩu cần ít nhất 8 ký tự'); return s; }
 const userCount = async () => (await get<any>('SELECT COUNT(*) n FROM users'))?.n || 0;
 const activeAdmins = async () => (await get<any>("SELECT COUNT(*) n FROM users WHERE role='admin' AND disabled=0"))?.n || 0;
@@ -361,6 +371,39 @@ export function registerAuth(api: Router) {
     await run('UPDATE users SET pass=?, updated_at=? WHERE id=?', await hashPass(validPass(b.next)), now(), u.id);
     // Sign out every other device.
     await run('DELETE FROM sessions WHERE user_id = ? AND id != ?', u.id, tokenId(cookieToken(req)));
+    json(res, 200, { ok: true });
+  });
+  // Forgotten password: a link to the account's sign-in email, good once for 30 minutes. The answer is the same, and
+  // takes about as long, whether or not the email has an account, so it tells nobody which emails do; one link every
+  // two minutes per account at most.
+  api.post('/api/auth/forgot', async (req, res) => {
+    const started = Date.now(), b = await readJson(req);
+    await verifyTurnstile(req, b.turnstileToken, 'login'); // the sign-in page's widget
+    const email = normEmail(b.email);
+    const u = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? await get<any>('SELECT id, email, name FROM users WHERE email = ? AND disabled = 0', email) : null;
+    if (u && !await get('SELECT 1 FROM password_resets WHERE user_id = ? AND created_at > ?', u.id, now() - 120e3)) {
+      const token = crypto.randomBytes(32).toString('base64url');
+      await run('DELETE FROM password_resets WHERE expires_at < ? OR used_at IS NOT NULL', now());
+      await run('INSERT INTO password_resets(id, user_id, expires_at, created_at) VALUES(?,?,?,?)', resetId(token), u.id, now() + 30 * 60e3, now());
+      await G.sendNotificationMail(u.email, 'DMI Workspace · Đặt lại mật khẩu',
+        `Xin chào ${u.name},\n\nBấm link dưới đây để đặt mật khẩu mới. Link dùng được một lần, trong 30 phút:\n${publicOrigin(req)}/#reset/${token}\n\nNếu bạn không yêu cầu, hãy bỏ qua email này; mật khẩu hiện tại vẫn dùng được.`)
+        .catch(() => console.error('Không gửi được email đặt lại mật khẩu'));
+    }
+    await new Promise((ok) => setTimeout(ok, Math.max(0, 1500 - (Date.now() - started))));
+    json(res, 200, { ok: true });
+  });
+  api.post('/api/auth/reset', async (req, res) => {
+    const b = await readJson(req), token = String(b.token || ''), id = resetId(token);
+    const bad = () => new HttpError(400, 'Link đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Hãy yêu cầu link mới.');
+    const r = token.length >= 20 && token.length <= 100 ? await get<any>('SELECT user_id FROM password_resets WHERE id = ? AND used_at IS NULL AND expires_at > ?', id, now()) : null;
+    if (!r) throw bad();
+    const pass = await hashPass(validPass(b.password));
+    // Spent before the password changes, so the same link never sets it twice.
+    if (!(await run('UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL', now(), id)).changes) throw bad();
+    await run('UPDATE users SET pass=?, updated_at=? WHERE id=?', pass, now(), r.user_id);
+    // Signed out everywhere, and the account's other links no longer work.
+    await run('DELETE FROM sessions WHERE user_id = ?', r.user_id);
+    await run('DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL', r.user_id);
     json(res, 200, { ok: true });
   });
   api.get('/api/auth/google', async (req, res) => redirect(res, await G.authUrl(`${publicOrigin(req)}/api/google/callback`, 'signin')));

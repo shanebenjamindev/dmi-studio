@@ -1,5 +1,6 @@
 import {BrandLoading} from './BrandLoading';
 import {EntitySelect,QuickCreateButton,useEntityRefresh} from './QuickCreate';
+import { ResizeHandle } from './ResizeHandle';
 // Workspace: boards like Trello, in workspaces: the company's (everyone, with a board for each company role) and the
 // ones people make for themselves, private until shared. Laid out like Trello's: a bar on top (the workspace, search,
 // create), panels side by side that the dock at the bottom shows or hides (the person's Inbox, their Planner and the
@@ -16,7 +17,8 @@ import { CardModal } from './CardModal';
 import { QuickCard, BoardAlternative, VIEW_NAMES, type BoardViewKind } from './BoardViews';
 import { COLOR, COLOR_NAME, Avatar, Pop, fileToAvatarDataUrl, activityText, ago, dueState, shortDate } from './boardkit';
 import { AvatarStack } from './AvatarStack';
-import { InboxPanel, PlannerPanel, Dock, SwitchBoards, dragged, changed, useChanged, type Panels } from './BoardPanels';
+import { PlannerPanel, Dock, SwitchBoards, dragged, changed, useChanged, type Panels } from './BoardPanels';
+import { toggleMessenger, openConversation } from './Messenger';
 import type { Board, BoardActivity, BoardCard, BoardItem, BoardLabel, BoardMember, Level, Person, TeamRole, User, Workspace, WorkspaceMember } from '../types';
 
 /** Board backgrounds, by the names the server keeps. */
@@ -86,18 +88,24 @@ export function BoardsPage() {
   const [boardMenu, setBoardMenu] = useState<{ b: BoardItem; el: HTMLElement } | null>(null);
   const [wsAct, setWsAct] = useState<{ w: Workspace; el: HTMLElement } | null>(null);
   const [panels, setPanels] = useState<Panels>(() => {
-    const p = { inbox: !narrow(), planner: false, board: true, ...ls.get<Partial<Panels>>(LS_PANELS, {}) };
+    const p = { inbox: false, planner: false, board: true, ...ls.get<Partial<Panels>>(LS_PANELS, {}) };
     return narrow() ? { inbox: false, planner: false, board: true } : p;
   });
   const [switching, setSwitching] = useState(false);
   /** Show or hide a panel (one always stays); on a phone the one shown replaces the others. */
-  const toggle = (k: keyof Panels, show = !panels[k]) => setPanels((p) => {
-    let n = { ...p, [k]: show };
-    if (show && narrow()) n = { inbox: false, planner: false, board: false, [k]: true };
-    if (!n.inbox && !n.planner && !n.board) return p;
-    if (!narrow()) ls.set(LS_PANELS, n); // a phone's one-at-a-time choice is not the computer's
-    return n;
-  });
+  const toggle = (k: keyof Panels, show = !panels[k]) => {
+    if (k === 'inbox') {
+      toggleMessenger();
+      return;
+    }
+    setPanels((p) => {
+      let n = { ...p, [k]: show };
+      if (show && narrow()) n = { inbox: false, planner: false, board: false, [k]: true };
+      if (!n.planner && !n.board) return p;
+      if (!narrow()) ls.set(LS_PANELS, n); // a phone's one-at-a-time choice is not the computer's
+      return n;
+    });
+  };
   // However a board was opened (link, overview, planner, search), it shows.
   useEffect(() => { if (open.board && !panels.board) toggle('board', true); }, [open.board, open.card]); // eslint-disable-line react-hooks/exhaustive-deps
   const [recent, setRecent] = useState<string[]>(() => ls.get(LS_RECENT, []));
@@ -155,8 +163,10 @@ export function BoardsPage() {
         onWorkspaces={(el) => setWsMenu(wsMenu ? null : el)} wsOpen={!!wsMenu} navigation={<nav className="bd-route-nav" aria-label="Điều hướng board"><button disabled={trail.current.at===0} onClick={()=>step(-1)} title="Quay lại" aria-label="Quay lại"><Icon name="left" size={16}/></button><button disabled={trail.current.at>=trail.current.items.length-1} onClick={()=>step(1)} title="Đi tới" aria-label="Đi tới"><Icon name="right" size={16}/></button><button onClick={()=>goHome()} title="Tất cả board" aria-label="Tất cả board"><Icon name="boards" size={15}/><span>Tất cả board</span></button>{open.people?<><Icon name="right" size={12}/><span>Thành viên workspace</span></>:open.board?<><Icon name="right" size={12}/><button onClick={()=>go(open.board)}>{byId.get(open.board)?.name||'Board'}</button>{open.card&&<><Icon name="right" size={12}/><span>Chi tiết thẻ</span><button onClick={()=>go(open.board)}>Về board</button></>}</>:null}</nav>} />
 
       <div className="bd-main">
-        {panels.inbox && <InboxPanel onHide={() => toggle('inbox', false)} />}
         {panels.planner && <PlannerPanel bgOf={bg} onOpen={(b, c) => go(b, c)} onHide={() => toggle('planner', false)} />}
+        {panels.planner && panels.board && (
+          <ResizeHandle cssVar="--bp-planner-w" storage="workspace-planner" min={240} max={600} label="Đổi độ rộng Planner" />
+        )}
         {panels.board && <div className="bd-pane">{open.board
           ? <BoardView key={open.board} id={open.board} card={open.card} me={me} roles={roles} ws={openWs} onStar={star} onGone={() => go(null)} onChanged={load}
               onCard={(card) => go(open.board, card)} />
@@ -213,6 +223,36 @@ export function BoardsPage() {
           <div className="bk-menu">
             <button onClick={() => { setBoardMenu(null); go(boardMenu.b.id); }}><Icon name="grid" size={15} />Mở board</button>
             <button onClick={() => { const b = boardMenu.b; setBoardMenu(null); star(b); }}><Icon name="star" size={15} />{boardMenu.b.starred ? 'Bỏ gắn sao' : 'Gắn sao'}</button>
+            {boardMenu.b.level === 'admin' && (
+              <>
+                <hr />
+                <div className="bk-menu-colors">
+                  <h5>Màu nền board</h5>
+                  <div className="bd-swatches">
+                    {Object.keys(BG).map((k) => (
+                      <button
+                        key={k}
+                        type="button"
+                        className={k === boardMenu.b.bg ? 'on' : ''}
+                        style={{ background: BG[k] }}
+                        aria-label={`Nền ${k}`}
+                        onClick={async () => {
+                          const id = boardMenu.b.id;
+                          setBoards((bs) => bs && bs.map((x) => (x.id === id ? { ...x, bg: k } : x)));
+                          setBoardMenu((bm) => bm && bm.b.id === id ? { ...bm, b: { ...bm.b, bg: k } } : bm);
+                          try {
+                            await api.boardBackground(id, k);
+                          } catch (e: any) {
+                            toast(e.message, true);
+                            load();
+                          }
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
             <hr />
             <button className="bk-danger" onClick={() => removeBoard(boardMenu.b)}><Icon name="trash" size={15} />Xoá board</button>
           </div>
@@ -269,7 +309,7 @@ function TopNav({ ws, me, onOpen, onCreate, onWorkspaces, wsOpen, navigation }: 
       <div className="bd-top-mid">
         <div className="bd-search">
           <Icon name="search" size={15} />
-          <input value={q} onChange={(e) => setQ(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setTimeout(() => setFocus(false), 200)} placeholder="Tìm thẻ, board…" aria-label="Tìm kiếm" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setTimeout(() => setFocus(false), 200)} placeholder="Tìm trong Workspace: thẻ, board…" aria-label="Tìm trong Workspace" />
           {focus && hits && (
             <div className="bd-search-pop">
               {!hits.boards.length && !hits.cards.length && <p className="note">Không tìm thấy gì cho “{q}”.</p>}
@@ -305,6 +345,8 @@ function Tiles({ title, icon, list, roles, onOpen, onStar, onMore, onCreate, sma
                 {(role && role.name !== b.name) || b.private || b.level === 'observer'
                   ? <span>{b.private && <Icon name="lock" size={11} />}{role && role.name !== b.name ? role.name : b.private ? 'Riêng tư' : ''}{b.level === 'observer' ? `${role || b.private ? ' · ' : ''}Chỉ xem` : ''}</span> : null}
               </button>
+              {/* Who is on the board: four at most, the rest as +N (all of them on hover). */}
+              {!!b.people?.length && <span className="bd-tile-avs" onClick={() => onOpen(b.id)}><AvatarStack people={b.people} max={4} count focusable={false} render={(m) => <Avatar key={m.id} m={m} size={24} />} /></span>}
               <button className={'bd-tile-star' + (b.starred ? ' on' : '')} onClick={() => onStar(b)} aria-label={b.starred ? 'Bỏ sao' : 'Gắn sao'}><Icon name="star" size={15} /></button>
               {onMore?.(b) && <button className="bd-tile-more" onClick={(e) => onMore(b)!(e.currentTarget)} aria-label={`Thao tác với board ${b.name}`}><Icon name="more" size={15} /></button>}
             </div>
@@ -426,6 +468,18 @@ function WorkspacePeople({ ws, me, onChanged, onGone }: { ws: Workspace | undefi
   useEffect(() => { setName(ws?.name || ''); setAbout(ws?.about || ''); }, [ws?.id, ws?.name, ws?.about]);
   if (!ws) return <main className="bd-home"><p className="note">Không tìm thấy workspace này, hoặc bạn không còn ở trong đó.</p></main>;
   const admin = ws.level === 'admin', company = ws.kind === 'company';
+  const canTransfer = !company && (ws.ownerId === me.id || me.role === 'admin');
+  const transfer = async (m: WorkspaceMember) => {
+    if (!confirm(`Chuyển quyền chủ sở hữu workspace “${ws.name}” cho “${m.name}”? Bạn vẫn sẽ giữ quyền Quản trị.`)) return;
+    try {
+      const r = await api.transferWorkspaceOwner(ws.id, m.id);
+      setData((d) => d && { ...d, members: r.members });
+      toast(`Đã chuyển quyền chủ sở hữu workspace cho ${m.name}`);
+      onChanged();
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
   const changeAvatar = async (file: File | null) => {
     if (avatarBusy) return;
     setAvatarBusy(true);
@@ -482,11 +536,41 @@ function WorkspacePeople({ ws, me, onChanged, onGone }: { ws: Workspace | undefi
         {!data ? <BrandLoading label="Đang tải…"/> : (
           <ul className="bd-people-list">
             {data.members.map((m) => (
-              <li key={m.id}>
-                <Avatar m={m} size={36} />
-                <div><b>{m.name}{m.id === me.id ? ' (bạn)' : ''}</b><span>{m.email}</span></div>
-                {admin && !company && !m.owner ? <LevelSelect value={m.level} onChange={(l) => set(m.id, l)} label={`Quyền của ${m.name}`} /> : <em className="bd-level">{m.owner ? 'Người tạo' : LEVEL_NAME[m.level]}</em>}
-                {!company && !m.owner && (admin || m.id === me.id) && <button className="btn btn-gray btn-sm" onClick={() => remove(m)}>{m.id === me.id ? 'Rời' : 'Gỡ'}</button>}
+              <li key={m.id} className="bd-member-row">
+                <div className="bd-person-info">
+                  <Avatar m={m} size={36} />
+                  <div className="bd-person-text"><b>{m.name}{m.id === me.id ? ' (bạn)' : ''}</b><span>{m.email}</span></div>
+                </div>
+                <div className="bd-member-row-actions">
+                  {m.id !== me.id && (
+                    <button
+                      type="button"
+                      className="btn btn-gray btn-sm bd-msg-btn"
+                      onClick={() => openConversation(m.id, { id: m.id, name: m.name, email: m.email || '' }, me.id)}
+                      title={`Gửi tin nhắn cho ${m.name}`}
+                      aria-label={`Gửi tin nhắn cho ${m.name}`}
+                    >
+                      <Icon name="messenger" size={13} />
+                    </button>
+                  )}
+                  {admin && !company && !m.owner ? (
+                    <>
+                      <LevelSelect value={m.level} onChange={(l) => set(m.id, l)} label={`Quyền của ${m.name}`} />
+                      {canTransfer && (
+                        <button type="button" className="btn btn-gray btn-sm" onClick={() => transfer(m)} title={`Chuyển quyền chủ workspace cho ${m.name}`}>
+                          Chuyển chủ
+                        </button>
+                      )}
+                      {(admin || m.id === me.id) && (
+                        <button className="btn btn-gray btn-sm" onClick={() => remove(m)}>
+                          {m.id === me.id ? 'Rời' : 'Gỡ'}
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <em className="bd-level">{m.owner ? 'Chủ sở hữu' : LEVEL_NAME[m.level]}</em>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -508,6 +592,18 @@ function ShareBoard({ board, ws, role, me, onClose, onChanged }: { board: Board;
   const [data, setData] = useState<{ members: BoardMember[]; people: Person[] } | null>(null);
   useEffect(() => { api.boardMembers(board.id).then(setData).catch((e) => toast(e.message, true)); }, [board.id]);
   const admin = board.level === 'admin';
+  const canTransfer = board.createdBy === me.id || me.role === 'admin';
+  const transfer = async (m: BoardMember) => {
+    if (!confirm(`Chuyển quyền chủ board “${board.name}” cho “${m.name}”? Bạn vẫn sẽ giữ quyền Quản trị.`)) return;
+    try {
+      const r = await api.transferBoardOwner(board.id, m.id);
+      setData((d) => d && { ...d, members: r.members });
+      toast(`Đã chuyển quyền chủ board cho ${m.name}`);
+      onChanged();
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
   const done = (r: { members: BoardMember[] }) => { setData((d) => d && { ...d, members: r.members }); onChanged(); };
   const set = (userId: string, level: Level) => api.setBoardMember(board.id, userId, level).then(done, (e) => toast(e.message, true));
   const remove = async (m: BoardMember) => {
@@ -518,12 +614,48 @@ function ShareBoard({ board, ws, role, me, onClose, onChanged }: { board: Board;
   const added = data?.members.filter((m) => m.added) || [], others = data?.members.filter((m) => !m.added) || [];
   const scope='Board cá nhân: chỉ chủ board và thành viên được thêm trực tiếp mới được xem. Quyền phòng ban và workspace không cấp quyền xem board.';
   const row = (m: BoardMember) => (
-    <li key={m.id}>
-      <Avatar m={m} size={32} />
-      <div><b>{m.name}{m.id === me.id ? ' (bạn)' : ''}</b><span>{m.email}</span></div>
-      {m.id===board.createdBy?<em className="bd-level">Chủ board</em>:admin && m.added ? <LevelSelect value={m.level || 'normal'} onChange={(l) => set(m.id, l)} label={`Quyền của ${m.name}`} /> : <em className="bd-level">{LEVEL_NAME[m.level || 'normal']}</em>}
-      {m.id===board.createdBy?<span/>:m.added && (admin || m.id === me.id) ? <button className="btn btn-gray btn-sm" onClick={() => remove(m)}>{m.id === me.id ? 'Rời' : 'Gỡ'}</button>
-        : !m.added && admin && m.id!==board.createdBy ? <button className="btn btn-gray btn-sm" onClick={() => set(m.id, m.level || 'normal')} title="Cấp quyền riêng cho người này trên board">Thêm</button> : <span />}
+    <li key={m.id} className="bd-member-row">
+      <div className="bd-person-info">
+        <Avatar m={m} size={32} />
+        <div className="bd-person-text"><b>{m.name}{m.id === me.id ? ' (bạn)' : ''}</b><span>{m.email}</span></div>
+      </div>
+      <div className="bd-member-row-actions">
+        {m.id !== me.id && (
+          <button
+            type="button"
+            className="btn btn-gray btn-sm bd-msg-btn"
+            onClick={() => {
+              onClose();
+              openConversation(m.id, { id: m.id, name: m.name, email: m.email || '' }, me.id);
+            }}
+            title={`Gửi tin nhắn cho ${m.name}`}
+            aria-label={`Gửi tin nhắn cho ${m.name}`}
+          >
+            <Icon name="messenger" size={13} />
+          </button>
+        )}
+        {m.id === board.createdBy ? (
+          <em className="bd-level">Chủ board</em>
+        ) : (
+          <>
+            {admin && m.added ? (
+              <LevelSelect value={m.level || 'normal'} onChange={(l) => set(m.id, l)} label={`Quyền của ${m.name}`} />
+            ) : (
+              <em className="bd-level">{LEVEL_NAME[m.level || 'normal']}</em>
+            )}
+            {canTransfer && (
+              <button type="button" className="btn btn-gray btn-sm" onClick={() => transfer(m)} title={`Chuyển quyền chủ board cho ${m.name}`}>
+                Chuyển chủ
+              </button>
+            )}
+            {m.added && (admin || m.id === me.id) ? (
+              <button className="btn btn-gray btn-sm" onClick={() => remove(m)}>{m.id === me.id ? 'Rời' : 'Gỡ'}</button>
+            ) : !m.added && admin ? (
+              <button className="btn btn-gray btn-sm" onClick={() => set(m.id, m.level || 'normal')} title="Cấp quyền riêng cho người này trên board">Thêm</button>
+            ) : null}
+          </>
+        )}
+      </div>
     </li>
   );
   return (
@@ -566,7 +698,6 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
 }) {
   const [b, setB] = useState<Board | null>(null);
   const [view, setView] = useState<BoardViewKind>('board');
-  const [cardLevel, setCardLevel] = useState<'all' | 'customer' | 'project' | 'task'>('all');
   const [viewEl, setViewEl] = useState<HTMLElement | null>(null);
   const [quick, setQuick] = useState<{id: string; rect: DOMRect} | null>(null);
   const [err, setErr] = useState('');
@@ -727,7 +858,7 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
   const cols: ReactNode[] = b.lists.map((l) => l.folded
     ? <button key={l.id} data-list={l.id} className={'bd-list-folded' + (l.id === dragging ? ' dragging' : '')} onClick={() => fold(l.id)} disabled={!canShape} title={canShape ? `Mở rộng ${l.name}` : `${l.name} · admin board đã thu gọn danh sách này`}><Icon name="collapse" size={14} /><span>{l.name}</span><em>{l.cards.length}</em></button>
     : <ListColumn key={l.id} board={b} list={l} canEdit={canEdit} canShape={canShape} hidden={l.id === dragging} dragging={dragging} ph={ph?.list === l.id ? ph.index : null} phH={drag.current?.kind === 'card' ? drag.current.h : dragged.inbox?.h || 40}
-        filter={on ? (c) => matches(c, filter, me.id) : null} cardLevel={cardLevel} labelText={labelText} onLabels={toggleLabels} onOpen={(cid) => onCard(cid)} onQuick={(cid, el) => setQuick({ id: cid, rect: el.getBoundingClientRect() })} onFold={() => fold(l.id)}
+        filter={on ? (c) => matches(c, filter, me.id) : null} labelText={labelText} onLabels={toggleLabels} onOpen={(cid) => onCard(cid)} onQuick={(cid, el) => setQuick({ id: cid, rect: el.getBoundingClientRect() })} onFold={() => fold(l.id)}
         onDragStart={startList} onCardDragStart={startCard} onDragEnd={endDrag} onOver={overList} onDrop={dropCard} mut={mut} act={act} />);
   if (lph !== null) {
     let seen = 0, at = cols.length;
@@ -744,12 +875,6 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
               onBlur={() => { const n = (naming || '').trim(); setNaming(null); if (n && n !== b.name) { mut((x) => { x.name = n; }); act(async () => { await api.updateBoard(b.id, { name: n }); onChanged(); }); } }} />
           : canShape ? <button className="bd-title" onClick={() => setNaming(b.name)} title="Đổi tên board">{b.name}</button> : <h1 className="bd-title">{b.name}</h1>}
         <button className="bd-bar-btn bd-view-button" onClick={(e) => setViewEl(viewEl ? null : e.currentTarget)} aria-expanded={!!viewEl} aria-label="Chọn chế độ xem"><Icon name="boards" size={16} />{VIEW_NAMES[view]}<Icon name="chevron" size={12} /></button>
-        <div className="bd-level-tabs" role="tablist" aria-label="Cấp độ hiển thị">
-          <button type="button" role="tab" aria-selected={cardLevel==='all'} className={'bd-level-btn'+(cardLevel==='all'?' on':'')} onClick={()=>setCardLevel('all')}>Tất cả</button>
-          <button type="button" role="tab" aria-selected={cardLevel==='customer'} className={'bd-level-btn'+(cardLevel==='customer'?' on':'')} onClick={()=>setCardLevel('customer')}>Khách hàng</button>
-          <button type="button" role="tab" aria-selected={cardLevel==='project'} className={'bd-level-btn'+(cardLevel==='project'?' on':'')} onClick={()=>setCardLevel('project')}>Dự án</button>
-          <button type="button" role="tab" aria-selected={cardLevel==='task'} className={'bd-level-btn'+(cardLevel==='task'?' on':'')} onClick={()=>setCardLevel('task')}>Task</button>
-        </div>
         <button className={'bd-bar-btn bd-star' + (b.starred ? ' on' : '')} onClick={() => { mut((x) => { x.starred = !x.starred; }); onStar(b); }} aria-label={b.starred ? 'Bỏ sao' : 'Gắn sao'}><Icon name="star" size={16} /></button>
         {isAdmin
           ? <button className={'bd-bar-btn bd-vis' + (visEl ? ' on' : '')} onClick={(e) => setVisEl(visEl ? null : e.currentTarget)} title={visTip}><Icon name={role || priv ? 'lock' : 'users'} size={15} />{visText}</button>
@@ -758,7 +883,7 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
         <span className="bd-gap" />
         <button className={'bd-bar-btn bd-filter-b' + (on ? ' bd-filter-on' : '')} onClick={(e) => setFilterEl(filterEl ? null : e.currentTarget)} aria-label="Bộ lọc"><Icon name="filter" size={15} />Bộ lọc{on && <em className="bd-filter-n">{shown}</em>}</button>
         {on && <button className="bd-bar-btn" onClick={() => setFilter(NO_FILTER)}>Xoá bộ lọc</button>}
-        <button className="bd-avs" onClick={() => setSharing(true)} title="Ai xem được board này"><AvatarStack people={b.members} max={5} align="right" focusable={false} render={(m) => <Avatar key={m.id} m={m} size={28} />} /></button>
+        <button className="bd-avs" onClick={() => setSharing(true)} title="Thành viên của board: bấm để xem hoặc chia sẻ" aria-label="Thành viên của board"><AvatarStack people={b.members} max={5} count align="right" focusable={false} expandOnHover={false} render={(m) => <Avatar key={m.id} m={m} size={28} />} /></button>
         <button className="bd-bar-btn bd-share-b" onClick={() => setSharing(true)} aria-label="Chia sẻ"><Icon name="users" size={15} />Chia sẻ</button>
         <button className="bd-bar-btn" onClick={() => setDrawer(!drawer)} aria-label="Menu board" aria-expanded={drawer}><Icon name="more" size={16} /></button>
       </header>
@@ -815,31 +940,27 @@ function FilterPop({ anchor, board, filter, setFilter, onClose }: { anchor: HTML
 // ---------------------------------------------------------------- lists and cards
 type ListProps = {
   board: Board; list: Board['lists'][number]; canEdit: boolean; canShape: boolean; hidden: boolean; dragging: string | null; ph: number | null; phH: number;
-  filter: ((c: BoardCard) => boolean) | null; cardLevel?: 'all' | 'customer' | 'project' | 'task'; labelText: boolean; onLabels: () => void; onOpen: (cardId: string) => void; onQuick: (cardId: string, el: HTMLElement) => void; onFold: () => void;
+  filter: ((c: BoardCard) => boolean) | null; labelText: boolean; onLabels: () => void; onOpen: (cardId: string) => void; onQuick: (cardId: string, el: HTMLElement) => void; onFold: () => void;
   onDragStart: (e: React.DragEvent<HTMLElement>, listId: string) => void; onCardDragStart: (e: React.DragEvent<HTMLElement>, cardId: string, listId: string) => void;
   onDragEnd: () => void; onOver: (e: React.DragEvent<HTMLElement>, listId: string) => void; onDrop: (e: React.DragEvent) => void;
   mut: (fn: (x: Board) => void) => void; act: (fn: () => Promise<unknown>) => Promise<void>;
 };
 function ListColumn(p: ListProps) {
-  const { board, list, cardLevel = 'all' } = p;
+  const { board, list } = p;
   const [name, setName] = useState<string | null>(null);
   const [composing, setComposing] = useState<'top' | 'bottom' | null>(null);
   const [menu, setMenu] = useState<HTMLElement | null>(null);
-  const [cardKind, setCardKind] = useState<'customer' | 'project' | 'task'>('task');
   const [projectCardId, setProjectCardId] = useState('');
-  const [customerCardId, setCustomerCardId] = useState('');
 
+  // The board is the tasks' own workflow: each task in the column of its status, its customer and project named on it.
+  // Customers and projects follow their own workflows on their pages, so their cards are not in these columns.
   const allCards = board.lists.flatMap(l => (l.cards || []).filter(Boolean));
-  const customers = allCards.filter(c => c?.kind === 'customer');
   const projects = allCards.filter(c => c?.kind === 'project');
-
   const visible = (list.cards || []).filter(Boolean).filter((c) => {
     if (!c) return false;
     if (c.id === p.dragging) return true;
-    if (cardLevel === 'customer' && c.kind !== 'customer') return false;
-    if (cardLevel === 'project' && c.kind !== 'project') return false;
-    if (cardLevel === 'task' && c.kind !== 'task' && c.kind !== undefined) return false;
-    return !p.filter || p.filter(c) || (c.kind === 'project' && board.lists.some(l => (l.cards || []).some(t => t && t.projectCardId === c.id && p.filter!(t)))) || (c.kind === 'customer' && board.lists.some(l => (l.cards || []).some(item => item && item.customerId === c.customerId && p.filter!(item))));
+    if (c.kind === 'customer' || c.kind === 'project') return false;
+    return !p.filter || p.filter(c);
   });
 
   const renderCard = (c: BoardCard) => {
@@ -859,70 +980,7 @@ function ListColumn(p: ListProps) {
     );
   };
 
-  const renderProjectBlock = (c: BoardCard) => {
-    if (!c) return null;
-    const tasks = allCards.filter(t => t && t.projectCardId === c.id);
-    const done = tasks.filter(t => t.done).length;
-    const shown = tasks.filter(t => !p.filter || p.filter(t));
-    return (
-      <section className="bd-project-card" key={c.id}>
-        <div className="bd-project-caption"><Icon name="folder" size={14}/> PROJECT <span>{done}/{tasks.length} task</span></div>
-        {renderCard(c)}
-        <progress className="bd-project-progress" value={done} max={tasks.length || 1} aria-label="Tiến độ Project"/>
-        <div className="bd-project-tasks">
-          {shown.map(t => <div key={t.id}>{renderCard(t)}</div>)}
-          {!tasks.length && <p className="empty-note">Chưa có Task trong Project này.</p>}
-        </div>
-        {p.canEdit && <button className="bd-add-card" onClick={() => { setCardKind('task'); setProjectCardId(c.id); setCustomerCardId(''); setComposing('bottom'); }}><Icon name="plus" size={14}/>Thêm Task vào Project</button>}
-      </section>
-    );
-  };
-
-  const renderCustomerBlock = (c: BoardCard) => {
-    if (!c) return null;
-    const custProjects = projects.filter(pr => pr && pr.customerId === c.customerId);
-    const custTasks = allCards.filter(t => t && t.customerId === c.customerId && t.kind !== 'customer' && t.kind !== 'project');
-    const directCustTasks = custTasks.filter(t => !t.projectCardId || !projects.some(pr => pr && pr.id === t.projectCardId));
-    const doneTasks = custTasks.filter(t => t.done).length;
-    return (
-      <section className="bd-customer-card" key={c.id}>
-        <div className="bd-customer-caption">
-          <Icon name="users" size={14}/> KHÁCH HÀNG: {c.title}
-          <span>{custProjects.length} dự án · {doneTasks}/{custTasks.length} task</span>
-        </div>
-        {renderCard(c)}
-        <div className="bd-customer-body">
-          {custProjects.map(pr => renderProjectBlock(pr))}
-          {directCustTasks.map(t => <div key={t.id}>{renderCard(t)}</div>)}
-          {!custProjects.length && !directCustTasks.length && <p className="empty-note">Chưa có Dự án hoặc Task trong Khách hàng này.</p>}
-        </div>
-        {p.canEdit && (
-          <div className="bd-customer-actions">
-            <button className="bd-add-card" onClick={() => { setCardKind('project'); setCustomerCardId(c.id); setProjectCardId(''); setComposing('bottom'); }}><Icon name="plus" size={13}/>Thêm Dự án</button>
-            <button className="bd-add-card" onClick={() => { setCardKind('task'); setCustomerCardId(c.id); setProjectCardId(''); setComposing('bottom'); }}><Icon name="plus" size={13}/>Thêm Task</button>
-          </div>
-        )}
-      </section>
-    );
-  };
-
-  const cards: ReactNode[] = visible.map(c => {
-    if (!c) return null;
-    if (cardLevel === 'task') return <div key={c.id}>{renderCard(c)}</div>;
-    if (cardLevel === 'project') return renderProjectBlock(c);
-    if (cardLevel === 'customer') return renderCustomerBlock(c);
-
-    // cardLevel === 'all'
-    if (c.kind === 'customer') return renderCustomerBlock(c);
-    if (c.kind === 'project') {
-      const parentCustomer = c.customerId && customers.some(cu => cu && cu.customerId === c.customerId);
-      if (parentCustomer) return null;
-      return renderProjectBlock(c);
-    }
-    if (c.projectCardId && projects.some(pr => pr && pr.id === c.projectCardId)) return null;
-    if (c.customerId && customers.some(cu => cu && cu.customerId === c.customerId)) return null;
-    return <div key={c.id}>{renderCard(c)}</div>;
-  });
+  const cards: ReactNode[] = visible.map(c => <div key={c.id}>{renderCard(c)}</div>);
 
   if (p.ph !== null) {
     // The gap goes before the ph-th card shown (the dragged one, hidden, does not count).
@@ -931,53 +989,25 @@ function ListColumn(p: ListProps) {
     cards.splice(at, 0, <div key="ph" className="bd-card-ph" style={{ height: p.phH }} />);
   }
   const add = async (title: string, top: boolean) => {
-    const parentCust = customerCardId ? customers.find(cu => cu.id === customerCardId) : null;
-    const custId = parentCust?.customerId || null;
-    const c = await api.createCard(list.id, title, top, true, cardKind, cardKind === 'task' ? projectCardId || null : null, customerCardId || null, custId);
+    const c = await api.createCard(list.id, title, top, true, 'task', projectCardId || null, null, null);
     p.mut((x) => { const l = x.lists.find((y) => y.id === list.id)!; if (top) l.cards.unshift(c); else l.cards.push(c); });
     setComposing(null);
   };
 
-  const composerPicker = (
+  // A new card is a task; it can go into one of the projects that have a home on this board.
+  const composerPicker = projects.length ? (
     <div className="bd-card-type-picker">
-      <label>Loại thẻ
-        <select aria-label="Loại thẻ" value={cardKind} onChange={e => { setCardKind(e.target.value as 'customer' | 'project' | 'task'); setProjectCardId(''); setCustomerCardId(''); }}>
-          <option value="task">Task · Công việc</option>
-          <option value="project">Project · Dự án</option>
-          <option value="customer">Khách hàng · Customer</option>
+      <label>Thuộc dự án
+        <select aria-label="Thuộc dự án" value={projectCardId} onChange={e => setProjectCardId(e.target.value)}>
+          <option value="">Không thuộc dự án</option>
+          {projects.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
         </select>
       </label>
-      {cardKind === 'project' && customers.length > 0 && (
-        <label>Thuộc Khách hàng
-          <select aria-label="Thuộc Khách hàng" value={customerCardId} onChange={e => setCustomerCardId(e.target.value)}>
-            <option value="">Chưa phân loại / Nội bộ</option>
-            {customers.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-          </select>
-        </label>
-      )}
-      {cardKind === 'task' && (
-        <>
-          <label>Thuộc Project
-            <select aria-label="Thuộc Project" value={projectCardId} onChange={e => setProjectCardId(e.target.value)}>
-              <option value="">Task độc lập</option>
-              {projects.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-            </select>
-          </label>
-          {customers.length > 0 && !projectCardId && (
-            <label>Thuộc Khách hàng
-              <select aria-label="Thuộc Khách hàng" value={customerCardId} onChange={e => setCustomerCardId(e.target.value)}>
-                <option value="">Chưa phân loại / Nội bộ</option>
-                {customers.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-              </select>
-            </label>
-          )}
-        </>
-      )}
     </div>
-  );
+  ) : null;
 
   return (
-    <section className={'bd-list' + (p.hidden ? ' dragging' : '')} data-list={list.id} onDragOver={(e) => p.onOver(e, list.id)} onDrop={p.onDrop}>
+    <section className={'bd-list' + (p.hidden ? ' dragging' : '') + (list.color ? ' tinted' : '')} style={list.color ? { ['--list-tint' as any]: COLOR[list.color] } : undefined} data-list={list.id} onDragOver={(e) => p.onOver(e, list.id)} onDrop={p.onDrop}>
       <header className="bd-list-h" draggable={p.canShape && name === null} onDragStart={(e) => p.onDragStart(e, list.id)} onDragEnd={p.onDragEnd}>
         {name !== null
           ? <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setName(null); }}
@@ -1017,6 +1047,15 @@ function ListMenu({ anchor, board, list, canShape, onClose, onAdd, onFold, mut, 
           <button onClick={() => setView('sort')}>Sắp xếp theo…</button>
           <hr />
           <button onClick={() => setView('cards')} disabled={!list.cards.length}>Di chuyển tất cả thẻ trong danh sách này</button>
+          <hr />
+          {/* The whole column in a colour of its own (everyone sees it), or back to the board's plain one. */}
+          <div className="bk-menu-colors">
+            <h5>Màu danh sách</h5>
+            <div className="bk-colors">{Object.keys(COLOR).map((k) => <button key={k} type="button" className={list.color === k ? 'on' : ''} style={{ background: COLOR[k] }} aria-label={`Màu ${COLOR_NAME[k]}`} aria-pressed={list.color === k}
+              onClick={() => done(async () => { mut((x) => { const l = x.lists.find((y) => y.id === list.id); if (l) l.color = k; }); await api.updateList(list.id, { color: k }); })} />)}</div>
+            {list.color && <button type="button" className="bk-link bk-colors-reset" onClick={() => done(async () => { mut((x) => { const l = x.lists.find((y) => y.id === list.id); if (l) l.color = null; }); await api.updateList(list.id, { color: null }); })}>Bỏ màu danh sách</button>}
+          </div>
+          <hr />
         </>}
         <button disabled={!mine.length} title={!mine.length ? 'Danh sách này không có thẻ nào do bạn tạo' : undefined}
           onClick={() => { if (confirm(`Lưu trữ ${mine.length} thẻ do bạn tạo trong “${list.name}”?${mine.length < list.cards.length ? ' Thẻ của người khác giữ nguyên.' : ''}`)) done(async () => { mut((x) => { const l = x.lists.find((y) => y.id === list.id)!; l.cards = l.cards.filter((c) => !mine.includes(c)); }); await api.archiveListCards(list.id); }); }}>Lưu trữ mọi thẻ của bạn trong danh sách này</button>
@@ -1025,7 +1064,7 @@ function ListMenu({ anchor, board, list, canShape, onClose, onAdd, onFold, mut, 
           <button onClick={() => done(async () => { mut((x) => { x.lists = x.lists.filter((y) => y.id !== list.id); }); await api.updateList(list.id, { archived: true }); })}>Lưu trữ danh sách này</button>
           <button onClick={onFold}>Thu gọn danh sách</button>
         </>}
-        {!canShape && <p className="note bk-menu-note">Đổi tên, di chuyển, sắp xếp hay lưu trữ danh sách: chỉ admin board (hoặc khi admin cho phép thành viên).</p>}
+        {!canShape && <p className="note bk-menu-note">Đổi tên, màu, di chuyển, sắp xếp hay lưu trữ danh sách: chỉ admin board (hoặc khi admin cho phép thành viên).</p>}
       </div>}
       {view === 'copy' && <>
         <h5>Tên</h5>
@@ -1055,7 +1094,7 @@ function CardFront({ card, board, canEdit, hidden, labelText, onLabels, onDragSt
   const labels = board.labels.filter((l) => (card.labels || []).includes(l.id));
   const members = board.members.filter((m) => (card.members || []).includes(m.id));
   const due = dueState(card.dueAt, card.done);
-  const badges = card.dueAt || card.startAt || card.desc || card.comments || card.attachments || card.checks || members.length || card.customerName;
+  const badges = card.dueAt || card.startAt || card.desc || card.comments || card.attachments || card.checks || members.length || card.customerName || card.projectName;
   return (
     <article className={'bd-card' + (hidden ? ' dragging' : '') + (card.done ? ' is-done' : '')} data-card={card.id} draggable={canEdit} onDragStart={onDragStart} onDragEnd={onDragEnd}
       onContextMenu={(e) => { e.preventDefault(); onQuick(e.currentTarget); }} onClick={onOpen} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) onOpen(); }} aria-label={card.title}>
@@ -1075,7 +1114,8 @@ function CardFront({ card, board, canEdit, hidden, labelText, onLabels, onDragSt
           <div className="bd-badges">
             {card.kind === 'customer' && <span className="bd-badge-kind bd-badge-kind-cust"><Icon name="users" size={12} />Khách hàng</span>}
             {card.kind === 'project' && <span className="bd-badge-kind bd-badge-kind-prj"><Icon name="folder" size={12} />Dự án</span>}
-            {card.customerName && card.kind !== 'customer' && <span className="bd-badge-cust" title="Khách hàng"><Icon name="folder" size={13} />{card.customerName}</span>}
+            {card.customerName && card.kind !== 'customer' && <span className="bd-badge-cust" title="Khách hàng"><Icon name="users" size={13} />{card.customerName}</span>}
+            {card.projectName && card.kind !== 'project' && <span className="bd-badge-cust" title="Dự án"><Icon name="folder" size={13} />{card.projectName}</span>}
             {(card.dueAt || card.startAt) && <span className={'bd-badge-due ' + due} title={due === 'over' ? 'Quá hạn' : due === 'soon' ? 'Sắp hết hạn' : due === 'done' ? 'Đã hoàn thành' : 'Ngày'}><Icon name="clock" size={13} />{card.startAt && card.dueAt ? `${shortDate(card.startAt)} – ${shortDate(card.dueAt)}` : shortDate((card.dueAt || card.startAt)!)}</span>}
             {card.desc && <span title="Thẻ có mô tả"><Icon name="lines" size={13} /></span>}
             {card.comments > 0 && <span title="Bình luận"><Icon name="comment" size={13} />{card.comments}</span>}

@@ -12,12 +12,13 @@ import { Router, HttpError, json, readJson } from './http';
 import { assigneeUsers, placeTaskCard, projectCustomerChanged, projectHome, renameProjectBoard, routeTaskToWorkspace, shareTaskCard, syncAllTasksToWorkspace, syncProjectBoardMembers } from './taskworkspace';
 import { TASK_MASTER } from '../shared/task-master';
 import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
+import { isHold, projectStage } from '../shared/projects';
 /** A description or result as written (formatted text is never cut, which would break it): too long is refused. */
 const richIn = (x: unknown) => { const v = String(x ?? ''); if (v.length > RICH_MAX) throw new HttpError(413, RICH_TOO_LONG); return v; };
 import type { Req } from './http';
 import { all, get, getSetting, run, uid, now } from './db';
 import { currentUser, deptLevel } from './auth';
-import { mustBoard, mustCard, mustList, boardLevelForUser } from './boards';
+import { mustBoard, mustCard, mustList, boardLevelForUser, levels as boardLevels } from './boards';
 import { syncTaskToCard, taskDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
 import { readTaskExport, readTaskSheet, statusKey, normName, type TaskRow } from './taskimport';
 import { matcher } from './admin/common';
@@ -182,26 +183,35 @@ export async function importTasks(text: string, userId: string, sourceName = '',
 }
 
 // ------------------------------------------------------------------ reading
-/** People and labels of every task, by task. */
-async function links(req:Req) {
-  const who = new Map<string, { id: string; name: string; userId: string | null; avatarAt?: number | null }[]>(), tags = new Map<string, string[]>();
-  // A name linked to an employee shows as that employee.
-  for (const r of await all<any>('SELECT a.task_id, p.id, COALESCE(u.name, p.name) name, p.user_id, u.avatar_at FROM task_assignees a JOIN task_people p ON p.id = a.person_id LEFT JOIN users u ON u.id = p.user_id ORDER BY 3')) {
-    who.set(r.task_id, [...(who.get(r.task_id) || []), { id: r.id, name: r.name, userId: r.user_id || null, avatarAt: r.avatar_at ?? null }]);
-  }
-  for (const r of await all<any>('SELECT k.task_id, l.name FROM task_label_links k JOIN task_labels l ON l.id = k.label_id ORDER BY l.name')) tags.set(r.task_id, [...(tags.get(r.task_id) || []), r.name]);
-  const followers = new Map<string, { id: string; name: string; avatarAt?: number | null }[]>();
-  for (const r of await all<any>('SELECT f.task_id, u.id, u.name, u.avatar_at FROM task_followers f JOIN users u ON u.id = f.user_id WHERE u.disabled = 0 ORDER BY u.name')) followers.set(r.task_id, [...(followers.get(r.task_id) || []), { id: r.id, name: r.name, avatarAt: r.avatar_at ?? null }]);
+/** People and labels of every task, by task. `customers`: the asker's customer levels, when the caller has them. */
+async function links(req:Req,customers?:Awaited<ReturnType<typeof customerLevels>>) {
   const user=await me(req);
-  const allowed=new Set<string>();
-  for(const board of await all<any>('SELECT * FROM boards'))if(await boardLevelForUser(user,board))allowed.add(board.id);
+  // Independent reads, all at once (each is a round trip to D1).
+  const [people,labels,following,level,boards,cards,pLevels,onCards]=await Promise.all([
+    // A name linked to an employee shows as that employee.
+    all<any>('SELECT a.task_id, p.id, COALESCE(u.name, p.name) name, p.user_id, u.avatar_at FROM task_assignees a JOIN task_people p ON p.id = a.person_id LEFT JOIN users u ON u.id = p.user_id ORDER BY 3'),
+    all<any>('SELECT k.task_id, l.name FROM task_label_links k JOIN task_labels l ON l.id = k.label_id ORDER BY l.name'),
+    all<any>('SELECT f.task_id, u.id, u.name, u.avatar_at FROM task_followers f JOIN users u ON u.id = f.user_id WHERE u.disabled = 0 ORDER BY u.name'),
+    boardLevels(user),
+    all<any>('SELECT * FROM boards'),
+    all<any>('SELECT x.task_id,c.id cardId,c.board_id boardId,b.name boardName,l.id listId,l.name listName FROM task_board_links x JOIN board_cards c ON c.id=x.card_id JOIN boards b ON b.id=c.board_id JOIN board_lists l ON l.id=c.list_id'),
+    projectLevels(user.id,customers),
+    all<any>('SELECT l.task_id, u.id, u.name, u.avatar_at FROM task_board_links l JOIN card_members m ON m.card_id = l.card_id JOIN users u ON u.id = m.user_id WHERE u.disabled = 0 ORDER BY u.name'),
+  ]);
+  const who = new Map<string, { id: string; name: string; userId: string | null; avatarAt?: number | null }[]>(), tags = new Map<string, string[]>();
+  for (const r of people) who.set(r.task_id, [...(who.get(r.task_id) || []), { id: r.id, name: r.name, userId: r.user_id || null, avatarAt: r.avatar_at ?? null }]);
+  for (const r of labels) tags.set(r.task_id, [...(tags.get(r.task_id) || []), r.name]);
+  const followers = new Map<string, { id: string; name: string; avatarAt?: number | null }[]>();
+  for (const r of following) followers.set(r.task_id, [...(followers.get(r.task_id) || []), { id: r.id, name: r.name, avatarAt: r.avatar_at ?? null }]);
+  const onCard = new Map<string, { id: string; name: string; userId: string; avatarAt?: number | null }[]>();
+  for (const r of onCards) onCard.set(r.task_id, [...(onCard.get(r.task_id) || []), { id: `card:${r.id}`, name: r.name, userId: r.id, avatarAt: r.avatar_at ?? null }]);
+  const allowed=new Set(boards.filter((b)=>level(b)).map((b)=>b.id as string));
   const boardLinks=new Map<string,{cardId:string;boardId:string;boardName:string;listId:string;listName:string}>(),linkedTasks=new Set<string>();
-  for(const row of await all<any>('SELECT x.task_id,c.id cardId,c.board_id boardId,b.name boardName,l.id listId,l.name listName FROM task_board_links x JOIN board_cards c ON c.id=x.card_id JOIN boards b ON b.id=c.board_id JOIN board_lists l ON l.id=c.list_id')){
+  for(const row of cards){
     linkedTasks.add(row.task_id);
     if(allowed.has(row.boardId)){const{task_id,...link}=row;boardLinks.set(task_id,link);}
   }
-  const pLevels = await projectLevels(user.id);
-  return { who, tags, followers, boardLinks, linkedTasks, user, pLevels };
+  return { who, tags, followers, onCard, boardLinks, linkedTasks, user, pLevels };
 }
 const TASK_SQL = `SELECT t.*, j.name project_name, j.customer_id, (SELECT name FROM task_campaigns WHERE id=t.campaign_id) campaign_name, c.name creator_name, c.user_id creator_user_id, p.title parent_title,
   (SELECT COUNT(*) FROM tasks x WHERE x.parent_id = t.id) children
@@ -212,7 +222,9 @@ function taskOut(t: any, l: Awaited<ReturnType<typeof links>>) {
     project: t.project_id ? { id: t.project_id, name: t.project_name || '', customerId: t.customer_id || null } : null,
     campaign: t.campaign_id ? { id:t.campaign_id,name:t.campaign_name || '',projectId:t.project_id } : null,
     parent: t.parent_id ? { id: t.parent_id, title: t.parent_title || '' } : null, children: Number(t.children) || 0,
-    createdBy: t.created_by ? { id: t.created_by, name: t.creator_name || '' } : null, assignees: l.who.get(t.id) || [], followers: l.followers.get(t.id) || [], labels: l.tags.get(t.id) || [],
+    createdBy: t.created_by ? { id: t.created_by, name: t.creator_name || '' } : null, assignees: l.who.get(t.id) || [],
+    // The people on its card who are not given the task (a card linked by hand keeps its own people): it is their work too.
+    cardPeople: (l.onCard.get(t.id) || []).filter((p) => !(l.who.get(t.id) || []).some((a) => a.userId === p.userId)), followers: l.followers.get(t.id) || [], labels: l.tags.get(t.id) || [],
     boardLink:l.boardLinks.get(t.id)||null,hasBoardLink:l.linkedTasks.has(t.id),
     canDelete: l.user.role === 'admin' || (t.creator_user_id != null && t.creator_user_id === l.user.id) || (t.project_id ? l.pLevels.get(t.project_id) === 'admin' : false),
     sourceUpdatedAt: t.source_updated_at ?? null, stub: !!t.stub, updatedAt: t.updated_at,
@@ -386,6 +398,11 @@ export function registerTasks(api: Router) {
       customerChanged=cid!==((await get<any>('SELECT customer_id FROM task_projects WHERE id=?',id))?.customer_id||null);
       await run('UPDATE task_projects SET customer_id=? WHERE id=?',cid,id);
     }
+    // Put on hold or cancelled by its managers, or (null) back to following its tasks.
+    if(body.hold!==undefined){
+      if(body.hold!==null&&!isHold(body.hold))throw new HttpError(400,'Trạng thái dự án không hợp lệ');
+      await run('UPDATE task_projects SET hold=? WHERE id=?',body.hold,id);
+    }
     if(body.teamId!==undefined){
       const tid=body.teamId?String(body.teamId):null;
       if(tid&&!await get('SELECT id FROM team_roles WHERE id=?',tid))throw new HttpError(400,'Phòng ban không tồn tại');
@@ -526,7 +543,7 @@ export function registerTasks(api: Router) {
         team = new Set((await all<any>('SELECT id FROM users WHERE team_role = ? AND disabled = 0', target)).map((r) => r.id as string));
       }
     }
-    const ids = await myPeople(u.id), l = await links(req),allowedCustomers=await customerLevels(u.id),allowedProjects=await projectLevels(u.id);
+    const [ids, allowedCustomers] = await Promise.all([myPeople(u.id), customerLevels(u.id)]), l = await links(req,allowedCustomers), allowedProjects=l.pLevels;
     // A task and its card are one piece of work: the card's members are the task's people too.
     const onCard = new Map<string, string[]>();
     for (const r of await all<any>('SELECT l.task_id, m.user_id FROM task_board_links l JOIN card_members m ON m.card_id = l.card_id')) onCard.set(r.task_id, [...(onCard.get(r.task_id) || []), r.user_id]);
@@ -558,13 +575,16 @@ export function registerTasks(api: Router) {
     const visibleProjects=(await all<any>('SELECT id,customer_id FROM task_projects')).filter(p=>allowedProjects.has(p.id)&&(!p.customer_id||allowedCustomers.has(p.customer_id)));
     const projectIds=new Set(visibleProjects.map(p=>p.id));
     const counts = new Map((await all<any>('SELECT person_id, COUNT(*) n FROM task_assignees GROUP BY person_id')).map((r) => [r.person_id, Number(r.n)]));
-    const projStats = new Map<string, { completed: number; overdue: number }>();
+    // Its tasks' progress, and from it the project's own stage (cancelled tasks are not counted as work left).
+    const projStats = new Map<string, { completed: number; overdue: number; live: number; started: number }>();
     for (const r of await all<any>('SELECT project_id, status, due_at, done_at FROM tasks WHERE project_id IS NOT NULL AND stub = 0')) {
       if (!projectIds.has(r.project_id)) continue;
-      const s = projStats.get(r.project_id) || { completed: 0, overdue: 0 };
+      const s = projStats.get(r.project_id) || { completed: 0, overdue: 0, live: 0, started: 0 };
       const st = stateOf(r);
+      if (st !== 'cancelled') s.live++;
       if (st === 'done' || st === 'done_late') s.completed++;
       else if (st === 'overdue') s.overdue++;
+      if (!['todo', 'cancelled'].includes(st) && !(st === 'overdue' && statusKey(r.status) === 'todo')) s.started++;
       projStats.set(r.project_id, s);
     }
     const projAssignees = new Map<string, { id: string; name: string; userId: string | null; avatarAt?: number | null }[]>();
@@ -577,7 +597,7 @@ export function registerTasks(api: Router) {
         .map((p) => ({ id: p.id, name: p.name, userId: p.user_id || null, userName: p.user_name || null, avatarAt: p.avatar_at ?? null, tasks: counts.get(p.id) || 0 })),
       projects: (await all<any>('SELECT j.*, c.name customer_name, (SELECT COUNT(*) FROM tasks t WHERE t.project_id = j.id) n FROM task_projects j LEFT JOIN customers c ON c.id = j.customer_id ORDER BY j.name COLLATE NOCASE')).filter(j=>projectIds.has(j.id)).map((j) => {
         const st = projStats.get(j.id);
-        return { id: j.id, name: j.name, customerId: j.customer_id || null, customerName: j.customer_name || null, teamId:j.team_id||null,createdBy:j.created_by,level:allowedProjects.get(j.id), tasks: Number(j.n), completed: st?.completed || 0, overdue: st?.overdue || 0, assignees: projAssignees.get(j.id) || [] };
+        return { id: j.id, name: j.name, customerId: j.customer_id || null, customerName: j.customer_name || null, teamId:j.team_id||null,createdBy:j.created_by,level:allowedProjects.get(j.id), tasks: Number(j.n), completed: st?.completed || 0, overdue: st?.overdue || 0, hold: j.hold || null, stage: projectStage({ tasks: st?.live || 0, started: st?.started || 0, done: st?.completed || 0 }, j.hold), assignees: projAssignees.get(j.id) || [] };
       }),
       campaigns: (await all<any>('SELECT c.*, (SELECT COUNT(*) FROM tasks t WHERE t.campaign_id=c.id) tasks FROM task_campaigns c ORDER BY c.name')).filter(c=>projectIds.has(c.project_id)).map(c=>({id:c.id,name:c.name,projectId:c.project_id,tasks:c.tasks})),
       teams:await all('SELECT id,name,color FROM team_roles ORDER BY pos'),
@@ -614,7 +634,7 @@ export function registerTasks(api: Router) {
   api.get('/api/tasks/:id', async (req, res) => {
     const t = await get<any>(`${TASK_SQL} WHERE t.id = ?`, req.params.id);
     if (!t) throw new HttpError(404, 'Không tìm thấy công việc');
-    const l = await links(req), own = (!t.project_id||(await projectLevels((await me(req)).id)).get(t.project_id)!=='observer')&&await mine(req, t),visibleCustomers=await customerLevels((await me(req)).id),visibleProjects=await projectLevels((await me(req)).id);
+    const visibleCustomers=await customerLevels((await me(req)).id), l = await links(req,visibleCustomers), visibleProjects=l.pLevels, own = (!t.project_id||visibleProjects.get(t.project_id)!=='observer')&&await mine(req, t);
     const chain: { id: string; title: string }[] = [];
     for (let up = t.parent_id, n = 0; up && n < 20; n++) { const p = await get<any>('SELECT t.id,t.title,t.parent_id,t.project_id,p.customer_id FROM tasks t LEFT JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',up); if (!p||p.project_id&&!visibleProjects.has(p.project_id)||p.customer_id&&!visibleCustomers.has(p.customer_id)) break; chain.unshift({ id: p.id, title: p.title }); up = p.parent_id; }
     const kids = (await all<any>(`${TASK_SQL} WHERE t.parent_id = ? ORDER BY COALESCE(t.due_at, t.created_at)`, t.id)).filter(x=>(!x.project_id||visibleProjects.has(x.project_id))&&(!x.customer_id||visibleCustomers.has(x.customer_id))).map((x) => taskOut(x,l));

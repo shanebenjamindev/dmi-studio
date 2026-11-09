@@ -1220,6 +1220,14 @@ test('a customer is deleted only by its owner or the head of the owner\'s depart
   const seen=async who=>(await server.call('GET','/api/customers/directory',undefined,who.cookie)).data.find(c=>c.id===id);
   assert.deepEqual([(await seen(owner)).canDelete,(await seen(head)).canDelete,(await seen(manager)).canDelete,await seen(otherHead)],[true,true,false,undefined]);
   assert.equal((await seen(head)).canManage,true);
+  assert.equal((await server.call('POST',`/api/customers/${id}/transfer-owner`,{userId:manager.id},otherHead.cookie)).status,404);
+  assert.equal((await server.call('POST',`/api/customers/${id}/transfer-owner`,{userId:manager.id},owner.cookie)).status,200);
+  let mems=(await server.call('GET',`/api/customers/${id}/members`,undefined,manager.cookie)).data;
+  assert.equal(mems.ownerId,manager.id);
+  assert.equal(mems.members.find(m=>m.id===owner.id).level,'admin');
+  assert.equal((await server.call('POST',`/api/customers/${id}/transfer-owner`,{userId:owner.id},head.cookie)).status,200);
+  mems=(await server.call('GET',`/api/customers/${id}/members`,undefined,owner.cookie)).data;
+  assert.equal(mems.ownerId,owner.id);
   assert.equal((await server.call('DELETE',`/api/customers/${id}`,undefined,manager.cookie)).status,403);
   assert.equal((await server.call('DELETE',`/api/customers/${id}`,undefined,otherHead.cookie)).status,404);
   assert.equal((await server.call('DELETE',`/api/customers/${id}`,undefined,head.cookie)).status,200);

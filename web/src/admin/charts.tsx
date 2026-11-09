@@ -140,14 +140,23 @@ export function StackBars({ rows, parts }: { rows: { key: string; label: string;
       <li key={r.key} title={`${r.label}: ${r.values.map((v, i) => `${parts[i].name} ${fmtNum(v)}`).join(' · ')}`} tabIndex={0}>
         <span className="ax-bar-label">{r.label}</span>
         <span className="ax-bar-track stack">{r.values.map((v, i) => (v ? <span key={i} className="ax-bar-fill" style={{ width: `${(v / max) * 100}%`, background: parts[i].color }} /> : null))}</span>
-        <span className="ax-bar-value">{r.values.map(fmtNum).join(' / ')}</span>
+        <span className="ax-bar-value">{r.values.map((v, i) => `${fmtNum(v)} ${parts[i].name.toLocaleLowerCase('vi')}`).join(' · ')}</span>
       </li>
     ))}</ul>
   );
 }
 /** Part-to-whole of a few kinds; the middle holds the total, the list beside it each kind's share. */
+/** Whole percentages that add up to 100: rounded down, then the points left go to the largest remainders. */
+function shares(values: number[]) {
+  const total = values.reduce((a, v) => a + v, 0);
+  if (!total) return values.map(() => 0);
+  const raw = values.map((v) => (v / total) * 100), out = raw.map(Math.floor);
+  const left = 100 - out.reduce((a, v) => a + v, 0);
+  raw.map((v, i) => [v - out[i], i]).sort((x, y) => y[0] - x[0]).slice(0, left).forEach(([, i]) => out[i]++);
+  return out;
+}
 export function Donut({ dist, center }: { dist: Dist; center: string }) {
-  const total = dist.reduce((a, d) => a + d.value, 0), [at, setAt] = useState<string | null>(null);
+  const total = dist.reduce((a, d) => a + d.value, 0), [at, setAt] = useState<string | null>(null), share = shares(dist.map((d) => d.value));
   if (!total) return <p className="ax-nodata">Chưa có số liệu</p>;
   const R = 70, r = 46, C = 90;
   let a0 = -Math.PI / 2;
@@ -166,10 +175,10 @@ export function Donut({ dist, center }: { dist: Dist; center: string }) {
       <svg viewBox="0 0 180 180" width={180} height={180} role="img" aria-label={center}>
         {arcs.map((x) => <path key={x.d.key} d={x.path} fill={x.color} fillRule="evenodd" opacity={at && at !== x.d.key ? 0.45 : 1} onPointerEnter={() => setAt(x.d.key)} onPointerLeave={() => setAt(null)} />)}
         <text x={C} y={C - 2} textAnchor="middle" className="ax-donut-total">{fmtNum(hit ? hit.d.value : total)}</text>
-        <text x={C} y={C + 16} textAnchor="middle" className="ax-tick">{hit ? `${Math.round((hit.d.value / total) * 100)}%` : center}</text>
+        <text x={C} y={C + 16} textAnchor="middle" className="ax-tick">{hit ? `${share[dist.indexOf(hit.d)]}%` : center}</text>
       </svg>
       <ul className="ax-legend vertical">{dist.map((d, i) => (
-        <li key={d.key} onPointerEnter={() => setAt(d.key)} onPointerLeave={() => setAt(null)}><i style={{ background: d.color || SERIES(i) }} /><span>{d.label}</span><b>{fmtNum(d.value)}</b><small>{Math.round((d.value / total) * 100)}%</small></li>
+        <li key={d.key} onPointerEnter={() => setAt(d.key)} onPointerLeave={() => setAt(null)}><i style={{ background: d.color || SERIES(i) }} /><span>{d.label}</span><b>{fmtNum(d.value)}</b><small>{share[i]}%</small></li>
       ))}</ul>
     </div>
   );

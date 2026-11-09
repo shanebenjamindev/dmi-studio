@@ -1,4 +1,5 @@
 import {CustomerStages} from './CustomerStages';
+import {useCustomerStatuses} from './useCustomerStatuses';
 import {BrandLoading} from './BrandLoading';
 import {useEffect,useState} from 'react';
 import {api} from '../api';
@@ -21,6 +22,8 @@ export function CustomerForm({id,onClose,onSaved,onChanged}:{id:string|null;onCl
  const mayDrive=useStore(s=>s.pages).includes('workspace');
  const [drive,setDrive]=useState<Drive>(null);const [link,setLink]=useState('');const [picked,setPicked]=useState<Loc|null>(null);const [picking,setPicking]=useState(false);const [driveBusy,setDriveBusy]=useState(false);
  const [status,setStatus]=useState('');const [categoryId,setCategoryId]=useState('');const [categories,setCategories]=useState<{id:string;name:string;active:number}[]>([]);
+ // A new customer starts at the first status in use (changeable here), as the server does when none is sent.
+ const statuses=useCustomerStatuses();
  const [sourceId,setSourceId]=useState('');const [sources,setSources]=useState<{id:string;name:string;active:number}[]>([]);
  const [managerId,setManagerId]=useState('');const [managers,setManagers]=useState<{id:string;name:string;email:string}[]>([]);
  const mayAddService=canDo('services.create');
@@ -48,6 +51,17 @@ export function CustomerForm({id,onClose,onSaved,onChanged}:{id:string|null;onCl
   if(id)api.customerRecord(id).then(r=>{if(active){adopt(r);setCatalog(c=>[...c,...(r.needs||[]).filter(n=>!c.some(x=>x.id===n.id))]);setLoaded(true);setLoading(false);}},e=>{if(active){setError(e.message);setLoading(false);}});
   return()=>{active=false;};
  },[id]);
+ // A new customer whose name looks like one already there (marks, case and spaces aside, or one inside the other:
+ // "TurboTint" and "Turbo Tint Marietta") is pointed out before it is made; it can still be made.
+ const [known,setKnown]=useState<{id:string;name:string}[]>([]);
+ useEffect(()=>{if(!id)api.customersAll().then(setKnown,()=>{});},[id]);
+ const twins=(()=>{
+  const key=(x:string)=>x.toLocaleLowerCase('vi').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/[^a-z0-9]/g,'');
+  const k=key(form.name);
+  return id||k.length<4?[]:known.filter(c=>{const o=key(c.name);return o===k||(o.length>=4&&(o.includes(k)||k.includes(o)));}).slice(0,3);
+ })();
+ // After the reset above, so it is not cleared by it.
+ useEffect(()=>{if(!id&&!status&&statuses.length)setStatus(statuses.find(s=>s.active)?.id||'');},[id,statuses]); // eslint-disable-line react-hooks/exhaustive-deps
  const pendingUpdate=busy||driveBusy||serviceBusy;
  /** A typed tag: the one of that name in the list (any case), else a new one made when the customer is saved. */
  const addTag=(text:string)=>{
@@ -79,7 +93,7 @@ export function CustomerForm({id,onClose,onSaved,onChanged}:{id:string|null;onCl
  const pending=picked?(picked.kind==='gdrive'?picked.label||picked.id:picked.dir):'';
  return <div className="cm-back" onMouseDown={e=>{if(e.target===e.currentTarget&&!pendingUpdate)onClose();}}><form className="crm-new crm-new-wide" onSubmit={save} role="dialog" aria-modal="true" aria-label={id?'Sửa khách hàng':'Thêm khách hàng'}><header className="crm-form-head"><h2>{id?'Sửa khách hàng':'Thêm khách hàng'}</h2><button type="button" className="bd-icon" disabled={pendingUpdate} onClick={onClose} aria-label="Đóng"><Icon name="x" size={16}/></button></header>{error&&<p className="note err" role="alert">{error}</p>}<fieldset disabled={pendingUpdate||loading||!loaded}>{loading?<BrandLoading label="Đang tải…"/>:<>
   <CustomerStages status={status} onChange={setStatus}/>
-  {field('name','Tên khách hàng')}<div className="crm-form-grid">{field('contact','Người liên hệ')}<label className="tm-field">Người phụ trách<select className="bk-in" value={managerId} onChange={e=>setManagerId(e.target.value)}><option value="">Chưa chọn người phụ trách</option>{managers.map(m=><option key={m.id} value={m.id}>{m.name}{m.email?` (${m.email})`:''}</option>)}</select></label></div>
+  {field('name','Tên khách hàng')}{twins.length>0&&<p className="note warn" role="status">Có thể trùng với: {twins.map(c=>c.name).join(', ')}. Kiểm tra trước khi tạo.</p>}<div className="crm-form-grid">{field('contact','Người liên hệ')}<label className="tm-field">Người phụ trách<select className="bk-in" value={managerId} onChange={e=>setManagerId(e.target.value)}><option value="">Chưa chọn người phụ trách</option>{managers.map(m=><option key={m.id} value={m.id}>{m.name}{m.email?` (${m.email})`:''}</option>)}</select></label></div>
   <div className="crm-form-grid">{field('email','Email','email',320)}{field('phone','Điện thoại','tel',60)}</div>
   <div className="crm-form-grid">
    <div className="tm-field crm-tags"><span>Tag</span>

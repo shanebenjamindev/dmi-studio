@@ -71,6 +71,19 @@ async function initialize(binding?: D1Binding) {
     await db.execute('PRAGMA journal_mode=WAL');
     await db.execute('PRAGMA foreign_keys=ON');
   }
+  // A database this code already upgraded is used as it is: a cold start reads one setting instead of running the
+  // upgrade again (some sixty statements in a row, about two seconds on D1 before the first answer). A new database
+  // has no settings table yet.
+  if (await getSetting<string | null>('schema_version', null).catch(() => null) === schemaVersion()) return;
+  await upgrade();
+  await setSetting('schema_version', schemaVersion());
+}
+/** What the upgrade below does, as a short hash: any change to the schema, the upgrade, the seeds or the repairs runs
+ *  them once more on the next cold start. */
+let version = '';
+const schemaVersion = () => version ||= crypto.createHash('sha256')
+  .update([SCHEMA, upgrade, seedAdmin, repairData, JSON.stringify(DEFAULT_ROLES), JSON.stringify(CUSTOMER_STATUS)].map(String).join('\n')).digest('hex').slice(0, 16);
+async function upgrade() {
   await db.executeMultiple(SCHEMA);
   // Columns added after a table was first made, with their type.
   const columns = new Map<string, string[]>();
@@ -90,30 +103,42 @@ async function initialize(binding?: D1Binding) {
     ['quick_notes', 'pos', 'REAL'],
     // The customer a board is for, whether its editors may share it, and what sharing a board opened (closed when unshared).
     ['boards', 'customer_id'], ['boards', 'editor_share', 'INTEGER NOT NULL DEFAULT 1'],
-    ['task_project_members', 'via_board'], ['customer_members', 'via_board']]) {
+    ['task_project_members', 'via_board'], ['customer_members', 'via_board'],
+    // A project its managers put on hold or cancelled (shared/projects.ts); otherwise its stage follows its tasks.
+    ['task_projects', 'hold'],
+    // A list's own colour (the whole column), one of the cards' cover colours.
+    ['board_lists', 'color']]) {
     // One look at each table's columns, not one per column: every cold start on D1 runs this.
     const info = columns.get(table) || (await db.execute(`PRAGMA table_info(${table})`)).rows.map(c => c.name as string);
     columns.set(table, info);
     if (!info.includes(column)) { await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`); info.push(column); }
   }
   await db.execute('CREATE INDEX IF NOT EXISTS notifications_broadcast ON notifications(broadcast_id)');
-  // Upgrade existing Project cards once, keeping their existing child tasks.
+  await seedAdmin();
+  await repairData();
+}
+/** Data a change elsewhere may leave out of step, set right: after each upgrade, and by the cron every ten minutes
+ *  (they read whole tables, so not on every cold start). */
+export async function repairData() {
+  // Project cards without their project get one, keeping their existing child tasks.
   await db.execute("INSERT OR IGNORE INTO task_projects(id,name,created_by,created_at) SELECT 'tj_card_'||id,title,created_by,created_at FROM board_cards WHERE card_kind='project' AND work_project_id IS NULL");
   await db.execute("UPDATE board_cards SET work_project_id='tj_card_'||id WHERE card_kind='project' AND work_project_id IS NULL");
   await db.execute("UPDATE tasks SET project_id=(SELECT p.work_project_id FROM task_board_links l JOIN board_cards c ON c.id=l.card_id JOIN board_cards p ON p.id=c.project_card_id WHERE l.task_id=tasks.id) WHERE project_id IS NULL AND EXISTS(SELECT 1 FROM task_board_links l JOIN board_cards c ON c.id=l.card_id JOIN board_cards p ON p.id=c.project_card_id WHERE l.task_id=tasks.id AND p.work_project_id IS NOT NULL)");
-
-  await seedAdmin();
+  // Company admins are Super Admins.
+  await db.execute({ sql: "INSERT OR IGNORE INTO user_roles(user_id,role_id,created_at) SELECT id,'role_super_admin',? FROM users WHERE role='admin'", args: [Date.now()] });
   await db.execute("UPDATE task_projects SET created_by=COALESCE((SELECT c.created_by FROM customers c WHERE c.id=task_projects.customer_id),(SELECT i.user_id FROM task_imports i JOIN tasks t ON t.import_id=i.id WHERE t.project_id=task_projects.id ORDER BY i.created_at LIMIT 1),(SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1)) WHERE created_by IS NULL");
-  await db.execute("UPDATE customers SET created_by=(SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1) WHERE created_by IS NULL AND EXISTS(SELECT 1 FROM users WHERE role='admin' AND disabled=0)");
   await db.execute("UPDATE mail_outbox SET state='cancelled',error='Cần xác minh email cá nhân để nhận thư' WHERE state='pending' AND user_id IN(SELECT user_id FROM notification_preferences WHERE email IS NULL OR verified_at IS NULL)");
   // Existing ownerless starter boards belong to the original administrator; no implicit admin access remains.
   await db.execute("UPDATE boards SET created_by=(SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1) WHERE created_by IS NULL AND EXISTS(SELECT 1 FROM users WHERE role='admin' AND disabled=0)");
   await db.execute('UPDATE boards SET private=1 WHERE private<>1');
   await db.execute("INSERT OR IGNORE INTO task_campaigns(id,project_id,name,created_at) SELECT 'tc_existing_'||p.id,p.id,'Công việc hiện có',p.created_at FROM task_projects p WHERE EXISTS(SELECT 1 FROM tasks t WHERE t.project_id=p.id AND t.campaign_id IS NULL)");
   await db.execute("UPDATE tasks SET campaign_id='tc_existing_'||project_id WHERE project_id IS NOT NULL AND campaign_id IS NULL");
+  // A task dragged into a board's done column before the column's meaning was used took the column's name as its status
+  // ("Xong"): it gets the task workflow's own, done late when finished after its due date.
+  await db.execute("UPDATE tasks SET status=CASE WHEN due_at IS NOT NULL AND done_at > due_at THEN 'Hoàn thành muộn' ELSE 'Hoàn thành' END WHERE status IN ('Xong','Đã xong','Hoàn tất','Đã hoàn thành','Done','Completed')");
 }
-/** The built-in roles (their default permissions only when first made), the company's admins as Super Admins, and the
- *  task statuses and priorities the Tasks page started with, once: what admins later change or remove stays so. */
+/** The built-in roles (their default permissions only when first made) and the task statuses and priorities the Tasks
+ *  page started with, once: what admins later change or remove stays so. */
 async function seedAdmin() {
   const t = Date.now(), have = new Set((await db.execute('SELECT key FROM roles WHERE key IS NOT NULL')).rows.map(r => r.key));
   for (const r of DEFAULT_ROLES.filter(r => !have.has(r.key))) {
@@ -121,7 +146,6 @@ async function seedAdmin() {
     // Super Admin holds every permission in code, whatever its rows say.
     if (r.key !== SUPER_ADMIN) for (const [perm, scope] of Object.entries(r.perms)) await db.execute({ sql: 'INSERT OR IGNORE INTO role_permissions(role_id,perm,scope) VALUES(?,?,?)', args: ['role_' + r.key, perm, scope] });
   }
-  await db.execute({ sql: "INSERT OR IGNORE INTO user_roles(user_id,role_id,created_at) SELECT id,'role_super_admin',? FROM users WHERE role='admin'", args: [t] });
   const seeded = await getSetting<string[]>('admin_seeded', []);
   const lists: [string, [string, string][]][] = [
     ['task_statuses', [['Chưa thực hiện', '#94a3b8'], ['Đang thực hiện', '#0b7df2'], ['Đang đánh giá', '#8b5cf6'], ['Tạm dừng', '#f59e0b'], ['Hoàn thành', '#16a34a'], ['Hoàn thành muộn', '#65a30d'], ['Đã huỷ', '#ef4444']]],

@@ -1,4 +1,5 @@
 import {Rich} from './boardkit';
+import { ResizeHandle } from './ResizeHandle';
 // Workspace: customers, their info, their videos (on Google Drive via Google sign-in, or a folder on this Mac) and their projects.
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
@@ -142,6 +143,7 @@ export function WorkspacePage() {
           </footer>
         )}
       </aside>
+      <ResizeHandle cssVar="--ws-side-w" storage="workspace-side" min={220} max={560} label="Đổi độ rộng danh sách khách hàng" />
 
       {dash
         ? <Dashboard customers={list} onOpenCustomer={(id) => { setSel(id); setDash(false); }} />
@@ -387,7 +389,7 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
       <FolderPicker open={linking} title={`Thư mục của ${c.name}`} start={c.folderLoc} confirmLabel="Liên kết thư mục này" onClose={() => setLinking(false)}
         onPick={async (loc) => { setC(await api.linkCustomerFolder(id, loc)); onChanged(); toast('Đã liên kết thư mục'); }} />
 
-      <div className="ws-body">
+      <div className="ws-body rz">
       <div className="ws-main">
       <div className="ws-tabrow">
         <div className="ws-tabs" role="tablist" aria-label="Thư mục" ref={tabsRef} onScroll={fadeTabs}
@@ -515,6 +517,7 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
         )}
       </div>
 
+      <ResizeHandle key={shown ? 'viewer' : 'aside'} side="after" cssVar="--ws-aside-w" storage={shown ? 'workspace-viewer' : 'workspace-aside'} min={260} max={720} label="Đổi độ rộng khung bên phải" />
       <aside className={'ws-aside' + (shown ? ' viewing' : '')}>
         {shown && cur ? (
           <Viewer key={shown.key} v={shown} list={files} storage={c.storage} cards={resultOf.get(shown.key) || []} folder={here?.name ?? (cur.key ? cur.name : c.name)}

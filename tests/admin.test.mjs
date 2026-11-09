@@ -7,6 +7,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { once } from 'node:events';
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 
 const root = path.resolve(import.meta.dirname, '..');
 // A server of its own on a scratch database and Drive folder (never the real data or Drive).
@@ -141,6 +142,8 @@ test('admin module: task and customer records, their history, and the lists the 
   const db = new DatabaseSync(path.join(dir, 'studio.db'));
   db.prepare("INSERT INTO customers(id,name,notes,links,folder,status,created_at,updated_at) VALUES('c_old','Old',?,'[]','','legacy_status',1,1)").run('Mã khách hàng: KH-7\nTên khác / dự án: Ceramic');
   db.prepare("UPDATE settings SET value=? WHERE key='admin_seeded'").run(JSON.stringify(['task_statuses', 'task_priorities']));
+  // Last upgraded by older code: the upgrade runs again on the next start.
+  db.prepare("DELETE FROM settings WHERE key='schema_version'").run();
   db.close();
   const s = await start(dir);
   try {
@@ -192,7 +195,8 @@ test('admin module: task and customer records, their history, and the lists the 
     assert.equal(freshRecord.status,'caring');assert.equal(freshRecord.category.id,vip.id);
     const legacy=ok(await s.call('POST','/api/customers',{name:'Unclassified existing customer',databaseOnly:true},b));
     const legacyRecord=ok(await s.call('GET',`/api/customers/${legacy.id}/record`,undefined,b));
-    assert.equal(legacyRecord.status,null);assert.equal(legacyRecord.category,null);
+    // With no status given, a new customer starts at the first status in use; it has no category until one is chosen.
+    assert.equal(legacyRecord.status,'lead');assert.equal(legacyRecord.category,null);
     ok(await s.call('PUT',`/api/customers/${legacy.id}/record`,{status:'active',categoryId:vip.id},b));
     for(const id of [fresh.id,legacy.id]){
       const detail=ok(await s.call('GET',`/api/customers/${id}/record`,undefined,b));
@@ -490,5 +494,46 @@ test('an id written encoded is checked like any other, and an uploaded file neve
     const png = await get(await up('cover.png', 'image/png', Buffer.from('89504e470d0a1a0a', 'hex')));
     assert.equal(png.headers.get('content-disposition'), null);
     assert.equal(png.headers.get('x-content-type-options'), 'nosniff');
+  } finally { await s.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a database this code already upgraded starts without upgrading again; one from older code is upgraded', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'dmi-upgrade-'));
+  try {
+    await (await start(dir)).close();
+    // The upgrade's repairs make every board private: a board left public shows whether they ran.
+    const edit = (sql) => { const db = new DatabaseSync(path.join(dir, 'studio.db')); db.exec(sql); db.close(); };
+    const isPrivate = () => { const db = new DatabaseSync(path.join(dir, 'studio.db'), { readOnly: true }); const r = db.prepare("SELECT private FROM boards WHERE id='b_open'").get(); db.close(); return r.private; };
+    edit("INSERT INTO boards(id,name,bg,pos,created_at,updated_at,private) VALUES('b_open','Mở','#000',1,1,1,0)");
+    await (await start(dir)).close();
+    assert.equal(isPrivate(), 0);
+    edit("DELETE FROM settings WHERE key='schema_version'");
+    await (await start(dir)).close();
+    assert.equal(isPrivate(), 1);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a forgotten password is set again from a one-time link; the answer never tells which emails have accounts', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'dmi-reset-'));
+  const s = await start(dir);
+  try {
+    const boss = await s.call('POST', '/api/auth/setup', { code: 'admin-test', name: 'Boss', email: 'boss@x.test', password: 'password-123' });
+    // Known and unknown emails get the same answer; only the known one gets a link (no mail sender here, so none is sent).
+    assert.deepEqual(ok(await s.call('POST', '/api/auth/forgot', { email: 'boss@x.test' })), { ok: true });
+    assert.deepEqual(ok(await s.call('POST', '/api/auth/forgot', { email: 'nobody@x.test' })), { ok: true });
+    const db = new DatabaseSync(path.join(dir, 'studio.db'));
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM password_resets').get().n, 1);
+    // A link of our own (the mailed one's secret is never stored, only its hash).
+    const token = 'a'.repeat(43), id = createHash('sha256').update(token).digest('hex');
+    db.prepare('INSERT INTO password_resets(id,user_id,expires_at,created_at) VALUES(?,?,?,?)').run(id, boss.data.user.id, Date.now() + 60e3, Date.now());
+    db.close();
+    assert.equal((await s.call('POST', '/api/auth/reset', { token: 'b'.repeat(43), password: 'new-password-1' })).status, 400);
+    assert.equal((await s.call('POST', '/api/auth/reset', { token, password: 'short' })).status, 400);
+    ok(await s.call('POST', '/api/auth/reset', { token, password: 'new-password-1' }), 'reset');
+    // Once only; the old password and the old session no longer work; the new password does.
+    assert.equal((await s.call('POST', '/api/auth/reset', { token, password: 'new-password-2' })).status, 400);
+    assert.equal((await s.call('GET', '/api/auth/me', undefined, boss.cookie)).data.user, null);
+    assert.equal((await s.call('POST', '/api/auth/login', { email: 'boss@x.test', password: 'password-123' })).status, 401);
+    ok(await s.call('POST', '/api/auth/login', { email: 'boss@x.test', password: 'new-password-1' }), 'login with the new password');
   } finally { await s.close(); await rm(dir, { recursive: true, force: true }); }
 });

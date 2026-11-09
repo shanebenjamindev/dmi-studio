@@ -8,6 +8,7 @@ import { ProjectsDialog, ExportDialog } from './components/Dialogs';
 import { pageFor, prefetchPages } from './pages';
 import { QuickNotes } from './components/QuickNotes';
 import { GlobalSearch } from './components/GlobalSearch';
+import { Messenger } from './components/Messenger';
 
 /** A page that fails to draw says so (and offers a reload) instead of leaving the whole window blank. */
 class PageGuard extends Component<{ page: string; children: ReactNode }, { error: Error | null }> {
@@ -57,7 +58,7 @@ export function App() {
               </div>
             </div>
           </div>
-          <ProjectsDialog /><ExportDialog /><QuickNotes key={user.id} /><GlobalSearch key={'s' + user.id} />
+          <ProjectsDialog /><ExportDialog /><QuickNotes key={user.id} /><GlobalSearch key={'s' + user.id} /><Messenger key={'msg' + user.id} />
         </>
       ) : <LoginPage />)}
       {ready&&<NetworkLoading busy={busy}/>}

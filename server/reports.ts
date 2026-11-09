@@ -608,7 +608,7 @@ const videoOut=(reportId:string,account:string,file:G.GFile)=>({id:file.id,accou
 export function registerReports(api: Router) {
   // Report customer choices come only from saved records, without scanning Drive.
   api.get('/api/reports/customers', async (req, res) => {
-    const user=(await currentUser(req))!;json(res,200,await all(`SELECT c.id,c.name FROM customers c WHERE ${customerAccessSql()} ORDER BY c.name`,user.id,user.id,user.id));
+    const user=(await currentUser(req))!;json(res,200,await all(`SELECT c.id,c.name FROM customers c WHERE ${customerAccessSql()} ORDER BY c.name COLLATE NOCASE`,user.id,user.id,user.id));
   });
   // A customer's reports (or a project's, when it has no customer).
   api.get('/api/reports', async (req, res) => {

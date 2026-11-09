@@ -1,3 +1,12 @@
 # Cloudflare static assets. Files under /static/ have their content's hash in their name (scripts/build.mjs).
 /static/*
   Cache-Control: public, max-age=31536000, immutable
+
+# Every page: not framed by other sites (the app frames its own report previews), types as sent, HTTPS only, and the
+# address of a page not given to other sites.
+/*
+  X-Frame-Options: SAMEORIGIN
+  Content-Security-Policy: frame-ancestors 'self'; object-src 'none'; base-uri 'self'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000

@@ -3,7 +3,8 @@
 import { useState, type ReactNode } from 'react';
 import { Icon } from './ui';
 
-export interface GroupColumn<T> { key: string; label: string | ReactNode; render: (row: T) => ReactNode; width?: number; wide?: boolean }
+/** `end`: kept in view at the right edge while the table scrolls sideways (its actions). */
+export interface GroupColumn<T> { key: string; label: string | ReactNode; render: (row: T) => ReactNode; width?: number; wide?: boolean; end?: boolean }
 export interface Group<T> { key: string; label: string; rows: T[]; color?: string; onAdd?: () => void }
 
 export function GroupedList<T extends { id: string }>({ groups, columns, name, nameLabel, check, selection, onOpen, selected, foldKey, addLabel = 'Tạo mới', hideEmpty }: {
@@ -34,7 +35,7 @@ export function GroupedList<T extends { id: string }>({ groups, columns, name, n
               </th>
             )}
             <th className="gl-name">{check?.toggleAll ? <span className="gl-title"><input type="checkbox" checked={!!check.all} onChange={(e) => check.toggleAll!(e.target.checked)} aria-label="Chọn tất cả" /><span>{nameLabel}</span></span> : nameLabel}</th>
-            {columns.map((c) => <th key={c.key} style={{ minWidth: c.width }} className={c.wide ? '' : 'gl-narrow'}>{c.label}</th>)}
+            {columns.map((c) => <th key={c.key} style={{ minWidth: c.width }} className={(c.wide ? '' : 'gl-narrow') + (c.end ? ' gl-end' : '')}>{c.label}</th>)}
           </tr>
         </thead>
         {groups.filter((g) => !hideEmpty || g.rows.length).map((g) => {
@@ -66,7 +67,7 @@ export function GroupedList<T extends { id: string }>({ groups, columns, name, n
                       <span>{name(r)}</span>
                     </span>
                   </th>
-                  {columns.map((c) => <td key={c.key} className={c.wide ? '' : 'gl-narrow'}>{c.render(r)}</td>)}
+                  {columns.map((c) => <td key={c.key} className={(c.wide ? '' : 'gl-narrow') + (c.end ? ' gl-end' : '')}>{c.render(r)}</td>)}
                 </tr>
               ))}
             </tbody>

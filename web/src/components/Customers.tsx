@@ -1,4 +1,5 @@
 import {ReadingTabs,ReadingHeader} from './ReadingLayout';
+import { ResizeHandle } from './ResizeHandle';
 import {useCustomerStatuses} from './useCustomerStatuses';
 import {CustomerMembers} from './CustomerMembers';
 import {EntitySelect,useEntityRefresh} from './QuickCreate';
@@ -73,6 +74,7 @@ export function CustomersPage() {
     <section className="tk-list-pane" aria-label="Danh sách khách hàng">
       <CustomerDashboard customers={customers} selected={selected} loading={loading} error={error} manage={canCreate}view={view} onViewChange={setView} onOpen={select} onEdit={(id)=>setRecord(id)} onAdd={()=>setRecord('new')} onImport={()=>setImporting(true)} onDrive={()=>{setCreating(true);setLocation(null);}} onRefresh={load}/>
     </section>
+    {selected && <ResizeHandle cssVar="--rd-list-w" storage="customers" min={220} max={640} label="Đổi độ rộng danh sách khách hàng" />}
     {selected && <article className="tk-reading-pane crm-reading-pane" aria-label="Chi tiết khách hàng">
       <ReadingHeader label="Chi tiết khách hàng" onClose={()=>select(null)} actions={<div className="crm-record-actions">{manage&&<button className="btn btn-primary btn-sm" disabled={busy} onClick={()=>setRecord(selected)}><Icon name="edit" size={14}/>Chỉnh sửa</button>}<Menu label="Tuỳ chọn khách hàng" items={[{label:'Thành viên',icon:'users',onClick:()=>setTab('members')},{label:'Lịch sử thay đổi',icon:'clock',onClick:()=>setTab('history')},{label:'Xoá khách hàng',icon:'trash',danger:true,hidden:!manage||!current?.canDelete||busy,onClick:()=>{if(confirm('Xoá khách hàng khỏi database? Giữ nguyên dự án, công việc, báo cáo và file Drive.'))void act(async()=>{await api.deleteCustomer(selected);select(null);await load();});}}]}/></div>}/>
       {/* Like Outlook: the customer's parts in a column, and only the chosen one beside it. */}
@@ -89,16 +91,17 @@ export function CustomersPage() {
           {value:'history' as Tab,label:'Lịch sử',icon:'clock'},
         ]} onChange={value=>{setTab(value);setCampaign(null);}}/>
       </aside>
-      <div className="tk-reading-content crm-split-main">
+      <ResizeHandle cssVar="--crm-side-w" storage="customer-side" min={150} max={360} label="Đổi độ rộng menu khách hàng" />
+      <div className={'tk-reading-content crm-split-main' + (campaign ? ' has-campaign' : '')}>
       {!current ? (error?<p className="note err" role="alert">{error}</p>:loading?<BrandLoading label="Đang tải khách hàng…"/>:<p className="note">Không tìm thấy khách hàng hoặc bạn không có quyền truy cập.</p>)
       : tab === 'overview' ? <><div className="crm-detail-stages"><CustomerStages status={current.status||''} disabled={!manage||busy} onChange={status=>void act(async()=>{await api.saveCustomerRecord(current.id,{status:status||null});await load();})}/></div><div className="tk-reading-grid crm-detail-layout"><div className="crm-detail-body"><CustomerOverview key={selected} c={current} view={view} onTab={(t) => setTab(t as Tab)} onChanged={load} /></div><CustomerContext c={current} onTab={t=>{setTab(t as Tab);setCampaign(null);}} onChanged={load}/></div></>
+      : campaign ? <ProjectCampaigns key={campaign.id} id={campaign.id} name={campaign.name} displayView={view === 'grid' ? 'grid' : 'list'} onBack={() => { setCampaign(null); loadCampaigns(selected); }} onRenamed={() => void loadCampaigns(selected)} onDeleted={() => { setCampaign(null); void loadCampaigns(selected); void load(); }} />
       : <div className="crm-detail-body crm-tab-surface">{
         tab === 'tasks' ? <CustomerTasks key={selected} id={selected} view={view} />
         : tab === 'members' ? <CustomerMembersTab key={selected} id={selected} onManage={() => setSharing(true)} />
         : tab === 'history' ? <CustomerHistory key={selected} id={selected} />
         : tab === 'drive' ? <CustomerDetail key={selected} id={selected} admin={manage} canDelete={!!current?.canDelete} viewOnly={current?.level==='observer'||user.level==='observer'} onChanged={load} onDeleted={() => { select(null); load(); }} />
         : tab === 'reports' ? <ReportList key={selected} customerId={selected} projectId="" driveFolder="" />
-        : campaign ? <ProjectCampaigns key={campaign.id} id={campaign.id} name={campaign.name} displayView={view === 'grid' ? 'grid' : 'list'} onBack={() => { setCampaign(null); loadCampaigns(selected); }} onRenamed={() => void loadCampaigns(selected)} onDeleted={() => { setCampaign(null); void loadCampaigns(selected); void load(); }} />
         : <section className="crm-campaigns">
           {manage && <div className="tk-toolbar crm-project-toolbar">
             <form className="crm-inline-form" onSubmit={(e) => { e.preventDefault(); act(async () => { const c = await api.createCustomerProject(selected, { name: name.trim() }); setName(''); await loadCampaigns(selected); setCampaign({ ...c, tasks: 0 }); }); }}><input className="bk-in" placeholder="Tên dự án mới…" maxLength={200} required value={name} onChange={(e) => setName(e.target.value)} /><button className="btn btn-primary btn-sm" disabled={busy || !name.trim()}><Icon name="plus" size={14}/>Tạo dự án</button></form>

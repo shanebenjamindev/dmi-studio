@@ -63,7 +63,8 @@ export function ReportsPage() {
                 {shown.map((r) => (
                   <tr key={r.id}>
                     <td className="ad-name"><button className="rp-open" onClick={() => setOpen(r.id)}><b>{r.title}</b></button></td>
-                    <td>{r.customerName || r.client || '—'}</td>
+                    {/* A name typed in the report but no customer behind it (never linked, or the customer was deleted). */}
+                    <td>{r.customerName || (r.client ? <>{r.client} <small className="note">(chưa gắn khách)</small></> : '—')}</td>
                     <td>{r.meta ? <>{r.meta.account}<small>{dmy(r.meta.since)} – {dmy(r.meta.until)}</small></> : <span className="rp-none">Chưa lấy</span>}</td>
                     <td>{day(r.updatedAt)}</td>
                     <td className="rp-row-actions">

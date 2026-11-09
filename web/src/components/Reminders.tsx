@@ -3,7 +3,7 @@
 // Their tasks (assigned to them, not finished) and board cards (theirs, not done) with a due date; a card that is a
 // task's shows once, as the task. What was just given to them comes from their unread notifications, as soon as the
 // bell hears of it.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { goto, openCard, openLink, openTask } from '../store';
@@ -47,27 +47,31 @@ export function Reminders() {
   const [items, setItems] = useState<Item[] | null>(null), [error, setError] = useState('');
   const [open, setOpen] = useState(false), [tab, setTab] = useState<Tab>('important'), [given, setGiven] = useState<Given[]>([]);
   const load = useCallback(() => { loadItems().then((x) => { setItems(x); setError(''); }, (e) => setError(e.message)); }, []);
-  // What was just given: the bell's unread notifications (it checks every few seconds); something new also refreshes
-  // the lists, as the new task is among them.
+  // Several changes in a row (a drag, a form saving its fields) reload once.
+  const later = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const soon = useCallback(() => { clearTimeout(later.current); later.current = setTimeout(load, 600); }, [load]);
+  // What was just given: the bell's unread notifications (it checks every few seconds). Any news of the person's work
+  // (given, done, moved, a new date) refreshes the lists as well, so the bell and Nhắc việc never disagree.
   useEffect(() => {
-    let known: Set<string> | null = null;
+    let newest: number | null = null;
     const take = (d: NotificationInbox) => {
-      const list = d.items.filter((i) => !i.read && GIVEN.has(i.title));
-      if (known && list.some((i) => !known!.has(i.id))) load();
-      known = new Set(list.map((i) => i.id)); setGiven(list);
+      const latest = Math.max(0, ...d.items.map((i) => i.createdAt));
+      if (newest !== null && latest > newest) soon();
+      newest = latest; setGiven(d.items.filter((i) => !i.read && GIVEN.has(i.title)));
     };
-    api.notificationInbox().then(take, () => {});
+    // The bell loads the inbox as the page opens and passes it on; only if it has not within a few seconds is it asked here.
+    const first = setTimeout(() => { if (newest === null) api.notificationInbox().then(take, () => {}); }, 3000);
     const on = (e: Event) => take((e as CustomEvent<NotificationInbox>).detail);
     window.addEventListener('dms:inbox', on);
-    return () => window.removeEventListener('dms:inbox', on);
-  }, [load]);
+    return () => { clearTimeout(first); window.removeEventListener('dms:inbox', on); };
+  }, [soon]);
   useEffect(() => {
     load();
     // Fresh when the panel opens, after changes elsewhere, and every few minutes as time passes.
     const t = setInterval(() => document.visibilityState === 'visible' && load(), 5 * 60e3);
-    window.addEventListener('dms:entities-changed', load);
-    return () => { clearInterval(t); window.removeEventListener('dms:entities-changed', load); };
-  }, [load]);
+    window.addEventListener('dms:entities-changed', soon);
+    return () => { clearInterval(t); clearTimeout(later.current); window.removeEventListener('dms:entities-changed', soon); };
+  }, [load, soon]);
   useEffect(() => { if (open) loadItems().then(setItems, () => {}); }, [open]);
   useEffect(() => {
     if (!open) return;

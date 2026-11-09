@@ -86,7 +86,8 @@ export function RichEditor({ value, onChange, placeholder = '', autoFocus, onSub
     setEmpty(isBlank(el.innerHTML));
     if (autoFocus) { el.focus(); const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = window.getSelection(); s?.removeAllRanges(); s?.addRange(r); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const changed = () => { const html = cleanRich(body.current!.innerHTML), blank = isBlank(html); setEmpty(blank); onChange(blank ? '' : html); };
+  // What is saved always starts with a tag, so it never reads as plain text (words typed first stay outside any block).
+  const changed = () => { const html = cleanRich(body.current!.innerHTML), blank = isBlank(html); setEmpty(blank); onChange(blank ? '' : /^\s*</.test(html) ? html : `<div>${html}</div>`); };
   // The selection is kept while a palette or prompt is open, and put back before a command.
   const keep = () => { const s = window.getSelection(); if (s?.rangeCount && body.current?.contains(s.anchorNode)) saved.current = s.getRangeAt(0).cloneRange(); };
   const restore = () => { body.current?.focus(); if (saved.current) { const s = window.getSelection(); s?.removeAllRanges(); s?.addRange(saved.current); } };

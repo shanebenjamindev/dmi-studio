@@ -1,4 +1,5 @@
-import {ReadingTabs,ReadingHeader} from './ReadingLayout';
+import {ReadingTabs} from './ReadingLayout';
+import { ResizeHandle } from './ResizeHandle';
 import {TextLinks} from './TextLinks';
 import {BrandLoading} from './BrandLoading';
 import {EntitySelect,useEntityRefresh} from './QuickCreate';
@@ -169,10 +170,12 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
         {selectedIds.length > 0 && (
           <div className="tk-bulk-bar">
             <span>Đã chọn <b>{selectedIds.length}</b></span>
-            <button className="btn btn-sm cm-danger" disabled={deletingMany} onClick={handleBulkDelete}>
-              <Icon name="trash" size={14} />{deletingMany ? 'Đang xoá…' : `Xoá (${selectedIds.length})`}
-            </button>
-            <button className="btn btn-sm btn-gray" onClick={() => setSelectedIds([])}>Bỏ chọn</button>
+            <div className="tk-bulk-actions">
+              <button className="btn btn-sm cm-danger" disabled={deletingMany} onClick={handleBulkDelete}>
+                <Icon name="trash" size={14} />{deletingMany ? 'Đang xoá…' : `Xoá (${selectedIds.length})`}
+              </button>
+              <button className="btn btn-sm btn-gray" onClick={() => setSelectedIds([])}>Bỏ chọn</button>
+            </div>
           </div>
         )}
         <label className="tk-find"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm công việc, dự án, nhãn, mã" aria-label="Tìm công việc" /></label>
@@ -193,6 +196,7 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
       ) : open ? <TaskReadingList tasks={data.tasks} groupBy={groupBy} selected={open} onOpen={showTask} selection={selection} hideProject={!!initialProject} /> : effectiveView === 'table' ? <TaskTable tasks={data.tasks} selected={open} onOpen={showTask} selection={selection} />
         : <TaskGroups tasks={data.tasks} groupBy={groupBy} selected={open} onOpen={showTask} onNew={() => setCreating(true)} onChanged={load} selection={selection} />}
       </section>
+      {open && <ResizeHandle cssVar="--rd-list-w" storage={embedded ? 'tasks-embedded' : 'tasks'} min={220} max={640} label="Đổi độ rộng danh sách công việc" />}
       {open && <TaskPanel inline id={open} meta={meta} statuses={meta?.statuses || []} onOpen={(id) => showTask(id)} onClose={() => showTask(null)} onExpand={() => showTask(open, true)} onChanged={refresh} />}
       {creating && meta && <TaskEditor meta={meta} projectId={initialProject || project} campaignId={initialCampaign || campaign} onClose={() => setCreating(false)} onSaved={(id) => { setCreating(false); refresh(); showTask(id); }} />}
       {dialog === 'import' && <ImportDialog meta={meta} onClose={() => setDialog(null)} onDone={imported} />}
@@ -223,7 +227,8 @@ function TaskGroups({ tasks, groupBy, selected, onOpen, onNew, onChanged, select
     name={(t) => <><span className={finished(t) ? 'tk-done-title' : ''}>{t.title}</span>{t.children > 0 && <small className="tk-kids">{t.children} việc con</small>}</>}
     columns={[
       { key: 'status', label: 'Trạng thái', width: 130, render: (t) => <Badge t={t} /> },
-      { key: 'who', label: 'Người làm', width: 110, render: (t) => <EmployeeAvatars people={t.assignees} /> },
+      // Those given the task, then the people on its card (it is listed as their work too).
+      { key: 'who', label: 'Người làm', width: 110, render: (t) => <EmployeeAvatars people={[...t.assignees, ...(t.cardPeople || [])]} /> },
       { key: 'start', label: 'Bắt đầu', width: 120, render: (t) => when(t.startAt) },
       { key: 'due', label: 'Thời hạn', width: 120, render: (t) => <span className={t.state === 'overdue' ? 'tk-late' : ''}>{when(t.dueAt)}</span> },
       { key: 'done', label: 'Hoàn thành', width: 120, render: (t) => when(t.doneAt) },
@@ -252,7 +257,7 @@ function TaskTable({ tasks, selected, onOpen, selection }: { tasks: TaskItem[]; 
           {selection && <td style={{ width: 36, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selection.selected.includes(t.id)} onChange={() => selection.toggle(t.id)} aria-label={`Chọn ${t.title}`} /></td>}
           <td>{t.externalId || '—'}</td>
           <th scope="row"><button className="tk-table-title" onClick={() => onOpen(t.id)}>{t.title}</button>{t.children > 0 && <small>{t.children} việc con</small>}</th>
-          <td><Badge t={t} /></td><td>{t.project?.name || '—'}</td><td>{t.boardLink?<button className="tk-board-shortcut" onClick={()=>openLinkedBoard(t.boardLink!)}><Icon name="boards" size={14}/><span>{t.boardLink.boardName}<small>{t.boardLink.listName}</small></span></button>:t.hasBoardLink?<small>Đã liên kết board</small>:'—'}</td><td><EmployeeAvatars people={t.assignees}/></td>
+          <td><Badge t={t} /></td><td>{t.project?.name || '—'}</td><td>{t.boardLink?<button className="tk-board-shortcut" onClick={()=>openLinkedBoard(t.boardLink!)}><Icon name="boards" size={14}/><span>{t.boardLink.boardName}<small>{t.boardLink.listName}</small></span></button>:t.hasBoardLink?<small>Đã liên kết board</small>:'—'}</td><td><EmployeeAvatars people={[...t.assignees, ...(t.cardPeople || [])]}/></td>
           <td>{when(t.startAt)}</td><td className={t.state === 'overdue' ? 'bad' : ''}>{when(t.dueAt)}</td><td>{when(t.doneAt)}</td>
           <td>{t.parent ? <button className="btn btn-gray btn-sm" onClick={() => onOpen(t.parent!.id)}>{t.parent.title}</button> : '—'}</td>
           <td><span className="tk-labels">{t.labels.map(l => <i key={l}>{l}</i>)}</span></td><td>{t.createdBy?.name || '—'}</td><td>{when(t.sourceUpdatedAt || t.updatedAt)}</td>
@@ -296,22 +301,26 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
     </section>
   );
 
+  // Inline beside the list: the card's own top row carries expand and close, so there is no separate header line.
+  const topActions = inline ? <>
+    {onExpand && <button className="cm-top-b" onClick={onExpand} aria-label="Mở trang chi tiết" title="Mở trang chi tiết"><Icon name="expand" size={16} /></button>}
+    <button className="cm-top-b" onClick={onClose} aria-label="Đóng" title="Về danh sách"><Icon name="x" size={18} /></button>
+  </> : undefined;
   const cardBody = t ? (
     t.boardLink && asCard
-      ? <LinkedCard embedded={inline || page} link={t.boardLink} extra={taskFacts} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onFail={() => setAsCard(false)} />
-      : <StandaloneTaskCard task={t} meta={meta} statuses={t.statuses || statuses} embedded={inline || page} extra={taskFacts} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onLink={() => setLinking(true)} />
+      ? <LinkedCard embedded={inline || page} link={t.boardLink} extra={taskFacts} topActions={topActions} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onFail={() => setAsCard(false)} />
+      : <StandaloneTaskCard task={t} meta={meta} statuses={t.statuses || statuses} embedded={inline || page} extra={taskFacts} topActions={topActions} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onLink={() => setLinking(true)} />
   ) : null;
 
   const linkDialog = linking && t && <TaskBoardLink task={t} onClose={() => setLinking(false)} onLinked={() => { setLinking(false); setAsCard(true); load(); onChanged(); }} />;
   if (!page && !inline) return <>{cardBody}{linkDialog}</>;
   if (inline) return <article className="tk-reading-pane" aria-label="Chi tiết công việc" aria-busy={!t}>
-    <ReadingHeader label={t?.externalId?`Chi tiết công việc · #${t.externalId}`:'Chi tiết công việc'} onClose={onClose} actions={onExpand&&<button className="bd-icon" onClick={onExpand} aria-label="Mở trang chi tiết"><Icon name="expand" size={16}/></button>}/>
     {!t?<BrandLoading label="Đang mở công việc…"/>:<div className="tk-card-embed">{cardBody}</div>}
     {linkDialog}
   </article>;
   return (
     <div className="ad-page tk-page tk-detail-page">
-      <header className="tk-detail-top"><button className="btn btn-gray btn-sm" onClick={onClose}><Icon name="left" size={14} />Danh sách công việc</button>{t?.externalId && <span>#{t.externalId}</span>}</header>
+      <header className="tk-detail-top"><button className="btn btn-gray btn-sm" onClick={onClose}><Icon name="left" size={14} />Danh sách công việc</button></header>
       {!t ? <BrandLoading label="Đang mở…"/> : <div className="tk-card-embed tk-card-page">{cardBody}</div>}
       {linkDialog}
     </div>
@@ -321,13 +330,13 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
 type TaskPopKind = 'status' | 'add' | 'labels' | 'dates' | 'subtask' | 'members' | 'actions';
 
 /** Renders a task without an accessible Workspace card using the exact same CardModal layout (Image 2). */
-function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, onClose, onChanged, onLink }: {
-  task: TaskDetail; meta: TaskMeta | null; statuses: string[]; embedded: boolean; extra: ReactNode;
+function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActions, onClose, onChanged, onLink }: {
+  task: TaskDetail; meta: TaskMeta | null; statuses: string[]; embedded: boolean; extra: ReactNode; topActions?: ReactNode;
   onClose: () => void; onChanged: () => void; onLink: () => void;
 }) {
   const me = useStore((s) => s.user)!;
   const [pop, setPop] = useState<{ kind: TaskPopKind; el: HTMLElement } | null>(null);
-  const [commentsOpen, setCommentsOpen] = useState(true);
+  const [commentsOpen, setCommentsOpen] = useState(!embedded);
   const [details, setDetails] = useState(false);
   const [busy, setBusy] = useState(false);
   const [titleDraft, setTitleDraft] = useState(t.title);
@@ -392,7 +401,7 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, onClose,
       <button className="cm-top-b" onClick={() => setCommentsOpen((v) => !v)} aria-label={commentsOpen ? 'Ẩn bình luận' : 'Hiện bình luận'} aria-expanded={commentsOpen} aria-controls="card-comments" title={commentsOpen ? 'Ẩn bình luận' : 'Hiện bình luận'}><Icon name="comment" size={16} /></button>
       {edit && <button className="cm-top-b" onClick={onLink} aria-label="Liên kết Workspace" title="Liên kết thẻ Workspace"><Icon name="boards" size={16} /></button>}
       <button className="cm-top-b" onClick={openPop('actions')} aria-label="Thao tác" title="Thao tác"><Icon name="more" size={16} /></button>
-      {!embedded && <button className="cm-top-b" onClick={onClose} aria-label="Đóng" title="Đóng (Esc)"><Icon name="x" size={18} /></button>}
+      {embedded ? topActions : <button className="cm-top-b" onClick={onClose} aria-label="Đóng" title="Đóng (Esc)"><Icon name="x" size={18} /></button>}
     </div>
   );
 
@@ -422,10 +431,10 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, onClose,
             {edit ? (
               <div className="cm-actions">
                 <button className="cm-chip cm-add-chip" onClick={openPop('add')} aria-haspopup="dialog" aria-expanded={pop?.kind === 'add'}><Icon name="plus" size={15} />Thêm</button>
-                <button className="cm-chip" onClick={openPop('labels')}><Icon name="tag" size={15} />Nhãn</button>
-                <button className="cm-chip" onClick={openPop('dates')}><Icon name="clock" size={15} />Ngày</button>
-                <button className="cm-chip" onClick={openPop('subtask')}><Icon name="checklist" size={15} />Việc cần làm</button>
-                <button className="cm-chip" onClick={openPop('members')}><Icon name="user" size={15} />Thành viên</button>
+                {t.labels.length === 0 && <button className="cm-chip" onClick={openPop('labels')}><Icon name="tag" size={14} />Nhãn</button>}
+                {!t.dueAt && !t.startAt && <button className="cm-chip" onClick={openPop('dates')}><Icon name="clock" size={14} />Ngày</button>}
+                <button className="cm-chip" onClick={openPop('subtask')}><Icon name="checklist" size={14} />Việc cần làm</button>
+                {t.assignees.length === 0 && <button className="cm-chip" onClick={openPop('members')}><Icon name="user" size={14} />Thành viên</button>}
               </div>
             ) : <p className="cm-readonly"><Icon name="info" size={15} />Bạn đang xem công việc ở chế độ chỉ đọc.</p>}
 
@@ -515,6 +524,7 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, onClose,
             )}
           </main>
 
+          {commentsOpen && <ResizeHandle side="after" cssVar="--cm-side-w" storage="comments" min={260} max={640} label="Đổi độ rộng khung bình luận" />}
           <aside id="card-comments" className="cm-right" hidden={!commentsOpen} aria-label="Bình luận và hoạt động">
             <h3 className="cm-right-h"><Icon name="comment" size={18} />Bình luận và hoạt động<button className="btn btn-gray btn-sm" onClick={() => setDetails(!details)}>{details ? 'Ẩn chi tiết' : 'Hiện chi tiết'}</button></h3>
             <div className="cm-comment-new">
@@ -619,13 +629,13 @@ const localDateTime = (ms: number | null | undefined) => ms == null ? '' : new D
 
 /** A task on a board card opens as that card, as the board shows it: one piece of work, one window. When the board
  *  cannot be read, the task's own panel shows instead. */
-function LinkedCard({ link, onClose, onChanged, onFail, embedded = false, extra }: { link: { boardId: string; cardId: string }; onClose: () => void; onChanged: () => void; onFail: () => void; embedded?: boolean; extra?: ReactNode }) {
+function LinkedCard({ link, onClose, onChanged, onFail, embedded = false, extra, topActions }: { link: { boardId: string; cardId: string }; onClose: () => void; onChanged: () => void; onFail: () => void; embedded?: boolean; extra?: ReactNode; topActions?: ReactNode }) {
   const me = useStore((s) => s.user)!;
   const [board, setBoard] = useState<Board | null>(null);
   const load = () => api.board(link.boardId).then(setBoard, onFail);
   useEffect(() => { void load(); }, [link.boardId]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!board) return embedded ? <BrandLoading label="Đang mở thẻ…" /> : null;
-  return <CardModal key={link.cardId} id={link.cardId} board={board} me={me} embedded={embedded} extra={extra} onClose={onClose} onChanged={() => { void load(); onChanged(); }} />;
+  return <CardModal key={link.cardId} id={link.cardId} board={board} me={me} embedded={embedded} extra={extra} topActions={topActions} onClose={onClose} onChanged={() => { void load(); onChanged(); }} />;
 }
 function TaskInlineField({task,field,label,value,multiline=false,meta,children,onSaved,editable=task.canEdit}:{editable?:boolean;task:TaskDetail;field:'title'|'description'|'result'|'labels'|'startAt'|'dueAt'|'projectId'|'campaignId';label:string;value:string;multiline?:boolean;meta?:TaskMeta|null;children:ReactNode;onSaved:()=>void}){
  const[editing,setEditing]=useState(false),[draft,setDraft]=useState(value),[busy,setBusy]=useState(false),[error,setError]=useState('');

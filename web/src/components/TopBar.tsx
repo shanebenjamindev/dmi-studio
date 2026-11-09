@@ -1,5 +1,6 @@
 import {NotificationBell} from './NotificationBell';
 import { QuickNotesButton } from './QuickNotes';
+import { MessengerTopButton } from './Messenger';
 import { Reminders } from './Reminders';
 import { SupportButton } from './SupportDialog';
 import { useEffect, useRef, useState } from 'react';
@@ -50,10 +51,10 @@ export function AppHeader() {
     <header className="app-head">
       <div className="app-head-left"><img src="/brand/logo.png" alt="Detailers Movement" className="tb-logo" />{mock && <span className="tag-demo">Demo</span>}</div>
       <button className="app-search" onClick={() => window.dispatchEvent(new Event('dms:search'))} aria-label="Tìm kiếm">
-        <Icon name="search" size={16} /><span>Tìm kiếm</span><kbd>{mac ? '⌘' : 'Ctrl'} K</kbd>
+        <Icon name="search" size={16} /><span>Tìm mọi thứ: khách, việc, dự án…</span><kbd>{mac ? '⌘' : 'Ctrl'} K</kbd>
       </button>
       <div className="app-head-right">
-        <QuickNotesButton /><NotificationBell /><ThemeSwitch />
+        <MessengerTopButton /><QuickNotesButton /><NotificationBell /><ThemeSwitch />
         <div className="tb-user" ref={ref}>
           <button className="tb-user-btn" onClick={() => setMenu(!menu)} aria-expanded={menu} aria-haspopup="menu" title={user.name} aria-label={`Tài khoản ${user.name}`}>
             <span className="ws-avatar">{(user.name || user.email).charAt(0).toUpperCase()}</span><span className="tb-user-name">{user.name}</span><Icon name="chevron" size={13} />
@@ -74,6 +75,8 @@ export function AppHeader() {
   );
 }
 
+/** Where each section's link goes when opened in a new tab (a click opens the page last used in it). */
+const SECTION_HASH: Record<string, string> = { boards: '#boards', customers: '#customers', work: '#tasks', reports: '#reports', tools: '#tools', admin: '#admin' };
 /** The sections, down the left side. */
 export function TopBar() {
   const view = useStore((s) => s.view);
@@ -95,16 +98,35 @@ export function TopBar() {
     try { last = localStorage.getItem(KEY[t]) as View | null; } catch { /* private mode */ }
     openSub(last && pages.includes(last) ? last : pages[0]);
   };
+  // On a phone the bottom bar keeps the first three sections and Nhắc việc; the rest open from "Thêm". Elsewhere they all
+  // sit down the rail as before (the "Thêm" box takes no room of its own there).
+  const [more, setMore] = useState(false), moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!more) return;
+    const off = (e: MouseEvent) => { if (!moreRef.current?.contains(e.target as Node) && !(e.target as HTMLElement).closest('.rail-more-btn')) setMore(false); };
+    document.addEventListener('mousedown', off);
+    return () => document.removeEventListener('mousedown', off);
+  }, [more]);
+  const primary = items.slice(0, 3), rest = items.slice(3);
+  // Links, so a section also opens in a new tab (Ctrl/Cmd+click, middle click); a plain click stays in the app.
+  const link = ([key, label]: [string, string]) => (
+    <a key={key} href={SECTION_HASH[key]} className="rail-item" aria-current={current === key ? 'page' : undefined} title={label}
+      onClick={(e) => { if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); setMore(false); pick(key); }}>
+      <Icon name={NAV_ICON[key]} size={20} /><span>{label}</span>
+    </a>
+  );
   return (
     <nav className="rail" aria-label="Điều hướng chính">
-      {items.map(([key, label]) => (
-        <button key={key} className="rail-item" aria-current={current === key ? 'page' : undefined} title={label} onClick={() => pick(key)}>
-          <Icon name={NAV_ICON[key]} size={20} /><span>{label}</span>
-        </button>
-      ))}
-      <span className="rail-fill" />
-      <SupportButton />
+      {primary.map(link)}
+      <div className={'rail-more' + (more ? ' open' : '')} ref={moreRef} onClickCapture={(e) => { if ((e.target as HTMLElement).closest('.sp-button')) setMore(false); }}>
+        {rest.map(link)}
+        <span className="rail-fill" />
+        <SupportButton />
+      </div>
       <Reminders />
+      <button type="button" className={'rail-item rail-more-btn' + (rest.some(([k]) => k === current) ? ' here' : '')} aria-expanded={more} onClick={() => setMore(!more)}>
+        <Icon name="more" size={20} /><span>Thêm</span>
+      </button>
     </nav>
   );
 }

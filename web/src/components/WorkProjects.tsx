@@ -1,4 +1,5 @@
 import { ReadingTabs, ReadingHeader } from './ReadingLayout';
+import { ResizeHandle } from './ResizeHandle';
 import { BrandLoading } from './BrandLoading';
 import { GroupedList, byKey } from './GroupedList';
 import { QuickCreateDialog } from './QuickCreate';
@@ -9,9 +10,10 @@ import { goto, toast, useStore } from '../store';
 import { Icon, Menu } from './ui';
 import { ProjectCampaigns } from './ProjectCampaigns';
 import type { TaskMeta } from '../types';
+import { PROJECT_STAGES, type ProjectStage } from '../../../shared/projects';
 
 type View = 'list' | 'grid' | 'table';
-type GroupBy = 'customer' | 'none';
+type GroupBy = 'customer' | 'stage' | 'none';
 const LS_VIEW = 'dms.projectView', LS_GROUP = 'dms.projectGroup';
 const read = <T extends string>(k: string, ok: readonly T[], d: T): T => { try { const v = localStorage.getItem(k) as T; return ok.includes(v) ? v : d; } catch { return d; } };
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
@@ -19,11 +21,23 @@ const fromHash = () => location.hash.match(/^#projects\/(tj_\w+)/)?.[1] || null;
 
 type ProjectRow = TaskMeta['projects'][number];
 
+const STAGE_NAME = Object.fromEntries(PROJECT_STAGES) as Record<ProjectStage, string>;
+const STAGE_LOOK: Record<ProjectStage, [string, string]> = { not_started: ['idle', 'clock'], in_progress: ['doing', 'play'], paused: ['late', 'pause'], done: ['ok', 'check'], cancelled: ['idle', 'x'] };
+/** The project's own stage (shared/projects.ts), and how many of its tasks are late. */
 function ProjectStateBadge({ p }: { p: ProjectRow }) {
-  if ((p.overdue || 0) > 0) return <span className="tk-badge bad"><Icon name="clock" size={11} />Quá hạn ({p.overdue})</span>;
-  if (p.tasks > 0 && (p.completed || 0) >= p.tasks) return <span className="tk-badge ok"><Icon name="check" size={11} />Hoàn thành</span>;
-  if (p.tasks > 0) return <span className="tk-badge doing"><Icon name="play" size={11} />Đang thực hiện</span>;
-  return <span className="tk-badge idle"><Icon name="clock" size={11} />Chưa có việc</span>;
+  const stage = p.stage || 'not_started', [look, icon] = STAGE_LOOK[stage], late = (p.overdue || 0) > 0 && stage !== 'done' && stage !== 'cancelled';
+  return <>
+    <span className={'tk-badge ' + look} title={p.hold ? 'Người quản lý dự án đặt' : 'Theo tiến độ công việc'}><Icon name={icon} size={11} />{STAGE_NAME[stage]}</span>
+    {late && <span className="tk-badge bad"><Icon name="clock" size={11} />{p.overdue} quá hạn</span>}
+  </>;
+}
+/** Managers set a project on hold or cancel it; otherwise it follows its tasks. */
+function ProjectStageControl({ p, onChanged }: { p: ProjectRow; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const set = async (hold: 'paused' | 'cancelled' | null) => { setBusy(true); try { await api.updateTaskProject(p.id, { hold }); onChanged(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); } };
+  return <label className="tk-pick" title="Trạng thái dự án"><Icon name="activity" size={14} /><select aria-label="Trạng thái dự án" disabled={busy} value={p.hold || ''} onChange={(e) => void set((e.target.value || null) as 'paused' | 'cancelled' | null)}>
+    <option value="">Theo tiến độ công việc</option><option value="paused">Tạm dừng</option><option value="cancelled">Đã huỷ</option>
+  </select></label>;
 }
 
 /** Work projects and their tasks. Video projects live in the editor under Tools. */
@@ -34,7 +48,7 @@ export function WorkProjects() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [view, setViewState] = useState<View>(() => read(LS_VIEW, ['list', 'grid', 'table'] as const, 'list'));
-  const [groupBy, setGroupByState] = useState<GroupBy>(() => read(LS_GROUP, ['customer', 'none'] as const, 'customer'));
+  const [groupBy, setGroupByState] = useState<GroupBy>(() => read(LS_GROUP, ['customer', 'stage', 'none'] as const, 'customer'));
   const setView = (v: View) => { setViewState(v); keep(LS_VIEW, v); };
   const setGroupBy = (g: GroupBy) => { setGroupByState(g); keep(LS_GROUP, g); };
   const [selected, setSelected] = useState<string | null>(fromHash);
@@ -113,6 +127,8 @@ export function WorkProjects() {
   const toggleOne = (p: ProjectRow) => setSelectedIds((ids) => (ids.includes(p.id) ? ids.filter((x) => x !== p.id) : [...ids, p.id]));
   const groups = (groupBy === 'customer'
     ? byKey(tasks, (p) => (p.customerId && p.customerName ? { key: p.customerId, label: p.customerName } : null), 'Chưa phân loại')
+    : groupBy === 'stage'
+    ? PROJECT_STAGES.map(([key, label]) => ({ key, label, rows: tasks.filter((p) => (p.stage || 'not_started') === key) })).filter((g) => g.rows.length)
     : [{ key: 'all', label: 'Tất cả dự án', rows: tasks }]
   ).map((g) => ({ ...g, onAdd: canCreate ? () => setCreating(true) : undefined }));
   const ordered = groups.flatMap((g) => g.rows);
@@ -151,7 +167,7 @@ export function WorkProjects() {
             </>
           )}
           <label className="tk-find"><Icon name="search" size={14} /><input aria-label="Tìm dự án" placeholder="Tìm dự án, khách hàng…" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
-          {view !== 'grid' && <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}><option value="customer">Khách hàng</option><option value="none">Không nhóm</option></select></label>}
+          {view !== 'grid' && <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}><option value="customer">Khách hàng</option><option value="stage">Trạng thái</option><option value="none">Không nhóm</option></select></label>}
         </div>
         {error ? <p className="note err" role="alert">{error}</p>
           : !meta ? <BrandLoading label="Đang tải dự án…" />
@@ -271,9 +287,10 @@ export function WorkProjects() {
             </div>
           )}
       </section>
+      {selected && meta && <ResizeHandle cssVar="--rd-list-w" storage="projects" min={220} max={640} label="Đổi độ rộng danh sách dự án" />}
       {selected && meta && (
         <article className="tk-reading-pane project-reading-pane" aria-label="Chi tiết dự án">
-          <ReadingHeader label="Chi tiết dự án" onClose={() => select(null)} />
+          <ReadingHeader label="Chi tiết dự án" onClose={() => select(null)} actions={current && <>{current.stage && <ProjectStateBadge p={current} />}{current.level === 'admin' && <ProjectStageControl p={current} onChanged={refresh} />}</>} />
           {current ? (
             <ProjectCampaigns
               key={current.id}

@@ -11,6 +11,11 @@ export async function handleApi(req0: IncomingMessage, res: ServerResponse) {
     const url = new URL(req.url || '/', 'http://local');
     req.path = url.pathname;
     req.query = url.searchParams;
+    // As the pages get from web/public/_headers; a route may still set its own (a stricter CSP for files it serves).
+    res.setHeader('x-frame-options', 'SAMEORIGIN');
+    res.setHeader('x-content-type-options', 'nosniff');
+    res.setHeader('referrer-policy', 'strict-origin-when-cross-origin');
+    res.setHeader('strict-transport-security', 'max-age=31536000');
     user = await guard(req);
     const route = api.match(req.method || 'GET', req.path);
     if (!route) throw new HttpError(404, 'Không có API này');
