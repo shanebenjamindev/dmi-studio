@@ -3,4 +3,4 @@
 // How a board looks (background, label names, folded lists) is the board's own, set by its admins (server/boards.ts).
 // dms.seenUpdate: the last Có gì mới update the person has seen (components/WhatsNew.tsx). dms.wsView: how a workspace lists
 // its boards (tiles, a list, or the work by client: components/WorkspaceViews.tsx).
-export const ACCOUNT_PREFS=['dms.theme','dms.lang','dms.panels','dms.driveView','dms.seenUpdate','dms.wsView','dms.clientSort'];
+export const ACCOUNT_PREFS=['dms.theme','dms.lang','dms.panels','dms.driveView','dms.seenUpdate','dms.wsView','dms.clientSort','dms.timelineBy'];

@@ -18,7 +18,7 @@ import { TaskPanel } from './Tasks';
 import { QuickCard, BoardAlternative } from './BoardViews';
 import { BoardTypePicker, VIEW_NAMES, VIEW_ICONS, type BoardViewKind } from './BoardType';
 import { ServicePicker } from './ServicePicker';
-import { BoardList, ClientWork, WS_VIEWS, savedWsView, saveWsView, type WsView } from './WorkspaceViews';
+import { BoardList, ClientWork, WorkspaceTimeline, WS_VIEWS, savedWsView, saveWsView, type WsView } from './WorkspaceViews';
 import { COLOR, COLOR_NAME, Avatar, Pop, fileToAvatarDataUrl, activityText, ago, dueState, shortDate, fullDate, dateIn, timeIn } from './boardkit';
 import { AvatarStack } from './AvatarStack';
 import { PlannerPanel, Dock, SwitchBoards, dragged, changed, useChanged, type Panels } from './BoardPanels';
@@ -261,6 +261,8 @@ export function BoardsPage() {
               </>
             )}
             <hr />
+            <TileSettings key={boardMenu.b.id} b={boardMenu.b} onSaved={() => void load()} />
+            <hr />
             <button className="bk-danger" onClick={() => removeBoard(boardMenu.b)}><Icon name="trash" size={15} />Xoá board</button>
           </div>
         </Pop>
@@ -298,6 +300,7 @@ function WorkspaceSection({ ws, me, roles, boards, onOpen, onCard, onTask, onSta
       </div>
       {view === 'tiles' ? <Tiles title="Board của bạn" list={boards} roles={roles} onOpen={onOpen} onStar={onStar} onMore={onMore} onCreate={onCreate} small />
         : view === 'list' ? <><BoardList boards={boards} bgOf={bg} onOpen={onOpen} onCard={onCard} />{onCreate && <button className="bd-wsec-b ws-new" onClick={onCreate}><Icon name="plus" size={14} />Tạo board mới</button>}</>
+        : view === 'timeline' ? <WorkspaceTimeline wsId={ws.id} boards={boards} onCard={onCard} onTask={onTask} />
         : <ClientWork wsId={ws.id} client={ws.customerId ? { id: ws.customerId, name: ws.customerName || '' } : undefined} boards={boards} onCard={onCard} onTask={onTask} />}
       {viewEl && <Pop anchor={viewEl} title="Chế độ xem" onClose={() => setViewEl(null)}><div className="bk-menu">
         {WS_VIEWS.map((v) => <button key={v.value} onClick={() => setView(v.value)}><Icon name={v.icon} size={16} />{v.label}{view === v.value && <Icon name="check" size={15} />}</button>)}
@@ -437,6 +440,33 @@ function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User
       </form>
     </div>
   );
+}
+
+/** A board's type (its services), default view and customer from its tile's menu: the same settings as in the board's
+ *  own menu (About this board, Client), changed by the same people. */
+function TileSettings({ b, onSaved }: { b: BoardItem; onSaved: () => void }) {
+  const [services, setServices] = useState((b.services || []).map((x) => x.id)), [customer, setCustomer] = useState(b.customerId || ''), [view, setView] = useState<BoardViewKind>(b.view || 'board');
+  const [customers, setCustomers] = useState<{ id: string; name: string }[]>(b.customerId ? [{ id: b.customerId, name: b.customerName || '' }] : []);
+  const loadCustomers = () => api.customersAll().then((list) => setCustomers((had) => [...list, ...had.filter((c) => !list.some((x) => x.id === c.id))]), () => {});
+  useEffect(() => { if (b.level === 'admin') void loadCustomers(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = async (body: { services?: string[]; customerId?: string | null; view?: BoardViewKind }, undo: () => void) => {
+    try { await api.updateBoard(b.id, body); onSaved(); } catch (e: any) { undo(); toast(e.message, true); }
+  };
+  return <div className="bk-menu-colors bd-tile-settings">
+    <h5>Loại board (dịch vụ)</h5>
+    <ServicePicker value={services} known={b.services} disabled={!b.canShape}
+      onChange={(ids) => { const was = services; setServices(ids); void save({ services: ids }, () => setServices(was)); }} />
+    {b.canShape && <><h5>Dạng xem mặc định</h5>
+      <BoardTypePicker value={view} onChange={(v) => { const was = view; setView(v); void save({ view: v }, () => setView(was)); }} /></>}
+    <h5>Khách hàng</h5>
+    {b.level === 'admin'
+      ? <EntitySelect kind="customer" className="bk-in" aria-label="Khách hàng của board" value={customer} onCreated={loadCustomers}
+          onChange={(id) => { const was = customer; setCustomer(id); void save({ customerId: id || null }, () => setCustomer(was)); }}>
+          <option value="">Không gắn khách hàng</option>
+          {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </EntitySelect>
+      : <p className="bd-about">{b.customerName || 'Board chưa gắn khách hàng.'}</p>}
+  </div>;
 }
 
 /** The customer a workspace is for, changed by its admins (a customer can be added on the spot). */

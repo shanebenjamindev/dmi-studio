@@ -75,6 +75,8 @@ const P: Record<string, ReactNode> = {
   filter: <path d="M4 5.5h16l-6.2 7.3v5.4l-3.6 1.8v-7.2Z" />,
   cover: <><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M3.5 10h17" /></>,
   lines: <path d="M5 7h14M5 12h14M5 17h9" />,
+  chart: <path d="M4 20h16M7 16.5v-4M12 16.5V7M17 16.5V10" />,
+  timeline: <path d="M4 6.5h9M8 12h12M6 17.5h7" />,
   activity: <path d="M5 6.5h14M5 12h14M5 17.5h14M3 6.5h.01M3 12h.01M3 17.5h.01" />,
   star: <path d="m12 3.8 2.5 5.2 5.7.8-4.1 4 1 5.7L12 16.8l-5.1 2.7 1-5.7-4.1-4 5.7-.8Z" />,
   info: <><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5.5M12 8h.01" /></>,

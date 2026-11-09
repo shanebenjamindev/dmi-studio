@@ -1521,6 +1521,12 @@ test('a workspace of one\'s own can be for a customer; its boards\' work counts 
   const tl=(await server.call('GET',`/api/boards/${typed.id}`,undefined,ac)).data.lists[0];
   const tc=(await server.call('POST',`/api/lists/${tl.id}/cards`,{title:'Sửa trang chủ'},ac)).data;
   assert.deepEqual((await server.call('GET',`/api/client-work?workspace=${ws.id}`,undefined,ac)).data.find((x)=>x.id===tc.id).services.map((x)=>x.name),['Website']);
+  // The timeline asks for the cards for no customer too.
+  const loose=(await server.call('POST','/api/boards',{name:'Board không khách',bg:'ocean',roleId:null,private:true},ac)).data;
+  const ll=(await server.call('GET',`/api/boards/${loose.id}`,undefined,ac)).data.lists[0];
+  const lc=(await server.call('POST',`/api/lists/${ll.id}/cards`,{title:'Việc nội bộ'},ac)).data;
+  assert.ok(!(await server.call('GET','/api/client-work?workspace=company',undefined,ac)).data.some((x)=>x.id===lc.id));
+  assert.equal((await server.call('GET','/api/client-work?workspace=company&all=1',undefined,ac)).data.find((x)=>x.id===lc.id)?.customerId,'');
   assert.equal((await server.call('PUT',`/api/boards/${typed.id}`,{services:[]},ac)).status,200);
   assert.deepEqual((await server.call('GET',`/api/boards/${typed.id}`,undefined,ac)).data.services,[]);
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}

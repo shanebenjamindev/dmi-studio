@@ -9,18 +9,21 @@ import { openLink, toast } from '../store';
 import { Icon } from './ui';
 import { Avatar, dueState, shortDate } from './boardkit';
 import { BrandLoading } from './BrandLoading';
+import { ScheduleViews } from './ScheduleViews';
+import { COLOR } from './boardkit';
 import type { Board, BoardItem, ClientCard } from '../types';
 
-export type WsView = 'tiles' | 'list' | 'clients';
+export type WsView = 'tiles' | 'list' | 'timeline' | 'clients';
 export const WS_VIEWS: { value: WsView; label: string; icon: string }[] = [
   { value: 'tiles', label: 'Board', icon: 'grid' },
   { value: 'list', label: 'Danh sách board', icon: 'list' },
-  { value: 'clients', label: 'Dashboard', icon: 'activity' },
+  { value: 'timeline', label: 'Timeline', icon: 'timeline' },
+  { value: 'clients', label: 'Dashboard', icon: 'chart' },
 ];
 const read = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 /** A choice kept in this browser and with the account (prefs.ts). */
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } remember(k, v); };
-export const savedWsView = (): WsView => { const v = read('dms.wsView'); return v === 'list' || v === 'clients' ? v : 'tiles'; };
+export const savedWsView = (): WsView => { const v = read('dms.wsView'); return v === 'list' || v === 'timeline' || v === 'clients' ? v : 'tiles'; };
 export const saveWsView = (v: WsView) => keep('dms.wsView', v);
 const day = (ms: number | null) => (ms ? shortDate(ms) : '—');
 const byText = (a: string, b: string) => a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' });
@@ -81,7 +84,9 @@ export function BoardList({ boards, bgOf, onOpen, onCard }: { boards: BoardItem[
  *  its board. Long levels come in pages. */
 function BoardTree({ id, stamp, onCard }: { id: string; stamp: number; onCard: (cardId: string) => void }) {
   const [board, setBoard] = useState<Board | null>(null), [error, setError] = useState('');
-  useEffect(() => { let on = true; api.board(id).then((b) => { if (on) setBoard(b); }, (e) => { if (on) setError(e.message); }); return () => { on = false; }; }, [id, stamp]);
+  const [drag, setDrag] = useState<TreeCard | null>(null), [over, setOver] = useState<string | null>(null);
+  const load = () => api.board(id).then((b) => { setBoard(b); setError(''); }, (e) => setError(e.message));
+  useEffect(() => { void load(); }, [id, stamp]); // eslint-disable-line react-hooks/exhaustive-deps
   if (error) return <p className="note err">{error}</p>;
   if (!board) return <BrandLoading compact />;
   const cards = board.lists.flatMap((l) => l.cards.map((c) => ({ ...c, listName: l.name })));
@@ -93,20 +98,42 @@ function BoardTree({ id, stamp, onCard }: { id: string; stamp: number; onCard: (
   const rank = { customer: 0, project: 1, task: 2 } as const;
   const sorted = (list: typeof cards) => [...list].sort((a, b) => rank[a.kind || 'task'] - rank[b.kind || 'task'] || (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || byText(a.title, b.title));
   if (!cards.length) return <p className="cw-none ws-tree-empty">Board này chưa có thẻ nào.</p>;
-  return <TreeLevel list={sorted(under.get('') || [])} depth={0} under={(c) => sorted(under.get(c.id) || [])} board={board} onCard={onCard} />;
+  // A task dragged onto a project's card joins that project; onto the space below, it leaves its project. Cards stay on
+  // their board (they move between boards from the card itself).
+  const takes = (c: TreeCard) => !!drag && (drag.kind || 'task') === 'task' && c.kind === 'project' && !!c.projectId && drag.projectCardId !== c.id;
+  const move = async (card: TreeCard, project: string | null) => {
+    setDrag(null); setOver(null);
+    try { await api.updateCard(card.id, { projectId: project }); toast(project ? 'Đã chuyển vào dự án' : 'Đã bỏ khỏi dự án'); }
+    catch (e: any) { toast(e.message, true); }
+    void load();
+  };
+  const dnd: TreeDnd = { drag, over, takes, start: (c) => setDrag(c), end: () => { setDrag(null); setOver(null); }, enter: setOver, drop: (c) => drag && c.projectId && move(drag, c.projectId) };
+  return <>
+    <TreeLevel list={sorted(under.get('') || [])} depth={0} under={(c) => sorted(under.get(c.id) || [])} board={board} onCard={onCard} dnd={dnd} />
+    {drag?.projectCardId && <div className={'cw-drop-root ws-drop-root' + (over === 'root' ? ' drop-in' : '')}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (over !== 'root') setOver('root'); }} onDragLeave={() => setOver(null)}
+      onDrop={(e) => { e.preventDefault(); void move(drag, null); }}>Thả vào đây để bỏ khỏi dự án</div>}
+  </>;
 }
 const KIND_ICON = { customer: 'users', project: 'folder', task: 'checklist' } as const;
 type TreeCard = Board['lists'][number]['cards'][number] & { listName: string };
-function TreeLevel({ list, depth, under, board, onCard }: { list: TreeCard[]; depth: number; under: (c: TreeCard) => TreeCard[]; board: Board; onCard: (cardId: string) => void }) {
+type TreeDnd = { drag: TreeCard | null; over: string | null; takes: (c: TreeCard) => boolean; start: (c: TreeCard) => void; end: () => void; enter: (id: string | null) => void; drop: (c: TreeCard) => void };
+function TreeLevel({ list, depth, under, board, onCard, dnd }: { list: TreeCard[]; depth: number; under: (c: TreeCard) => TreeCard[]; board: Board; onCard: (cardId: string) => void; dnd: TreeDnd }) {
   const { items, pager } = usePage(list, 12, list.length);
-  return <><ul className={depth ? '' : 'ws-tree'}>{items.map((c) => <TreeNode key={c.id} c={c} depth={depth} under={under} board={board} onCard={onCard} />)}</ul>{pager}</>;
+  return <><ul className={depth ? '' : 'ws-tree'}>{items.map((c) => <TreeNode key={c.id} c={c} depth={depth} under={under} board={board} onCard={onCard} dnd={dnd} />)}</ul>{pager}</>;
 }
-function TreeNode({ c, depth, under, board, onCard }: { c: TreeCard; depth: number; under: (c: TreeCard) => TreeCard[]; board: Board; onCard: (cardId: string) => void }) {
+function TreeNode({ c, depth, under, board, onCard, dnd }: { c: TreeCard; depth: number; under: (c: TreeCard) => TreeCard[]; board: Board; onCard: (cardId: string) => void; dnd: TreeDnd }) {
   const [open, setOpen] = useState(depth < 1);
   const kids = depth < 6 ? under(c) : [], kind = c.kind || 'task', due = dueState(c.dueAt, c.done);
   const people = board.members.filter((m) => c.members.includes(m.id)).slice(0, 3);
+  const task = kind === 'task' && board.level !== 'observer';
   return <li>
-    <div className="cw-row">
+    <div className={'cw-row' + (task ? ' movable' : '') + (dnd.over === c.id ? ' drop-in' : '')} draggable={task}
+      title={task ? 'Kéo thả vào một dự án để chuyển công việc vào dự án đó' : undefined}
+      onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.title); dnd.start(c); }} onDragEnd={dnd.end}
+      onDragOver={(e) => { if (!dnd.takes(c)) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; if (dnd.over !== c.id) dnd.enter(c.id); }}
+      onDragLeave={() => { if (dnd.over === c.id) dnd.enter(null); }}
+      onDrop={(e) => { if (!dnd.takes(c)) return; e.preventDefault(); e.stopPropagation(); setOpen(true); dnd.drop(c); }}>
       {kids.length
         ? <button className="tk-fold" aria-expanded={open} aria-label={open ? 'Thu gọn' : 'Mở rộng'} onClick={() => setOpen(!open)}><Icon name={open ? 'down' : 'right'} size={12} /></button>
         : <span className="tk-fold" />}
@@ -118,8 +145,31 @@ function TreeNode({ c, depth, under, board, onCard }: { c: TreeCard; depth: numb
         {people.length > 0 && <span className="cw-people">{people.map((m) => <Avatar key={m.id} m={m} size={20} />)}</span>}
       </button>
     </div>
-    {open && kids.length > 0 && <TreeLevel list={kids} depth={depth + 1} under={under} board={board} onCard={onCard} />}
+    {open && kids.length > 0 && <TreeLevel list={kids} depth={depth + 1} under={under} board={board} onCard={onCard} dnd={dnd} />}
   </li>;
+}
+
+// ---------------------------------------------------------------- the workspace's timeline
+/** Every dated card on the workspace's boards over time, a row per board or per client; a card opens in place. */
+export function WorkspaceTimeline({ wsId, boards, onCard, onTask }: { wsId: string; boards: BoardItem[]; onCard: (boardId: string, cardId: string) => void; onTask: (taskId: string) => void }) {
+  const [rows, setRows] = useState<ClientCard[] | null>(null), [error, setError] = useState('');
+  const [by, setByState] = useState<'board' | 'client'>(() => (read('dms.timelineBy') === 'client' ? 'client' : 'board'));
+  const setBy = (v: 'board' | 'client') => { setByState(v); keep('dms.timelineBy', v); };
+  const stamp = boards.map((b) => b.id + b.updatedAt).join();
+  useEffect(() => { let on = true; api.clientWork(wsId, true).then((r) => { if (on) { setRows(r); setError(''); } }, (e) => { if (on) setError(e.message); }); return () => { on = false; }; }, [wsId, stamp]);
+  if (error) return <p className="note err">{error}</p>;
+  if (!rows) return <BrandLoading compact />;
+  const none = 'Không gắn khách hàng';
+  // Subtasks without a card belong to no board: they show by client only.
+  const shown = rows.filter((c) => by === 'client' || c.boardId);
+  const cards = shown.map((c) => ({ id: c.id, title: c.title, group: by === 'board' ? c.boardName : c.customerName || none, status: c.listName, done: c.done, startAt: c.startAt, dueAt: c.dueAt,
+    labels: c.labels.map((l) => ({ name: l.name, color: COLOR[l.color] })), members: c.members.map((m) => m.name) }));
+  const groups = by === 'board' ? [...boards].sort((a, b) => byText(a.name, b.name)).map((b) => b.name) : [...new Set(shown.map((c) => c.customerName || none))].sort(byText);
+  const open = (id: string) => { const c = rows.find((x) => x.id === id); if (c?.boardId && c.cardId) onCard(c.boardId, c.cardId); else if (c?.taskId) onTask(c.taskId); };
+  return <section className="wt">
+    <div className="cw-tools"><label className="cw-sort"><span>Mỗi dòng là</span><select value={by} onChange={(e) => setBy(e.target.value as 'board' | 'client')}><option value="board">Một board</option><option value="client">Một khách hàng</option></select></label></div>
+    <ScheduleViews view="timeline" cards={cards} groups={groups} onOpen={open} groupLabel={by === 'board' ? ['Board', 'Theo board'] : ['Khách hàng', 'Theo khách hàng']} />
+  </section>;
 }
 
 // ---------------------------------------------------------------- the work by client

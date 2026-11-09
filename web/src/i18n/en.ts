@@ -4066,5 +4066,14 @@ const EN: Record<string, string> = {
   "Dạng xem": "View",
   "Dạng xem mặc định": "Default view",
   "Loại (dịch vụ)": "Type (service)",
+  "Mỗi dòng là": "Each row is",
+  "Một board": "A board",
+  "Một khách hàng": "A client",
+  "Theo board": "By board",
+  "Theo khách hàng": "By client",
+  "Đã chuyển vào dự án": "Moved into the project",
+  "Đã bỏ khỏi dự án": "Taken out of the project",
+  "Thả vào đây để bỏ khỏi dự án": "Drop here to take it out of its project",
+  "Kéo thả vào một dự án để chuyển công việc vào dự án đó": "Drag onto a project to move the task into it",
 };
 export default EN;

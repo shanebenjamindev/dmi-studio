@@ -1491,16 +1491,17 @@ export function registerBoards(api: Router) {
   // board's, else the workspace's), as far as this account sees them, and the subtasks under their tasks (those without a card here too), each
   // with its parent task so the work reads as a tree: its status, stage, dates, labels, people and services.
   api.get('/api/client-work', async (req, res) => {
-    const u = await me(req), level = await levels(u), ws = String(req.query.get('workspace') || COMPANY), t0 = now();
+    // `all`: the cards for no customer too (the workspace's timeline).
+    const u = await me(req), level = await levels(u), ws = String(req.query.get('workspace') || COMPANY), t0 = now(), every = req.query.get('all') === '1';
     const [visible, boardRows, projects] = await Promise.all([visibleCardIds(u.id), all<any>(BOARDS_SQL), projectLevels(u.id)]);
     const boards = new Map(boardRows.filter((b) => (b.workspace_id || COMPANY) === ws && level(b)).map((b) => [b.id, b]));
     const cards = (await all<any>(`SELECT c.id, c.title, c.board_id, k.id customer_id, k.name customer_name, c.done, c.start_at, c.due_at, c.updated_at, l.name list, l.pos list_pos, x.task_id, t.parent_id
       FROM board_cards c JOIN board_lists l ON l.id = c.list_id JOIN boards b ON b.id = c.board_id LEFT JOIN workspaces w ON w.id = b.workspace_id
-      JOIN customers k ON k.id = COALESCE(c.customer_id, b.customer_id, w.customer_id)
+      LEFT JOIN customers k ON k.id = COALESCE(c.customer_id, b.customer_id, w.customer_id)
       LEFT JOIN task_board_links x ON x.card_id = c.id LEFT JOIN tasks t ON t.id = x.task_id
-      WHERE c.archived = 0 AND l.archived = 0 AND COALESCE(c.card_kind, 'task') = 'task'`)).filter((c) => boards.has(c.board_id) && visible.has(c.id));
+      WHERE c.archived = 0 AND l.archived = 0 AND COALESCE(c.card_kind, 'task') = 'task'`)).filter((c) => boards.has(c.board_id) && visible.has(c.id) && (every || c.customer_id));
     // Subtasks below those cards' tasks that have no card here: read level by level (20 at most), in their root's customer.
-    const customerOf = new Map<string, { id: string; name: string }>(cards.filter((c) => c.task_id).map((c) => [c.task_id, { id: c.customer_id, name: c.customer_name }]));
+    const customerOf = new Map<string, { id: string; name: string }>(cards.filter((c) => c.task_id).map((c) => [c.task_id, { id: c.customer_id || '', name: c.customer_name || '' }]));
     const onCard = new Set(cards.map((c) => c.task_id).filter(Boolean)), loose: any[] = [];
     for (let level = [...onCard] as string[], n = 0; level.length && n < 20; n++) {
       const kids = (await all<any>(`SELECT t.* FROM tasks t WHERE t.parent_id IN (SELECT value FROM json_each(?))`, JSON.stringify(level)))
@@ -1529,7 +1530,7 @@ export function registerBoards(api: Router) {
       ...cards.map((c) => {
         const b = boards.get(c.board_id);
         return { id: c.id, cardId: c.id, taskId: c.task_id || null, parentTaskId: c.parent_id || null, title: c.title, boardId: b.id, boardName: b.name, boardBg: bgOf(b), listName: c.list, listPos: c.list_pos,
-          stage: stage(!!c.done, c.due_at ?? null, c.list), done: !!c.done, startAt: c.start_at ?? null, dueAt: c.due_at ?? null, updatedAt: c.updated_at, customerId: c.customer_id, customerName: c.customer_name,
+          stage: stage(!!c.done, c.due_at ?? null, c.list), done: !!c.done, startAt: c.start_at ?? null, dueAt: c.due_at ?? null, updatedAt: c.updated_at, customerId: c.customer_id || '', customerName: c.customer_name || '',
           labels: byLabel.get(c.id) || [], members: byPerson.get(c.id) || [], services: (c.task_id && byService.get(c.task_id)) || ofBoard.get(c.board_id) || [] };
       }),
       ...loose.map((t) => {

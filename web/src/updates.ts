@@ -12,6 +12,9 @@ export const UPDATES: Update[] = [
     id: '2026-11-09-4',
     date: '09/11/2026',
     items: [
+      { kind: 'new', vi: 'Menu … trên ô board chọn được loại board (dịch vụ), dạng xem mặc định và khách hàng, khớp với cài đặt trong board.', en: 'The … menu on a board tile picks the board’s type (service), default view and client, the same settings as inside the board.' },
+      { kind: 'new', vi: 'Danh sách board: kéo một công việc thả vào dự án để chuyển công việc vào dự án đó, hoặc thả xuống vùng cuối để bỏ khỏi dự án.', en: 'Board list: drag a task onto a project to move it in, or onto the space below to take it out of its project.' },
+      { kind: 'new', vi: 'Chế độ xem Timeline cho mỗi workspace: mọi thẻ có ngày trên một dòng thời gian, mỗi dòng là một board hoặc một khách hàng; bấm thẻ để mở ngay tại chỗ.', en: 'A Timeline view for each workspace: every dated card on one timeline, a row per board or per client; click a card to open it in place.' },
       { kind: 'new', vi: 'Loại board giờ là loại dịch vụ (Google Ads, Meta Ads, Website…): chọn khi tạo board hoặc ở menu board › Về board này. Thẻ trên board tính vào dịch vụ đó ở Dashboard, trừ khi công việc của thẻ đã chọn dịch vụ riêng. Ô chọn cách mở board đổi tên thành “Dạng xem”.', en: 'A board’s type is now its service (Google Ads, Meta Ads, Website…): pick it when creating the board or in the board menu › About this board. On the Dashboard its cards count for that service unless their task names its own. The picker for how a board opens is now called “View”.' },
     ],
   },

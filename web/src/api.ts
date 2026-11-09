@@ -136,7 +136,8 @@ export const api = {
   deleteAttachment: (id: string) => req('DELETE', `/api/attachments/${id}`),
   addCardFiles: (cardId: string, keys: string[]) => req<{ added: number }>('POST', `/api/cards/${cardId}/files`, { keys }),
   boardCustomers: () => req<{ id: string; name: string }[]>('GET', '/api/boards-customers'),
-  clientWork: (workspaceId: string) => req<ClientCard[]>('GET', `/api/client-work?workspace=${encodeURIComponent(workspaceId)}`),
+  /** `all`: with the cards for no customer too (customerId ''). */
+  clientWork: (workspaceId: string, all = false) => req<ClientCard[]>('GET', `/api/client-work?workspace=${encodeURIComponent(workspaceId)}${all ? '&all=1' : ''}`),
   customerTasks: (customerId?: string) => req<CustomerTask[]>('GET', '/api/customer-tasks' + (customerId ? `?customer=${encodeURIComponent(customerId)}` : '')),
   inbox: () => req<InboxItem[]>('GET', '/api/inbox'),
   addInbox: (title: string, top = false) => req<InboxItem>('POST', '/api/inbox', { title, top }),
