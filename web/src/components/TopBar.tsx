@@ -6,6 +6,7 @@ import { SupportButton } from './SupportDialog';
 import { useEffect, useRef, useState } from 'react';
 import { useStore, signOut, openPages, goto, openProfile, openLink, HASH } from '../store';
 import { Icon } from './ui';
+import { Avatar } from './boardkit';
 import { PasswordSheet } from './PasswordSheet';
 import type { View } from '../store';
 import { themePref, setThemePref, onTheme, type ThemePref } from '../theme';
@@ -57,7 +58,7 @@ export function AppHeader() {
         <MessengerTopButton /><QuickNotesButton /><NotificationBell /><ThemeSwitch />
         <div className="tb-user" ref={ref}>
           <button className="tb-user-btn" onClick={() => setMenu(!menu)} aria-expanded={menu} aria-haspopup="menu" title={user.name} aria-label={`Tài khoản ${user.name}`}>
-            <span className="ws-avatar">{(user.name || user.email).charAt(0).toUpperCase()}</span><span className="tb-user-name">{user.name}</span><Icon name="chevron" size={13} />
+            <Avatar m={{ id: user.id, userId: user.id, name: user.name || user.email, avatarAt: user.avatarAt }} size={28} /><span className="tb-user-name">{user.name}</span><Icon name="chevron" size={13} />
           </button>
           {menu && (
             <div className="tb-menu" role="menu">
