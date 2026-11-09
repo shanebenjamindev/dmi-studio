@@ -3720,6 +3720,9 @@ button.ax-role:hover { border-color: var(--tint); }
 .gl tr.gl-row:hover th, .gl tr.gl-row:hover td { background: var(--fill-2); }
 .gl tr.gl-row.on th, .gl tr.gl-row.on td { background: var(--tint-soft); }
 .gl tr.gl-row.checked th, .gl tr.gl-row.checked td { background: var(--tint-soft); }
+/* The pinned name and actions cells keep an opaque ground under their tint, so columns scrolled under them never show through. */
+.gl tr.gl-row:hover .gl-name, .gl tr.gl-row:hover .gl-end { background: linear-gradient(var(--fill-2), var(--fill-2)) var(--surface); }
+.gl tr.gl-row.on .gl-name, .gl tr.gl-row.on .gl-end, .gl tr.gl-row.checked .gl-name, .gl tr.gl-row.checked .gl-end { background: linear-gradient(var(--tint-soft), var(--tint-soft)) var(--surface); }
 .gl .gl-sel { width: 36px; min-width: 36px; text-align: center; vertical-align: middle; padding: 8px 6px; }
 .gl .gl-sel input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--tint); cursor: pointer; }
 .gl td.gl-narrow { white-space: nowrap; }

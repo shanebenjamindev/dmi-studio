@@ -7,9 +7,10 @@ import { EmployeeAvatars } from './EmployeePicker';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { goto, toast, useStore } from '../store';
-import { Icon, Menu } from './ui';
+import { Icon, IconButton, Menu } from './ui';
 import { ProjectCampaigns } from './ProjectCampaigns';
 import { ServicePicker } from './ServicePicker';
+import { ProjectEditDialog } from './ProjectEditDialog';
 import type { TaskMeta } from '../types';
 import { PROJECT_STAGES, type ProjectStage } from '../../../shared/projects';
 
@@ -71,6 +72,7 @@ export function WorkProjects() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<ProjectRow | null>(null);
 
   const refresh = () => { api.taskMeta().then((m) => { setMeta(m); setError(''); }, (e) => setError(e.message)); };
   useEffect(() => {
@@ -98,16 +100,6 @@ export function WorkProjects() {
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   };
   const canManage = (p: ProjectRow) => user?.role === 'admin' || p.level === 'admin';
-  const renameProject = async (p: ProjectRow) => {
-    const next = prompt('Tên dự án', p.name);
-    if (!next?.trim() || next.trim() === p.name) return;
-    setBusyId(p.id);
-    try {
-      await api.renameTaskProject(p.id, next.trim());
-      refresh();
-      window.dispatchEvent(new Event('dms:entities-changed'));
-    } catch (e: any) { toast(e.message, true); } finally { setBusyId(null); }
-  };
   const deleteProject = async (p: ProjectRow) => {
     if (!confirm(`Xoá dự án “${p.name}”? Các công việc được giữ lại và gỡ khỏi dự án.`)) return;
     setBusyId(p.id);
@@ -247,10 +239,10 @@ export function WorkProjects() {
                 ...(groupBy === 'customer' ? [] : [{ key: 'customer', label: 'Khách hàng', width: 155, wide: true, render: (p: ProjectRow) => p.customerName || '—' }]),
                 { key: 'tasks', label: 'Tiến độ', width: 130, render: (p) => p.tasks > 0 ? `${p.completed || 0}/${p.tasks} công việc` : '0 công việc' },
                 {
-                  key: 'actions', label: 'Thao tác', width: 145, end: true, render: (p) => canManage(p) ? (
-                    <span className="crm-campaign-actions" onClick={(e) => e.stopPropagation()}>
-                      <button type="button" className="btn btn-gray btn-sm" disabled={busyId === p.id} onClick={() => void renameProject(p)}>Đổi tên</button>
-                      <button type="button" className="btn btn-sm cm-danger" disabled={busyId === p.id} onClick={() => void deleteProject(p)}>Xoá</button>
+                  key: 'actions', label: 'Thao tác', width: 84, end: true, render: (p) => canManage(p) ? (
+                    <span className="crm-row-actions" onClick={(e) => e.stopPropagation()}>
+                      <IconButton icon="edit" label={`Sửa ${p.name}`} size={16} disabled={busyId === p.id} onClick={() => setEditing(p)} />
+                      <IconButton icon="trash" label={`Xoá ${p.name}`} size={16} danger disabled={busyId === p.id} onClick={() => void deleteProject(p)} />
                     </span>
                   ) : null,
                 },
@@ -269,7 +261,7 @@ export function WorkProjects() {
                     <EmployeeAvatars people={p.assignees || []} />
                     {canManage(p) ? (
                       <span className="crm-campaign-actions" onClick={(e) => e.stopPropagation()}>
-                        <button type="button" className="btn btn-gray btn-sm" disabled={busyId === p.id} onClick={() => void renameProject(p)}>Đổi tên</button>
+                        <button type="button" className="btn btn-gray btn-sm" disabled={busyId === p.id} onClick={() => setEditing(p)}><Icon name="edit" size={13} />Sửa</button>
                         <button type="button" className="btn btn-sm cm-danger" disabled={busyId === p.id} onClick={() => void deleteProject(p)}>Xoá</button>
                       </span>
                     ) : <span>Xem chi tiết</span>}
@@ -294,7 +286,7 @@ export function WorkProjects() {
                       <td onClick={(e) => e.stopPropagation()}>
                         {canManage(p) ? (
                           <span className="crm-campaign-actions">
-                            <button type="button" className="btn btn-gray btn-sm" disabled={busyId === p.id} onClick={() => void renameProject(p)}>Đổi tên</button>
+                            <button type="button" className="btn btn-gray btn-sm" disabled={busyId === p.id} onClick={() => setEditing(p)}><Icon name="edit" size={13} />Sửa</button>
                             <button type="button" className="btn btn-sm cm-danger" disabled={busyId === p.id} onClick={() => void deleteProject(p)}>Xoá</button>
                           </span>
                         ) : <button className="bd-icon" aria-label={`Mở dự án ${p.name}`} onClick={() => select(p.id)}><Icon name="right" size={15} /></button>}
@@ -323,6 +315,7 @@ export function WorkProjects() {
           </>) : <p className="note">Không tìm thấy dự án này.</p>}
         </article>
       )}
+      {editing && <ProjectEditDialog project={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); window.dispatchEvent(new Event('dms:entities-changed')); }} />}
       {creating && <QuickCreateDialog kind="project" onClose={() => setCreating(false)} onCreated={(r) => { setCreating(false); refresh(); select(r.id); }} />}
     </div>
   );

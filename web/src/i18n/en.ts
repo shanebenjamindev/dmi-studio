@@ -3982,5 +3982,7 @@ const EN: Record<string, string> = {
   "Dịch vụ của khách hàng": "Client services",
   "Danh sách dịch vụ không hợp lệ": "Invalid service list",
   "Kéo để di chuyển": "Drag to move",
+  "Chỉnh sửa dự án": "Edit project",
+  "Đã lưu dự án": "Project saved",
 };
 export default EN;
