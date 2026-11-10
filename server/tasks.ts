@@ -228,7 +228,7 @@ function taskOut(t: any, l: Awaited<ReturnType<typeof links>>) {
     cardPeople: (l.onCard.get(t.id) || []).filter((p) => !(l.who.get(t.id) || []).some((a) => a.userId === p.userId)), followers: l.followers.get(t.id) || [], labels: l.tags.get(t.id) || [],
     boardLink:l.boardLinks.get(t.id)||null,hasBoardLink:l.linkedTasks.has(t.id),
     canDelete: l.user.role === 'admin' || (t.creator_user_id != null && t.creator_user_id === l.user.id) || (t.project_id ? l.pLevels.get(t.project_id) === 'admin' : false),
-    sourceUpdatedAt: t.source_updated_at ?? null, stub: !!t.stub, updatedAt: t.updated_at,
+    sourceUpdatedAt: t.source_updated_at ?? null, stub: !!t.stub, updatedAt: t.updated_at, createdAt: t.created_at,
   };
 }
 /** May this account see a task's result and change it: admins, the task's own people, its project's managers and
@@ -621,6 +621,7 @@ export function registerTasks(api: Router) {
       })(),
       mine: await myPeople(u.id), statuses: await taskStatuses(),
       users: await all<any>('SELECT id, name, email, team_role teamId FROM users WHERE disabled = 0 ORDER BY name COLLATE NOCASE'),
+      labels: (await all<any>('SELECT id, name, color FROM task_labels ORDER BY name COLLATE NOCASE')).map((l) => ({ id: l.id, name: l.name, color: l.color || '#64748b' })),
       imports: (await all<any>('SELECT i.*, u.name user_name, s.name source_name FROM task_imports i LEFT JOIN users u ON u.id = i.user_id LEFT JOIN task_import_sheets s ON s.import_id=i.id WHERE i.user_id=? ORDER BY i.created_at DESC LIMIT 50',u.id))
         .map((i) => ({ id: i.id, rows: i.rows, created: i.created, updated: i.updated, at: i.created_at, by: i.user_name || '', sourceName: i.source_name || '', hasSheet: !!i.source_name })),
     });
@@ -663,7 +664,28 @@ export function registerTasks(api: Router) {
     let boardLink: any = null;
     const linked = await get<any>('SELECT c.id cardId, c.board_id boardId, c.list_id listId, b.name boardName, l.name listName FROM task_board_links x JOIN board_cards c ON c.id=x.card_id JOIN boards b ON b.id=c.board_id JOIN board_lists l ON l.id=c.list_id WHERE x.task_id=?', t.id);
     if (linked) { try { await mustBoard(req, linked.boardId, 'viewer'); boardLink = linked; } catch (e) { if (!(e instanceof HttpError) || ![403,404].includes(e.status)) throw e; } }
-    json(res, 200, { ...taskOut(t, l), canDelete: own&&await canDelete(req,t), statuses: boardLink ? (await all<any>('SELECT name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',boardLink.boardId)).map(l=>l.name) : await taskStatuses(), boardLink, hasBoardLink: !!linked, description: t.description || '', result: own ? t.result || '' : null, resultHidden: !own && !!t.result, canEdit: own, canEditDescription: own && mayWriteDescription(await me(req), t.description, await taskDescriptionWriter(t)), path: chain, childTasks: kids, services: (await taskServices([t.id])).get(t.id) || [] });
+
+    const commentRows = linked
+      ? await all<any>('SELECT k.id, k.text, k.user_id userId, u.name userName, k.created_at createdAt, k.updated_at updatedAt, k.reply_to_id replyToId FROM card_comments k LEFT JOIN users u ON u.id = k.user_id WHERE k.card_id = ? ORDER BY k.created_at ASC', linked.cardId)
+      : await all<any>('SELECT k.id, k.text, k.user_id userId, u.name userName, k.created_at createdAt, k.updated_at updatedAt, k.reply_to_id replyToId FROM task_comments k LEFT JOIN users u ON u.id = k.user_id WHERE k.task_id = ? ORDER BY k.created_at ASC', t.id);
+    const comments = commentRows.map((k) => ({ id: k.id, userId: k.userId, userName: k.userName || 'Thành viên', text: k.text, createdAt: k.createdAt, updatedAt: k.updatedAt, replyToId: k.replyToId || null }));
+
+    const activityRows = linked
+      ? await all<any>("SELECT a.id, a.user_id userId, u.name userName, a.action, a.data, a.created_at at FROM board_activity a LEFT JOIN users u ON u.id = a.user_id WHERE a.card_id = ? AND a.action != 'comment' ORDER BY a.created_at DESC LIMIT 50", linked.cardId)
+      : await all<any>("SELECT a.id, a.user_id userId, u.name userName, a.action, a.data, a.created_at at FROM task_activity a LEFT JOIN users u ON u.id = a.user_id WHERE a.task_id = ? AND a.action != 'comment' ORDER BY a.created_at DESC LIMIT 50", t.id);
+    const activity = activityRows.map((a) => {
+      const d = typeof a.data === 'string' ? (JSON.parse(a.data || '{}') || {}) : (a.data || {});
+      let text = 'đã cập nhật công việc';
+      if (a.action === 'card.done') text = d.done ? 'đã đánh dấu hoàn thành' : 'đã mở lại công việc';
+      else if (a.action === 'card.move') text = `đã chuyển sang ${d.to || ''}`;
+      else if (a.action === 'card.add') text = 'đã tạo công việc';
+      else if (a.action === 'card.due') text = d.due ? 'đã đặt hạn hoàn thành' : 'đã gỡ hạn';
+      else if (a.action === 'card.member') text = d.on ? `đã giao việc cho ${d.name || ''}` : `đã gỡ ${d.name || ''}`;
+      else if (a.action === 'task.update') text = 'đã cập nhật thông tin';
+      return { id: a.id, userId: a.userId, user: a.userName || 'Hệ thống', text, at: a.at, action: a.action };
+    });
+
+    json(res, 200, { ...taskOut(t, l), canDelete: own&&await canDelete(req,t), statuses: boardLink ? (await all<any>('SELECT name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',boardLink.boardId)).map(l=>l.name) : await taskStatuses(), boardLink, hasBoardLink: !!linked, description: t.description || '', result: own ? t.result || '' : null, resultHidden: !own && !!t.result, canEdit: own, canEditDescription: own && mayWriteDescription(await me(req), t.description, await taskDescriptionWriter(t)), path: chain, childTasks: kids, services: (await taskServices([t.id])).get(t.id) || [], comments, activity });
   });
   api.post('/api/tasks', async (req, res) => {
     const u = await me(req), b = await readJson(req), input = await taskInput(b,undefined,u.id);
@@ -799,6 +821,49 @@ export function registerTasks(api: Router) {
     if (u.role !== 'admin' && !((want === u.id && !p.user_id) || (want === null && p.user_id === u.id))) throw new HttpError(403, 'Bạn chỉ chọn được tên của chính mình (tên chưa ai nhận)');
     if (want && !(await get('SELECT 1 FROM users WHERE id = ? AND disabled=0', String(want)))) throw new HttpError(404, 'Không tìm thấy tài khoản');
     await run('UPDATE task_people SET user_id = ? WHERE id = ?', want, p.id);
+    json(res, 200, { ok: true });
+  });
+
+  api.post('/api/tasks/:id/comments', async (req, res) => {
+    const u = await me(req), t = await get<any>('SELECT * FROM tasks WHERE id = ?', req.params.id);
+    if (!t) throw new HttpError(404, 'Không tìm thấy công việc');
+    const b = await readJson(req);
+    const text = String(b.text || '').trim();
+    if (!text) throw new HttpError(400, 'Hãy nhập bình luận');
+    const replyToId = b.replyToId ? String(b.replyToId) : null;
+    const commentId = uid('cm_');
+    const nowTs = now();
+    await run('INSERT INTO task_comments(id, task_id, user_id, text, reply_to_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?)', commentId, t.id, u.id, text, replyToId, nowTs, nowTs);
+
+    const linked = await get<any>('SELECT card_id FROM task_board_links WHERE task_id = ?', t.id);
+    if (linked) {
+      const card = await get<any>('SELECT board_id FROM board_cards WHERE id = ?', linked.card_id);
+      if (card) {
+        await run('INSERT INTO card_comments(id, card_id, board_id, user_id, text, created_at, updated_at, reply_to_id) VALUES (?,?,?,?,?,?,?,?)', commentId, linked.card_id, card.board_id, u.id, text, nowTs, nowTs, replyToId).catch(() => {});
+      }
+    }
+    await run('INSERT INTO task_activity(id, task_id, user_id, action, data, created_at) VALUES (?,?,?,?,?,?)', uid('ac_'), t.id, u.id, 'comment', JSON.stringify({ text }), nowTs).catch(() => {});
+    json(res, 201, { id: commentId });
+  });
+
+  api.put('/api/tasks/comments/:id', async (req, res) => {
+    const u = await me(req), b = await readJson(req), text = String(b.text || '').trim();
+    if (!text) throw new HttpError(400, 'Hãy nhập nội dung bình luận');
+    const row = await get<any>('SELECT * FROM task_comments WHERE id = ?', req.params.id);
+    if (row) {
+      if (row.user_id !== u.id && u.role !== 'admin') throw new HttpError(403, 'Chỉ người viết mới được sửa bình luận');
+      await run('UPDATE task_comments SET text = ?, updated_at = ? WHERE id = ?', text, now(), row.id);
+    }
+    await run('UPDATE card_comments SET text = ?, updated_at = ? WHERE id = ?', text, now(), req.params.id).catch(() => {});
+    json(res, 200, { ok: true });
+  });
+
+  api.delete('/api/tasks/comments/:id', async (req, res) => {
+    const u = await me(req);
+    const row = await get<any>('SELECT * FROM task_comments WHERE id = ?', req.params.id);
+    if (row && row.user_id !== u.id && u.role !== 'admin') throw new HttpError(403, 'Chỉ người viết hoặc quản trị viên mới được xoá');
+    await run('DELETE FROM task_comments WHERE id = ?', req.params.id);
+    await run('DELETE FROM card_comments WHERE id = ?', req.params.id).catch(() => {});
     json(res, 200, { ok: true });
   });
 }

@@ -5,7 +5,7 @@ import {CustomerMembers} from './CustomerMembers';
 import {EntitySelect,useEntityRefresh} from './QuickCreate';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { api } from '../api';
-import { mayAddCustomer, toast, useStore } from '../store';
+import { goto, openLink, mayAddCustomer, toast, useStore } from '../store';
 import {BrandLoading} from './BrandLoading';
 import {CustomerStages} from './CustomerStages';
 import { Icon, Menu } from './ui';
@@ -25,9 +25,10 @@ type CustomerRow = CustomerRecord;
 type Campaign = { id: string; name: string; tasks: number; campaigns?:number; services?: ServiceRef[] };
 const LS_VIEW = 'dms.customerView';
 const readView = (): CustomerView => { try { const v = localStorage.getItem(LS_VIEW) as CustomerView; return ['list', 'kanban', 'grid'].includes(v) ? v : 'list'; } catch { return 'list'; } };
+
 export function CustomersPage() {
-  const statuses=useCustomerStatuses();
   const user = useStore((s) => s.user)!;
+  const statuses=useCustomerStatuses();
   // Everyone sees the customers they work on here. Adding them is for those given Drive (not view-only) or given
   // "Tạo khách hàng" in Phân quyền (mayAddCustomer); their Drive folders stay with Drive.
   const drive = useStore((s) => s.pages).includes('workspace');
@@ -74,28 +75,56 @@ export function CustomersPage() {
   });
   const current = customers.find((c) => c.id === selected), status = statuses.find((x) => x.id === current?.status);
   const manage=selected?!!current?.canManage:canCreate;
-  return <div className={'ad-page tk-page tk-mailbox crm-page'+(selected?' has-selection':'')}>
-    <section className="tk-list-pane" aria-label="Danh sách khách hàng">
-      <CustomerDashboard customers={customers} selected={selected} loading={loading} error={error} manage={canCreate}view={view} onViewChange={setView} onOpen={select} onEdit={(id)=>setRecord(id)} onAdd={()=>setRecord('new')} onImport={()=>setImporting(true)} onDrive={()=>{setCreating(true);setLocation(null);}} onRefresh={load}/>
+  const [listFolded, setListFolded] = useState(() => { try { return localStorage.getItem('dms.customerListFolded') === '1'; } catch { return false; } });
+  const foldList = (v: boolean) => { setListFolded(v); try { localStorage.setItem('dms.customerListFolded', v ? '1' : '0'); } catch {} };
+  const [sideFolded, setSideFolded] = useState(() => { try { return localStorage.getItem('dms.customerSideFolded') === '1'; } catch { return false; } });
+  const foldSide = (v: boolean) => { setSideFolded(v); try { localStorage.setItem('dms.customerSideFolded', v ? '1' : '0'); } catch {} };
+
+  return <div className={'ad-page tk-page tk-mailbox crm-page' + (selected ? ' has-selection' : '') + (selected && listFolded ? ' list-folded' : '')}>
+    <section className={'tk-list-pane' + (listFolded && selected ? ' folded' : '')} aria-label="Danh sách khách hàng">
+      <CustomerDashboard customers={customers} selected={selected} loading={loading} error={error} manage={canCreate} view={view} onViewChange={setView} onOpen={select} onEdit={(id)=>setRecord(id)} onAdd={()=>setRecord('new')} onImport={()=>setImporting(true)} onDrive={()=>{setCreating(true);setLocation(null);}} onRefresh={load} onFold={() => foldList(true)}/>
     </section>
-    {selected && <ResizeHandle cssVar="--rd-list-w" storage="customers" min={220} max={640} label="Đổi độ rộng danh sách khách hàng" />}
+    {selected && !listFolded && <ResizeHandle cssVar="--rd-list-w" storage="customers" min={200} max={640} label="Đổi độ rộng danh sách khách hàng" />}
     {selected && <article className="tk-reading-pane crm-reading-pane" aria-label="Chi tiết khách hàng">
-      <ReadingHeader label="Chi tiết khách hàng" onClose={()=>select(null)} actions={<div className="crm-record-actions">{manage&&<button className="btn btn-primary btn-sm" disabled={busy} onClick={()=>setRecord(selected)}><Icon name="edit" size={14}/>Chỉnh sửa</button>}<Menu label="Tuỳ chọn khách hàng" items={[{label:'Thành viên',icon:'users',onClick:()=>setTab('members')},{label:'Lịch sử thay đổi',icon:'clock',onClick:()=>setTab('history')},{label:'Xoá khách hàng',icon:'trash',danger:true,hidden:!manage||!current?.canDelete||busy,onClick:()=>{if(confirm('Xoá khách hàng khỏi database? Giữ nguyên dự án, công việc, báo cáo và file Drive.'))void act(async()=>{await api.deleteCustomer(selected);select(null);await load();});}}]}/></div>}/>
+      <ReadingHeader
+        label="Chi tiết khách hàng"
+        onClose={()=>select(null)}
+        actions={
+          <div className="crm-record-actions">
+            {listFolded && (
+              <button type="button" className="btn btn-gray btn-sm crm-unfold-btn" onClick={() => foldList(false)} title="Mở danh sách khách hàng">
+                <Icon name="lines" size={14} /> Khách hàng
+              </button>
+            )}
+            {manage&&<button className="btn btn-primary btn-sm" disabled={busy} onClick={()=>setRecord(selected)}><Icon name="edit" size={14}/>Chỉnh sửa</button>}
+            <Menu label="Tuỳ chọn khách hàng" items={[{label:'Thành viên',icon:'users',onClick:()=>setTab('members')},{label:'Lịch sử thay đổi',icon:'clock',onClick:()=>setTab('history')},{label:'Xoá khách hàng',icon:'trash',danger:true,hidden:!manage||!current?.canDelete||busy,onClick:()=>{if(confirm('Xoá khách hàng khỏi database? Giữ nguyên dự án, công việc, báo cáo và file Drive.'))void act(async()=>{await api.deleteCustomer(selected);select(null);await load();});}}]}/>
+          </div>
+        }
+      />
       {/* Like Outlook: the customer's parts in a column, and only the chosen one beside it. */}
-      <div className="crm-split">
-      <aside className="crm-side" aria-label="Mục của khách hàng">
-        <div className="crm-side-title"><span>Khách hàng</span><h2>{current?.name || 'Khách hàng'}</h2>{status&&<em className="crm-side-status" style={{'--stage-color':status.color} as CSSProperties}>{status.name}</em>}</div>
+      <div className={'crm-split' + (sideFolded ? ' side-folded' : '')}>
+      <aside className={'crm-side' + (sideFolded ? ' folded' : '')} aria-label="Mục của khách hàng">
+        <div className="crm-side-title">
+          {!sideFolded ? (
+            <>
+              <div><span>Khách hàng</span><h2>{current?.name || 'Khách hàng'}</h2>{status&&<em className="crm-side-status" style={{'--stage-color':status.color} as CSSProperties}>{status.name}</em>}</div>
+              <button type="button" className="bd-icon crm-side-fold-btn" onClick={() => foldSide(true)} title="Thu gọn menu" aria-label="Thu gọn menu"><Icon name="left" size={14} /></button>
+            </>
+          ) : (
+            <button type="button" className="bd-icon crm-side-fold-btn" onClick={() => foldSide(false)} title="Mở rộng menu" aria-label="Mở rộng menu"><Icon name="right" size={14} /></button>
+          )}
+        </div>
         <ReadingTabs vertical className="crm-vtabs" label="Thông tin khách hàng" value={tab} items={[
-          {value:'overview' as Tab,label:'Tổng quan',icon:'info'},
-          {value:'campaigns' as Tab,label:`Dự án (${current?.projects ?? campaigns.length})`,icon:'folder'},
-          {value:'tasks' as Tab,label:`Công việc (${current?.tasks ?? 0})`,icon:'checklist'},
-          ...(drive?[{value:'drive' as Tab,label:'Drive',icon:'folder'}]:[]),
-          {value:'reports' as Tab,label:'Báo cáo',icon:'file'},
-          {value:'members' as Tab,label:'Thành viên',icon:'users'},
-          {value:'history' as Tab,label:'Lịch sử',icon:'clock'},
+          {value:'overview' as Tab,label:sideFolded ? '' : 'Tổng quan',icon:'info'},
+          {value:'campaigns' as Tab,label:sideFolded ? '' : `Dự án (${current?.projects ?? campaigns.length})`,icon:'folder'},
+          {value:'tasks' as Tab,label:sideFolded ? '' : `Công việc (${current?.tasks ?? 0})`,icon:'checklist'},
+          ...(drive?[{value:'drive' as Tab,label:sideFolded ? '' : 'Drive',icon:'folder'}]:[]),
+          {value:'reports' as Tab,label:sideFolded ? '' : 'Báo cáo',icon:'file'},
+          {value:'members' as Tab,label:sideFolded ? '' : 'Thành viên',icon:'users'},
+          {value:'history' as Tab,label:sideFolded ? '' : 'Lịch sử',icon:'clock'},
         ]} onChange={value=>{setTab(value);setCampaign(null);}}/>
       </aside>
-      <ResizeHandle cssVar="--crm-side-w" storage="customer-side" min={150} max={360} label="Đổi độ rộng menu khách hàng" />
+      {!sideFolded && <ResizeHandle cssVar="--crm-side-w" storage="customer-side" min={150} max={360} label="Đổi độ rộng menu khách hàng" />}
       <div className={'tk-reading-content crm-split-main' + (campaign ? ' has-campaign' : '')}>
       {!current ? (error?<p className="note err" role="alert">{error}</p>:loading?<BrandLoading label="Đang tải khách hàng…"/>:<p className="note">Không tìm thấy khách hàng hoặc bạn không có quyền truy cập.</p>)
       : tab === 'overview' ? <><div className="crm-detail-stages"><CustomerStages status={current.status||''} disabled={!manage||busy} onChange={status=>void act(async()=>{await api.saveCustomerRecord(current.id,{status:status||null});await load();})}/></div><div className="tk-reading-grid crm-detail-layout"><div className="crm-detail-body"><CustomerOverview key={selected} c={current} view={view} onTab={(t) => setTab(t as Tab)} onChanged={load} /></div><CustomerContext c={current} onTab={t=>{setTab(t as Tab);setCampaign(null);}} onChanged={load}/></div></>

@@ -8,7 +8,7 @@ import { ResizeHandle } from './ResizeHandle';
 // on them (CardModal), and move by dragging; lists have their actions menu and fold to a narrow bar; a board has
 // filters, a visibility button, sharing with people at a level (admin / member / view only) and a menu on the right
 // (about, activity, archived items, background, labels). People who only view a board read it and comment.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { remember } from '../prefs';
 import { useStore, toast, openLink } from '../store';
@@ -18,7 +18,7 @@ import { TaskPanel } from './Tasks';
 import { QuickCard, BoardAlternative } from './BoardViews';
 import { BoardTypePicker, VIEW_NAMES, VIEW_ICONS, type BoardViewKind } from './BoardType';
 import { ServicePicker } from './ServicePicker';
-import { BoardList, ClientWork, WorkspaceTimeline, WS_VIEWS, savedWsView, saveWsView, type WsView } from './WorkspaceViews';
+import { BoardList, BoardTree, ClientWork, WorkspaceTimeline, WS_VIEWS, savedWsView, saveWsView, type WsView } from './WorkspaceViews';
 import { COLOR, COLOR_NAME, Avatar, Pop, fileToAvatarDataUrl, activityText, ago, dueState, shortDate, fullDate, dateIn, timeIn } from './boardkit';
 import { AvatarStack } from './AvatarStack';
 import { PlannerPanel, Dock, SwitchBoards, dragged, changed, useChanged, type Panels } from './BoardPanels';
@@ -70,6 +70,417 @@ const LevelSelect = ({ value, onChange, label }: { value: Level; onChange: (l: L
     {(['admin', 'normal', 'observer'] as Level[]).map((l) => <option key={l} value={l}>{LEVEL_NAME[l]}</option>)}
   </select>
 );
+
+export type GlobalWsView = 'sections' | 'tiles' | 'table' | 'timeline' | 'clients';
+const LS_GLOBAL_WS_VIEW = 'dms.globalWsView';
+export const GLOBAL_WS_VIEWS: { value: GlobalWsView; label: string; icon: string }[] = [
+  { value: 'sections', label: 'Nhóm workspace', icon: 'folder' },
+  { value: 'tiles', label: 'Lưới board', icon: 'boards' },
+  { value: 'table', label: 'Cây thư mục', icon: 'lines' },
+  { value: 'timeline', label: 'Timeline tổng', icon: 'calendar' },
+  { value: 'clients', label: 'Dashboard', icon: 'chart' },
+];
+
+function savedGlobalWsView(): GlobalWsView {
+  try {
+    const v = localStorage.getItem(LS_GLOBAL_WS_VIEW) as string;
+    if (v === 'list') return 'table';
+    if (GLOBAL_WS_VIEWS.some((x) => x.value === v)) return v as GlobalWsView;
+  } catch {}
+  return 'sections';
+}
+function saveGlobalWsView(v: GlobalWsView) {
+  try { localStorage.setItem(LS_GLOBAL_WS_VIEW, v); } catch {}
+}
+
+function WorkspaceTreeTable({
+  spaces,
+  boards,
+  me,
+  roles,
+  query,
+  bgOf,
+  onOpenWorkspace,
+  onOpenBoard,
+  onCard,
+  onPeople,
+  onCreateBoard,
+  onSettings,
+  onStar,
+  onMore,
+}: {
+  spaces: Workspace[];
+  boards: BoardItem[];
+  me: User;
+  roles: TeamRole[];
+  query?: string;
+  bgOf: (bg: string) => string;
+  onOpenWorkspace?: (wsId: string) => void;
+  onOpenBoard: (boardId: string) => void;
+  onCard: (boardId: string, cardId: string) => void;
+  onPeople: (wsId: string) => void;
+  onCreateBoard?: (wsId: string) => void;
+  onSettings?: (w: Workspace, el: HTMLElement) => void;
+  onStar?: (b: BoardItem) => void;
+  onMore?: (b: BoardItem) => ((el: HTMLElement) => void) | undefined;
+}) {
+  const [sort, setSort] = useState<'name' | 'kind' | 'boards' | 'members' | 'updated'>('name');
+  const [reverse, setReverse] = useState(false);
+  const [openWs, setOpenWs] = useState<Set<string>>(() => new Set(spaces.map((s) => s.id)));
+  const [openBoard, setOpenBoard] = useState<Set<string>>(() => new Set());
+
+  const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+  const q = query ? fold(query.trim()) : '';
+
+  const boardsByWs = useMemo(() => {
+    const map = new Map<string, BoardItem[]>();
+    for (const b of boards) {
+      const list = map.get(b.workspaceId) || [];
+      list.push(b);
+      map.set(b.workspaceId, list);
+    }
+    return map;
+  }, [boards]);
+
+  const filtered = useMemo(() => {
+    if (!q) return spaces;
+    return spaces.filter((w) => {
+      const matchWs = fold(w.name).includes(q) || (w.customerName && fold(w.customerName).includes(q)) || (w.about && fold(w.about).includes(q));
+      const wBoards = boardsByWs.get(w.id) || [];
+      const matchBoard = wBoards.some((b) => {
+        return fold(b.name).includes(q) ||
+          (b.customerName && fold(b.customerName).includes(q)) ||
+          (b.services && b.services.some((s) => fold(s.name).includes(q)));
+      });
+      return matchWs || matchBoard;
+    });
+  }, [spaces, boardsByWs, q]);
+
+  // When searching, auto-expand matching workspaces so matching boards are visible
+  const effectiveOpenWs = useMemo(() => {
+    if (!q) return openWs;
+    return new Set(filtered.map((w) => w.id));
+  }, [q, openWs, filtered]);
+
+  const toggleWs = (id: string) => {
+    setOpenWs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleBoard = (id: string) => {
+    setOpenBoard((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      let diff = 0;
+      if (sort === 'name') diff = a.name.localeCompare(b.name, 'vi');
+      else if (sort === 'kind') diff = (a.kind || '').localeCompare(b.kind || '');
+      else if (sort === 'boards') diff = (boardsByWs.get(b.id)?.length || 0) - (boardsByWs.get(a.id)?.length || 0);
+      else if (sort === 'members') diff = (b.members || 0) - (a.members || 0);
+      else if (sort === 'updated') {
+        const aMax = Math.max(0, ...(boardsByWs.get(a.id) || []).map((x) => x.updatedAt));
+        const bMax = Math.max(0, ...(boardsByWs.get(b.id) || []).map((x) => x.updatedAt));
+        diff = bMax - aMax;
+      }
+      return reverse ? -diff : diff;
+    });
+  }, [filtered, sort, reverse, boardsByWs]);
+
+  return (
+    <div className="ws-table-wrap ws-tree-table-wrap">
+      <table className="ws-table bd-ws-table ws-tree-table">
+        <thead>
+          <tr>
+            <th style={{ minWidth: 260 }}>
+              <button type="button" onClick={() => { if (sort === 'name') setReverse(!reverse); else { setSort('name'); setReverse(false); } }}>
+                Tên (Workspace / Board) {sort === 'name' && <Icon name={reverse ? 'up' : 'down'} size={12} />}
+              </button>
+            </th>
+            <th style={{ width: 140 }}>Khách hàng</th>
+            <th style={{ width: 150 }}>
+              <button type="button" onClick={() => { if (sort === 'kind') setReverse(!reverse); else { setSort('kind'); setReverse(false); } }}>
+                Phân loại / Dịch vụ {sort === 'kind' && <Icon name={reverse ? 'up' : 'down'} size={12} />}
+              </button>
+            </th>
+            <th style={{ width: 110 }}>
+              <button type="button" onClick={() => { if (sort === 'boards') setReverse(!reverse); else { setSort('boards'); setReverse(false); } }}>
+                Quy mô / Thẻ {sort === 'boards' && <Icon name={reverse ? 'up' : 'down'} size={12} />}
+              </button>
+            </th>
+            <th style={{ width: 140 }}>
+              <button type="button" onClick={() => { if (sort === 'members') setReverse(!reverse); else { setSort('members'); setReverse(false); } }}>
+                Thành viên / Phụ trách {sort === 'members' && <Icon name={reverse ? 'up' : 'down'} size={12} />}
+              </button>
+            </th>
+            <th style={{ width: 110 }}>
+              <button type="button" onClick={() => { if (sort === 'updated') setReverse(!reverse); else { setSort('updated'); setReverse(false); } }}>
+                Cập nhật {sort === 'updated' && <Icon name={reverse ? 'up' : 'down'} size={12} />}
+              </button>
+            </th>
+            <th style={{ width: 140, textAlign: 'right' }}>
+              <button
+                type="button"
+                className="ws-toggle-all-btn"
+                onClick={() => {
+                  if (openWs.size > 0) setOpenWs(new Set());
+                  else setOpenWs(new Set(spaces.map((s) => s.id)));
+                }}
+                title={openWs.size > 0 ? 'Thu gọn tất cả thư mục' : 'Mở rộng tất cả thư mục'}
+              >
+                <Icon name={openWs.size > 0 ? 'up' : 'down'} size={12} />
+                <span>{openWs.size > 0 ? 'Thu gọn' : 'Mở hết'}</span>
+              </button>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((w) => {
+            const rawBoards = boardsByWs.get(w.id) || [];
+            const wBoards = q
+              ? rawBoards.filter((b) => {
+                  return fold(b.name).includes(q) ||
+                    (b.customerName && fold(b.customerName).includes(q)) ||
+                    (b.services && b.services.some((s) => fold(s.name).includes(q)));
+                })
+              : rawBoards;
+            const isOwner = w.ownerId === me.id;
+            const isOpen = effectiveOpenWs.has(w.id);
+            const latestUpdate = rawBoards.length ? Math.max(...rawBoards.map((x) => x.updatedAt)) : null;
+
+            return (
+              <Fragment key={w.id}>
+                {/* Level 1: Workspace Folder Row */}
+                <tr className={'ws-tree-ws-row' + (isOpen ? ' open' : '')} onClick={() => toggleWs(w.id)}>
+                  <th scope="row" className="ws-tree-ws-cell">
+                    <div className="ws-tree-ws-title-wrap">
+                      <button
+                        type="button"
+                        className="tk-fold ws-tree-fold-btn"
+                        aria-expanded={isOpen}
+                        onClick={(e) => { e.stopPropagation(); toggleWs(w.id); }}
+                        title={isOpen ? 'Thu gọn workspace' : 'Mở rộng workspace'}
+                      >
+                        <Icon name={isOpen ? 'down' : 'right'} size={14} />
+                      </button>
+                      <span className="ws-tree-folder-icon">
+                        <WsMark ws={w} size={24} />
+                      </span>
+                      <div className="ws-tree-ws-info">
+                        <b className="ws-tree-ws-name" onClick={(e) => { e.stopPropagation(); onOpenWorkspace?.(w.id); }} title="Xem workspace">
+                          {w.name}
+                        </b>
+                        {w.about && <small className="ws-tree-ws-about">{w.about}</small>}
+                      </div>
+                    </div>
+                  </th>
+                  <td>
+                    {w.customerName ? (
+                      <button
+                        type="button"
+                        className="bd-ws-client-chip"
+                        onClick={(e) => { e.stopPropagation(); openLink(`#customers/${w.customerId}`); }}
+                        title="Mở khách hàng"
+                      >
+                        <Icon name="users" size={12} />
+                        <span>{w.customerName}</span>
+                      </button>
+                    ) : <span className="ws-muted">—</span>}
+                  </td>
+                  <td>
+                    <span className={'bd-ws-kind-badge ' + (w.kind === 'company' ? 'company' : 'personal')}>
+                      {w.kind === 'company' ? 'Chung (Công ty)' : 'Cá nhân'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="ws-chip ws-count-chip">
+                      <Icon name="boards" size={12} />
+                      <b>{rawBoards.length}</b> board
+                    </span>
+                  </td>
+                  <td>
+                    <div className="ws-tree-members-cell">
+                      <button
+                        type="button"
+                        className="bd-ws-members-btn"
+                        onClick={(e) => { e.stopPropagation(); onPeople(w.id); }}
+                        title="Xem thành viên"
+                      >
+                        <Icon name="users" size={13} />
+                        <span>{w.members || 1}</span>
+                      </button>
+                      <span className="bd-ws-level-chip">
+                        {w.level === 'admin' ? 'Quản trị' : w.level === 'observer' ? 'Chỉ xem' : 'Thành viên'}
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="ws-muted">{latestUpdate ? shortDate(latestUpdate) : '—'}</span>
+                  </td>
+                  <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                    <div className="bd-ws-actions">
+                      {w.level !== 'observer' && onCreateBoard && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost ws-act-btn"
+                          onClick={() => onCreateBoard(w.id)}
+                          title="Tạo board mới trong workspace này"
+                        >
+                          <Icon name="plus" size={13} /> Board
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost ws-act-btn"
+                        onClick={() => onPeople(w.id)}
+                        title="Thành viên"
+                      >
+                        <Icon name="users" size={13} />
+                      </button>
+                      {onSettings && isOwner && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost ws-act-btn"
+                          onClick={(e) => onSettings(w, e.currentTarget)}
+                          title="Cài đặt workspace"
+                        >
+                          <Icon name="more" size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+
+                {/* Level 2: Child Boards under Workspace */}
+                {isOpen && (
+                  wBoards.length === 0 ? (
+                    <tr key={`${w.id}-empty`} className="ws-tree-empty-row">
+                      <td colSpan={7} style={{ paddingLeft: 46, color: 'var(--sub)', fontSize: 13, fontStyle: 'italic' }}>
+                        Workspace này chưa có board nào. {w.level !== 'observer' && onCreateBoard && (
+                          <button type="button" className="link" onClick={() => onCreateBoard(w.id)}>Tạo board ngay</button>
+                        )}
+                      </td>
+                    </tr>
+                  ) : (
+                    wBoards.map((b) => (
+                      <Fragment key={b.id}>
+                        <tr
+                          className={'ws-tree-board-row' + (openBoard.has(b.id) ? ' open' : '')}
+                          onClick={() => toggleBoard(b.id)}
+                        >
+                          <th scope="row" className="ws-tree-board-cell" style={{ paddingLeft: 38 }}>
+                            <div className="ws-tree-board-title-wrap">
+                              <button
+                                type="button"
+                                className="tk-fold"
+                                aria-expanded={openBoard.has(b.id)}
+                                onClick={(e) => { e.stopPropagation(); toggleBoard(b.id); }}
+                                title={openBoard.has(b.id) ? 'Thu gọn thẻ' : 'Xem các thẻ trên board'}
+                              >
+                                <Icon name={openBoard.has(b.id) ? 'down' : 'right'} size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                className="ws-board-name"
+                                title="Mở board"
+                                onClick={(e) => { e.stopPropagation(); onOpenBoard(b.id); }}
+                              >
+                                <i className="ws-bcolor" style={{ background: bgOf(b.bg) }} />
+                                <b>{b.name}</b>
+                              </button>
+                            </div>
+                          </th>
+                          <td>{b.customerName || '—'}</td>
+                          <td>
+                            <span className="ws-board-services">
+                              {b.services?.map((x) => x.name).join(', ') || '—'}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="ws-chip" style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: 'var(--fill-2)' }}>
+                              <b>{b.taskCount ?? b.cards}</b> thẻ
+                            </span>
+                          </td>
+                          <td>
+                            {b.people?.length ? (
+                              <AvatarStack people={b.people} max={3} count focusable={false} render={(m) => <Avatar key={m.id} m={m} size={22} />} />
+                            ) : <span className="ws-muted">—</span>}
+                          </td>
+                          <td>
+                            <small className="ws-muted">{shortDate(b.updatedAt)}</small>
+                          </td>
+                          <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                            <div className="bd-ws-actions">
+                              {onStar && (
+                                <button
+                                  type="button"
+                                  className={'bd-tile-star-btn' + (b.starred ? ' on' : '')}
+                                  onClick={() => onStar(b)}
+                                  aria-label={b.starred ? 'Bỏ sao' : 'Gắn sao'}
+                                  title={b.starred ? 'Bỏ sao' : 'Gắn sao'}
+                                >
+                                  <Icon name="star" size={14} />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-ghost ws-act-btn"
+                                onClick={() => onOpenBoard(b.id)}
+                                title="Mở board"
+                              >
+                                Mở <Icon name="right" size={12} />
+                              </button>
+                              {onMore && (
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-ghost ws-act-btn"
+                                  onClick={(e) => onMore(b)?.(e.currentTarget)}
+                                  title="Thao tác board"
+                                >
+                                  <Icon name="more" size={13} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Level 3: Cards Tree inside Board */}
+                        {openBoard.has(b.id) && (
+                          <tr key={`${b.id}-sub`} className="ws-sub ws-tree-cards-sub">
+                            <td colSpan={7} style={{ paddingLeft: 56 }}>
+                              <BoardTree id={b.id} stamp={b.updatedAt} onCard={(cardId) => onCard(b.id, cardId)} />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    ))
+                  )
+                )}
+              </Fragment>
+            );
+          })}
+
+          {!sorted.length && (
+            <tr>
+              <td colSpan={7} style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--sub)' }}>
+                Không tìm thấy workspace nào phù hợp.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function BoardsPage() {
   const me = useStore((s) => s.user)!;
@@ -157,12 +568,37 @@ export function BoardsPage() {
     if (!confirm(`Xoá vĩnh viễn board “${b.name}” cùng mọi danh sách và thẻ trong đó? Không khôi phục được.`)) return;
     try { await api.deleteBoard(b.id); toast(`Đã xoá board “${b.name}”`); if (open.board === b.id) go(null); else load(); } catch (e: any) { toast(e.message, true); }
   };
+  const [globalView, setGlobalViewState] = useState<GlobalWsView>(savedGlobalWsView);
+  const setGlobalView = (v: GlobalWsView) => { setGlobalViewState(v); saveGlobalWsView(v); };
+  const [wsSearch, setWsSearch] = useState('');
+
   const byId = new Map((boards || []).map((b) => [b.id, b]));
   const recentBoards = recent.map((id) => byId.get(id)).filter(Boolean) as BoardItem[];
   const ws = spaces.find((w) => w.id === wsId) || spaces[0];
   const inWs = (id: string) => (boards || []).filter((b) => b.workspaceId === id);
   const ordered = ws ? [ws, ...spaces.filter((w) => w.id !== ws.id)] : spaces;
   const openWs = spaces.find((w) => w.id === byId.get(open.board || '')?.workspaceId);
+
+  const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+  const q = fold(wsSearch.trim());
+  const filteredBoards = useMemo(() => {
+    if (!boards) return [];
+    if (!q) return boards;
+    return boards.filter((b) => {
+      return fold(b.name).includes(q) ||
+        (b.customerName && fold(b.customerName).includes(q)) ||
+        (b.services && b.services.some((s) => fold(s.name).includes(q)));
+    });
+  }, [boards, q]);
+
+  const filteredSpaces = useMemo(() => {
+    if (!q) return ordered;
+    return ordered.filter((w) => {
+      const matchWs = fold(w.name).includes(q) || (w.customerName && fold(w.customerName).includes(q)) || (w.about && fold(w.about).includes(q));
+      const hasMatchingBoard = filteredBoards.some((b) => b.workspaceId === w.id);
+      return matchWs || hasMatchingBoard;
+    });
+  }, [ordered, filteredBoards, q]);
 
   return (
     <div className="bd-page">
@@ -182,15 +618,135 @@ export function BoardsPage() {
           : (
             <main className="bd-home">
               {boards === null ? <BrandLoading label="Đang tải…"/> : <>
-                {recentBoards.length > 0 && <Tiles title="Đã xem gần đây" icon={<Icon name="clock" size={16} />} list={recentBoards.slice(0, 4)} roles={roles} onOpen={go} onStar={star} onMore={moreOf} />}
-                {boards.some((b) => b.starred) && <Tiles title="Board đã gắn sao" icon={<Icon name="star" size={16} />} list={boards.filter((b) => b.starred)} roles={roles} onOpen={go} onStar={star} onMore={moreOf} />}
-                <h2 className="bd-home-h">Các workspace của bạn</h2>
-                {ordered.map((w) => (
-                  <WorkspaceSection key={w.id} ws={w} me={me} roles={roles} boards={inWs(w.id)} onOpen={go} onCard={peekCard} onTask={setPeekTask} onStar={star} onMore={moreOf}
-                    onSettings={w.kind === 'personal' && w.ownerId === me.id ? (el) => setWsAct(wsAct?.w.id === w.id ? null : { w, el }) : undefined}
-                    onCreate={w.level !== 'observer' ? () => setCreating(w.id) : undefined} onPeople={() => goPeople(w.id)} />
-                ))}
-                <button className="bd-ws-new" onClick={() => setNewWs(true)}><Icon name="plus" size={16} />Tạo workspace mới</button>
+                <div className="bd-home-toolbar">
+                  <div className="bd-home-toolbar-left">
+                    <h2 className="bd-home-title">
+                      <Icon name="boards" size={20} />
+                      <span>Không gian làm việc</span>
+                    </h2>
+                    <span className="bd-home-count-chip">{spaces.length} workspace · {boards.length} board</span>
+                  </div>
+                  <div className="bd-home-toolbar-right">
+                    <div className="bd-home-views" role="tablist" aria-label="Chế độ xem workspace">
+                      {GLOBAL_WS_VIEWS.map((v) => (
+                        <button
+                          key={v.value}
+                          type="button"
+                          role="tab"
+                          aria-selected={globalView === v.value}
+                          className={'bd-home-view-btn' + (globalView === v.value ? ' active' : '')}
+                          onClick={() => setGlobalView(v.value)}
+                          title={v.label}
+                        >
+                          <Icon name={v.icon} size={15} />
+                          <span>{v.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <label className="bd-home-search">
+                      <Icon name="search" size={14} />
+                      <input
+                        value={wsSearch}
+                        onChange={(e) => setWsSearch(e.target.value)}
+                        placeholder="Tìm workspace, board…"
+                        aria-label="Tìm workspace, board"
+                      />
+                      {wsSearch && (
+                        <button type="button" className="bd-home-search-clear" onClick={() => setWsSearch('')} aria-label="Xoá tìm kiếm">
+                          <Icon name="x" size={12} />
+                        </button>
+                      )}
+                    </label>
+                    <button className="btn btn-primary btn-sm bd-home-new-btn" onClick={() => setNewWs(true)}>
+                      <Icon name="plus" size={14} />
+                      <span>Tạo workspace</span>
+                    </button>
+                  </div>
+                </div>
+
+                {globalView === 'sections' && (
+                  <>
+                    {!q && recentBoards.length > 0 && <Tiles title="Đã xem gần đây" icon={<Icon name="clock" size={16} />} list={recentBoards.slice(0, 4)} roles={roles} spaces={spaces} onOpen={go} onStar={star} onMore={moreOf} />}
+                    {!q && boards.some((b) => b.starred) && <Tiles title="Board đã gắn sao" icon={<Icon name="star" size={16} />} list={boards.filter((b) => b.starred)} roles={roles} spaces={spaces} onOpen={go} onStar={star} onMore={moreOf} />}
+                    <h2 className="bd-home-h">Các workspace của bạn</h2>
+                    <div className="bd-home-sections">
+                      {filteredSpaces.map((w) => (
+                        <WorkspaceSection key={w.id} ws={w} me={me} roles={roles} boards={q ? filteredBoards.filter((b) => b.workspaceId === w.id) : inWs(w.id)} onOpen={go} onCard={peekCard} onTask={setPeekTask} onStar={star} onMore={moreOf}
+                          onSettings={w.kind === 'personal' && w.ownerId === me.id ? (el) => setWsAct(wsAct?.w.id === w.id ? null : { w, el }) : undefined}
+                          onCreate={w.level !== 'observer' ? () => setCreating(w.id) : undefined} onPeople={() => goPeople(w.id)} />
+                      ))}
+                      {!filteredSpaces.length && <p className="note" style={{ textAlign: 'center', margin: '40px 0' }}>Không tìm thấy workspace hoặc board nào khớp với từ khoá.</p>}
+                    </div>
+                    <button className="bd-ws-new" onClick={() => setNewWs(true)}><Icon name="plus" size={16} />Tạo workspace mới</button>
+                  </>
+                )}
+
+                {globalView === 'tiles' && (
+                  <div className="bd-home-full-tiles">
+                    <Tiles
+                      title={q ? `Kết quả tìm kiếm (${filteredBoards.length})` : `Tất cả board (${filteredBoards.length})`}
+                      icon={<Icon name="boards" size={16} />}
+                      list={filteredBoards}
+                      roles={roles}
+                      spaces={spaces}
+                      onOpen={go}
+                      onStar={star}
+                      onMore={moreOf}
+                      onCreate={() => setCreating(ws?.level === 'observer' ? 'company' : ws?.id || 'company')}
+                    />
+                    {!filteredBoards.length && (
+                      <p className="note" style={{ textAlign: 'center', margin: '40px 0' }}>Không có board nào phù hợp.</p>
+                    )}
+                  </div>
+                )}
+
+                {(globalView === 'table' || (globalView as string) === 'list') && (
+                  <div className="bd-home-full-tree">
+                    <WorkspaceTreeTable
+                      spaces={spaces}
+                      boards={boards}
+                      me={me}
+                      roles={roles}
+                      query={wsSearch}
+                      bgOf={bg}
+                      onOpenWorkspace={(id) => {
+                        const first = (boards || []).find((b) => b.workspaceId === id);
+                        if (first) go(first.id);
+                        else goHome(id);
+                      }}
+                      onOpenBoard={go}
+                      onCard={peekCard}
+                      onPeople={goPeople}
+                      onCreateBoard={(id) => setCreating(id)}
+                      onSettings={(w, el) => setWsAct({ w, el })}
+                      onStar={star}
+                      onMore={moreOf}
+                    />
+                  </div>
+                )}
+
+                {globalView === 'timeline' && (
+                  <div className="bd-home-full-timeline">
+                    <WorkspaceTimeline
+                      wsId="all"
+                      boards={filteredBoards}
+                      spaces={spaces}
+                      onCard={peekCard}
+                      onTask={setPeekTask}
+                    />
+                  </div>
+                )}
+
+                {globalView === 'clients' && (
+                  <div className="bd-home-full-clients">
+                    <ClientWork
+                      wsId="all"
+                      boards={filteredBoards}
+                      onCard={peekCard}
+                      onTask={setPeekTask}
+                    />
+                  </div>
+                )}
               </>}
             </main>
           )}</div>}
@@ -351,8 +907,8 @@ function TopNav({ ws, me, onOpen, onCreate, onWorkspaces, wsOpen, navigation }: 
   );
 }
 
-function Tiles({ title, icon, list, roles, onOpen, onStar, onMore, onCreate, small }: {
-  title?: string; icon?: ReactNode; list: BoardItem[]; roles: TeamRole[]; onOpen: (id: string) => void; onStar: (b: BoardItem) => void;
+function Tiles({ title, icon, list, roles, spaces, onOpen, onStar, onMore, onCreate, small }: {
+  title?: string; icon?: ReactNode; list: BoardItem[]; roles: TeamRole[]; spaces?: Workspace[]; onOpen: (id: string) => void; onStar: (b: BoardItem) => void;
   onMore?: (b: BoardItem) => ((el: HTMLElement) => void) | undefined; onCreate?: () => void; small?: boolean;
 }) {
   if (!list.length && !onCreate) return null;
@@ -362,9 +918,11 @@ function Tiles({ title, icon, list, roles, onOpen, onStar, onMore, onCreate, sma
       <div className="bd-tiles">
         {list.map((b) => {
           const role = roles.find((r) => r.id === b.roleId);
+          const wsName = spaces?.find((w) => w.id === b.workspaceId)?.name;
           return (
             <div key={b.id} className="bd-tile" style={{ background: bg(b.bg) }}>
               <button className="bd-tile-b" onClick={() => onOpen(b.id)}>
+                {wsName && <span className="bd-tile-ws" title={wsName}>{wsName}</span>}
                 <b>{b.name}</b>
                 {(role && role.name !== b.name) || b.private || b.level === 'observer'
                   ? <span>{b.private && <Icon name="lock" size={11} />}{role && role.name !== b.name ? role.name : b.private ? 'Riêng tư' : ''}{b.level === 'observer' ? `${role || b.private ? ' · ' : ''}Chỉ xem` : ''}{b.startAt ? <> · {shortDate(b.startAt)}</> : null}{b.services?.length ? <> · {b.services.map((x) => x.name).join(', ')}</> : null}</span> : null}
@@ -602,6 +1160,17 @@ function WorkspacePeople({ ws, me, onChanged, onGone }: { ws: Workspace | undefi
   };
   return (
     <main className="bd-home bd-people">
+      <div className="bd-people-topbar">
+        <button
+          type="button"
+          className="btn btn-gray btn-sm bd-people-back-btn"
+          onClick={onGone}
+          title="Quay lại tất cả board"
+        >
+          <Icon name="left" size={14} />
+          <span>Quay lại tất cả board</span>
+        </button>
+      </div>
       <header className="bd-people-h">
         <div className="bd-ws-avatar-editor">
           <button type="button" className="bd-ws-avatar-button" disabled={!admin || avatarBusy} onClick={() => avatarInput.current?.click()} aria-label="Đổi ảnh đại diện workspace" title="Đổi ảnh đại diện workspace"><WsMark ws={ws} size={56}/></button>

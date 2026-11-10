@@ -83,8 +83,16 @@ CREATE TABLE IF NOT EXISTS checklist_items (
   id TEXT PRIMARY KEY, checklist_id TEXT NOT NULL, card_id TEXT NOT NULL, text TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, pos REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS card_comments (
-  id TEXT PRIMARY KEY, card_id TEXT NOT NULL, board_id TEXT NOT NULL, user_id TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  id TEXT PRIMARY KEY, card_id TEXT NOT NULL, board_id TEXT NOT NULL, user_id TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, reply_to_id TEXT
 );
+CREATE TABLE IF NOT EXISTS task_comments (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL, user_id TEXT NOT NULL, text TEXT NOT NULL, reply_to_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS task_comments_task ON task_comments(task_id, created_at);
+CREATE TABLE IF NOT EXISTS task_activity (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL, user_id TEXT, action TEXT NOT NULL, data TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS task_activity_task ON task_activity(task_id, created_at);
 CREATE TABLE IF NOT EXISTS card_attachments (
   id TEXT PRIMARY KEY, card_id TEXT NOT NULL, user_id TEXT, name TEXT NOT NULL, url TEXT NOT NULL, created_at INTEGER NOT NULL,
   customer_id TEXT, file_key TEXT

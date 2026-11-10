@@ -327,7 +327,7 @@ async function cardOut(c: any, u: any) {
     checklists: checklists.map((k) => ({ id: k.id, title: k.title, items: items.filter((i) => i.checklist_id === k.id).map((i) => ({ id: i.id, text: i.text, done: !!i.done })) })),
     attachments: (await all<any>('SELECT * FROM card_attachments WHERE card_id = ? ORDER BY created_at DESC', c.id)).map(attachmentOut),
     comments: (await all<any>('SELECT k.*, u.name FROM card_comments k LEFT JOIN users u ON u.id = k.user_id WHERE k.card_id = ? ORDER BY k.created_at DESC', c.id))
-      .map((k) => ({ id: k.id, userId: k.user_id, userName: k.name || 'Ai đó', text: k.text, createdAt: k.created_at, edited: k.updated_at > k.created_at })),
+      .map((k) => ({ id: k.id, userId: k.user_id, userName: k.name || 'Ai đó', text: k.text, createdAt: k.created_at, edited: k.updated_at > k.created_at, replyToId: k.reply_to_id || null })),
     linkedTask,
     // The result note of a card without a task (a linked card's is the task's, read on the task's terms): for those who
     // edit the card, as it can hold logins.
@@ -1208,9 +1208,10 @@ export function registerBoards(api: Router) {
   });
   // Observers too may comment, like on Trello.
   api.post('/api/cards/:id/comments', async (req, res) => {
-    const c = await mustCard(req, req.params.id, 'observer'), u = await me(req), t = richIn((await readJson(req)).text).trim(), id = uid('cm_');
+    const c = await mustCard(req, req.params.id, 'observer'), u = await me(req), b = await readJson(req), t = richIn(b.text).trim(), id = uid('cm_');
+    const replyToId = b.replyToId ? String(b.replyToId) : null;
     if (!t) throw new HttpError(400, 'Hãy nhập bình luận');
-    await run('INSERT INTO card_comments(id, card_id, board_id, user_id, text, created_at, updated_at) VALUES(?,?,?,?,?,?,?)', id, c.id, c.board_id, u.id, t, now(), now());
+    await run('INSERT INTO card_comments(id, card_id, board_id, user_id, text, created_at, updated_at, reply_to_id) VALUES(?,?,?,?,?,?,?,?)', id, c.id, c.board_id, u.id, t, now(), now(), replyToId);
     await touch(c.board_id);
     const told = new Set(await tellMentioned(c, u, t, null, { commentId: id }));
     await notifyPeople((await all<any>('SELECT user_id FROM card_members WHERE card_id = ?', c.id)).map((r) => r.user_id).filter((id) => !told.has(id)), u.id,
@@ -1492,10 +1493,10 @@ export function registerBoards(api: Router) {
   // with its parent task so the work reads as a tree: its status, stage, dates, labels, people and services.
   api.get('/api/client-work', async (req, res) => {
     // `all`: the cards for no customer too (the workspace's timeline).
-    const u = await me(req), level = await levels(u), ws = String(req.query.get('workspace') || COMPANY), t0 = now(), every = req.query.get('all') === '1';
+    const u = await me(req), level = await levels(u), wsParam = req.query.get('workspace'), isAll = wsParam === 'all', ws = String(wsParam || COMPANY), t0 = now(), every = req.query.get('all') === '1';
     const [visible, boardRows, projects] = await Promise.all([visibleCardIds(u.id), all<any>(BOARDS_SQL), projectLevels(u.id)]);
-    const boards = new Map(boardRows.filter((b) => (b.workspace_id || COMPANY) === ws && level(b)).map((b) => [b.id, b]));
-    const cards = (await all<any>(`SELECT c.id, c.title, c.board_id, k.id customer_id, k.name customer_name, c.done, c.start_at, c.due_at, c.updated_at, l.name list, l.pos list_pos, x.task_id, t.parent_id
+    const boards = new Map(boardRows.filter((b) => (isAll || (b.workspace_id || COMPANY) === ws) && level(b)).map((b) => [b.id, b]));
+    const cards = (await all<any>(`SELECT c.id, c.title, c.board_id, w.id workspace_id, w.name workspace_name, k.id customer_id, k.name customer_name, c.done, c.start_at, c.due_at, c.updated_at, l.name list, l.pos list_pos, x.task_id, t.parent_id
       FROM board_cards c JOIN board_lists l ON l.id = c.list_id JOIN boards b ON b.id = c.board_id LEFT JOIN workspaces w ON w.id = b.workspace_id
       LEFT JOIN customers k ON k.id = COALESCE(c.customer_id, b.customer_id, w.customer_id)
       LEFT JOIN task_board_links x ON x.card_id = c.id LEFT JOIN tasks t ON t.id = x.task_id
@@ -1529,7 +1530,9 @@ export function registerBoards(api: Router) {
     json(res, 200, [
       ...cards.map((c) => {
         const b = boards.get(c.board_id);
-        return { id: c.id, cardId: c.id, taskId: c.task_id || null, parentTaskId: c.parent_id || null, title: c.title, boardId: b.id, boardName: b.name, boardBg: bgOf(b), listName: c.list, listPos: c.list_pos,
+        return { id: c.id, cardId: c.id, taskId: c.task_id || null, parentTaskId: c.parent_id || null, title: c.title, boardId: b.id, boardName: b.name, boardBg: bgOf(b),
+          workspaceId: c.workspace_id || b.workspace_id || COMPANY, workspaceName: c.workspace_name || '',
+          listName: c.list, listPos: c.list_pos,
           stage: stage(!!c.done, c.due_at ?? null, c.list), done: !!c.done, startAt: c.start_at ?? null, dueAt: c.due_at ?? null, updatedAt: c.updated_at, customerId: c.customer_id || '', customerName: c.customer_name || '',
           labels: byLabel.get(c.id) || [], members: byPerson.get(c.id) || [], services: (c.task_id && byService.get(c.task_id)) || ofBoard.get(c.board_id) || [] };
       }),

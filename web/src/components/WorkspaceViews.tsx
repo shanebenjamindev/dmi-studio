@@ -11,7 +11,7 @@ import { Avatar, dueState, shortDate } from './boardkit';
 import { BrandLoading } from './BrandLoading';
 import { ScheduleViews } from './ScheduleViews';
 import { COLOR } from './boardkit';
-import type { Board, BoardItem, ClientCard } from '../types';
+import type { Board, BoardItem, ClientCard, Workspace } from '../types';
 
 export type WsView = 'tiles' | 'list' | 'timeline' | 'clients';
 export const WS_VIEWS: { value: WsView; label: string; icon: string }[] = [
@@ -52,10 +52,10 @@ function usePage<T>(list: T[], size: number, reset: unknown) {
 // ---------------------------------------------------------------- the boards as a list
 type BoardSort = 'name' | 'client' | 'start' | 'updated';
 /** The boards as a list; a board opens out (its row, or the arrow) into what is on it, as a tree. Its name opens it. */
-export function BoardList({ boards, bgOf, onOpen, onCard }: { boards: BoardItem[]; bgOf: (bg: string) => string; onOpen: (id: string) => void; onCard: (boardId: string, cardId: string) => void }) {
+export function BoardList({ boards, bgOf, spaces, onOpen, onCard }: { boards: BoardItem[]; bgOf: (bg: string) => string; spaces?: Workspace[]; onOpen: (id: string) => void; onCard: (boardId: string, cardId: string) => void }) {
   const [sort, setSort] = useState<BoardSort>('updated'), [reverse, setReverse] = useState(false), [open, setOpen] = useState<Set<string>>(() => new Set());
   const sorted = [...boards].sort((a, b) => {
-    const n = sort === 'name' ? byText(a.name, b.name) : sort === 'client' ? byText(a.customerName || '￿', b.customerName || '￿')
+    const n = sort === 'name' ? byText(a.name, b.name) : sort === 'client' ? byText(a.customerName || '', b.customerName || '')
       : sort === 'start' ? (b.startAt || 0) - (a.startAt || 0) : b.updatedAt - a.updatedAt;
     return reverse ? -n : n;
   });
@@ -64,25 +64,26 @@ export function BoardList({ boards, bgOf, onOpen, onCard }: { boards: BoardItem[
   </th>;
   const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const { items, pager } = usePage(sorted, 15, `${sort}${reverse}`);
-  if (!boards.length) return <p className="note ws-empty">Workspace này chưa có board nào.</p>;
+  if (!boards.length) return <p className="note ws-empty">Chưa có board nào.</p>;
   return <><div className="ws-table-wrap"><table className="ws-table">
-    <thead><tr>{head('name', 'Board')}{head('client', 'Khách hàng')}<th scope="col">Loại (dịch vụ)</th>{head('start', 'Ngày bắt đầu')}<th scope="col">Thẻ</th>{head('updated', 'Cập nhật')}</tr></thead>
+    <thead><tr>{head('name', 'Board')}{spaces && <th scope="col">Workspace</th>}{head('client', 'Khách hàng')}<th scope="col">Loại (dịch vụ)</th>{head('start', 'Ngày bắt đầu')}<th scope="col">Thẻ</th>{head('updated', 'Cập nhật')}</tr></thead>
     <tbody>{items.map((b) => <Fragment key={b.id}>
       <tr className={open.has(b.id) ? 'open' : ''} onClick={() => toggle(b.id)}>
         <th scope="row"><span className="ws-board-cell">
           <button className="tk-fold" aria-expanded={open.has(b.id)} aria-label={open.has(b.id) ? 'Thu gọn' : 'Mở rộng'} onClick={(e) => { e.stopPropagation(); toggle(b.id); }}><Icon name={open.has(b.id) ? 'down' : 'right'} size={12} /></button>
           <button className="ws-board-name" title="Mở board" onClick={(e) => { e.stopPropagation(); onOpen(b.id); }}><i className="ws-bcolor" style={{ background: bgOf(b.bg) }} />{b.name}</button>
         </span></th>
+        {spaces && <td><span className="ws-chip" style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: 'var(--fill-2)', color: 'var(--label)' }}>{spaces.find((w) => w.id === b.workspaceId)?.name || 'Chung'}</span></td>}
         <td>{b.customerName || '—'}</td><td>{b.services?.map((x) => x.name).join(', ') || '—'}</td><td>{day(b.startAt ?? null)}</td><td>{b.taskCount ?? b.cards}</td><td>{shortDate(b.updatedAt)}</td>
       </tr>
-      {open.has(b.id) && <tr className="ws-sub"><td colSpan={6}><BoardTree id={b.id} stamp={b.updatedAt} onCard={(cardId) => onCard(b.id, cardId)} /></td></tr>}
+      {open.has(b.id) && <tr className="ws-sub"><td colSpan={spaces ? 7 : 6}><BoardTree id={b.id} stamp={b.updatedAt} onCard={(cardId) => onCard(b.id, cardId)} /></td></tr>}
     </Fragment>)}</tbody>
   </table></div>{pager}</>;
 }
 
 /** What is on a board, as a tree: clients' and projects' cards first, the tasks under their project; each card opens on
  *  its board. Long levels come in pages. */
-function BoardTree({ id, stamp, onCard }: { id: string; stamp: number; onCard: (cardId: string) => void }) {
+export function BoardTree({ id, stamp, onCard }: { id: string; stamp: number; onCard: (cardId: string) => void }) {
   const [board, setBoard] = useState<Board | null>(null), [error, setError] = useState('');
   const [drag, setDrag] = useState<TreeCard | null>(null), [over, setOver] = useState<string | null>(null);
   const load = () => api.board(id).then((b) => { setBoard(b); setError(''); }, (e) => setError(e.message));
@@ -151,24 +152,50 @@ function TreeNode({ c, depth, under, board, onCard, dnd }: { c: TreeCard; depth:
 
 // ---------------------------------------------------------------- the workspace's timeline
 /** Every dated card on the workspace's boards over time, a row per board or per client; a card opens in place. */
-export function WorkspaceTimeline({ wsId, boards, onCard, onTask }: { wsId: string; boards: BoardItem[]; onCard: (boardId: string, cardId: string) => void; onTask: (taskId: string) => void }) {
+export function WorkspaceTimeline({ wsId, boards, spaces, onCard, onTask }: { wsId: string; boards: BoardItem[]; spaces?: Workspace[]; onCard: (boardId: string, cardId: string) => void; onTask: (taskId: string) => void }) {
   const [rows, setRows] = useState<ClientCard[] | null>(null), [error, setError] = useState('');
-  const [by, setByState] = useState<'board' | 'client'>(() => (read('dms.timelineBy') === 'client' ? 'client' : 'board'));
-  const setBy = (v: 'board' | 'client') => { setByState(v); keep('dms.timelineBy', v); };
+  const [by, setByState] = useState<'board' | 'client' | 'workspace'>(() => {
+    const v = read('dms.timelineBy');
+    return v === 'workspace' && spaces?.length ? 'workspace' : v === 'client' ? 'client' : 'board';
+  });
+  const setBy = (v: 'board' | 'client' | 'workspace') => { setByState(v); keep('dms.timelineBy', v); };
   const stamp = boards.map((b) => b.id + b.updatedAt).join();
   useEffect(() => { let on = true; api.clientWork(wsId, true).then((r) => { if (on) { setRows(r); setError(''); } }, (e) => { if (on) setError(e.message); }); return () => { on = false; }; }, [wsId, stamp]);
   if (error) return <p className="note err">{error}</p>;
   if (!rows) return <BrandLoading compact />;
   const none = 'Không gắn khách hàng';
-  // Subtasks without a card belong to no board: they show by client only.
-  const shown = rows.filter((c) => by === 'client' || c.boardId);
-  const cards = shown.map((c) => ({ id: c.id, title: c.title, group: by === 'board' ? c.boardName : c.customerName || none, status: c.listName, done: c.done, startAt: c.startAt, dueAt: c.dueAt,
-    labels: c.labels.map((l) => ({ name: l.name, color: COLOR[l.color] })), members: c.members.map((m) => m.name) }));
-  const groups = by === 'board' ? [...boards].sort((a, b) => byText(a.name, b.name)).map((b) => b.name) : [...new Set(shown.map((c) => c.customerName || none))].sort(byText);
+  const noneWs = 'Workspace chung';
+  // Subtasks without a card belong to no board: they show by client or workspace only.
+  const shown = rows.filter((c) => by === 'client' || by === 'workspace' || c.boardId);
+  const cards = shown.map((c) => ({
+    id: c.id,
+    title: c.title,
+    group: by === 'board' ? c.boardName : by === 'workspace' ? (c.workspaceName || noneWs) : (c.customerName || none),
+    status: c.listName,
+    done: c.done,
+    startAt: c.startAt,
+    dueAt: c.dueAt,
+    labels: c.labels.map((l) => ({ name: l.name, color: COLOR[l.color] })),
+    members: c.members.map((m) => m.name),
+  }));
+  const groups = by === 'board'
+    ? [...boards].sort((a, b) => byText(a.name, b.name)).map((b) => b.name)
+    : by === 'workspace'
+    ? [...new Set(shown.map((c) => c.workspaceName || noneWs))].sort(byText)
+    : [...new Set(shown.map((c) => c.customerName || none))].sort(byText);
   const open = (id: string) => { const c = rows.find((x) => x.id === id); if (c?.boardId && c.cardId) onCard(c.boardId, c.cardId); else if (c?.taskId) onTask(c.taskId); };
   return <section className="wt">
-    <div className="cw-tools"><label className="cw-sort"><span>Mỗi dòng là</span><select value={by} onChange={(e) => setBy(e.target.value as 'board' | 'client')}><option value="board">Một board</option><option value="client">Một khách hàng</option></select></label></div>
-    <ScheduleViews view="timeline" cards={cards} groups={groups} onOpen={open} groupLabel={by === 'board' ? ['Board', 'Theo board'] : ['Khách hàng', 'Theo khách hàng']} />
+    <div className="cw-tools">
+      <label className="cw-sort">
+        <span>Mỗi dòng là</span>
+        <select value={by} onChange={(e) => setBy(e.target.value as 'board' | 'client' | 'workspace')}>
+          <option value="board">Một board</option>
+          {spaces && <option value="workspace">Một workspace</option>}
+          <option value="client">Một khách hàng</option>
+        </select>
+      </label>
+    </div>
+    <ScheduleViews view="timeline" cards={cards} groups={groups} onOpen={open} groupLabel={by === 'board' ? ['Board', 'Theo board'] : by === 'workspace' ? ['Workspace', 'Theo workspace'] : ['Khách hàng', 'Theo khách hàng']} />
   </section>;
 }
 

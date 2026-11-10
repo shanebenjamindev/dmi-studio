@@ -15,7 +15,7 @@ export const addSubtask = (taskId: string) => { asked = taskId; window.dispatchE
 
 /** The branch under a task: its subtasks, theirs and so on, folded or unfolded, each opened by its name. A subtask can be
  *  added under the task or under any task in the branch, as many as needed: the field stays open for the next one. */
-export function SubtaskTree({ task, onOpen, onChanged, hideEmpty }: { task: TaskDetail; onOpen: (id: string) => void; onChanged: () => void; hideEmpty?: boolean }) {
+export function SubtaskTree({ task, onOpen, onChanged, hideEmpty, onAddSubtask }: { task: TaskDetail; onOpen: (id: string) => void; onChanged: () => void; hideEmpty?: boolean; onAddSubtask?: (parentId: string, parentTask?: TaskItem | TaskDetail) => void }) {
   const below = useMemo(() => {
     const m = new Map<string, TaskItem[]>();
     for (const k of task.childTasks) { const p = k.parent?.id || task.id; m.set(p, [...(m.get(p) || []), k]); }
@@ -23,13 +23,37 @@ export function SubtaskTree({ task, onOpen, onChanged, hideEmpty }: { task: Task
   }, [task.childTasks, task.id]);
   const [folded, setFolded] = useState<Set<string>>(() => new Set());
   const [adding, setAdding] = useState<string | null>(null); // the task a subtask is being added under
-  const addUnder = (id: string) => { setAdding(id); setFolded((f) => { const n = new Set(f); n.delete(id); return n; }); };
+  const addUnder = (id: string, item?: TaskItem | TaskDetail) => {
+    if (onAddSubtask) {
+      onAddSubtask(id, item);
+      return;
+    }
+    setAdding(id);
+    setFolded((f) => { const n = new Set(f); n.delete(id); return n; });
+  };
   useEffect(() => {
-    const show = (e: Event) => { if ((e as CustomEvent<string>).detail === task.id) { asked = null; addUnder(task.id); } };
-    if (asked === task.id) { asked = null; addUnder(task.id); } else setAdding(null);
+    const show = (e: Event) => {
+      const targetId = (e as CustomEvent<string>).detail;
+      if (targetId === task.id) {
+        asked = null;
+        addUnder(task.id, task);
+      } else {
+        const found = task.childTasks?.find((k) => k.id === targetId);
+        if (found) {
+          asked = null;
+          addUnder(targetId, found);
+        }
+      }
+    };
+    if (asked === task.id) {
+      asked = null;
+      addUnder(task.id, task);
+    } else {
+      setAdding(null);
+    }
     window.addEventListener('dms:add-subtask', show);
     return () => window.removeEventListener('dms:add-subtask', show);
-  }, [task.id]);
+  }, [task]);
   const done = task.childTasks.filter((k) => k.state === 'done' || k.state === 'done_late').length;
   const adder = (parent: TaskItem) => <SubtaskAdder parent={parent} onAdded={onChanged} onClose={() => setAdding(null)} />;
   const node = (k: TaskItem): ReactNode => {
@@ -40,7 +64,7 @@ export function SubtaskTree({ task, onOpen, onChanged, hideEmpty }: { task: Task
           ? <button className="tk-fold" aria-expanded={open} aria-label={open ? 'Thu gọn' : 'Mở rộng'} onClick={() => setFolded((f) => { const n = new Set(f); if (open) n.add(k.id); else n.delete(k.id); return n; })}><Icon name={open ? 'down' : 'right'} size={12} /></button>
           : <span className="tk-fold" />}
         <button className="tk-branch-open" onClick={() => onOpen(k.id)}><Badge t={k} /><span>{k.title}</span>{kids.length > 0 && <em>{kids.length}</em>}<small>{when(k.dueAt)}</small></button>
-        {task.canEdit && <button className="tk-branch-add" onClick={() => addUnder(k.id)} aria-label="Thêm việc con" title="Thêm việc con vào việc này"><Icon name="plus" size={14} /></button>}
+        {task.canEdit && <button className="tk-branch-add" onClick={() => addUnder(k.id, k)} aria-label="Thêm việc con" title="Thêm việc con vào việc này"><Icon name="plus" size={14} /></button>}
       </div>
       {open && (kids.length > 0 || adding === k.id) && <ul>{kids.map(node)}{adding === k.id && <li>{adder(k)}</li>}</ul>}
     </li>;
@@ -50,7 +74,7 @@ export function SubtaskTree({ task, onOpen, onChanged, hideEmpty }: { task: Task
   return <div className="tk-child-tasks-block">
     <h4>Việc con {task.childTasks.length > 0 && <em>{done}/{task.childTasks.length}</em>}</h4>
     {top.length > 0 && <ul className="tk-branch">{top.map(node)}</ul>}
-    {task.canEdit && (adding === task.id ? adder(task) : <button className="btn btn-gray btn-sm tk-kid-add" onClick={() => addUnder(task.id)}><Icon name="plus" size={14} />Thêm việc con</button>)}
+    {task.canEdit && (adding === task.id ? adder(task) : <button className="btn btn-gray btn-sm tk-kid-add" onClick={() => addUnder(task.id, task)}><Icon name="plus" size={14} />Thêm việc con</button>)}
   </div>;
 }
 

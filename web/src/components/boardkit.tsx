@@ -133,13 +133,23 @@ export function Pop({ anchor, title, onClose, onBack, children, width = 304, cla
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: -9999, top: 0, max: 0 });
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!anchor || !el) return;
-    // Below the opener, scrolling inside when it does not fit; above it only when there is clearly more room there.
-    const r = anchor.getBoundingClientRect(), h = (el.firstElementChild as HTMLElement).offsetHeight + (el.lastElementChild as HTMLElement).scrollHeight;
-    const below = window.innerHeight - r.bottom - 14, above = r.top - 14;
-    const up = h > below && below < 320 && above > below;
-    setPos({ left: Math.max(8, Math.min(window.innerWidth - width - 8, r.left)), top: up ? Math.max(8, r.top - 6 - Math.min(h, above)) : r.bottom + 6, max: up ? above : below });
+    const el = ref.current, body = el?.lastElementChild as HTMLElement | undefined;
+    if (!anchor || !el || !body) return;
+    const place = () => {
+      // Below the opener, or above it when there is clearly more room there. Taller than that side: moved up (over the
+      // opener if need be) to show whole in the window; taller than the window: from its top, scrolling inside.
+      const r = anchor.getBoundingClientRect(), h = (el.firstElementChild as HTMLElement).offsetHeight + body.scrollHeight;
+      const below = window.innerHeight - r.bottom - 14, above = r.top - 14, room = window.innerHeight - 16;
+      const up = h > below && below < 320 && above > below;
+      let top = up ? Math.max(8, r.top - 6 - Math.min(h, above)) : r.bottom + 6, max = up ? above : below;
+      if (h > max) { top = Math.max(8, Math.min(top, window.innerHeight - 8 - h)); max = room; }
+      setPos({ left: Math.max(8, Math.min(window.innerWidth - width - 8, r.left)), top, max });
+    };
+    place();
+    // Again when what is inside grows or shrinks (a list that loads, a section that opens).
+    const watch = new ResizeObserver(place);
+    for (const c of body.children) watch.observe(c);
+    return () => watch.disconnect();
   }, [anchor, width, title]);
   const close = useRef(onClose);
   close.current = onClose;

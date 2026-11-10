@@ -16,7 +16,7 @@ const keep=(k:string,v:string)=>{try{localStorage.setItem(k,v);}catch{/* private
 const fold=(s:string)=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/đ/g,'d');
 const EMPTY={need:'',status:'',category:'',source:'',manager:'',drive:''};
 
-export function CustomerDashboard({customers,selected=null,loading,error,manage,view:controlledView,onViewChange,onOpen,onEdit,onAdd,onImport,onDrive,onRefresh}:{customers:CustomerRecord[];selected?:string|null;loading:boolean;error:string;manage:boolean;view?:View;onViewChange?:(v:View)=>void;onOpen:(id:string|null)=>void;onEdit?:(id:string)=>void;onAdd:()=>void;onImport:()=>void;onDrive:()=>void;onRefresh:()=>void}){
+export function CustomerDashboard({customers,selected=null,loading,error,manage,view:controlledView,onViewChange,onOpen,onEdit,onAdd,onImport,onDrive,onRefresh,onFold}:{customers:CustomerRecord[];selected?:string|null;loading:boolean;error:string;manage:boolean;view?:View;onViewChange?:(v:View)=>void;onOpen:(id:string|null)=>void;onEdit?:(id:string)=>void;onAdd:()=>void;onImport:()=>void;onDrive:()=>void;onRefresh:()=>void;onFold?:()=>void}){
  const statuses=useCustomerStatuses();
  const STATUS_ORDER=statuses.map(s=>s.id),CUSTOMER_STATUS=Object.fromEntries(statuses.map(s=>[s.id,s.name])),STATUS_COLOR=Object.fromEntries(statuses.map(s=>[s.id,s.color]));
  const [catalog,setCatalog]=useState<{id:string;name:string;color:string;active:number}[]>([]);
@@ -78,21 +78,30 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
   setBusyId('bulk');
   try{const r=await api.bulkDeleteCustomers(selectedIds);if(selected&&selectedIds.includes(selected))onOpen(null);setSelectedIds([]);onRefresh();toast(`Đã xoá ${r.deleted} khách hàng.`);}catch(e:any){toast(e.message,true);}finally{setBusyId(null);}
  };
- return <section className="cd-dashboard cd-min">
-  <header className="tk-head"><span className="tk-head-ico"><Icon name="users" size={20}/></span><div className="tk-head-main"><h1>Khách hàng</h1>
-   <ReadingTabs label="Cách xem khách hàng" value={view} items={[{value:'list' as View,label:'Danh sách',icon:'list'},{value:'kanban' as View,label:'Kanban',icon:'boards'},{value:'grid' as View,label:'Thẻ',icon:'grid'}]} onChange={v=>setView(v)}/></div>
-   {!selected&&<span className="cd-totals">{loading?'…':totals}</span>}
-   <Menu label="Thêm thao tác" items={[{label:'Làm mới',icon:'refresh',onClick:onRefresh},{label:'Import Excel',icon:'sheet',onClick:onImport,hidden:!manage},{label:'Thêm khách kèm thư mục Drive',icon:'folder',onClick:onDrive,hidden:!manage}]}/>
+ return <section className={'cd-dashboard cd-min' + (selected ? ' cd-has-selected' : '')}>
+  <header className="tk-head">
+    <span className="tk-head-ico"><Icon name="users" size={20}/></span>
+    <div className="tk-head-main">
+      <h1>Khách hàng</h1>
+      {!selected && <ReadingTabs label="Cách xem khách hàng" value={view} items={[{value:'list' as View,label:'Danh sách',icon:'list'},{value:'kanban' as View,label:'Kanban',icon:'boards'},{value:'grid' as View,label:'Thẻ',icon:'grid'}]} onChange={v=>setView(v)}/>}
+    </div>
+    {selected && onFold && (
+      <button type="button" className="bd-icon tk-pane-fold" onClick={onFold} title="Thu gọn danh sách khách hàng" aria-label="Thu gọn danh sách">
+        <Icon name="left" size={15}/>
+      </button>
+    )}
+    {!selected&&<span className="cd-totals">{loading?'…':totals}</span>}
+    <Menu label="Thêm thao tác" items={[{label:'Làm mới',icon:'refresh',onClick:onRefresh},{label:'Import Excel',icon:'sheet',onClick:onImport,hidden:!manage},{label:'Thêm khách kèm thư mục Drive',icon:'folder',onClick:onDrive,hidden:!manage}]}/>
   </header>
   <div className="tk-toolbar">
-   {manage&&<button className="tk-new" onClick={onAdd}><Icon name="plus" size={15}/>Thêm mới</button>}
-   {selectedIds.length>0&&<><button className="btn btn-sm cm-danger" disabled={busyId==='bulk'} onClick={()=>void bulkDelete()}><Icon name="trash" size={14}/>Xoá đã chọn ({selectedIds.length})</button><button className="btn btn-gray btn-sm" onClick={()=>setSelectedIds([])}>Bỏ chọn</button></>}
-   <label className="tk-find"><Icon name="search" size={14}/><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==='Escape'&&q){e.stopPropagation();setQ('');}}} placeholder="Tìm tên, liên hệ, email, điện thoại, dịch vụ…" aria-label="Tìm khách hàng"/>{q&&<button type="button" className="tk-find-x" onClick={()=>setQ('')} aria-label="Xoá tìm kiếm" title="Xoá tìm kiếm"><Icon name="x" size={12}/></button>}</label>
-   <button className={'tk-pick cd-filter-btn'+(active?' on':'')} onClick={()=>setFilters(!filters)} aria-expanded={filters}><Icon name="filter" size={14}/><span>Lọc</span>{active?` (${active})`:''}</button>
-   {view!=='grid'&&<label className="tk-pick"><Icon name="layers" size={14}/><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={e=>setGroupBy(e.target.value as GroupBy)}><option value="status">Trạng thái</option><option value="category">Tag</option><option value="source">Nguồn</option><option value="manager">Người phụ trách</option>{view==='list'&&<option value="none">Không nhóm</option>}</select></label>}
+   {manage&&<button className="tk-new" onClick={onAdd}><Icon name="plus" size={15}/>{selected ? 'Thêm' : 'Thêm mới'}</button>}
+   {selectedIds.length>0&&!selected&&<><button className="btn btn-sm cm-danger" disabled={busyId==='bulk'} onClick={()=>void bulkDelete()}><Icon name="trash" size={14}/>Xoá đã chọn ({selectedIds.length})</button><button className="btn btn-gray btn-sm" onClick={()=>setSelectedIds([])}>Bỏ chọn</button></>}
+   <label className="tk-find"><Icon name="search" size={14}/><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==='Escape'&&q){e.stopPropagation();setQ('');}}} placeholder={selected ? "Tìm khách..." : "Tìm tên, liên hệ, email, điện thoại, dịch vụ…"} aria-label="Tìm khách hàng"/>{q&&<button type="button" className="tk-find-x" onClick={()=>setQ('')} aria-label="Xoá tìm kiếm" title="Xoá tìm kiếm"><Icon name="x" size={12}/></button>}</label>
+   {!selected&&<button className={'tk-pick cd-filter-btn'+(active?' on':'')} onClick={()=>setFilters(!filters)} aria-expanded={filters}><Icon name="filter" size={14}/><span>Lọc</span>{active?` (${active})`:''}</button>}
+   {!selected&&view!=='grid'&&<label className="tk-pick"><Icon name="layers" size={14}/><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={e=>setGroupBy(e.target.value as GroupBy)}><option value="status">Trạng thái</option><option value="category">Tag</option><option value="source">Nguồn</option><option value="manager">Người phụ trách</option>{view==='list'&&<option value="none">Không nhóm</option>}</select></label>}
    {!selected&&<span className="cd-count">{active||q?`${rows.length}/${customers.length}`:''}</span>}
   </div>
-  {filters&&<div className="cd-filters">
+  {filters&&!selected&&<div className="cd-filters">
    {sel('need','Dịch vụ','Chưa có dịch vụ',needs)}
    <label className="cd-filter"><span>Trạng thái</span><select className="bk-in" value={f.status} onChange={e=>setF({...f,status:e.target.value})}><option value="">Tất cả</option><option value="none">Chưa đặt</option>{STATUS_ORDER.map(s=><option key={s} value={s}>{CUSTOMER_STATUS[s]}</option>)}</select></label>
    {sel('category','Tag','Chưa gắn tag',categories)}{sel('source','Nguồn','Chưa rõ nguồn',sources)}{sel('manager','Phụ trách','Chưa có người phụ trách',managers)}
@@ -100,7 +109,7 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
    {active>0&&<button className="btn btn-plain btn-sm" onClick={()=>setF({...EMPTY})}>Bỏ lọc</button>}
   </div>}
   {error?<p className="note err" role="alert">{error}</p>:loading?<BrandLoading label="Đang tải dữ liệu backend…"/>:!rows.length?<div className="crm-empty"><Icon name="users" size={36}/><h3>{q||active?'Không có khách phù hợp':'Chưa có khách hàng'}</h3><p>{q||active?'Thử từ khoá hoặc bộ lọc khác.':'Thêm khách hàng hoặc import Excel để bắt đầu.'}</p>{manage&&!q&&!active&&<button className="btn btn-primary" onClick={onAdd}>Thêm khách hàng</button>}</div>
-  :selected?<div className="tk-reading-list">{groups.filter(g=>g.rows.length).map(g=><section key={g.key}><h3>{g.label}<span>{g.rows.length}</span></h3>{g.rows.map(c=><button key={c.id} id={'customer-row-'+c.id} className={'reading-list-row tk-reading-row crm-customer-row'+(selected===c.id?' selected':'')} aria-current={selected===c.id?'true':undefined} onClick={()=>onOpen(c.id)} onKeyDown={e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const i=ordered.findIndex(x=>x.id===c.id),next=ordered[i+(e.key==='ArrowDown'?1:-1)];if(next){onOpen(next.id);document.getElementById('customer-row-'+next.id)?.focus();}}}}><span className="tk-reading-title">{c.name}</span><span className="tk-reading-project">{c.contact||c.email||(c.manager||c.owner)?.name||'Chưa có liên hệ'}</span><span className="tk-reading-meta"><span>{CUSTOMER_STATUS[c.status||'']||c.status||'Chưa đặt trạng thái'}</span><span>{c.projects||0} dự án · {c.tasks||0} việc</span></span></button>)}</section>)}</div>
+  :selected?<div className="tk-reading-list cd-reading-compact">{groups.filter(g=>g.rows.length).map(g=><section key={g.key}><h3>{g.label}<span>{g.rows.length}</span></h3>{g.rows.map(c=><button key={c.id} id={'customer-row-'+c.id} className={'reading-list-row tk-reading-row crm-customer-row cd-row-compact'+(selected===c.id?' selected':'')} aria-current={selected===c.id?'true':undefined} onClick={()=>onOpen(c.id)} onKeyDown={e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const i=ordered.findIndex(x=>x.id===c.id),next=ordered[i+(e.key==='ArrowDown'?1:-1)];if(next){onOpen(next.id);document.getElementById('customer-row-'+next.id)?.focus();}}}}><span className="tk-reading-title">{c.name}</span><span className="tk-reading-meta"><span>{CUSTOMER_STATUS[c.status||'']||c.status||'Chưa đặt'}</span><span>{c.projects||0} dự án</span></span></button>)}</section>)}</div>
   :view==='list'?<GroupedList foldKey={`dms.customerFold.${groupBy}`} groups={groups} nameLabel="Khách hàng" addLabel="Thêm khách hàng" onOpen={c=>onOpen(c.id)} selected={selected}
     check={deletableRows.length>0?{done:c=>selectedIds.includes(c.id),toggle:toggleOne,label:c=>`Chọn khách hàng “${c.name}”`,all:allChecked,toggleAll,canCheck:c=>!!c.canDelete}:undefined}
     name={c=><><b className="cd-name">{c.name}</b>{c.contact&&<small className="cd-contact">{c.contact}</small>}</>}

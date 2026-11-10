@@ -185,19 +185,22 @@ export interface TaskItem {
   canDelete?: boolean;
   id: string; externalId: string | null; title: string; status: string; state: TaskState; startAt: number | null; dueAt: number | null; doneAt: number | null;
   project: { id: string; name: string; customerId: string | null } | null; parent: { id: string; title: string } | null; children: number;
-  createdBy: { id: string; name: string } | null; assignees: TaskPerson[]; cardPeople?: TaskPerson[]; followers: { id: string; name: string; avatarAt?: number | null }[]; labels: string[]; services?: ServiceRef[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number;
+  createdBy: { id: string; name: string } | null; assignees: TaskPerson[]; cardPeople?: TaskPerson[]; followers: { id: string; name: string; avatarAt?: number | null }[]; labels: string[]; services?: ServiceRef[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number; createdAt?: number;
 }
 export interface TaskDetail extends TaskItem {
   statuses?: string[];
   description: string; result: string | null; resultHidden: boolean; canEdit: boolean; canEditDescription: boolean; canDelete: boolean; hasBoardLink: boolean; boardLink: { cardId: string; boardId: string; listId: string; boardName: string; listName: string } | null; path: { id: string; title: string }[];
   /** The whole branch under it (subtasks, theirs, …), each with its `parent`, as far as this account sees them. */
   childTasks: TaskItem[];
+  comments?: { id: string; userId: string; userName: string; text: string; createdAt: number; updatedAt?: number; replyToId?: string | null }[];
+  activity?: { id: string; userId?: string; user: string; text: string; at: number; action?: string }[];
 }
 export interface TaskMeta {
   campaigns:TaskCampaign[]; teams:{id:string;name:string;color:string}[];
   workTeams?:{id:string;name:string;color:string;departmentId:string|null;memberIds:string[];leaderIds:string[]}[];
   people: (TaskPerson & { userName: string | null; tasks: number })[]; projects: { id: string; name: string; customerId: string | null; customerName?: string | null; teamId:string|null;createdBy:string|null;level:Level;tasks: number; completed?: number; overdue?: number; assignees?: TaskPerson[]; stage?: import('../../shared/projects').ProjectStage; hold?: import('../../shared/projects').ProjectHold | null; services?: ServiceRef[] }[];
   mine: string[]; statuses: string[]; users: { id: string; name: string; email: string; teamId: string | null; workTeamIds?: string[] }[];
+  labels?: { id: string; name: string; color: string }[];
   imports: { id: string; rows: number; created: number; updated: number; at: number; by: string; sourceName: string; hasSheet: boolean }[];
 }
 export interface TaskWrite {
@@ -256,6 +259,7 @@ export interface ClientCard {
    *  under, for the tree. `stage`: where it stands. */
   id: string; cardId: string | null; taskId: string | null; parentTaskId: string | null; stage: 'todo' | 'doing' | 'overdue' | 'done';
   title: string; boardId: string | null; boardName: string; boardBg: string; listName: string; listPos: number; done: boolean; startAt: number | null; dueAt: number | null;
+  workspaceId?: string | null; workspaceName?: string | null;
   updatedAt: number; customerId: string; customerName: string; labels: { name: string; color: string }[]; members: { id: string; name: string; avatarAt: number | null }[]; services: ServiceRef[];
 }
 export interface CustomerTask {
@@ -277,7 +281,7 @@ export interface CardDetail {
   projectId?: string | null; projectName?: string | null;
   checklists: { id: string; title: string; items: { id: string; text: string; done: boolean }[] }[];
   attachments: CardAttachment[];
-  comments: { id: string; userId: string; userName: string; text: string; createdAt: number; edited: boolean }[];
+  comments: { id: string; userId: string; userName: string; text: string; createdAt: number; edited: boolean; replyToId?: string | null }[];
   activity: BoardActivity[];
 }
 /** A top-level page whose access admins can grant or withhold per role. */

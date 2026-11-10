@@ -154,14 +154,32 @@ export function Workflow() {
 export function Categories() {
   const can = useCan(), editable = can('tasks.manage');
   const load = useLoad(() => admin.labels(), []);
-  const [name, setName] = useState(''), [color, setColor] = useState('#64748b'), [err, setErr] = useState('');
-  const add = async (e: React.FormEvent) => { e.preventDefault(); if (!name.trim()) return setErr('Hãy nhập tên danh mục'); setErr(''); if (await act(() => admin.createLabel({ name: name.trim(), color }), 'Đã thêm danh mục', load.reload)) setName(''); };
+  const [name, setName] = useState(''), [color, setColor] = useState('#ef4444'), [err, setErr] = useState('');
+  const add = async (e: React.FormEvent) => { e.preventDefault(); if (!name.trim()) return setErr('Hãy nhập tên danh mục/nhãn'); setErr(''); if (await act(() => admin.createLabel({ name: name.trim(), color }), 'Đã thêm nhãn', load.reload)) setName(''); };
+  const quickAdd = (n: string, c: string) => async () => { setErr(''); await act(() => admin.createLabel({ name: n, color: c }), `Đã thêm nhãn ${n}`, load.reload); };
   return (
     <>
-      <PageHead title="Danh mục công việc" sub="Danh mục là các nhãn gắn trên công việc (cũng là nhãn trong file nhập). Đổi tên áp dụng cho mọi công việc mang nhãn đó." />
-      {editable && <form className="ax-inline-form ax-card" onSubmit={add}><input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Màu" /><input className="bk-in" value={name} maxLength={100} onChange={(e) => { setName(e.target.value); setErr(''); }} placeholder="Tên danh mục mới" aria-label="Tên danh mục" /><button className="btn btn-primary btn-sm"><Icon name="plus" size={14} />Thêm</button>{err && <small className="ax-field-err" role="alert">{err}</small>}</form>}
+      <PageHead title="Danh mục & Nhãn công việc (Tags)" sub="Quản lý các nhãn / tag gắn trên công việc (ví dụ: Khẩn cấp, Paid Ads...). Khi tạo hoặc sửa công việc, nhân viên có thể bấm chọn nhanh các nhãn này." />
+      {editable && (
+        <div style={{ marginBottom: 14 }}>
+          <form className="ax-inline-form ax-card" onSubmit={add}>
+            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Màu nhãn" />
+            <input className="bk-in" value={name} maxLength={100} onChange={(e) => { setName(e.target.value); setErr(''); }} placeholder="Tên nhãn mới (vd: Khẩn cấp, Paid Ads…)" aria-label="Tên danh mục" />
+            <button className="btn btn-primary btn-sm"><Icon name="plus" size={14} />Thêm nhãn</button>
+            {err && <small className="ax-field-err" role="alert">{err}</small>}
+          </form>
+          {load.data && !load.data.some((l) => l.name.toLowerCase().includes('khẩn') || l.name.toLowerCase().includes('gấp')) && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, color: 'var(--label-2)' }}>
+              <span>Gợi ý thêm nhanh:</span>
+              <button type="button" className="btn btn-gray btn-sm" onClick={quickAdd('Khẩn cấp', '#ef4444')}>
+                🔥 Thêm nhãn “Khẩn cấp” (#ef4444)
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <div className="ax-card flush"><Async load={load}>{(rows) => <Table rows={rows} empty={<Empty icon="tag" title="Chưa có danh mục" />} cols={[
-        { key: 'name', label: 'Danh mục', render: (l) => editable ? <span className="ax-person"><input type="color" value={l.color} aria-label="Màu" onChange={(e) => void act(() => admin.updateLabel(l.id, { color: e.target.value }), undefined, load.reload)} /><input className="bk-in ax-cell-input" defaultValue={l.name} maxLength={100} aria-label="Tên danh mục" onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== l.name) void act(() => admin.updateLabel(l.id, { name: v }), 'Đã đổi tên', load.reload); else e.target.value = l.name; }} /></span> : <Badge color={l.color}>{l.name}</Badge> },
+        { key: 'name', label: 'Danh mục / Nhãn', render: (l) => editable ? <span className="ax-person"><input type="color" value={l.color} aria-label="Màu" onChange={(e) => void act(() => admin.updateLabel(l.id, { color: e.target.value }), undefined, load.reload)} /><input className="bk-in ax-cell-input" defaultValue={l.name} maxLength={100} aria-label="Tên danh mục" onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== l.name) void act(() => admin.updateLabel(l.id, { name: v }), 'Đã đổi tên', load.reload); else e.target.value = l.name; }} /></span> : <Badge color={l.color}>{l.name}</Badge> },
         { key: 'used', label: 'Công việc', align: 'right', render: (l) => fmtNum(l.used) },
         { key: 'x', label: '', align: 'right', render: (l) => editable ? <button className="bd-icon danger" aria-label={`Xoá ${l.name}`} onClick={() => confirm(`Xoá danh mục “${l.name}”?${l.used ? ` Nhãn sẽ được gỡ khỏi ${l.used} công việc.` : ''}`) && act(() => admin.removeLabel(l.id), 'Đã xoá danh mục', load.reload)}><Icon name="trash" size={14} /></button> : null },
       ]} />}</Async></div>

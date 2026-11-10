@@ -113,7 +113,9 @@ async function upgrade() {
     // A list's own colour (the whole column), one of the cards' cover colours.
     ['board_lists', 'color'],
     // Screenshots sent with a support request (a JSON list of pictures).
-    ['support_tickets', 'images']]) {
+    ['support_tickets', 'images'],
+    ['card_comments', 'reply_to_id'],
+    ['task_comments', 'reply_to_id']]) {
     // One look at each table's columns, not one per column: every cold start on D1 runs this.
     const info = columns.get(table) || (await db.execute(`PRAGMA table_info(${table})`)).rows.map(c => c.name as string);
     columns.set(table, info);
@@ -146,6 +148,9 @@ export async function repairData() {
   // A task dragged into a board's done column before the column's meaning was used took the column's name as its status
   // ("Xong"): it gets the task workflow's own, done late when finished after its due date.
   await db.execute("UPDATE tasks SET status=CASE WHEN due_at IS NOT NULL AND done_at > due_at THEN 'Hoàn thành muộn' ELSE 'Hoàn thành' END WHERE status IN ('Xong','Đã xong','Hoàn tất','Đã hoàn thành','Done','Completed')");
+  // Default task categories / labels (tags) including urgent (Khẩn cấp)
+  await db.execute("INSERT OR IGNORE INTO task_labels(id, name, color) VALUES('tl_urgent', 'Khẩn cấp', '#ef4444')");
+  await db.execute("INSERT OR IGNORE INTO task_labels(id, name, color) VALUES('tl_paidads', 'Paid Ads', '#0b7df2')");
 }
 /** The built-in roles (their default permissions only when first made) and the task statuses and priorities the Tasks
  *  page started with, once: what admins later change or remove stays so. */

@@ -11,7 +11,7 @@ import {EntitySelect,useEntityRefresh} from './QuickCreate';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { EmployeePicker, EmployeeAvatars, MemberChoices } from './EmployeePicker';
 import { MemberAvatar } from './MemberAvatar';
-import { Avatar, Pop, dateIn, dueState, fullDate, timeIn } from './boardkit';
+import { Avatar, Pop, ago, dateIn, dueState, fullDate, timeIn } from './boardkit';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { useStore, toast, getState, goto } from '../store';
@@ -48,6 +48,7 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   const [open, setOpen] = useState<string | null>(() => location.hash.match(/^#tasks\/(tk_\w+)/)?.[1] || null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deletingMany, setDeletingMany] = useState(false);
+  const [taskListFolded, setTaskListFolded] = useState(false);
   const listPane=useRef<HTMLElement>(null),listScroll=useRef(0);
   useLayoutEffect(()=>{if(listPane.current)listPane.current.scrollTop=open?0:listScroll.current;},[!!open]);
   const [full, setFull] = useState(onTaskPage);
@@ -99,6 +100,36 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
     setSelectedIds((prev) => prev.filter((id) => data.tasks.some((t) => t.id === id)));
   }, [data]);
 
+  useEffect(() => {
+    const handleFilterEvent = (e: any) => {
+      const detail = e.detail;
+      if (detail?.scope) setScope(detail.scope);
+      if (detail?.rel) setRel(detail.rel);
+      if (detail?.project !== undefined) {
+        setProject(detail.project);
+        setCampaign('');
+      }
+    };
+    window.addEventListener('dms:task-filter', handleFilterEvent);
+    return () => window.removeEventListener('dms:task-filter', handleFilterEvent);
+  }, []);
+
+  useEffect(() => {
+    if (!embedded && data?.tasks?.length && !open && !location.hash.startsWith('#tasks/')) {
+      showTask(data.tasks[0].id);
+    }
+  }, [data?.tasks, open, embedded]);
+
+  const toggleTaskDone = async (t: TaskItem) => {
+    const finished = t.state === 'done' || t.state === 'done_late';
+    try {
+      await api.setTaskStatus(t.id, finished ? 'Chưa thực hiện' : 'Hoàn thành');
+      refresh();
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
+
   const refresh = () => { load(); loadMeta(); };
 
   const handleBulkDelete = async () => {
@@ -143,9 +174,9 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
 
   if (open && full) return <TaskPanel page id={open} meta={meta} statuses={meta?.statuses || []} onOpen={(id) => showTask(id, true)} onClose={() => showTask(null)} onChanged={refresh} />;
   return (
-    <div className={'ad-page tk-page tk-mailbox'+(embedded?' tk-embedded':'')+(open?' has-selection':'')}>
+    <div className={'ad-page tk-page tk-mailbox' + (embedded ? ' tk-embedded' : '') + (open ? ' has-selection' : '') + (open && taskListFolded ? ' task-list-folded' : '')}>
       <section ref={listPane} className="tk-list-pane" aria-label="Danh sách công việc">
-      {!embedded && <header className="tk-head">
+      {!open && !embedded && <header className="tk-head">
         <span className="tk-head-ico"><Icon name="checklist" size={20} /></span>
         <div className="tk-head-main">
           <h1>{projectName || (listed === 'team' ? `Công việc của ${teams.find((t) => t.id === teamId)?.name || 'team'}` : 'Công việc của tôi')}</h1>
@@ -159,7 +190,7 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
           { label: 'Nhân viên', icon: 'users', onClick: () => goto('admin'), hidden: !admin },
         ]} />
       </header>}
-      <div className="tk-toolbar">
+      {!open && <div className="tk-toolbar">
         <button className="tk-new" disabled={!meta} onClick={() => setCreating(true)}><Icon name="plus" size={15} />Thêm mới</button>
         {selectedIds.length > 0 && (
           <div className="tk-bulk-bar">
@@ -184,24 +215,295 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
           {meta?.users.filter((u) => !teamId || u.teamId === teamId || (u.workTeamIds || []).includes(teamId)).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
         </EntitySelect></label>}
         {effectiveView !== 'table' && <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}><option value="due">Thời hạn</option><option value="status">Trạng thái</option><option value="project">Dự án</option></select></label>}
-      </div>
+      </div>}
       {error ? <p className="note err" role="alert">{error} <button className="btn btn-gray btn-sm" onClick={load}>Thử lại</button></p> : !data ? <BrandLoading label="Đang tải…"/> : !data.tasks.length ? (
         <p className="note">{meta && !meta.people.length ? (admin ? 'Chưa có dữ liệu công việc. Bấm “Thêm file sheet” và chọn file hoặc dán bảng.' : 'Chưa có dữ liệu công việc. Quản trị viên cần nhập dữ liệu trước.') : listed === 'mine' && !state && !q.trim() && !project && !campaign ? 'Chưa có công việc nào giao cho bạn, có tên bạn trên thẻ, hoặc bạn đang theo dõi.' : 'Không có công việc nào khớp.'}</p>
-      ) : open ? <TaskReadingList tasks={data.tasks} groupBy={groupBy} selected={open} onOpen={showTask} selection={selection} hideProject={!!initialProject} /> : effectiveView === 'table' ? <TaskTable tasks={data.tasks} selected={open} onOpen={showTask} selection={selection} />
+      ) : open ? (
+        <TaskReadingList
+          tasks={data.tasks}
+          groupBy={groupBy}
+          selected={open}
+          onOpen={showTask}
+          selection={selection}
+          hideProject={!!initialProject}
+          onToggleDone={toggleTaskDone}
+          q={q}
+          setQ={setQ}
+          rel={rel}
+          setRel={setRel}
+          state={state}
+          setState={setState}
+          onNew={() => setCreating(true)}
+          projectName={projectName}
+          meta={meta}
+          onFold={() => setTaskListFolded(true)}
+        />
+      ) : effectiveView === 'table' ? <TaskTable tasks={data.tasks} selected={open} onOpen={showTask} selection={selection} />
         : <TaskGroups tasks={data.tasks} groupBy={groupBy} selected={open} onOpen={showTask} onNew={() => setCreating(true)} onChanged={load} selection={selection} />}
       </section>
-      {open && <ResizeHandle cssVar="--rd-list-w" storage={embedded ? 'tasks-embedded' : 'tasks'} min={220} max={640} label="Đổi độ rộng danh sách công việc" />}
-      {open && <TaskPanel inline id={open} meta={meta} statuses={meta?.statuses || []} onOpen={(id) => showTask(id)} onClose={() => showTask(null)} onExpand={() => showTask(open, true)} onChanged={refresh} />}
+      {open && !taskListFolded && <ResizeHandle cssVar="--rd-list-w" storage={embedded ? 'tasks-embedded' : 'tasks'} min={220} max={640} label="Đổi độ rộng danh sách công việc" />}
+      {open && <TaskPanel inline id={open} meta={meta} statuses={meta?.statuses || []} onOpen={(id) => showTask(id)} onClose={() => showTask(null)} onExpand={() => showTask(open, true)} onChanged={refresh} onUnfoldList={taskListFolded ? () => setTaskListFolded(false) : undefined} />}
       {creating && meta && <TaskEditor meta={meta} projectId={initialProject || project} campaignId={initialCampaign || campaign} onClose={() => setCreating(false)} onSaved={(id) => { setCreating(false); refresh(); showTask(id); }} />}
       {dialog === 'import' && <ImportDialog meta={meta} onClose={() => setDialog(null)} onDone={imported} />}
     </div>
   );
 }
 
-function TaskReadingList({tasks,groupBy,selected,onOpen,selection,hideProject}:{tasks:TaskItem[];groupBy:string;selected:string;onOpen:(id:string)=>void;selection?:{selected:string[];toggle:(id:string)=>void};hideProject?:boolean}) {
- const groups=groupBy==='project'?byKey(tasks,t=>t.project?{key:t.project.id,label:t.project.name}:null,'Không thuộc dự án'):groupBy==='status'?byKey(tasks,t=>({key:t.state,label:STATE[t.state][0]||t.status||'Khác'}),'Khác'):byDueDate(tasks);
- const ordered=groups.flatMap(g=>g.rows);
- return <div className="tk-reading-list">{groups.filter(g=>g.rows.length).map(g=><section key={g.key}><h3>{g.label}<span>{g.rows.length}</span></h3>{g.rows.map(t=><button key={t.id} className={'reading-list-row tk-reading-row'+(selected===t.id?' selected':'')+(selection?.selected.includes(t.id)?' checked':'')} aria-current={selected===t.id?'true':undefined} onClick={()=>onOpen(t.id)} onKeyDown={e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const i=ordered.findIndex(x=>x.id===t.id),next=ordered[i+(e.key==='ArrowDown'?1:-1)];if(next){onOpen(next.id);document.getElementById('task-row-'+next.id)?.focus();}}}} id={'task-row-'+t.id}>{selection&&<span className="tk-reading-check-wrap" onClick={(e)=>e.stopPropagation()}><input type="checkbox" className="tk-reading-check" checked={selection.selected.includes(t.id)} onChange={()=>selection.toggle(t.id)} aria-label={`Chọn ${t.title}`}/></span>}<span className="tk-reading-title">{t.title}</span>{!hideProject&&t.project?.name&&<span className="tk-reading-project">{t.project.name}</span>}<span className="tk-reading-meta"><Badge t={t}/><time>{t.dueAt?new Date(t.dueAt).toLocaleDateString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',day:'2-digit',month:'2-digit'}):'Không thời hạn'}</time></span></button>)}</section>)}</div>;
+function formatWeworkDateTime(ts?: number | null) {
+  if (!ts) return 'Chưa đặt';
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const hh = pad(d.getHours()), mm = pad(d.getMinutes());
+  const dd = pad(d.getDate()), MM = pad(d.getMonth() + 1), yyyy = d.getFullYear();
+  return `${hh}:${mm} ${dd}/${MM}/${yyyy}`;
+}
+
+function formatWeworkDate(ts?: number | null) {
+  if (!ts) return 'Chưa đặt';
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const dd = pad(d.getDate()), MM = pad(d.getMonth() + 1), yyyy = d.getFullYear();
+  return `${dd}/${MM}/${yyyy}`;
+}
+
+function byWeek(tasks: TaskItem[]) {
+  const groups = new Map<string, { key: string; label: string; monTime: number; rows: TaskItem[] }>();
+  const undated: TaskItem[] = [];
+
+  for (const t of tasks) {
+    const ts = t.dueAt || t.startAt || t.createdAt;
+    if (!ts) {
+      undated.push(t);
+      continue;
+    }
+    const d = new Date(ts);
+    const day = d.getDay();
+    const diffToMon = (day === 0 ? -6 : 1) - day;
+    const mon = new Date(d);
+    mon.setDate(d.getDate() + diffToMon);
+    mon.setHours(0, 0, 0, 0);
+    const sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const d1 = pad(mon.getDate()), m1 = pad(mon.getMonth() + 1);
+    const d2 = pad(sun.getDate()), m2 = pad(sun.getMonth() + 1), y2 = String(sun.getFullYear()).slice(-2);
+    const key = `${mon.getFullYear()}-${m1}-${d1}`;
+    const label = `TUẦN ${d1}/${m1} - ${d2}/${m2}/${y2}`;
+
+    if (!groups.has(key)) {
+      groups.set(key, { key, label, monTime: mon.getTime(), rows: [] });
+    }
+    groups.get(key)!.rows.push(t);
+  }
+
+  const sorted = [...groups.values()].sort((a, b) => b.monTime - a.monTime);
+  if (undated.length) {
+    sorted.push({ key: 'undated', label: 'CHƯA CÓ THỜI HẠN', monTime: 0, rows: undated });
+  }
+  return sorted;
+}
+
+function TaskReadingList({
+  tasks,
+  groupBy,
+  selected,
+  onOpen,
+  selection,
+  hideProject,
+  onToggleDone,
+  q,
+  setQ,
+  rel,
+  setRel,
+  state,
+  setState,
+  onNew,
+  projectName,
+  meta,
+  onFold,
+}: {
+  tasks: TaskItem[];
+  groupBy?: string;
+  selected: string;
+  onOpen: (id: string) => void;
+  selection?: { selected: string[]; toggle: (id: string) => void };
+  hideProject?: boolean;
+  onToggleDone?: (t: TaskItem) => void;
+  q: string;
+  setQ: (v: string) => void;
+  rel: string;
+  setRel: (v: string) => void;
+  state: string;
+  setState: (v: string) => void;
+  onNew?: () => void;
+  projectName?: string;
+  meta?: TaskMeta | null;
+  onFold?: () => void;
+}) {
+  const user = useStore((s) => s.user);
+
+  const groups = useMemo(() => {
+    if (groupBy === 'project') {
+      return byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dự án');
+    }
+    if (groupBy === 'status') {
+      return byKey(tasks, (t) => ({ key: t.state, label: STATE[t.state]?.[0] || t.status || 'Khác' }), 'Khác');
+    }
+    return byWeek(tasks);
+  }, [tasks, groupBy]);
+
+  const ordered = groups.flatMap((g) => g.rows);
+
+  return (
+    <div className="wework-reading-list">
+      <div className="wework-list-head">
+        <div className="wework-head-left">
+          <b className="wework-head-name">{projectName || 'Công việc của tôi'}</b>
+        </div>
+        <div className="wework-head-actions">
+          {onFold && (
+            <button
+              type="button"
+              className="bd-icon tk-pane-fold"
+              onClick={onFold}
+              title="Thu gọn danh sách công việc"
+              aria-label="Thu gọn danh sách"
+            >
+              <Icon name="left" size={14} />
+            </button>
+          )}
+          {onNew && (
+            <button type="button" className="btn btn-primary btn-sm" onClick={onNew} title="Thêm công việc mới">
+              <Icon name="plus" size={13} />
+              <span>Thêm mới</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {!projectName && (
+        <div className="wework-list-tabs">
+          <button type="button" className={'wework-list-tab' + (rel === 'assigned' ? ' active' : '')} onClick={() => setRel('assigned')}>Giao cho tôi</button>
+          <button type="button" className={'wework-list-tab' + (rel === 'created' ? ' active' : '')} onClick={() => setRel('created')}>Tôi giao đi</button>
+          <button type="button" className={'wework-list-tab' + (rel === 'following' ? ' active' : '')} onClick={() => setRel('following')}>Đang theo dõi</button>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 6, margin: '0 14px 10px' }}>
+        <label className="wework-search-bar" style={{ margin: 0, flex: 1 }}>
+          <Icon name="search" size={13} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm kiếm công việc" aria-label="Tìm kiếm công việc" />
+        </label>
+        <select
+          className="bk-in"
+          style={{ width: 'auto', fontSize: 12, height: 34, padding: '0 8px', borderRadius: 8, background: 'var(--fill-2)', border: '1px solid var(--sep)', color: 'var(--label)' }}
+          value={state}
+          onChange={(e) => setState(e.target.value)}
+          aria-label="Lọc trạng thái"
+        >
+          <option value="">Tất cả</option>
+          <option value="open">Chưa xong</option>
+          <option value="overdue">Quá hạn</option>
+          <option value="done">Hoàn thành</option>
+        </select>
+      </div>
+
+      <div className="wework-list-scroll">
+        {groups.map((g) => (
+          <section key={g.key} className="wework-week-sec">
+            <h3 className="wework-week-h">{g.label}</h3>
+            {g.rows.map((t) => {
+              const isDone = t.state === 'done' || t.state === 'done_late';
+              const isSelected = selected === t.id;
+              const isDoing = t.state === 'doing' || t.status.toLowerCase().includes('đang');
+              const assignee = t.assignees[0];
+
+              return (
+                <div
+                  key={t.id}
+                  id={'task-row-' + t.id}
+                  className={'wework-row' + (isSelected ? ' selected' : '') + (isDone ? ' done' : '') + (selection?.selected.includes(t.id) ? ' checked' : '')}
+                  onClick={() => onOpen(t.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      const i = ordered.findIndex((x) => x.id === t.id),
+                        next = ordered[i + (e.key === 'ArrowDown' ? 1 : -1)];
+                      if (next) {
+                        onOpen(next.id);
+                        document.getElementById('task-row-' + next.id)?.focus();
+                      }
+                    } else if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onOpen(t.id);
+                    }
+                  }}
+                >
+                  <button
+                    type="button"
+                    className={'wework-check-btn' + (isDone ? ' done' : '')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onToggleDone) onToggleDone(t);
+                    }}
+                    aria-label={isDone ? 'Đánh dấu chưa xong' : 'Đánh dấu hoàn thành'}
+                    title={isDone ? 'Đánh dấu chưa xong' : 'Đánh dấu hoàn thành'}
+                  >
+                    {isDone ? '✔' : ''}
+                  </button>
+                  <div className="wework-row-main">
+                    <span className="wework-row-title">{t.title}</span>
+                    <div className="wework-row-meta">
+                      {!hideProject && t.project?.name && <span className="wework-row-project">[{t.project.name}]</span>}
+                      {t.campaign?.name && t.campaign.name !== 'Công việc hiện có' && (
+                        <span className="wework-row-project" style={{ color: 'var(--tint)' }}>{t.campaign.name}</span>
+                      )}
+                      {t.services && t.services.length > 0 && t.services.map((s) => (
+                        <span key={s.id} className="wework-row-tag" style={{ background: 'rgba(59,130,246,0.12)', color: '#2563eb' }}>
+                          {s.name}
+                        </span>
+                      ))}
+                      {t.boardLink && (
+                        <span className="wework-row-tag" style={{ background: 'rgba(16,185,129,0.12)', color: '#059669' }}>
+                          {t.boardLink.boardName}
+                        </span>
+                      )}
+                      {t.labels && t.labels.length > 0 && t.labels.map((l) => {
+                        const isUrgent = l.toLowerCase().includes('khẩn') || l.toLowerCase().includes('gấp');
+                        return (
+                          <span key={l} className={'wework-row-tag' + (isUrgent ? ' urgent' : '')}>
+                            {l}
+                          </span>
+                        );
+                      })}
+                      {t.dueAt && <span className="wework-row-date">Hạn {formatWeworkDate(t.dueAt)}</span>}
+                      {t.children > 0 && <span className="wework-row-sub">· {t.children} việc con</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flex: 'none' }}>
+                    {isDone ? (
+                      <span className="wework-badge done">HOÀN THÀNH</span>
+                    ) : isDoing ? (
+                      <span className="wework-badge doing">ĐANG LÀM</span>
+                    ) : (
+                      <span className="wework-badge" style={{ background: 'var(--fill)', color: 'var(--label-2)' }}>{t.status || 'CHƯA XONG'}</span>
+                    )}
+                    {assignee && <Avatar m={{ id: assignee.id, name: assignee.name }} size={22} />}
+                  </div>
+                </div>
+              );
+            })}
+          </section>
+        ))}
+      </div>
+      <div className="wework-pagination">
+        <span>Tổng cộng {tasks.length} công việc</span>
+      </div>
+    </div>
+  );
 }
 
 /** The tasks in groups (due date, status or project), each with a tick box to finish it or open it again. */
@@ -262,16 +564,766 @@ function TaskTable({ tasks, selected, onOpen, selection }: { tasks: TaskItem[]; 
   </section>;
 }
 
+function WeworkTaskView({
+  task: t,
+  meta,
+  statuses,
+  onOpen,
+  onClose,
+  onChanged,
+  onLink,
+  onToggleCard,
+  onUnfoldList,
+}: {
+  task: TaskDetail;
+  meta: TaskMeta | null;
+  statuses: string[];
+  onOpen: (id: string) => void;
+  onClose: () => void;
+  onChanged: () => void;
+  onLink: () => void;
+  onToggleCard?: () => void;
+  onUnfoldList?: () => void;
+}) {
+  const me = useStore((s) => s.user)!;
+  const [pop, setPop] = useState<{ kind: 'status' | 'members' | 'dates' | 'project' | 'actions'; el: HTMLElement } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(t.title);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState(t.description || '');
+  const [foldAssignor, setFoldAssignor] = useState(false);
+  const [foldFollowers, setFoldFollowers] = useState(false);
+  const [foldActivity, setFoldActivity] = useState(false);
+  const [starred, setStarred] = useState(false);
+  const [bookmarked, setBookmarked] = useState(false);
+  const [comments, setComments] = useState<NonNullable<TaskDetail['comments']>>(t.comments || []);
+  const [activity, setActivity] = useState<NonNullable<TaskDetail['activity']>>(t.activity || []);
+  const [sidebarTab, setSidebarTab] = useState<'comments' | 'activity'>('comments');
+  const [replyingTo, setReplyingTo] = useState<{ id: string; userName: string } | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [commentText, setCommentText] = useState('');
+  const [postingComment, setPostingComment] = useState(false);
+  const [subtaskParent, setSubtaskParent] = useState<{ id: string; task?: TaskDetail | TaskItem } | null>(null);
+
+  useEffect(() => {
+    const handleAddSubtask = (e: Event) => {
+      const targetId = (e as CustomEvent<string>).detail;
+      if (targetId === t.id) {
+        setSubtaskParent({ id: t.id, task: t });
+      } else {
+        const found = t.childTasks?.find((k) => k.id === targetId);
+        if (found) {
+          setSubtaskParent({ id: targetId, task: found });
+        }
+      }
+    };
+    window.addEventListener('dms:add-subtask', handleAddSubtask);
+    return () => window.removeEventListener('dms:add-subtask', handleAddSubtask);
+  }, [t]);
+
+  // Dates state for date picker popover
+  const [hasStart, setHasStart] = useState(!!t.startAt);
+  const [startDate, setStartDate] = useState(dateIn(t.startAt || Date.now()));
+  const [hasDue, setHasDue] = useState(!!t.dueAt || !t.startAt);
+  const [dueDate, setDueDate] = useState(dateIn(t.dueAt || Date.now() + 864e5 * 7));
+  const [dueTime, setDueTime] = useState(t.dueAt ? timeIn(t.dueAt) : '10:30');
+
+  useEffect(() => {
+    setTitleDraft(t.title);
+    setDescDraft(t.description || '');
+    setHasStart(!!t.startAt);
+    setStartDate(dateIn(t.startAt || Date.now()));
+    setHasDue(!!t.dueAt || !t.startAt);
+    setDueDate(dateIn(t.dueAt || Date.now() + 864e5 * 7));
+    setDueTime(t.dueAt ? timeIn(t.dueAt) : '10:30');
+    setComments(t.comments || []);
+    setActivity(t.activity || []);
+    setReplyingTo(null);
+    setReplyText('');
+  }, [t.id, t.title, t.description, t.startAt, t.dueAt, t.comments, t.activity]);
+
+  const act = async (fn: () => Promise<unknown>) => {
+    if (busy) return false;
+    setBusy(true);
+    try { await fn(); onChanged(); return true; }
+    catch (e: any) { toast(e.message, true); return false; }
+    finally { setBusy(false); }
+  };
+
+  const roles = useStore((s) => s.roles);
+  const edit = t.canEdit;
+  const statusLabel = STATE[t.state]?.[0] || t.status || 'Đang làm';
+  const allStatuses = statuses.length ? statuses : ['Chưa thực hiện', 'Đang làm', 'Đang đánh giá', 'Tạm dừng', 'Hoàn thành', 'Đã huỷ'];
+
+  const hasAssignee = t.assignees.length > 0;
+  const assignee = t.assignees[0];
+  const assigneeUser = assignee?.userId ? meta?.users.find((u) => u.id === assignee.userId) : null;
+  const assigneeName = assignee?.name || '';
+  const assigneeDept = assigneeUser?.teamId ? roles.find((r) => r.id === assigneeUser.teamId)?.name : '';
+  const assigneeRole = assigneeDept || (assigneeUser ? 'Thành viên' : '');
+
+  const creatorUser = t.createdBy?.id ? meta?.users.find((u) => u.id === t.createdBy!.id) : null;
+  const creatorName = t.createdBy?.name || 'Hệ thống';
+  const creatorDept = creatorUser?.teamId ? roles.find((r) => r.id === creatorUser.teamId)?.name : '';
+  const creatorRole = creatorDept || (t.createdBy ? 'Thành viên' : '');
+
+  const projObj = t.project?.id ? meta?.projects.find((p) => p.id === t.project!.id) : null;
+  const customerName = projObj?.customerName || null;
+
+  const closePop = () => setPop(null);
+
+  const handlePostComment = async () => {
+    const text = commentText.trim();
+    if (!text || postingComment) return;
+    setPostingComment(true);
+    try {
+      const res = await api.addTaskComment(t.id, text);
+      const newComment = { id: res.id, userId: me.id, userName: me.name, text, createdAt: Date.now(), replyToId: null };
+      setComments((prev) => [...prev, newComment]);
+      setCommentText('');
+      toast('Đã thêm bình luận');
+      onChanged();
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setPostingComment(false);
+    }
+  };
+
+  const handlePostReply = async (parentId: string) => {
+    const text = replyText.trim();
+    if (!text || postingComment) return;
+    setPostingComment(true);
+    try {
+      const res = await api.addTaskComment(t.id, text, parentId);
+      const newReply = { id: res.id, userId: me.id, userName: me.name, text, createdAt: Date.now(), replyToId: parentId };
+      setComments((prev) => [...prev, newReply]);
+      setReplyText('');
+      setReplyingTo(null);
+      toast('Đã gửi câu trả lời');
+      onChanged();
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setPostingComment(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!confirm('Xoá bình luận này?')) return;
+    try {
+      await api.deleteTaskComment(commentId);
+      setComments((prev) => prev.filter((c) => c.id !== commentId && c.replyToId !== commentId));
+      toast('Đã xoá bình luận');
+      onChanged();
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
+
+  const topComments = useMemo(() => comments.filter((c) => !c.replyToId), [comments]);
+  const repliesByParent = useMemo(() => {
+    const map = new Map<string, typeof comments>();
+    for (const c of comments) {
+      if (c.replyToId) {
+        const list = map.get(c.replyToId) || [];
+        list.push(c);
+        map.set(c.replyToId, list);
+      }
+    }
+    return map;
+  }, [comments]);
+
+  const selectedUserIds = t.assignees.flatMap((p) => (p.userId && meta?.users.some((u) => u.id === p.userId) ? [p.userId] : []));
+  const legacyIds = t.assignees.filter((p) => !p.userId || !meta?.users.some((u) => u.id === p.userId)).map((p) => p.id);
+  const toggleMember = (userId: string) => {
+    const nextUsers = selectedUserIds.includes(userId) ? selectedUserIds.filter((x) => x !== userId) : [...selectedUserIds, userId];
+    void act(() => api.updateTask(t.id, { assigneeUserIds: nextUsers, assigneeIds: legacyIds }));
+  };
+
+  return (
+    <div className="wework-task-view" aria-label="Chi tiết công việc Base Wework">
+      {/* Column 3: Main Detail Pane */}
+      <main className="wework-main">
+        {/* Bento Box 1: Header, Title & Controls */}
+        <section className="wework-bento-card wework-header-card">
+          <header className="wework-top-bar">
+            <span className="wework-top-label">CHI TIẾT CÔNG VIỆC</span>
+            <div className="wework-top-actions">
+              {onUnfoldList && (
+                <button
+                  type="button"
+                  className="btn btn-gray btn-sm wework-unfold-btn"
+                  onClick={onUnfoldList}
+                  title="Mở danh sách công việc"
+                >
+                  <Icon name="lines" size={13} />
+                  <span>Danh sách việc</span>
+                </button>
+              )}
+              <button className="wework-action-btn" onClick={(e) => setPop({ kind: 'actions', el: e.currentTarget })} title="Thao tác khác" aria-label="Thao tác"><Icon name="more" size={16} /></button>
+              <button className="wework-action-btn" onClick={() => { void navigator.clipboard.writeText(location.href); toast('Đã sao chép liên kết công việc'); }} title="Sao chép liên kết" aria-label="Sao chép liên kết"><Icon name="link" size={15} /></button>
+              <button className={'wework-action-btn' + (bookmarked ? ' active' : '')} onClick={() => { setBookmarked(!bookmarked); toast(bookmarked ? 'Đã bỏ lưu' : 'Đã lưu công việc'); }} title="Đánh dấu" aria-label="Đánh dấu"><Icon name="tag" size={15} /></button>
+              <button className={'wework-action-btn' + (starred ? ' active' : '')} onClick={() => { setStarred(!starred); toast(starred ? 'Đã bỏ gắn sao' : 'Đã gắn sao công việc'); }} title="Gắn sao" aria-label="Gắn sao"><Icon name="star" size={15} /></button>
+              <button className="wework-action-btn" onClick={onClose} title="Đóng" aria-label="Đóng"><Icon name="x" size={16} /></button>
+            </div>
+          </header>
+
+          <textarea
+            className="wework-title-in"
+            value={titleDraft}
+            rows={1}
+            readOnly={!edit}
+            onChange={(e) => {
+              setTitleDraft(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = e.target.scrollHeight + 'px';
+            }}
+            onBlur={() => {
+              const next = titleDraft.replace(/\s+/g, ' ').trim();
+              if (!next) setTitleDraft(t.title);
+              else if (next !== t.title) void act(() => api.updateTask(t.id, { title: next }));
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                (e.target as HTMLTextAreaElement).blur();
+              }
+            }}
+            aria-label="Tên công việc"
+          />
+
+          <div className="wework-controls-bar">
+            <button className="wework-pill-btn" onClick={(e) => setPop({ kind: 'status', el: e.currentTarget })} title="Đổi trạng thái">
+              <b>{statusLabel}</b>
+              <Icon name="chevron" size={11} />
+            </button>
+            {hasAssignee ? (
+              <button className="wework-pill-btn" onClick={(e) => setPop({ kind: 'members', el: e.currentTarget })} title="Người thực hiện">
+                <Avatar m={{ id: assignee.id, name: assigneeName }} size={20} />
+                <b>{assigneeName}</b>
+                {assigneeRole && <><span className="wework-pill-sep">/</span><span className="wework-pill-sub">{assigneeRole}</span></>}
+                {t.assignees.length > 1 && <span style={{ marginLeft: 4, color: 'var(--tint)', fontSize: 11 }}>+{t.assignees.length - 1}</span>}
+                <Icon name="chevron" size={11} />
+              </button>
+            ) : (
+              <button className="wework-pill-btn empty" onClick={(e) => setPop({ kind: 'members', el: e.currentTarget })} title="Giao việc cho thành viên">
+                <Icon name="user" size={14} />
+                <b>+ Giao việc</b>
+                <Icon name="chevron" size={11} />
+              </button>
+            )}
+          </div>
+        </section>
+
+        {/* Bento Box 2: Thông tin chung */}
+        <section className="wework-bento-card wework-info-card">
+          <div className="wework-bento-title">
+            <Icon name="folder" size={14} />
+            <span>THÔNG TIN CHUNG</span>
+          </div>
+          <div className="wework-meta-list">
+            <div className="wework-meta-row">
+              <span className="wework-meta-ico"><Icon name="folder" size={15} /></span>
+              <span className="wework-meta-label">Dự án</span>
+              <button className="wework-meta-val" onClick={(e) => setPop({ kind: 'project', el: e.currentTarget })}>
+                <span>{t.project ? t.project.name : 'Không có dự án'}</span>
+                <Icon name="chevron" size={11} />
+              </button>
+            </div>
+            {customerName && (
+              <div className="wework-meta-row">
+                <span className="wework-meta-ico"><Icon name="briefcase" size={15} /></span>
+                <span className="wework-meta-label">Khách hàng</span>
+                <span className="wework-meta-val" style={{ cursor: 'default' }}>
+                  <span>{customerName}</span>
+                </span>
+              </div>
+            )}
+            {t.campaign?.name && t.campaign.name !== 'Công việc hiện có' && (
+              <div className="wework-meta-row">
+                <span className="wework-meta-ico"><Icon name="tag" size={15} /></span>
+                <span className="wework-meta-label">Chiến dịch</span>
+                <span className="wework-meta-val" style={{ cursor: 'default' }}>
+                  <span>{t.campaign.name}</span>
+                </span>
+              </div>
+            )}
+            <div className="wework-meta-row">
+              <span className="wework-meta-ico"><Icon name="clock" size={15} /></span>
+              <span className="wework-meta-label">Thời hạn</span>
+              <button className="wework-meta-val blue" onClick={(e) => setPop({ kind: 'dates', el: e.currentTarget })}>
+                <span>{t.dueAt ? `${t.startAt ? `${formatWeworkDateTime(t.startAt)} → ` : ''}${formatWeworkDate(t.dueAt)}` : 'Chưa đặt thời hạn'}</span>
+              </button>
+            </div>
+            <div className="wework-meta-row" style={{ alignItems: 'flex-start' }}>
+              <span className="wework-meta-ico" style={{ marginTop: 4, display: 'inline-flex' }}><Icon name="tag" size={15} /></span>
+              <span className="wework-meta-label" style={{ marginTop: 4 }}>Dịch vụ</span>
+              <div style={{ flex: 1 }}>
+                <TaskServices task={t} meta={meta} onSaved={onChanged} />
+              </div>
+            </div>
+            <div className="wework-meta-row" style={{ alignItems: 'flex-start' }}>
+              <span className="wework-meta-ico" style={{ marginTop: 4, display: 'inline-flex' }}><Icon name="tag" size={15} /></span>
+              <span className="wework-meta-label" style={{ marginTop: 4 }}>Nhãn / Tag</span>
+              <div className="tk-tag-chips" style={{ flex: 1, gap: 6 }}>
+                {((meta?.labels && meta.labels.length > 0) ? meta.labels : [
+                  { id: 'tl_urgent', name: 'Khẩn cấp', color: '#ef4444' },
+                  { id: 'tl_paidads', name: 'Paid Ads', color: '#0b7df2' },
+                ]).map((lbl) => {
+                  const active = (t.labels || []).some((l) => l.toLowerCase() === lbl.name.toLowerCase());
+                  const isUrgent = lbl.name.toLowerCase().includes('khẩn') || lbl.name.toLowerCase().includes('gấp');
+                  return (
+                    <button
+                      key={lbl.id || lbl.name}
+                      type="button"
+                      className={'tk-tag-chip' + (active ? ' active' : '') + (isUrgent ? ' urgent' : '')}
+                      style={{ fontSize: 11, padding: '3px 9px' }}
+                      onClick={() => {
+                        const curr = t.labels || [];
+                        const next = active
+                          ? curr.filter((l) => l.toLowerCase() !== lbl.name.toLowerCase())
+                          : [...curr, lbl.name];
+                        void act(() => api.updateTask(t.id, { labels: next }));
+                      }}
+                      title={active ? `Bỏ chọn nhãn ${lbl.name}` : `Chọn nhãn ${lbl.name}`}
+                    >
+                      {lbl.name}
+                      {active && <span className="tk-tag-check">✔</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Bento Box 3: Mô tả công việc */}
+        <section className="wework-bento-card wework-desc-card">
+          <div className="wework-bento-title">
+            <Icon name="lines" size={14} />
+            <span>MÔ TẢ CÔNG VIỆC</span>
+          </div>
+
+          {editingDesc ? (
+            <div className="wework-desc-edit">
+              <RichEditor value={descDraft} onChange={setDescDraft} onSubmit={() => void act(async () => { await api.updateTask(t.id, { description: descDraft }); setEditingDesc(false); })} />
+              <div className="cm-row" style={{ marginTop: 10 }}>
+                <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void act(async () => { await api.updateTask(t.id, { description: descDraft }); setEditingDesc(false); })}>{busy ? 'Đang lưu…' : 'Lưu'}</button>
+                <button className="btn btn-gray btn-sm" disabled={busy} onClick={() => setEditingDesc(false)}>Huỷ</button>
+              </div>
+            </div>
+          ) : (
+            <div className="wework-desc-body" onClick={() => edit && setEditingDesc(true)} title={edit ? 'Bấm để chỉnh sửa mô tả' : undefined}>
+              {t.description ? <RichView text={t.description} /> : <p className="note" style={{ margin: 0, padding: '8px 0' }}>Chưa có mô tả công việc. Bấm để thêm nội dung...</p>}
+            </div>
+          )}
+        </section>
+
+        {/* Bento Box 4: Subtasks */}
+        {(t.childTasks.length > 0 || edit) && (
+          <section className="wework-bento-card wework-subtasks-card">
+            <div className="wework-bento-title">
+              <Icon name="checklist" size={14} />
+              <span>CÔNG VIỆC CON {t.childTasks.length > 0 ? `(${t.childTasks.length})` : ''}</span>
+            </div>
+            <SubtaskTree
+              task={t}
+              onOpen={onOpen}
+              onChanged={onChanged}
+              onAddSubtask={(parentId, parentTask) => setSubtaskParent({ id: parentId, task: parentTask })}
+            />
+          </section>
+        )}
+      </main>
+
+      {/* Column 4: Right Metadata & Activity Sidebar */}
+      <aside className="wework-sidebar" aria-label="Thông tin bổ sung công việc">
+        <div className="wework-sidebar-card wework-goal-card">
+          <div className="wework-goal-title">
+            <Icon name="boards" size={15} />
+            <span>{t.boardLink ? 'Thẻ Workspace' : 'Chưa liên kết Workspace'}</span>
+          </div>
+          {t.boardLink ? (
+            <button
+              className="wework-goal-action"
+              onClick={() => openLinkedBoard(t.boardLink!)}
+              title="Mở thẻ trên Workspace"
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
+                {t.boardLink.boardName} · {t.boardLink.listName}
+              </span>
+              <Icon name="chevron" size={11} />
+            </button>
+          ) : (
+            <button className="wework-goal-action" onClick={onLink} title="Liên kết thẻ Workspace">
+              <span>+ Liên kết thẻ Workspace</span>
+              <Icon name="chevron" size={11} />
+            </button>
+          )}
+        </div>
+
+        <div className="wework-sidebar-card">
+          <div className="wework-sec-block">
+            <button className="wework-sec-h" onClick={() => setFoldAssignor(!foldAssignor)}>
+              <span>NGƯỜI GIAO VIỆC</span>
+              <Icon name={foldAssignor ? 'chevron' : 'up'} size={12} />
+            </button>
+            {!foldAssignor && (
+              <div className="wework-person-card">
+                <Avatar m={{ id: t.createdBy?.id || 'c', name: creatorName }} size={34} />
+                <div className="wework-person-meta">
+                  <b className="wework-person-name">{creatorName}</b>
+                  {creatorRole && <span className="wework-person-sub">{creatorRole}</span>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <hr className="wework-sidebar-sep" />
+
+          <div className="wework-sec-block">
+            <button className="wework-sec-h" onClick={() => setFoldFollowers(!foldFollowers)}>
+              <span>NGƯỜI THEO DÕI</span>
+              <Icon name={foldFollowers ? 'chevron' : 'up'} size={12} />
+            </button>
+            {!foldFollowers && (
+              <>
+                <div className="wework-followers-row">
+                  {t.followers.length > 0 ? (
+                    t.followers.map((f) => <Avatar key={f.id} m={{ id: f.id, name: f.name }} size={28} />)
+                  ) : (
+                    <p className="note" style={{ margin: '4px 0 8px', fontSize: 12 }}>Chưa có người theo dõi</p>
+                  )}
+                </div>
+                <div className="wework-follower-btns">
+                  <button className="wework-follower-btn" onClick={(e) => setPop({ kind: 'members', el: e.currentTarget })}>+ NGƯỜI THEO DÕI</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="wework-sidebar-card">
+          <div className="wework-timestamps">
+            <div className="wework-time-row">
+              <Icon name="clock" size={13} />
+              <span>TG tạo: <b>{formatWeworkDateTime(t.createdAt || t.startAt)}</b></span>
+            </div>
+            <div className="wework-time-row">
+              <Icon name="clock" size={13} />
+              <span>TG cập nhật: <b>{formatWeworkDateTime(t.updatedAt || t.sourceUpdatedAt)}</b></span>
+            </div>
+          </div>
+
+          <hr className="wework-sidebar-sep" />
+
+          <div className="wework-side-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sidebarTab === 'comments'}
+              className={'wework-side-tab' + (sidebarTab === 'comments' ? ' active' : '')}
+              onClick={() => setSidebarTab('comments')}
+            >
+              <Icon name="comment" size={13} />
+              <span>Trao đổi ({comments.length})</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sidebarTab === 'activity'}
+              className={'wework-side-tab' + (sidebarTab === 'activity' ? ' active' : '')}
+              onClick={() => setSidebarTab('activity')}
+            >
+              <Icon name="clock" size={13} />
+              <span>Lịch sử ({activity.length})</span>
+            </button>
+          </div>
+
+          {sidebarTab === 'comments' ? (
+            <div className="wework-comments-box">
+              {topComments.length > 0 ? (
+                <div className="wework-comments-list">
+                  {topComments.map((c) => {
+                    const replies = repliesByParent.get(c.id) || [];
+                    return (
+                      <div key={c.id} className="wework-comment-thread">
+                        <div className="wework-comment-item">
+                          <div className="wework-comment-header">
+                            <Avatar m={{ id: c.userId, name: c.userName }} size={24} />
+                            <b className="wework-comment-author">{c.userName}</b>
+                            <span className="wework-comment-time">{ago(c.createdAt)}</span>
+                          </div>
+                          <div className="wework-comment-body">{c.text}</div>
+                          <div className="wework-comment-actions">
+                            <button
+                              type="button"
+                              className="wework-action-link"
+                              onClick={() => {
+                                setReplyingTo({ id: c.id, userName: c.userName });
+                                setReplyText('');
+                              }}
+                            >
+                              <Icon name="back" size={11} />
+                              <span>Trả lời</span>
+                            </button>
+                            {(c.userId === me.id || me.role === 'admin') && (
+                              <button
+                                type="button"
+                                className="wework-action-link danger"
+                                onClick={() => handleDeleteComment(c.id)}
+                              >
+                                Xoá
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {replies.length > 0 && (
+                          <div className="wework-replies-list">
+                            {replies.map((r) => (
+                              <div key={r.id} className="wework-reply-item">
+                                <div className="wework-comment-header">
+                                  <Avatar m={{ id: r.userId, name: r.userName }} size={20} />
+                                  <b className="wework-comment-author">{r.userName}</b>
+                                  <span className="wework-comment-time">{ago(r.createdAt)}</span>
+                                </div>
+                                <div className="wework-comment-body">{r.text}</div>
+                                <div className="wework-comment-actions">
+                                  <button
+                                    type="button"
+                                    className="wework-action-link"
+                                    onClick={() => {
+                                      setReplyingTo({ id: c.id, userName: r.userName });
+                                      setReplyText(`@${r.userName} `);
+                                    }}
+                                  >
+                                    <Icon name="back" size={11} />
+                                    <span>Trả lời</span>
+                                  </button>
+                                  {(r.userId === me.id || me.role === 'admin') && (
+                                    <button
+                                      type="button"
+                                      className="wework-action-link danger"
+                                      onClick={() => handleDeleteComment(r.id)}
+                                    >
+                                      Xoá
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {replyingTo?.id === c.id && (
+                          <div className="wework-reply-input-wrap">
+                            <div className="wework-replying-to">
+                              <span>Trả lời <b>@{replyingTo.userName}</b></span>
+                              <button type="button" onClick={() => setReplyingTo(null)} aria-label="Huỷ">
+                                <Icon name="x" size={11} />
+                              </button>
+                            </div>
+                            <textarea
+                              autoFocus
+                              placeholder={`Trả lời @${replyingTo.userName}...`}
+                              value={replyText}
+                              onChange={(e) => setReplyText(e.target.value)}
+                              rows={2}
+                            />
+                            <div className="wework-reply-btns">
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-primary"
+                                disabled={!replyText.trim() || postingComment}
+                                onClick={() => handlePostReply(c.id)}
+                              >
+                                {postingComment ? 'Đang gửi…' : 'Gửi trả lời'}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-gray"
+                                onClick={() => setReplyingTo(null)}
+                              >
+                                Huỷ
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="note" style={{ fontSize: 12, margin: '8px 0' }}>Chưa có bình luận nào. Bạn có thể trao đổi công việc bên dưới.</p>
+              )}
+
+              <div className="wework-comment-input-wrap">
+                <textarea
+                  placeholder="Viết bình luận..."
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  rows={2}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  disabled={!commentText.trim() || postingComment}
+                  onClick={handlePostComment}
+                >
+                  {postingComment ? 'Đang gửi…' : 'Gửi'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="wework-activity-box">
+              {activity.length > 0 ? (
+                <div className="wework-act-list">
+                  {activity.map((a) => (
+                    <div key={a.id} className="wework-act-item">
+                      <b>{a.user}</b> {a.text} <small>{ago(a.at || Date.now())}</small>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="wework-act-list">
+                  <div className="wework-act-item">
+                    <b>{t.createdBy?.name || 'Hệ thống'}</b> đã tạo công việc này <small>{formatWeworkDateTime(t.createdAt || t.startAt)}</small>
+                  </div>
+                  {t.updatedAt && (
+                    <div className="wework-act-item">
+                      <span>Cập nhật gần nhất</span> <small>{formatWeworkDateTime(t.updatedAt)}</small>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <button className="wework-add-subtask-btn" onClick={() => setSubtaskParent({ id: t.id, task: t })}>
+          + CÔNG VIỆC CON
+        </button>
+      </aside>
+
+      {subtaskParent && (
+        <TaskEditor
+          meta={meta || undefined}
+          projectId={subtaskParent.task?.project?.id || t.project?.id}
+          parentId={subtaskParent.id}
+          parentTask={subtaskParent.task || t}
+          onClose={() => setSubtaskParent(null)}
+          onSaved={() => {
+            setSubtaskParent(null);
+            onChanged();
+          }}
+        />
+      )}
+
+      {/* Popovers */}
+      {pop?.kind === 'status' && (
+        <Pop anchor={pop.el} title="Đổi trạng thái" onClose={closePop}>
+          <div className="bk-menu">
+            {allStatuses.map((s) => (
+              <button key={s} onClick={() => { closePop(); void act(() => api.setTaskStatus(t.id, s)); }}>
+                <span>{s}</span>
+                {t.status === s && <Icon name="check" size={15} />}
+              </button>
+            ))}
+          </div>
+        </Pop>
+      )}
+
+      {pop?.kind === 'members' && meta && (
+        <Pop anchor={pop.el} title="Thành viên" onClose={closePop}>
+          <MemberChoices people={meta.users} selected={selectedUserIds} onToggle={toggleMember} />
+        </Pop>
+      )}
+
+      {pop?.kind === 'project' && meta && (
+        <Pop anchor={pop.el} title="Dự án" onClose={closePop}>
+          <div className="bk-menu">
+            {meta.projects.map((p) => (
+              <button key={p.id} onClick={() => { closePop(); void act(() => api.updateTask(t.id, { projectId: p.id })); }}>
+                <span>{p.name}</span>
+                {t.project?.id === p.id && <Icon name="check" size={15} />}
+              </button>
+            ))}
+          </div>
+        </Pop>
+      )}
+
+      {pop?.kind === 'dates' && (
+        <Pop anchor={pop.el} title="Ngày" onClose={closePop}>
+          <label className="bk-check"><input type="checkbox" checked={hasStart} onChange={(e) => setHasStart(e.target.checked)} />Ngày bắt đầu</label>
+          <input className="bk-in" type="date" disabled={!hasStart} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          <label className="bk-check"><input type="checkbox" checked={hasDue} onChange={(e) => setHasDue(e.target.checked)} />Ngày hết hạn</label>
+          <div className="cm-row">
+            <input className="bk-in" type="date" disabled={!hasDue} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            <input className="bk-in bk-time" type="time" disabled={!hasDue} value={dueTime} onChange={(e) => setDueTime(e.target.value)} />
+          </div>
+          <button className="btn btn-primary bk-wide" onClick={() => {
+            closePop();
+            const ms = (d: string, tm = '00:00') => new Date(`${d}T${tm}`).getTime();
+            void act(() => api.updateTask(t.id, { startAt: hasStart && startDate ? ms(startDate) : null, dueAt: hasDue && dueDate ? ms(dueDate, dueTime || '00:00') : null }));
+          }}>Lưu</button>
+          <button className="btn btn-gray bk-wide" onClick={() => { closePop(); void act(() => api.updateTask(t.id, { startAt: null, dueAt: null })); }}>Gỡ bỏ</button>
+        </Pop>
+      )}
+
+      {pop?.kind === 'actions' && (
+        <Pop anchor={pop.el} title="Thao tác" onClose={closePop}>
+          <div className="bk-menu">
+            {onToggleCard && <button onClick={() => { closePop(); onToggleCard(); }}><Icon name="boards" size={15} /><span>Xem dạng thẻ Workspace</span></button>}
+            <button onClick={() => { closePop(); onLink(); }}><Icon name="boards" size={15} /><span>Liên kết thẻ Workspace</span></button>
+            {t.canDelete && (
+              <button className="cm-danger" onClick={async () => {
+                closePop();
+                if (!confirm('Xoá công việc này? Việc con và thẻ liên kết sẽ được gỡ.')) return;
+                try { await api.deleteTask(t.id); onChanged(); onClose(); }
+                catch (e: any) { toast(e.message, true); }
+              }}>
+                <Icon name="trash" size={15} />
+                <span>Xoá công việc</span>
+              </button>
+            )}
+          </div>
+        </Pop>
+      )}
+    </div>
+  );
+}
+
 /** A task's detail: beside the list, or as its own page (`page`) with the unified CardModal layout (Image 2). */
-export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOpen, onClose, onChanged, onExpand }: { inline?:boolean; id: string; meta: TaskMeta | null; statuses: string[]; page?: boolean; onOpen: (id: string) => void; onClose: () => void; onChanged: () => void; onExpand?: () => void }) {
+export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOpen, onClose, onChanged, onExpand, onUnfoldList }: { inline?:boolean; id: string; meta: TaskMeta | null; statuses: string[]; page?: boolean; onOpen: (id: string) => void; onClose: () => void; onChanged: () => void; onExpand?: () => void; onUnfoldList?: () => void }) {
   const [t, setT] = useState<TaskDetail | null>(null);
   const [linking, setLinking] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [asCard, setAsCard] = useState(true);
+  const [asCard, setAsCard] = useState(false);
+  const [subtaskParent, setSubtaskParent] = useState<{ id: string; task?: TaskDetail | TaskItem } | null>(null);
   const activeId = useRef(id); activeId.current = id;
   const load = () => api.task(id).then((value) => { if (activeId.current === id) setT(value); }, (e) => { if (activeId.current === id) { toast(e.message, true); onClose(); } });
-  useEffect(() => { setT(null); setLinking(false); setAsCard(true); load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setT(null); setLinking(false); setAsCard(false); load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (page) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !linking && !document.querySelector('dialog.qc-dialog[open]')) onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose, linking, page]);
+
+  useEffect(() => {
+    const handleAddSubtask = (e: Event) => {
+      const targetId = (e as CustomEvent<string>).detail;
+      if (t) {
+        if (targetId === t.id) {
+          setSubtaskParent({ id: t.id, task: t });
+        } else {
+          const found = t.childTasks?.find((k) => k.id === targetId);
+          if (found) {
+            setSubtaskParent({ id: targetId, task: found });
+          }
+        }
+      }
+    };
+    window.addEventListener('dms:add-subtask', handleAddSubtask);
+    return () => window.removeEventListener('dms:add-subtask', handleAddSubtask);
+  }, [t]);
 
   // Unified task facts section displayed inside the card view (both linked and standalone tasks).
   const isLinked = !!(t && t.boardLink && asCard);
@@ -287,7 +1339,14 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
         <div><dt>Người theo dõi</dt><dd>{t.canEdit&&meta?<TaskInlineFollowers key={t.id+':'+t.updatedAt} task={t} meta={meta} onSaved={()=>{void load();onChanged();}}/>:<EmployeeAvatars people={t.followers}/>}</dd></div>
         <div><dt>Tạo bởi</dt><dd>{t.createdBy?.name || '—'}</dd></div>
       </dl>
-      {(t.childTasks.length > 0 || t.canEdit) && <SubtaskTree task={t} onOpen={onOpen} onChanged={() => { void load(); onChanged(); }} />}
+      {(t.childTasks.length > 0 || t.canEdit) && (
+        <SubtaskTree
+          task={t}
+          onOpen={onOpen}
+          onChanged={() => { void load(); onChanged(); }}
+          onAddSubtask={(parentId, parentTask) => setSubtaskParent({ id: parentId, task: parentTask })}
+        />
+      )}
     </section>
   );
 
@@ -297,22 +1356,42 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
     <button className="cm-top-b" onClick={onClose} aria-label="Đóng" title="Về danh sách"><Icon name="x" size={18} /></button>
   </> : undefined;
   const cardBody = t ? (
-    t.boardLink && asCard
-      ? <LinkedCard embedded={inline || page} link={t.boardLink} extra={taskFacts} topActions={topActions} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onFail={() => setAsCard(false)} />
-      : <StandaloneTaskCard task={t} meta={meta} statuses={t.statuses || statuses} embedded={inline || page} extra={taskFacts} topActions={topActions} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onLink={() => setLinking(true)} />
+    asCard ? (
+      t.boardLink
+        ? <LinkedCard embedded={inline || page} link={t.boardLink} extra={taskFacts} topActions={topActions} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onFail={() => setAsCard(false)} />
+        : <StandaloneTaskCard task={t} meta={meta} statuses={t.statuses || statuses} embedded={inline || page} extra={taskFacts} topActions={topActions} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onLink={() => setLinking(true)} />
+    ) : (
+      <WeworkTaskView task={t} meta={meta} statuses={t.statuses || statuses} onOpen={onOpen} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onLink={() => setLinking(true)} onToggleCard={() => setAsCard(true)} onUnfoldList={onUnfoldList} />
+    )
   ) : null;
 
   const linkDialog = linking && t && <TaskBoardLink task={t} onClose={() => setLinking(false)} onLinked={() => { setLinking(false); setAsCard(true); load(); onChanged(); }} />;
-  if (!page && !inline) return <>{cardBody}{linkDialog}</>;
+  const subtaskDialog = subtaskParent && (
+    <TaskEditor
+      meta={meta || undefined}
+      projectId={subtaskParent.task?.project?.id || t?.project?.id}
+      parentId={subtaskParent.id}
+      parentTask={subtaskParent.task || t || undefined}
+      onClose={() => setSubtaskParent(null)}
+      onSaved={() => {
+        setSubtaskParent(null);
+        void load();
+        onChanged();
+      }}
+    />
+  );
+  if (!page && !inline) return <>{cardBody}{linkDialog}{subtaskDialog}</>;
   if (inline) return <article className="tk-reading-pane" aria-label="Chi tiết công việc" aria-busy={!t}>
     {!t?<BrandLoading label="Đang mở công việc…"/>:<div className="tk-card-embed">{cardBody}</div>}
     {linkDialog}
+    {subtaskDialog}
   </article>;
   return (
     <div className="ad-page tk-page tk-detail-page">
       <header className="tk-detail-top"><button className="btn btn-gray btn-sm" onClick={onClose}><Icon name="left" size={14} />Danh sách công việc</button></header>
       {!t ? <BrandLoading label="Đang mở…"/> : <div className="tk-card-embed tk-card-page">{cardBody}</div>}
       {linkDialog}
+      {subtaskDialog}
     </div>
   );
 }
@@ -574,8 +1653,36 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
       )}
       {pop?.kind === 'labels' && (
         <Pop anchor={pop.el} title="Nhãn" onClose={closePop}>
-          <h5>Nhãn (cách nhau bằng dấu phẩy)</h5>
-          <input className="bk-in" autoFocus value={labelsDraft} onChange={(e) => setLabelsDraft(e.target.value)} placeholder="Vd: Paid Ads, Gấp…" onKeyDown={(e) => { if (e.key === 'Enter') { closePop(); void act(() => api.updateTask(t.id, { labels: labelsDraft.split(',').map((s) => s.trim()).filter(Boolean) })); } }} />
+          {meta?.labels && meta.labels.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <h5 style={{ margin: '0 0 6px' }}>Chọn nhãn nhanh:</h5>
+              <div className="tk-tag-chips">
+                {meta.labels.map((lbl) => {
+                  const list = labelsDraft.split(',').map((s) => s.trim()).filter(Boolean);
+                  const active = list.some((l) => l.toLowerCase() === lbl.name.toLowerCase());
+                  const isUrgent = lbl.name.toLowerCase().includes('khẩn') || lbl.name.toLowerCase().includes('gấp');
+                  return (
+                    <button
+                      key={lbl.id || lbl.name}
+                      type="button"
+                      className={'tk-tag-chip' + (active ? ' active' : '') + (isUrgent ? ' urgent' : '')}
+                      onClick={() => {
+                        const next = active
+                          ? list.filter((l) => l.toLowerCase() !== lbl.name.toLowerCase())
+                          : [...list, lbl.name];
+                        setLabelsDraft(next.join(', '));
+                      }}
+                    >
+                      {lbl.name}
+                      {active && <span className="tk-tag-check">✔</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <h5>Nhãn tuỳ chỉnh (cách nhau bằng dấu phẩy)</h5>
+          <input className="bk-in" autoFocus value={labelsDraft} onChange={(e) => setLabelsDraft(e.target.value)} placeholder="Vd: Paid Ads, Khẩn cấp…" onKeyDown={(e) => { if (e.key === 'Enter') { closePop(); void act(() => api.updateTask(t.id, { labels: labelsDraft.split(',').map((s) => s.trim()).filter(Boolean) })); } }} />
           <button className="btn btn-primary btn-sm bk-wide" style={{ marginTop: 8 }} onClick={() => { closePop(); void act(() => api.updateTask(t.id, { labels: labelsDraft.split(',').map((s) => s.trim()).filter(Boolean) })); }}>Lưu nhãn</button>
         </Pop>
       )}
@@ -638,7 +1745,7 @@ function TaskInlineField({task,field,label,value,multiline=false,meta,children,o
  if(!editable)return <>{children}</>;
  const save=async(e:React.FormEvent)=>{e.preventDefault();if(busy)return;setBusy(true);setError('');try{const body:TaskWrite={};if(field==='startAt'||field==='dueAt')body[field]=draft?new Date(draft).getTime():null;else if(field==='projectId'){body.projectId=draft||null;body.campaignId=null;}else if(field==='campaignId')body.campaignId=draft||null;else if(field==='labels')body.labels=draft.split(',').map(s=>s.trim()).filter(Boolean);else body[field]=draft;await api.updateTask(task.id,body);setEditing(false);onSaved();}catch(e:any){setError(e.message);}finally{setBusy(false);}};
  return editing?<form className="tk-field-editor" onSubmit={save} onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();e.preventDefault();if(!busy)setEditing(false);}}}>
- <fieldset disabled={busy}>{field==='projectId'||field==='campaignId'?<select autoFocus aria-label={label} value={draft} onChange={e=>setDraft(e.target.value)}><option value="">{field==='projectId'?'Không có dự án':'Công việc hiện có'}</option>{field==='projectId'?meta?.projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>):meta?.campaigns.filter(c=>c.projectId===task.project?.id).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>:multiline?<RichEditor value={value} onChange={setDraft} placeholder={label} autoFocus onSubmit={()=>document.querySelector<HTMLFormElement>('.tk-field-editor')?.requestSubmit()}/>:<input autoFocus aria-label={label} type={field==='startAt'||field==='dueAt'?'datetime-local':'text'} required={field==='title'} maxLength={field==='title'?500:undefined} value={draft} onChange={e=>setDraft(e.target.value)}/>}
+ <fieldset disabled={busy}>{field==='projectId'||field==='campaignId'?<select autoFocus aria-label={label} value={draft} onChange={e=>setDraft(e.target.value)}><option value="">{field==='projectId'?'Không có dự án':'Không thuộc chiến dịch'}</option>{field==='projectId'?meta?.projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>):meta?.campaigns.filter(c=>c.projectId===task.project?.id).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>:multiline?<RichEditor value={value} onChange={setDraft} placeholder={label} autoFocus onSubmit={()=>document.querySelector<HTMLFormElement>('.tk-field-editor')?.requestSubmit()}/>:<input autoFocus aria-label={label} type={field==='startAt'||field==='dueAt'?'datetime-local':'text'} required={field==='title'} maxLength={field==='title'?500:undefined} value={draft} onChange={e=>setDraft(e.target.value)}/>}
  <div className="tk-action-row"><button type="submit" className="btn btn-primary btn-sm">{busy?'Đang lưu…':'Lưu'}</button><button type="button" className="btn btn-gray btn-sm" onClick={()=>setEditing(false)}>Huỷ</button></div></fieldset>{error&&<p className="note err" role="alert">{error}</p>}</form>:<div className="tk-editable" role="button" tabIndex={0} aria-label={`Sửa ${label.toLocaleLowerCase('vi')}`} title="Bấm để sửa" onClick={e=>{if((e.target as HTMLElement).closest('a,button'))return;setDraft(value);setError('');setEditing(true);}} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setDraft(value);setError('');setEditing(true);}}}>{children}<Icon name="edit" size={13}/></div>;
 }
 function TaskInlineMembers({task,meta,onSaved}:{task:TaskDetail;meta:TaskMeta;onSaved:()=>void}){
@@ -653,29 +1760,43 @@ function TaskInlineFollowers({task,meta,onSaved}:{task:TaskDetail;meta:TaskMeta;
  return <div className="tk-inline-members" aria-busy={busy}><fieldset disabled={busy}><EmployeePicker label="Người theo dõi" users={meta.users} selected={ids} onChange={next=>void save(next)}/></fieldset>{busy&&<small>Đang lưu…</small>}{error&&<p className="note err" role="alert">{error}</p>}</div>;
 }
 
-export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, campaignId, onClose, onSaved }: { inline?:boolean; task?: TaskDetail; meta: TaskMeta; projectId?: string; campaignId?:string; onClose: () => void; onSaved: (id: string) => void }) {
-  const[meta,setMeta]=useState(initialMeta);
+export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, campaignId, parentId, parentTask, onClose, onSaved }: { inline?:boolean; task?: TaskDetail; meta?: TaskMeta; projectId?: string; campaignId?:string; parentId?: string; parentTask?: TaskDetail | TaskItem; onClose: () => void; onSaved: (id: string) => void }) {
+  const[meta,setMeta]=useState<TaskMeta | null>(initialMeta || null);
   const reloadMeta=()=>api.taskMeta().then(setMeta);
+  useEffect(()=>{ if(!meta) void reloadMeta().catch(()=>{}); },[meta]);
   useEntityRefresh(()=>{void reloadMeta().catch(()=>{});});
   const[linkedStatuses,setLinkedStatuses]=useState(task?.statuses);
   const [title,setTitle] = useState(task?.title || '');
   const [description,setDescription] = useState(task?.description || '');
   const [result,setResult] = useState(task?.result || '');
   const [status,setStatus] = useState(task?.status || 'Chưa thực hiện');
-  const [project,setProject] = useState(task?.project?.id || projectId || '');
+  const [project,setProject] = useState(task?.project?.id || projectId || parentTask?.project?.id || '');
   const [campaign,setCampaign] = useState(task?.campaign?.id || campaignId || '');
-  const [parent,setParent] = useState(task?.parent?.id || '');
+  const [parent,setParent] = useState(task?.parent?.id || parentId || '');
   const [start,setStart] = useState(localDateTime(task?.startAt));
-  const [due,setDue] = useState(localDateTime(task?.dueAt));
-  const [people,setPeople] = useState(task?.assignees.filter(p=>!p.userId || !meta.users.some(u=>u.id===p.userId)).map(p=>p.id) || []);
-  const [users,setUsers] = useState<string[]>(task?.assignees.map(p=>p.userId).filter((id):id is string=>!!id&&meta.users.some(u=>u.id===id)) || []);
+  const [due,setDue] = useState(localDateTime(task?.dueAt || parentTask?.dueAt));
+  const [people,setPeople] = useState(task?.assignees.filter(p=>!p.userId || !meta?.users.some(u=>u.id===p.userId)).map(p=>p.id) || []);
+  const [users,setUsers] = useState<string[]>(task?.assignees.map(p=>p.userId).filter((id):id is string=>!!id&&!!meta?.users.some(u=>u.id===id)) || []);
   const [followers,setFollowers] = useState<string[]>(task?.followers.map(f=>f.id) || []);
   const [labels,setLabels] = useState(task?.labels.join(', ') || '');
-  const [parents,setParents] = useState<TaskItem[]>([]);
+  const [parents,setParents] = useState<TaskItem[]>(parentTask ? [parentTask as TaskItem] : []);
   const [busy,setBusy] = useState(false), [error,setError] = useState('');
   // A parent is one of the project's tasks (without a project: one of the account's own).
   const parentsOf = (projectId: string) => api.tasks(projectId ? { scope: 'all', project: projectId } : { scope: 'mine' });
-  useEffect(() => { let active=true; parentsOf(project).then(r=>{if(active)setParents(r.tasks);},()=>{}); return()=>{active=false;}; },[project]);
+  useEffect(() => {
+    let active=true;
+    parentsOf(project).then(r=>{
+      if(active){
+        setParents(prev => {
+          if (parentTask && !r.tasks.some(p => p.id === parentTask.id)) {
+            return [parentTask as TaskItem, ...r.tasks];
+          }
+          return r.tasks;
+        });
+      }
+    },()=>{});
+    return()=>{active=false;};
+  },[project]);
   useEffect(() => { const key=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!busy&&!document.querySelector('dialog.qc-dialog[open]')){e.stopPropagation();onClose();}}; document.addEventListener('keydown',key,true);return()=>document.removeEventListener('keydown',key,true); },[busy,onClose]);
   const save = async (e:React.FormEvent) => {
     e.preventDefault(); if(busy)return;
@@ -696,8 +1817,31 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
     if(choice==='custom')return;
     const date=new Date();date.setDate(date.getDate()+(choice==='tomorrow'?1:0));date.setHours(23,59,0,0);setDue(localDateTime(date.getTime()));
   };
+
+  if (!meta) return null;
+  const isSubtask = !!(parent || parentId);
+  const headerTitle = task ? 'Sửa công việc' : isSubtask ? 'Tạo công việc con' : 'Tạo công việc mới';
+
+  const availableLabels = (meta.labels && meta.labels.length > 0)
+    ? meta.labels
+    : [
+        { id: 'tl_urgent', name: 'Khẩn cấp', color: '#ef4444' },
+        { id: 'tl_paidads', name: 'Paid Ads', color: '#0b7df2' },
+      ];
+
+  const currentLabelList = labels.split(',').map((s) => s.trim()).filter(Boolean);
+
+  const toggleTag = (tagName: string) => {
+    const norm = tagName.trim();
+    const exists = currentLabelList.some((l) => l.toLowerCase() === norm.toLowerCase());
+    const next = exists
+      ? currentLabelList.filter((l) => l.toLowerCase() !== norm.toLowerCase())
+      : [...currentLabelList, norm];
+    setLabels(next.join(', '));
+  };
+
   const content=<form className={(inline?"tk-dialog tk-editor tk-inline-editor":"tk-dialog tk-editor")+(!task?" tk-create-simple":"")} role={inline?undefined:"dialog"} aria-modal={inline?undefined:true} aria-label={task?'Sửa công việc':'Tạo công việc'} onSubmit={save}>
-    <header><b>{task?'Sửa công việc':'Tạo công việc mới'}</b><button type="button" className="bd-icon" disabled={busy} onClick={onClose} aria-label="Đóng"><Icon name="x" size={15}/></button></header>
+    <header><b>{headerTitle}</b><button type="button" className="bd-icon" disabled={busy} onClick={onClose} aria-label="Đóng"><Icon name="x" size={15}/></button></header>
     {task?(<fieldset disabled={busy}>
       <label>Tên công việc<input autoFocus required maxLength={500} value={title} onChange={e=>setTitle(e.target.value)}/></label>
       <div className="tk-form-grid"><label>Trạng thái{task?.boardLink?<EntitySelect kind="list" context={{boardId:task.boardLink.boardId}} createdValue={r=>r.name} onCreated={async()=>setLinkedStatuses((await api.board(task.boardLink!.boardId)).lists.map(l=>l.name))} value={status} onChange={setStatus}>{!(linkedStatuses||meta.statuses).includes(status)&&<option>{status}</option>}{(linkedStatuses||meta.statuses).map(s=><option key={s}>{s}</option>)}</EntitySelect>:<select value={status} onChange={e=>setStatus(e.target.value)}>{!meta.statuses.includes(status)&&<option>{status}</option>}{meta.statuses.map(s=><option key={s}>{s}</option>)}</select>}</label>
@@ -707,23 +1851,87 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       {/* Not <label>: one around the editor would press its first toolbar button on any click inside. */}
       <div className="tk-rt-field" title={task?.canEditDescription===false?'Chỉ người viết mô tả mới sửa được mô tả':undefined}><span>Mô tả</span>{task.canEditDescription===false?<div className="tk-rich"><RichView text={description||'Chưa có mô tả.'}/></div>:<RichEditor value={task.description||''} onChange={setDescription} placeholder="Mô tả"/>}</div>
       {task.result !== null && <div className="tk-rt-field"><span>Kết quả công việc</span><RichEditor value={task.result||''} onChange={setResult} placeholder="Link bài đăng, tài khoản bàn giao…" compact/></div>}
-      <label>Nhãn<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label>
+      <div className="tk-tag-picker" style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--label-2)' }}>Nhãn / Tag:</span>
+          <a href="#admin/tasks/categories" target="_blank" rel="noreferrer" className="tk-admin-tag-link" style={{ fontSize: 11, color: 'var(--tint)' }}>Quản lý nhãn trong Quản trị ↗</a>
+        </div>
+        <div className="tk-tag-chips">
+          {availableLabels.map((lbl) => {
+            const active = currentLabelList.some((l) => l.toLowerCase() === lbl.name.toLowerCase());
+            const isUrgent = lbl.name.toLowerCase().includes('khẩn') || lbl.name.toLowerCase().includes('gấp');
+            return (
+              <button
+                key={lbl.id || lbl.name}
+                type="button"
+                className={'tk-tag-chip' + (active ? ' active' : '') + (isUrgent ? ' urgent' : '')}
+                onClick={() => toggleTag(lbl.name)}
+                title={active ? `Bỏ chọn nhãn ${lbl.name}` : `Chọn nhãn ${lbl.name}`}
+              >
+                {lbl.name}
+                {active && <span className="tk-tag-check">✔</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <label>Nhãn tuỳ chỉnh<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label>
       <div className="tk-staff-picker"><EmployeePicker users={meta.users} selected={users} onChange={setUsers} legacy={task?.assignees.filter(p=>people.includes(p.id)) || []} onLegacyChange={setPeople}/></div>
       <div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
       {!task&&(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dự án'} được tự động thêm khi lưu.</p>}
     </fieldset>):(<fieldset disabled={busy} className="tk-create-fields">
-      <input className="tk-create-title" aria-label="Tên công việc" placeholder="Tên công việc" autoFocus required maxLength={500} value={title} onChange={e=>setTitle(e.target.value)}/>
+      {isSubtask && (
+        <div className="tk-create-row tk-create-parent" style={{ background: 'var(--fill-2)', borderRadius: 8, padding: '7px 10px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="layers" size={16} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, flex: 1, minWidth: 0 }}>
+            <span style={{ color: 'var(--label-2)', whiteSpace: 'nowrap' }}>Thuộc việc cha:</span>
+            <strong style={{ color: 'var(--label)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {parentTask?.title || parents.find((p) => p.id === parent)?.title || 'Công việc cha'}
+            </strong>
+          </div>
+        </div>
+      )}
+      <input className="tk-create-title" aria-label="Tên công việc" placeholder={isSubtask ? "Tên công việc con" : "Tên công việc"} autoFocus required maxLength={500} value={title} onChange={e=>setTitle(e.target.value)}/>
       <div className="tk-create-row"><Icon name="user" size={18}/><div><div className="tk-staff-picker"><EmployeePicker users={meta.users} selected={users} onChange={setUsers} legacy={[]} onLegacyChange={setPeople}/></div></div></div>
       <div className="tk-create-row"><Icon name="folder" size={18}/><div><label>Dự án<EntitySelect kind="project" value={project} onCreated={reloadMeta} onChange={v=>{setProject(v);setCampaign('');setParent('');}}><option value="">Không có dự án</option>{meta.projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</EntitySelect></label></div></div>
       <div className="tk-create-row"><Icon name="clock" size={18}/><div className="tk-quick-due"><span>Đến hạn vào</span><div role="group" aria-label="Chọn hạn công việc">{([['today','Hôm nay'],['tomorrow','Ngày mai'],['custom','Khác']] as const).map(([key,label])=><button type="button" key={key} aria-pressed={dueChoice===key} onClick={()=>pickDue(key)}>{label}</button>)}{due&&<button type="button" onClick={()=>{setDue('');setDueChoice('');}} aria-label="Bỏ thời hạn"><Icon name="x" size={13}/></button>}</div>{dueChoice==='custom'?<input type="datetime-local" aria-label="Thời hạn công việc" value={due} onChange={e=>setDue(e.target.value)}/>:due&&<small>{when(new Date(due).getTime())}</small>}</div></div>
+      <div className="tk-create-row tk-create-tags">
+        <Icon name="tag" size={18} />
+        <div className="tk-tag-picker">
+          <div className="tk-tag-chips">
+            {availableLabels.map((lbl) => {
+              const active = currentLabelList.some((l) => l.toLowerCase() === lbl.name.toLowerCase());
+              const isUrgent = lbl.name.toLowerCase().includes('khẩn') || lbl.name.toLowerCase().includes('gấp');
+              return (
+                <button
+                  key={lbl.id || lbl.name}
+                  type="button"
+                  className={'tk-tag-chip' + (active ? ' active' : '') + (isUrgent ? ' urgent' : '')}
+                  onClick={() => toggleTag(lbl.name)}
+                  title={active ? `Bỏ chọn nhãn ${lbl.name}` : `Chọn nhãn ${lbl.name}`}
+                >
+                  {lbl.name}
+                  {active && <span className="tk-tag-check">✔</span>}
+                </button>
+              );
+            })}
+          </div>
+          <div className="tk-tag-hint">
+            <span>Chọn nhãn nhanh cho công việc (ví dụ: Khẩn cấp)</span>
+            <a href="#admin/tasks/categories" target="_blank" rel="noreferrer" className="tk-admin-tag-link" title="Mở trang Quản lý Danh mục & Nhãn công việc trong Quản trị">
+              Quản trị nhãn ↗
+            </a>
+          </div>
+        </div>
+      </div>
       <div className="tk-create-row tk-create-description"><Icon name="lines" size={18}/><div className="tk-create-compose"><RichEditor value={description} onChange={setDescription} placeholder="Mô tả"/></div></div>
-      <details className="tk-create-more"><summary>Tuỳ chọn khác</summary><div className="tk-create-advanced"><div className="tk-form-grid"><label>Trạng thái<select value={status} onChange={e=>setStatus(e.target.value)}>{!meta.statuses.includes(status)&&<option>{status}</option>}{meta.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Ngày bắt đầu<input type="datetime-local" value={start} onChange={e=>setStart(e.target.value)}/></label></div><label>Công việc cha<EntitySelect kind="task" context={{projectId:project}} value={parent} onCreated={async()=>setParents((await parentsOf(project)).tasks)} onChange={setParent}><option value="">Không có</option>{parents.filter(p=>!project||p.project?.id===project).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</EntitySelect></label><label>Nhãn<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label><div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
+      <details className="tk-create-more"><summary>Tuỳ chọn khác</summary><div className="tk-create-advanced"><div className="tk-form-grid"><label>Trạng thái<select value={status} onChange={e=>setStatus(e.target.value)}>{!meta.statuses.includes(status)&&<option>{status}</option>}{meta.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Ngày bắt đầu<input type="datetime-local" value={start} onChange={e=>setStart(e.target.value)}/></label></div><label>Công việc cha<EntitySelect kind="task" context={{projectId:project}} value={parent} onCreated={async()=>setParents((await parentsOf(project)).tasks)} onChange={setParent}><option value="">Không có</option>{parents.filter(p=>!project||p.project?.id===project).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</EntitySelect></label><label>Nhãn tuỳ chỉnh khác<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label><div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
       {(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dự án'} được tự động thêm khi lưu.</p>}
       </div></details>
     </fieldset>)}
     {task?.hasBoardLink&&<p className="note">Tên, mô tả, ngày và hoàn thành sẽ cập nhật trên thẻ liên kết. Kết quả công việc được giữ ở đây.</p>}
     {error&&<p className="note err" role="alert">{error}</p>}
-    <div className="tk-action-row"><button className="btn btn-primary btn-sm" disabled={busy||!title.trim()}>{busy?'Đang lưu…':task?'Lưu công việc':'Tạo công việc'}</button><button type="button" className="btn btn-gray btn-sm" disabled={busy} onClick={onClose}>Huỷ</button></div>
+    <div className="tk-action-row"><button className="btn btn-primary btn-sm" disabled={busy||!title.trim()}>{busy?'Đang lưu…':task?'Lưu công việc':isSubtask?'Tạo việc con':'Tạo công việc'}</button><button type="button" className="btn btn-gray btn-sm" disabled={busy} onClick={onClose}>Huỷ</button></div>
   </form>;
   return inline?content:createPortal(<div className="bd-modal task-editor-back" onMouseDown={e=>e.target===e.currentTarget&&!busy&&onClose()}>{content}</div>,document.body);
 }

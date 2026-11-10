@@ -25,6 +25,8 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
   const [pop, setPop] = useState<{ kind: PopKind; el: HTMLElement; label?: BoardLabel | null } | null>(null);
   const [commentsOpen,setCommentsOpen]=useState(!embedded);
   const [details, setDetails] = useState(false);
+  const [sideTab, setSideTab] = useState<'comments' | 'activity'>('comments');
+  const [replyingTo, setReplyingTo] = useState<{ id: string; userName: string } | null>(null);
   const [pending, setPending] = useState(0);
   // Result files come from the customer's folder, which only people with the Drive page open.
   const drive = useStore((s) => s.pages.includes('workspace'));
@@ -149,16 +151,59 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
 
           {commentsOpen && <ResizeHandle side="after" cssVar="--cm-side-w" storage="comments" min={260} max={640} label="Đổi độ rộng khung bình luận" />}
           <aside id="card-comments" className="cm-right" hidden={!commentsOpen} aria-label="Bình luận và hoạt động"><MentionPeople.Provider value={others}>
-            <h3 className="cm-right-h"><Icon name="comment" size={18} />Bình luận và hoạt động<button className="btn btn-gray btn-sm" onClick={() => setDetails(!details)}>{details ? 'Ẩn chi tiết' : 'Hiện chi tiết'}</button></h3>
-            <CommentBox me={me} onSave={(t) => act(() => api.addComment(c.id, t))} />
-            {!c.comments.length&&(!details||!c.activity.length)&&<p className="cm-feed-empty">Chưa có bình luận{details?' hoặc hoạt động':''}. Trao đổi về công việc tại đây.</p>}
-            <ul className="cm-feed">
-              {[...c.comments.map((x) => ({ at: x.createdAt, k: 'c' as const, x })), ...(details ? c.activity.map((x) => ({ at: x.createdAt, k: 'a' as const, x })) : [])]
-                .sort((a, b) => b.at - a.at)
-                .map((e) => e.k === 'c'
-                  ? <Comment key={e.x.id} x={e.x} me={me} canDelete={e.x.userId === me.id || board.level === 'admin'} who={board.members.find((m) => m.id === e.x.userId) || { id: e.x.userId, name: e.x.userName }} act={act} />
-                  : <li key={e.x.id} className="cm-act"><Avatar m={board.members.find((m) => m.id === e.x.userId) || { id: e.x.userId, name: e.x.userName }} size={28} /><div><p><b>{e.x.userName}</b> {activityText(e.x, true)}</p><span>{ago(e.x.createdAt)}</span></div></li>)}
-            </ul>
+            <div className="cm-right-tabs">
+              <button type="button" className={'cm-tab-btn' + (sideTab === 'comments' ? ' on' : '')} onClick={() => setSideTab('comments')}>
+                <Icon name="comment" size={14} /> Bình luận ({c.comments.length})
+              </button>
+              <button type="button" className={'cm-tab-btn' + (sideTab === 'activity' ? ' on' : '')} onClick={() => setSideTab('activity')}>
+                <Icon name="clock" size={14} /> Hoạt động ({c.activity.length})
+              </button>
+            </div>
+            {sideTab === 'comments' ? (
+              <>
+                {replyingTo && (
+                  <div className="cm-reply-banner">
+                    <span>Đang trả lời <b>@{replyingTo.userName}</b></span>
+                    <button type="button" className="bd-icon" onClick={() => setReplyingTo(null)} aria-label="Huỷ"><Icon name="x" size={12} /></button>
+                  </div>
+                )}
+                <CommentBox
+                  me={me}
+                  initial={replyingTo ? `@${replyingTo.userName} ` : ''}
+                  onCancel={replyingTo ? () => setReplyingTo(null) : undefined}
+                  onSave={(t) => {
+                    const parentId = replyingTo?.id;
+                    setReplyingTo(null);
+                    return act(() => api.addComment(c.id, t, parentId));
+                  }}
+                />
+                {!c.comments.length && <p className="cm-feed-empty">Chưa có bình luận. Trao đổi về công việc tại đây.</p>}
+                <ul className="cm-feed">
+                  {c.comments.filter((x) => !x.replyToId).map((x) => (
+                    <Comment
+                      key={x.id}
+                      x={x}
+                      me={me}
+                      canDelete={x.userId === me.id || board.level === 'admin'}
+                      who={board.members.find((m) => m.id === x.userId) || { id: x.userId, name: x.userName }}
+                      act={act}
+                      onReply={(id, name) => setReplyingTo({ id, userName: name })}
+                      replies={c.comments.filter((r) => r.replyToId === x.id)}
+                    />
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <ul className="cm-feed">
+                {!c.activity.length && <p className="cm-feed-empty">Chưa có hoạt động nào được ghi nhận.</p>}
+                {c.activity.map((x) => (
+                  <li key={x.id} className="cm-act">
+                    <Avatar m={board.members.find((m) => m.id === x.userId) || { id: x.userId, name: x.userName }} size={28} />
+                    <div><p><b>{x.userName}</b> {activityText(x, true)}</p><span>{ago(x.createdAt)}</span></div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </MentionPeople.Provider></aside>
         </div>
       </div>
@@ -331,7 +376,7 @@ function CommentBox({ me, onSave, initial = '', onCancel }: { me: User; onSave: 
   );
 }
 
-function Comment({ x, me, who, canDelete, act }: { x: CardDetail['comments'][number]; me: User; who: { id: string; name: string }; canDelete: boolean; act: (fn: () => Promise<unknown>) => Promise<boolean> }) {
+function Comment({ x, me, who, canDelete, act, onReply, replies }: { x: CardDetail['comments'][number]; me: User; who: { id: string; name: string }; canDelete: boolean; act: (fn: () => Promise<unknown>) => Promise<boolean>; onReply?: (id: string, name: string) => void; replies?: CardDetail['comments'] }) {
   const [edit, setEdit] = useState(false);
   return (
     <li className="cm-comment">
@@ -340,11 +385,29 @@ function Comment({ x, me, who, canDelete, act }: { x: CardDetail['comments'][num
         <p className="cm-comment-h"><b>{x.userName}</b><span>{ago(x.createdAt)}{x.edited ? ' (đã sửa)' : ''}</span></p>
         {edit ? <CommentBox me={me} initial={x.text} onCancel={() => setEdit(false)} onSave={(t) => act(() => api.editComment(x.id, t))} />
           : <div className="cm-comment-text"><RichView text={x.text} /></div>}
-        {!edit && canDelete && (
+        {!edit && (
           <span className="cm-comment-a">
-            {x.userId === me.id && <button className="bk-link" onClick={() => setEdit(true)}>Sửa</button>}
-            <button className="bk-link" onClick={() => { if (confirm('Xoá bình luận này?')) act(() => api.deleteComment(x.id)); }}>Xoá</button>
+            {onReply && <button type="button" className="bk-link" onClick={() => onReply(x.id, x.userName)}>Trả lời</button>}
+            {x.userId === me.id && <button type="button" className="bk-link" onClick={() => setEdit(true)}>Sửa</button>}
+            {canDelete && <button type="button" className="bk-link" onClick={() => { if (confirm('Xoá bình luận này?')) act(() => api.deleteComment(x.id)); }}>Xoá</button>}
           </span>
+        )}
+        {replies && replies.length > 0 && (
+          <ul className="cm-replies">
+            {replies.map((r) => (
+              <li key={r.id} className="cm-comment cm-reply">
+                <Avatar m={{ id: r.userId, name: r.userName }} size={24} />
+                <div>
+                  <p className="cm-comment-h"><b>{r.userName}</b><span>{ago(r.createdAt)}{r.edited ? ' (đã sửa)' : ''}</span></p>
+                  <div className="cm-comment-text"><RichView text={r.text} /></div>
+                  <span className="cm-comment-a">
+                    {onReply && <button type="button" className="bk-link" onClick={() => onReply(x.id, r.userName)}>Trả lời</button>}
+                    {(r.userId === me.id || canDelete) && <button type="button" className="bk-link" onClick={() => { if (confirm('Xoá câu trả lời này?')) act(() => api.deleteComment(r.id)); }}>Xoá</button>}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </li>
