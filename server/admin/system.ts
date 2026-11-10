@@ -77,23 +77,24 @@ export function registerSystem(api: Router) {
         database = null;
       }
     }
-    const bytes = async (sql: string) => { try { return await n(sql); } catch { return 0; } };
+    const safeCount = async (sql: string) => { try { return await n(sql); } catch { return 0; } };
+    const safeBytes = async (sql: string) => { try { return await n(sql); } catch { return 0; } };
     const inDatabase = [
-      { key: 'cards', label: 'Thẻ công việc trên Board', files: await n('SELECT COUNT(*) n FROM board_cards'), bytes: await bytes("SELECT COALESCE(SUM(LENGTH(title) + LENGTH(COALESCE(description,'')) + LENGTH(COALESCE(result,'')) + 350), 0) n FROM board_cards") },
-      { key: 'tasks', label: 'Công việc Base Wework & Việc con', files: await n('SELECT COUNT(*) n FROM tasks'), bytes: await bytes("SELECT COALESCE(SUM(LENGTH(title) + LENGTH(COALESCE(description,'')) + 300), 0) n FROM tasks") },
-      { key: 'comments', label: 'Bình luận thẻ & công việc', files: await n('SELECT (SELECT COUNT(*) FROM card_comments) + (SELECT COUNT(*) FROM task_comments) n'), bytes: await bytes("SELECT (SELECT COALESCE(SUM(LENGTH(text) + 120), 0) FROM card_comments) + (SELECT COALESCE(SUM(LENGTH(text) + 120), 0) FROM task_comments) n") },
-      { key: 'audit_logs', label: 'Nhật ký thao tác (Audit logs)', files: await n('SELECT COUNT(*) n FROM audit_logs'), bytes: await bytes("SELECT COALESCE(SUM(LENGTH(COALESCE(old_data, '')) + LENGTH(COALESCE(new_data, '')) + 220), 0) n FROM audit_logs") },
-      { key: 'login_logs', label: 'Lịch sử đăng nhập', files: await n('SELECT COUNT(*) n FROM login_logs'), bytes: await bytes("SELECT COALESCE(SUM(LENGTH(COALESCE(email, '')) + LENGTH(COALESCE(ip, '')) + 160), 0) n FROM login_logs") },
-      { key: 'messages', label: 'Tin nhắn & Tệp Messenger', files: await n('SELECT COUNT(*) n FROM messages'), bytes: await bytes("SELECT COALESCE(SUM(LENGTH(COALESCE(text, '')) + 180), 0) n FROM messages") },
-      { key: 'task_import_sheet_parts', label: 'Bảng công việc đã nhập', files: await n('SELECT COUNT(DISTINCT import_id) n FROM task_import_sheet_parts'), bytes: await bytes('SELECT COALESCE(SUM(LENGTH(data)), 0) n FROM task_import_sheet_parts') },
-      { key: 'customers', label: 'Khách hàng & Chiến dịch dự án', files: await n('SELECT (SELECT COUNT(*) FROM customers) + (SELECT COUNT(*) FROM task_projects) n'), bytes: await bytes("SELECT (SELECT COALESCE(SUM(LENGTH(name) + LENGTH(COALESCE(notes, '')) + 300), 0) FROM customers) + (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM task_projects) n") },
-      { key: 'workspaces', label: 'Không gian làm việc & Board', files: await n('SELECT (SELECT COUNT(*) FROM workspaces) + (SELECT COUNT(*) FROM boards) n'), bytes: await bytes("SELECT (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM workspaces) + (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM boards) n") },
-      { key: 'users', label: 'Tài khoản nhân viên & Thành viên', files: await n('SELECT COUNT(*) n FROM users'), bytes: await bytes("SELECT COALESCE(SUM(LENGTH(name) + LENGTH(email) + 250), 0) n FROM users") },
-      { key: 'sessions', label: 'Phiên đăng nhập đang hoạt động', files: await n('SELECT COUNT(*) n FROM sessions'), bytes: await bytes("SELECT COALESCE(SUM(LENGTH(token) + 120), 0) n FROM sessions") },
-      { key: 'user_avatars', label: 'Ảnh đại diện', files: await n('SELECT COUNT(*) n FROM user_avatars'), bytes: await bytes('SELECT COALESCE(SUM(LENGTH(data)), 0) * 3 / 4 n FROM user_avatars') },
-      { key: 'report_images', label: 'Ảnh trong báo cáo', files: await n('SELECT COUNT(*) n FROM report_images'), bytes: await bytes('SELECT COALESCE(SUM(LENGTH(data)), 0) * 3 / 4 n FROM report_images') },
-      { key: 'notifications', label: 'Thông báo hệ thống', files: await n('SELECT COUNT(*) n FROM notifications'), bytes: await bytes("SELECT COALESCE(SUM(LENGTH(title) + LENGTH(body) + 150), 0) n FROM notifications") },
-      { key: 'quick_notes', label: 'Ghi chú nhanh', files: await n('SELECT COUNT(*) n FROM quick_notes'), bytes: await bytes("SELECT COALESCE(SUM(LENGTH(COALESCE(body, '')) + 150), 0) n FROM quick_notes") },
+      { key: 'cards', label: 'Thẻ công việc trên Board', files: await safeCount('SELECT COUNT(*) n FROM board_cards'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(title) + LENGTH(COALESCE(description,'')) + LENGTH(COALESCE(result,'')) + 350), 0) n FROM board_cards") },
+      { key: 'tasks', label: 'Công việc Base Wework & Việc con', files: await safeCount('SELECT COUNT(*) n FROM tasks'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(title) + LENGTH(COALESCE(description,'')) + 300), 0) n FROM tasks") },
+      { key: 'comments', label: 'Bình luận thẻ & công việc', files: await safeCount('SELECT (SELECT COUNT(*) FROM card_comments) + (SELECT COUNT(*) FROM task_comments) n'), bytes: await safeBytes("SELECT (SELECT COALESCE(SUM(LENGTH(text) + 120), 0) FROM card_comments) + (SELECT COALESCE(SUM(LENGTH(text) + 120), 0) FROM task_comments) n") },
+      { key: 'audit_logs', label: 'Nhật ký thao tác (Audit logs)', files: await safeCount('SELECT COUNT(*) n FROM audit_logs'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(COALESCE(old_data, '')) + LENGTH(COALESCE(new_data, '')) + 220), 0) n FROM audit_logs") },
+      { key: 'login_logs', label: 'Lịch sử đăng nhập', files: await safeCount('SELECT COUNT(*) n FROM login_logs'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(COALESCE(email, '')) + LENGTH(COALESCE(ip, '')) + 160), 0) n FROM login_logs") },
+      { key: 'messages', label: 'Tin nhắn & Tệp Messenger', files: await safeCount('SELECT COUNT(*) n FROM chat_messages'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(COALESCE(message, '')) + 180), 0) n FROM chat_messages") },
+      { key: 'task_import_sheet_parts', label: 'Bảng công việc đã nhập', files: await safeCount('SELECT COUNT(DISTINCT import_id) n FROM task_import_sheet_parts'), bytes: await safeBytes('SELECT COALESCE(SUM(LENGTH(data)), 0) n FROM task_import_sheet_parts') },
+      { key: 'customers', label: 'Khách hàng & Chiến dịch dự án', files: await safeCount('SELECT (SELECT COUNT(*) FROM customers) + (SELECT COUNT(*) FROM task_projects) n'), bytes: await safeBytes("SELECT (SELECT COALESCE(SUM(LENGTH(name) + LENGTH(COALESCE(notes, '')) + 300), 0) FROM customers) + (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM task_projects) n") },
+      { key: 'workspaces', label: 'Không gian làm việc & Board', files: await safeCount('SELECT (SELECT COUNT(*) FROM workspaces) + (SELECT COUNT(*) FROM boards) n'), bytes: await safeBytes("SELECT (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM workspaces) + (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM boards) n") },
+      { key: 'users', label: 'Tài khoản nhân viên & Thành viên', files: await safeCount('SELECT COUNT(*) n FROM users'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(name) + LENGTH(email) + 250), 0) n FROM users") },
+      { key: 'sessions', label: 'Phiên đăng nhập đang hoạt động', files: await safeCount('SELECT COUNT(*) n FROM sessions'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(token) + 120), 0) n FROM sessions") },
+      { key: 'user_avatars', label: 'Ảnh đại diện', files: await safeCount('SELECT COUNT(*) n FROM user_avatars'), bytes: await safeBytes('SELECT COALESCE(SUM(LENGTH(data)), 0) * 3 / 4 n FROM user_avatars') },
+      { key: 'report_images', label: 'Ảnh trong báo cáo', files: await safeCount('SELECT COUNT(*) n FROM report_images'), bytes: await safeBytes('SELECT COALESCE(SUM(LENGTH(data)), 0) * 3 / 4 n FROM report_images') },
+      { key: 'notifications', label: 'Thông báo hệ thống', files: await safeCount('SELECT COUNT(*) n FROM notifications'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(title) + LENGTH(body) + 150), 0) n FROM notifications") },
+      { key: 'quick_notes', label: 'Ghi chú nhanh', files: await safeCount('SELECT COUNT(*) n FROM quick_notes'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(COALESCE(body, '')) + 150), 0) n FROM quick_notes") },
     ];
     const totalDataBytes = inDatabase.reduce((a, b) => a + b.bytes, 0);
     if (!database || database <= 0) {
@@ -119,12 +120,13 @@ export function registerSystem(api: Router) {
     }
     const days = 30;
     const cutoff = now() - days * 86400e3;
-    const expiredSessions = await n('SELECT COUNT(*) n FROM sessions WHERE expires_at < ?', now());
-    const oldAuditLogs = await n('SELECT COUNT(*) n FROM audit_logs WHERE created_at < ?', cutoff);
-    const oldLoginLogs = await n('SELECT COUNT(*) n FROM login_logs WHERE created_at < ?', cutoff);
-    const oldNotifications = await n('SELECT COUNT(*) n FROM notifications WHERE (read = 1 AND created_at < ?) OR created_at < ?', cutoff, now() - 60 * 86400e3);
-    const orphanedSheetParts = await n('SELECT COUNT(*) n FROM task_import_sheet_parts WHERE import_id NOT IN (SELECT id FROM task_imports)');
-    const archivedCards = await n('SELECT COUNT(*) n FROM board_cards WHERE archived = 1');
+    const safeN = async (sql: string, ...args: any[]) => { try { return await n(sql, ...args); } catch { return 0; } };
+    const expiredSessions = await safeN('SELECT COUNT(*) n FROM sessions WHERE expires_at < ?', now());
+    const oldAuditLogs = await safeN('SELECT COUNT(*) n FROM audit_logs WHERE created_at < ?', cutoff);
+    const oldLoginLogs = await safeN('SELECT COUNT(*) n FROM login_logs WHERE created_at < ?', cutoff);
+    const oldNotifications = await safeN('SELECT COUNT(*) n FROM notifications WHERE (read = 1 AND created_at < ?) OR created_at < ?', cutoff, now() - 60 * 86400e3);
+    const orphanedSheetParts = await safeN('SELECT COUNT(*) n FROM task_import_sheet_parts WHERE import_id NOT IN (SELECT id FROM task_imports)');
+    const archivedCards = await safeN('SELECT COUNT(*) n FROM board_cards WHERE archived = 1');
 
     json(res, 200, {
       integrity,
@@ -151,24 +153,24 @@ export function registerSystem(api: Router) {
     let deletedCards = 0;
 
     if (b.cleanSessions !== false) {
-      const r = await run('DELETE FROM sessions WHERE expires_at < ?', now());
+      const r = await run('DELETE FROM sessions WHERE expires_at < ?', now()).catch(() => ({ changes: 0 }));
       deletedSessions = r.changes || 0;
     }
     if (b.cleanLogs) {
-      const r1 = await run('DELETE FROM audit_logs WHERE created_at < ?', cutoff);
-      const r2 = await run('DELETE FROM login_logs WHERE created_at < ?', cutoff);
+      const r1 = await run('DELETE FROM audit_logs WHERE created_at < ?', cutoff).catch(() => ({ changes: 0 }));
+      const r2 = await run('DELETE FROM login_logs WHERE created_at < ?', cutoff).catch(() => ({ changes: 0 }));
       deletedLogs = (r1.changes || 0) + (r2.changes || 0);
     }
     if (b.cleanNotifications) {
-      const r = await run('DELETE FROM notifications WHERE (read = 1 AND created_at < ?) OR created_at < ?', cutoff, cutoff - 30 * 86400e3);
+      const r = await run('DELETE FROM notifications WHERE (read = 1 AND created_at < ?) OR created_at < ?', cutoff, cutoff - 30 * 86400e3).catch(() => ({ changes: 0 }));
       deletedNotifs = r.changes || 0;
     }
     if (b.cleanSheetParts) {
-      const r = await run('DELETE FROM task_import_sheet_parts WHERE import_id NOT IN (SELECT id FROM task_imports)');
+      const r = await run('DELETE FROM task_import_sheet_parts WHERE import_id NOT IN (SELECT id FROM task_imports)').catch(() => ({ changes: 0 }));
       deletedSheets = r.changes || 0;
     }
     if (b.cleanArchivedCards) {
-      const r = await run('DELETE FROM board_cards WHERE archived = 1 AND (due_at IS NULL OR due_at < ?)', cutoff);
+      const r = await run('DELETE FROM board_cards WHERE archived = 1 AND (due_at IS NULL OR due_at < ?)', cutoff).catch(() => ({ changes: 0 }));
       deletedCards = r.changes || 0;
     }
 
