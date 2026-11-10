@@ -12,6 +12,7 @@ import { turnstileConfig, verifyTurnstile } from './turnstile';
 import { ACCOUNT_PREFS } from '../shared/account-prefs';
 import { accessOf, accessOut, syncSuperAdmin } from './rbac';
 import { audit, logLogin, clientIp, clientAgent } from './audit';
+import { assertSiteOpen, siteLock } from './site-lock';
 
 export type Role = 'admin' | 'member';
 /** `team_role`: the person's department (phòng ban); `dept_role`: their role in it, whose level (`dept_level`) says what
@@ -75,6 +76,8 @@ async function readUser(req: http.IncomingMessage): Promise<User | null> {
 
 // ---------------------------------------------------------------- access rules
 const PUBLIC = [/^\/api\/auth\//, /^\/api\/health$/, /^\/api\/google\/callback$/];
+/** What someone already signed in can still reach while the site is locked: enough to see the notice and sign out. */
+const LOCK_OPEN = /^\/api\/(auth\/(me|config|login|logout|google|setup|forgot|reset)|health|google\/callback)$/;
 // Settings that affect everyone (company admins only): who can sign in, departments and their roles, which Google
 // accounts and root folder the workspace uses, AI keys.
 const ADMIN: [string, RegExp][] = [
@@ -139,8 +142,9 @@ async function delegated(req: Req, u: User) {
 
 /** Throws unless the request may proceed; returns the signed-in user (null for public endpoints). */
 export async function guard(req: Req): Promise<User | null> {
-  if (PUBLIC.some((r) => r.test(pathOf(req)))) return await currentUser(req);
   const u = await currentUser(req);
+  if (u && !LOCK_OPEN.test(pathOf(req))) await assertSiteOpen(u);
+  if (PUBLIC.some((r) => r.test(pathOf(req)))) return u;
   if (!u) throw new HttpError(401, 'Hãy đăng nhập');
   // Customers made from a card on a board have ids starting cust_.
   const customerMatch=pathOf(req).match(/^\/api\/customers\/((?:c|cust)_[^/]+)(?:\/|$)/);
@@ -251,8 +255,8 @@ export function registerAuth(api: Router) {
   api.get('/api/auth/config', (_req, res) => json(res, 200, { turnstile: turnstileConfig() }));
   api.get('/api/auth/me', async (req, res) => {
     const u = await currentUser(req);
-    const c = await G.oauthConfig();
-    json(res, 200, { user: u ? userOut(u) : null, pages: u ? await pagesOf(u) : [], admin: u ? accessOut(await accessOf(u)) : null, prefs: u ? await prefsOf(u.id) : null, setup: await userCount() === 0, setupCode: !!process.env.SETUP_CODE, google: !!(c.clientId && c.clientSecret) });
+    const c = await G.oauthConfig(), lock = await siteLock();
+    json(res, 200, { siteLock: lock.on ? { message: lock.message } : null, user: u ? userOut(u) : null, pages: u ? await pagesOf(u) : [], admin: u ? accessOut(await accessOf(u)) : null, prefs: u ? await prefsOf(u.id) : null, setup: await userCount() === 0, setupCode: !!process.env.SETUP_CODE, google: !!(c.clientId && c.clientSecret) });
   });
   // Merges into the account's interface choices; null forgets one.
   api.put('/api/auth/prefs', async (req, res) => {
@@ -356,6 +360,7 @@ export function registerAuth(api: Router) {
     await throttle(key, !ok);
     if (!ok) { await logLogin(req, { user: u, email, ok: false, method: 'password', reason: !u ? 'Email chưa có tài khoản' : !u.pass ? 'Tài khoản đăng nhập bằng Google' : 'Sai mật khẩu' }); throw new HttpError(401, u && !u.pass ? 'Tài khoản này đăng nhập bằng Google' : 'Sai email hoặc mật khẩu'); }
     if (u!.disabled) { await logLogin(req, { user: u, email, ok: false, method: 'password', reason: 'Tài khoản đã bị khoá' }); throw new HttpError(403, 'Tài khoản đã bị khoá, hãy liên hệ quản trị viên'); }
+    await assertSiteOpen(u!).catch(async (e) => { await logLogin(req, { user: u, email, ok: false, method: 'password', reason: 'Website đang tạm khoá' }); throw e; });
     await logLogin(req, { user: u, email, ok: true, method: 'password' });
     await startSession(req, res, u!);
     json(res, 200, { user: userOut(u!) });
@@ -471,6 +476,7 @@ export async function finishGoogleSignin(req: http.IncomingMessage, res: Res, em
   const u = await get<User>(`${USER_SQL} WHERE u.email = ?`, email);
   if (!u) { await logLogin(req, { email, ok: false, method: 'google', reason: 'Email chưa có tài khoản' }); throw new HttpError(403, `${email} chưa được cấp quyền vào DMI Workspace. Hãy nhờ quản trị viên thêm email này.`); }
   if (u.disabled) { await logLogin(req, { user: u, email, ok: false, method: 'google', reason: 'Tài khoản đã bị khoá' }); throw new HttpError(403, 'Tài khoản đã bị khoá, hãy liên hệ quản trị viên'); }
+  await assertSiteOpen(u).catch(async (e) => { await logLogin(req, { user: u, email, ok: false, method: 'google', reason: 'Website đang tạm khoá' }); throw e; });
   await logLogin(req, { user: u, email, ok: true, method: 'google' });
   await startSession(req, res, u);
 }

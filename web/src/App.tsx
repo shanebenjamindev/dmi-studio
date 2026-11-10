@@ -4,6 +4,7 @@ import { useStore, init, openPages } from './store';
 import { WorkArea } from './components/WorkArea';
 import { TopBar, AppHeader } from './components/TopBar';
 import { LoginPage } from './components/Login';
+import { SiteLocked, SiteLockPill } from './components/SiteLock';
 import { ProjectsDialog, ExportDialog } from './components/Dialogs';
 import { pageFor, prefetchPages } from './pages';
 import { QuickNotes } from './components/QuickNotes';
@@ -35,6 +36,7 @@ export function App() {
   const view = useStore((s) => s.view);
   const editorHere = useStore((s) => s.editorAvailable);
   const user = useStore((s) => s.user);
+  const siteLock = useStore((s) => s.siteLock);
   const adminAccess = useStore((s) => s.admin);
   const can = { admin: user?.role === 'admin' || Object.keys(adminAccess?.perms || {}).length > 0, editor: editorHere };
   const Page = pageFor(view, can);
@@ -44,8 +46,9 @@ export function App() {
 
   return (
     <>
-      {ready && (user ? (
+      {ready && (user && siteLock !== null && user.role !== 'admin' ? <SiteLocked message={siteLock} /> : user ? (
         <>
+          {siteLock !== null && <SiteLockPill />}
           <div className="shell">
             <AppHeader />
             <div className="shell-body">

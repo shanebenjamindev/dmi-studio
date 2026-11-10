@@ -23,6 +23,8 @@ export interface AppState {
   /** First-run admin creation needs the server's SETUP_CODE (public deploys). */
   setupCode: boolean;
   googleSignin: boolean;
+  /** The notice while the website is locked (null: open). */
+  siteLock: string | null;
   view: View;
   /** The company's roles (names and colours for the Workspace and Quản trị). */
   roles: TeamRole[];
@@ -63,7 +65,7 @@ export const HASH: Partial<Record<View, string>> = { profile:'#profile', custome
 const viewOfHash = (hash: string) => (Object.keys(HASH) as View[]).find((v) => hash.startsWith(HASH[v]!)) ?? 'boards';
 
 let state: AppState = {
-  ready: false, user: null, setup: false, setupCode: false, googleSignin: false, view: viewOfHash(location.hash), roles: [], tplFocus: null, analyzeSrc: null, mock: false, ffmpeg: false, editorAvailable: false, pages: [], admin: null, homeVersion: 0, providers: [], defaults: {}, project: null, sel: 0, clip: null, tab: 'scene',
+  ready: false, user: null, siteLock: null, setup: false, setupCode: false, googleSignin: false, view: viewOfHash(location.hash), roles: [], tplFocus: null, analyzeSrc: null, mock: false, ffmpeg: false, editorAvailable: false, pages: [], admin: null, homeVersion: 0, providers: [], defaults: {}, project: null, sel: 0, clip: null, tab: 'scene',
   save: 'saved', busy: null, jobs: [], renders: [], undo: [], redo: [],
   opts: { captions: true, logo: true, music: true, voice: true }, dialog: null, toast: null,
   exp: { phase: 'idle', progress: 0, text: '' }, brandMode: true,
@@ -118,12 +120,13 @@ export const providerName = (id: string) => state.providers.find((p) => p.id ===
 
 // ------------------------------------------------------------------ boot
 auth.onSignedOut = () => { if (state.user) setState({ user: null }); };
+auth.onLocked = (message) => { if (state.siteLock !== message) setState({ siteLock: message }); };
 export async function signedIn(user: User) {
   // Signing in starts on all the boards, unless the address names one task or card (a link from a notification).
   if (!/^#(tasks\/tk_|boards\/b_[^/]+\/c\/)/.test(location.hash)) { history.replaceState(null, '', '#boards'); setState({ view: 'boards' }); }
   const m = await api.me().catch(() => null);
   if (accountPrefs(user.id, m?.prefs)) return;
-  setState({ user, setup: false, ...(m ? { pages: m.pages || [], admin: m.admin || null } : {}) });
+  setState({ user, setup: false, ...(m ? { pages: m.pages || [], admin: m.admin || null, siteLock: m.siteLock?.message || null } : {}) });
   await loadApp();
 }
 /** Puts the account's own theme, language and board layout in place; true when the page reloads to show its language. */
@@ -177,7 +180,7 @@ export async function init() {
   try {
     const me = await api.me();
     if (me.user && accountPrefs(me.user.id, me.prefs)) return;
-    setState({ user: me.user, pages: me.pages || [], admin: me.admin || null, setup: me.setup, setupCode: !!me.setupCode, googleSignin: me.google, ready: true });
+    setState({ user: me.user, siteLock: me.siteLock?.message || null, pages: me.pages || [], admin: me.admin || null, setup: me.setup, setupCode: !!me.setupCode, googleSignin: me.google, ready: true });
     if (me.user) void loadApp(health);
   } catch (e: any) {
     toast('Không kết nối được server: ' + e.message, true);

@@ -11,7 +11,7 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/assets/*"]
   },
-  "vars": { "DMS_RUNTIME": "cloudflare", "CLOUD_STORAGE_ONLY": "1", "TURNSTILE_REQUIRED": "0" },
+  "vars": { "DMS_RUNTIME": "cloudflare", "CLOUD_STORAGE_ONLY": "1", "TURNSTILE_REQUIRED": "0", "SITE_LOCKED": "0" },
   "alias": { "node:sqlite": "./server/no-local-sqlite.ts" },
   "d1_databases": [{ "binding": "DB", "database_name": "dmi-studio-db", "database_id": "9ad2e189-4940-4d8d-8b71-ccec235311ff" }],
   "build": { "command": "npm run build" },

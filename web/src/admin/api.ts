@@ -151,7 +151,7 @@ export const admin = {
   system: () => req<any>('GET', '/api/admin/system'),
   settings: () => req<{ logRetentionDays: number; siteUrl: string; retentionMin: number; taskWorkspaceAuto: boolean }>('GET', '/api/admin/settings'),
   saveSettings: (b: Partial<{ logRetentionDays: number; siteUrl: string; taskWorkspaceAuto: boolean }>) => req<{ logRetentionDays: number; siteUrl: string; taskWorkspaceAuto: boolean }>('PUT', '/api/admin/settings', b),
-  storage: () => req<any>('GET', '/api/admin/storage'),
+  storage: (refresh?: boolean) => req<any>('GET', `/api/admin/storage${refresh ? '?refresh=true' : ''}`),
   storageCheck: () => req<any>('GET', '/api/admin/storage/check'),
   storageClean: (b: any) => req<any>('POST', '/api/admin/storage/clean', b),
   backups: () => req<{ supported: boolean; items: { name: string; bytes: number; at: number }[]; command?: string }>('GET', '/api/admin/backups'),

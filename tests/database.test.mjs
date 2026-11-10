@@ -1532,6 +1532,37 @@ test('a workspace of one\'s own can be for a customer; its boards\' work counts 
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
+test('while the website is locked only Super Admins get in; the switch overrides the deploy\'s default',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-lock-'));let server;
+ try{
+  server=await start(dir,{DRIVE_DIR:path.join(dir,'drive'),SITE_LOCKED:'1'});
+  const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'lk-boss@example.test',password:'test-password'})).cookie;
+  await server.call('POST','/api/users',{name:'Staff',email:'lk-staff@example.test',password:'test-password',role:'member'},ac);
+  const login=()=>server.call('POST','/api/auth/login',{email:'lk-staff@example.test',password:'test-password'});
+  // Locked by the deploy: staff cannot sign in, a Super Admin works as usual and sees that it is locked.
+  const refused=await login();
+  assert.equal(refused.status,423);assert.match(refused.data.error,/tạm khoá/);
+  assert.ok((await server.call('GET','/api/auth/me',undefined,ac)).data.siteLock);
+  assert.equal((await server.call('GET','/api/boards',undefined,ac)).status,200);
+  assert.ok((await server.call('GET','/api/auth/me')).data.siteLock,'the sign-in page knows too');
+  // Opened with the switch: that wins over the deploy's SITE_LOCKED.
+  assert.equal((await server.call('PUT','/api/admin/site-lock',{on:false},ac)).status,200);
+  const opened=await login();
+  assert.equal(opened.status,200);
+  const sc=opened.cookie;
+  assert.equal((await server.call('GET','/api/auth/me',undefined,sc)).data.siteLock,null);
+  assert.equal((await server.call('GET','/api/boards',undefined,sc)).status,200);
+  // Locked with someone inside: their next request is refused; they can still see the notice and sign out.
+  assert.equal((await server.call('PUT','/api/admin/site-lock',{on:true,message:'Bảo trì tới 17h'},ac)).status,200);
+  const blocked=await server.call('GET','/api/boards',undefined,sc);
+  assert.equal(blocked.status,423);assert.equal(blocked.data.error,'Bảo trì tới 17h');
+  assert.equal((await server.call('GET','/api/auth/me',undefined,sc)).data.siteLock.message,'Bảo trì tới 17h');
+  assert.equal((await server.call('PUT','/api/admin/site-lock',{on:false},sc)).status,423);
+  assert.equal((await server.call('POST','/api/auth/logout',{},sc)).status,200);
+  assert.equal((await server.call('PUT','/api/admin/site-lock',{on:false},ac)).status,200);
+ }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
 test('chat unread counts follow what each person has read, on any device; support requests carry screenshots',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-chat-read-'));let server;
  try{

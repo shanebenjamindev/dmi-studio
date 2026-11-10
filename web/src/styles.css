@@ -7759,3 +7759,46 @@ button.ws-board-name {
   padding: 0 !important;
 }
 
+
+/* Khoá tạm website (SiteLock.tsx). */
+.site-locked { align-items: center; text-align: center; gap: 10px; }
+.site-locked h1 { margin: 0; font-size: 20px; }
+.site-locked p { margin: 0; color: var(--label-2); line-height: 1.5; }
+.site-locked-icon { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; background: var(--tint-soft); color: var(--tint); }
+.site-lock-pill { position: fixed; z-index: 90; top: 10px; left: 170px; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 4px 0 10px; border-radius: 15px; background: #fff4e5; color: #8a4b00; font-size: 12.5px; font-weight: 600; box-shadow: 0 0 0 1px rgba(138, 75, 0, 0.22); }
+.site-lock-pill button { height: 22px; padding: 0 9px; border: 0; border-radius: 11px; background: #8a4b00; color: #fff; font: 600 12px var(--font); cursor: pointer; }
+.site-lock-pill button:disabled { opacity: 0.6; }
+.site-lock-card { margin-top: 16px; }
+.site-lock-card h3 { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 14px; }
+@media (max-width: 640px) { .site-lock-pill { left: auto; right: 8px; top: 58px; } }
+
+/* Storage Dashboard & Audit */
+.storage-dashboard { display: flex; flex-direction: column; gap: 20px; }
+.storage-overview-card { background: var(--card-bg, #fff); border: 1px solid var(--sep); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.storage-dist-wrap { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.storage-dist-bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--fill-2, #ebecf0); gap: 2px; }
+.storage-dist-seg { height: 100%; transition: width .3s ease; }
+.storage-dist-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: 12.5px; color: var(--sub); }
+.storage-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.storage-legend-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.storage-tabs-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 4px 0 16px; border-bottom: 1px solid var(--sep); padding-bottom: 12px; }
+.storage-nav { display: flex; align-items: center; gap: 4px; background: var(--fill-2); padding: 4px; border-radius: 10px; }
+.storage-nav-btn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border: 0; background: none; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--sub); cursor: pointer; transition: all .15s ease; white-space: nowrap; }
+.storage-nav-btn:hover { color: var(--text); background: rgba(255,255,255,0.5); }
+.storage-nav-btn.active { background: var(--card-bg, #fff); color: var(--primary, #0c66e4); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.storage-tag-actual { font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: rgba(12, 102, 228, 0.1); color: var(--primary, #0c66e4); display: inline-block; }
+.storage-tag-est { font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: rgba(234, 88, 12, 0.1); color: #ea580c; display: inline-block; }
+.storage-progress-track { width: 100%; height: 8px; background: var(--fill-2, #e2e8f0); border-radius: 4px; overflow: hidden; margin: 6px 0; }
+.storage-progress-fill { height: 100%; border-radius: 4px; background: var(--primary, #0c66e4); transition: width .3s ease; }
+.storage-account-card { background: var(--card-bg, #fff); border: 1px solid var(--sep); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+.storage-account-header { display: flex; align-items: center; gap: 12px; }
+.storage-account-info { flex: 1; min-width: 0; }
+.storage-account-name { font-weight: 600; font-size: 14px; color: var(--text); }
+.storage-account-email { font-size: 12.5px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.storage-table-search { display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; height: 34px; border: 1px solid var(--sep); border-radius: 8px; background: var(--card-bg, #fff); font-size: 13px; }
+.storage-table-search input { border: 0; outline: none; background: transparent; font-size: 13px; color: var(--text); width: 180px; }
+.storage-group-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.storage-group-btn { border: 1px solid var(--sep); background: var(--card-bg, #fff); color: var(--sub); padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; transition: all .12s ease; }
+.storage-group-btn:hover { border-color: var(--primary, #0c66e4); color: var(--primary, #0c66e4); }
+.storage-group-btn.active { background: var(--primary, #0c66e4); border-color: var(--primary, #0c66e4); color: #fff; font-weight: 600; }
+

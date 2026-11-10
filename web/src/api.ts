@@ -4,7 +4,7 @@ import type { AdsService, AdsSummary } from '../../shared/ads-summary';
 import type { QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardViewKind, ClientCard, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Outro, OutroOpts, Status, Project, ProjectItem, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, DriveFile, Source, Picked, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page, EditorLink } from './types';
 
 /** Called when the session has ended (401) so the app can show the sign-in page. */
-export const auth = { onSignedOut: () => {} };
+export const auth = { onSignedOut: () => {}, onLocked: (_message: string) => {} };
 
 export async function req<T>(method: string, url: string, body?: any, headers: Record<string, string> = {}): Promise<T> {
   const finishLoading=beginLoading();
@@ -28,6 +28,7 @@ export async function req<T>(method: string, url: string, body?: any, headers: R
   }
   const data = await res.json().catch(() => ({ error: `Lỗi ${res.status}` }));
   if (res.status === 401 && !url.startsWith('/api/auth/')) auth.onSignedOut();
+  if (res.status === 423) auth.onLocked(data.error || '');
   if (!res.ok) throw new Error(data.error || `Lỗi ${res.status}`);
   if(method!=='GET'&&/^\/api\/(tasks|cards)(\/|$)/.test(url))window.dispatchEvent(new Event('dms:notifications-changed'));
   if(method!=='GET'&&/^\/api\/admin\/customer-statuses(?:\/|$)/.test(url))window.dispatchEvent(new Event('dms:customer-statuses'));
@@ -202,6 +203,7 @@ export const api = {
   adsSettings: () => req<AdsSettings>('GET', '/api/settings/ads'),
   saveAdsSettings: (s: { metaToken?: string; metaVersion?: string }) => req<AdsSettings>('PUT', '/api/settings/ads', s),
   deleteUser: (id: string) => req('DELETE', `/api/users/${id}`),
+  setSiteLock: (b: { on: boolean; message?: string }) => req<{ on: boolean; message: string }>('PUT', '/api/admin/site-lock', b),
   health: () => req<{ ok: boolean; mock: boolean; ffmpeg: boolean; editor: boolean }>('GET', '/api/health'),
   editorLink: () => req<EditorLink>('GET', '/api/editor-link'),
   setEditorLink: (url: string) => req<EditorLink>('PUT', '/api/settings/editor-link', { url }),

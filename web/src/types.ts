@@ -288,7 +288,7 @@ export interface CardDetail {
 export type Page = 'workspace' | 'editor' | 'ads';
 /** What the signed-in account may do in Quản trị (shared/permissions.ts): each permission it holds, at its scope. */
 export interface AdminAccess { superAdmin: boolean; rank: number; perms: Record<string, 'personal' | 'team' | 'department' | 'organization'> }
-export interface AuthInfo { admin?: AdminAccess | null; user: User | null; pages?: Page[]; prefs?: Record<string, string> | null; setup: boolean; setupCode?: boolean; google: boolean }
+export interface AuthInfo { siteLock?: { message: string } | null; admin?: AdminAccess | null; user: User | null; pages?: Page[]; prefs?: Record<string, string> | null; setup: boolean; setupCode?: boolean; google: boolean }
 
 /** A Meta Ads campaign report (see server/reports.ts): every field of the page sent to the client; images are file names. */
 export interface ReportKV { label: string; value: string }

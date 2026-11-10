@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { LangChoice } from './TopBar';
-import { signedIn } from '../store';
+import { signedIn, useStore } from '../store';
 import { Turnstile } from './Turnstile';
 import { Icon } from './ui';
 
@@ -15,6 +15,7 @@ export function LoginPage() {
   const [mode, setModeState] = useState<Mode>(() => (resetToken() ? 'reset' : 'login'));
   const [f, setF] = useState({ email: '', password: '', next: '', again: '' });
   const [err, setErr] = useState(''), [notice, setNotice] = useState(''), [shown, setShown] = useState(false);
+  const locked = useStore((s) => s.siteLock);
   const [busy, setBusy] = useState(false);
   const [captcha, setCaptcha] = useState<{ siteKey: string; required: boolean } | null>(null);
   const [token, setToken] = useState('');
@@ -69,6 +70,7 @@ export function LoginPage() {
           {input('again', 'Nhập lại mật khẩu mới', shown ? 'text' : 'password', 'new-password')}
         </>}
         {mode !== 'reset' && captcha?.required && captcha.siteKey && <Turnstile siteKey={captcha.siteKey} resetKey={resetKey} onToken={setToken} onError={setErr} />}
+        {locked !== null && <p className="login-note" role="status">Website đang tạm khoá: chỉ Super Admin đăng nhập được.</p>}
         {notice && <p className="login-note" role="status">{notice}</p>}
         {err && <p className="login-err" role="alert">{err}</p>}
         <button className="btn btn-primary btn-lg" disabled={busy || !checked}>{mode === 'login' ? 'Đăng nhập' : mode === 'forgot' ? (busy ? 'Đang gửi…' : 'Gửi link đặt lại') : 'Lưu mật khẩu mới'}</button>
