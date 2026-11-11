@@ -20,7 +20,7 @@ async function start(dataDir) {
   await mkdir(path.join(dataDir, 'workspace'), { recursive: true });
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
     cwd: root,
-    env: { ...process.env, DATA_DIR: dataDir, DRIVE_DIR: path.join(dataDir, 'workspace'), PORT: String(port), HOST: '127.0.0.1', PUBLIC_URL: '', TURNSTILE_SITE_KEY: '', TURNSTILE_SECRET_KEY: '', DMS_RUNTIME: '', CLOUD_STORAGE_ONLY: '', SETUP_CODE: 'admin-test' },
+    env: { ...process.env, DATA_DIR: dataDir, DRIVE_DIR: path.join(dataDir, 'workspace'), PORT: String(port), HOST: '127.0.0.1', PUBLIC_URL: '', TURNSTILE_SITE_KEY: '', TURNSTILE_SECRET_KEY: '', DMS_RUNTIME: '', CLOUD_STORAGE_ONLY: '', SETUP_CODE: 'admin-test', CF_API_TOKEN: '', CF_ACCOUNT_ID: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = '';
@@ -540,5 +540,41 @@ test('a forgotten password is set again from a one-time link; the answer never t
     assert.equal((await s.call('GET', '/api/auth/me', undefined, boss.cookie)).data.user, null);
     assert.equal((await s.call('POST', '/api/auth/login', { email: 'boss@x.test', password: 'password-123' })).status, 401);
     ok(await s.call('POST', '/api/auth/login', { email: 'boss@x.test', password: 'new-password-1' }), 'login with the new password');
+  } finally { await s.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test('hosting shows what this database uses and has left; only a Super Admin runs SQL, writes need consent and every run is logged', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'dmi-sql-'));
+  const s = await start(dir);
+  try {
+    const { b, people } = await company(s);
+    const h = ok(await s.call('GET', '/api/admin/hosting', undefined, b));
+    assert.equal(h.cloudflare.configured, false, 'no token here: the account is not asked');
+    assert.equal(h.limits.databaseBytes, 500e6); assert.equal(h.limits.accountBytes, 5e9);
+    assert.ok(h.database.bytes > 0 && h.database.tables > 10);
+
+    assert.equal((await s.call('POST', '/api/admin/sql', { sql: 'SELECT 1' }, people.ann.cookie)).status, 403);
+    const read = ok(await s.call('POST', '/api/admin/sql', { sql: "SELECT email, name FROM users WHERE email = 'boss@x.test'; -- a ; in a comment\nSELECT 'a;b' AS t, NULL AS z" }, b));
+    assert.equal(read.results.length, 2);
+    assert.deepEqual(read.results[0].columns, ['email', 'name']); assert.deepEqual(read.results[0].rows, [['boss@x.test', 'Boss']]);
+    assert.deepEqual(read.results[1].rows, [['a;b', null]]);
+
+    const refused = await s.call('POST', '/api/admin/sql', { sql: "SELECT 1; UPDATE users SET name = 'X' WHERE email = 'boss@x.test'" }, b);
+    assert.equal(refused.status, 400); assert.match(refused.data.error, /Cho phép sửa dữ liệu/);
+    assert.equal((await s.call('POST', '/api/admin/sql', { sql: "WITH x AS (SELECT 1) DELETE FROM quick_notes" }, b)).status, 400);
+    assert.equal((await s.call('POST', '/api/admin/sql', { sql: "ATTACH DATABASE '/tmp/x.db' AS x", allowWrite: true }, b)).status, 400);
+    assert.equal((await s.call('POST', '/api/admin/sql', { sql: "VACUUM INTO '/tmp/x.db'", allowWrite: true }, b)).status, 400);
+
+    const write = ok(await s.call('POST', '/api/admin/sql', { sql: "CREATE TABLE scratch_t (a TEXT); CREATE TRIGGER scratch_tr AFTER INSERT ON scratch_t BEGIN UPDATE scratch_t SET a = upper(a); END; INSERT INTO scratch_t VALUES ('x'), ('y'); SELECT a FROM scratch_t ORDER BY a", allowWrite: true }, b));
+    assert.equal(write.results.length, 4, 'the trigger body stays one statement');
+    assert.equal(write.results[2].changes, 2); assert.deepEqual(write.results[3].rows, [['X'], ['Y']]);
+
+    // A failing statement stops the rest; what ran before it is kept and shown.
+    const failed = ok(await s.call('POST', '/api/admin/sql', { sql: 'SELECT COUNT(*) n FROM scratch_t; SELECT * FROM no_such_table; SELECT 2', allowWrite: true }, b));
+    assert.equal(failed.results.length, 1); assert.equal(failed.error.index, 1); assert.match(failed.error.message, /no_such_table/);
+
+    const logged = ok(await s.call('GET', '/api/admin/logs?kind=action&size=100', undefined, b)).items;
+    assert.ok(logged.some((l) => l.action === 'Chạy SQL (sửa dữ liệu)' && /CREATE TABLE scratch_t/.test(l.entityLabel)));
+    assert.ok(logged.some((l) => l.action === 'Chạy SQL' && /boss@x\.test/.test(l.entityLabel)));
   } finally { await s.close(); await rm(dir, { recursive: true, force: true }); }
 });

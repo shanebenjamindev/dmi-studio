@@ -9,6 +9,15 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-11-1',
+    date: '11/11/2026',
+    items: [
+      { kind: 'new', vi: 'Quản trị › Cấu hình hệ thống › Hosting và giới hạn: dung lượng, số database, số dòng đọc/ghi hôm nay và request trên cả tài khoản Cloudflare: đã dùng bao nhiêu, còn lại bao nhiêu.', en: 'Admin › System settings › Hosting and limits: storage, number of databases, rows read and written today and requests across the whole Cloudflare account: how much is used and how much is left.' },
+      { kind: 'new', vi: 'Quản trị › Cấu hình hệ thống › Truy vấn SQL (chỉ Super Admin): chạy câu lệnh SQL trên database của tài khoản. Câu lệnh sửa dữ liệu cần bật cho phép, và mọi lần chạy được ghi vào Lịch sử thao tác.', en: 'Admin › System settings › SQL query (Super Admins only): run SQL on the account’s databases. Statements that change data need to be allowed first, and every run is recorded in the action history.' },
+      { kind: 'fix', vi: 'Tệp và dung lượng hiện đúng dung lượng database so với giới hạn 500 MB; trang Sao lưu ghi đúng thời gian Time Travel (7 ngày).', en: 'Files and storage shows the database size against the 500 MB limit correctly; the Backup page states the Time Travel window correctly (7 days).' },
+    ],
+  },
+  {
     id: '2026-11-09-4',
     date: '09/11/2026',
     items: [

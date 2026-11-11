@@ -9,7 +9,8 @@ import { registerServices } from './services';
 import { registerNotify } from './notify';
 import { registerStats } from './stats';
 import { registerSystem } from './system';
+import { registerHosting } from './hosting';
 
 export function registerAdmin(api: Router) {
-  for (const register of [registerStaff, registerRoles, registerLogs, registerWork, registerCustomers, registerServices, registerNotify, registerStats, registerSystem]) register(api);
+  for (const register of [registerStaff, registerRoles, registerLogs, registerWork, registerCustomers, registerServices, registerNotify, registerStats, registerSystem, registerHosting]) register(api);
 }

@@ -262,7 +262,6 @@ export function registerSystem(api: Router) {
     const serverFilesCount = serverFiles.reduce((acc: number, f: any) => acc + f.files, 0);
 
     const allFileList = [...inDbFilesList, ...serverAssets].sort((a, b) => b.bytes - a.bytes);
-    const largestFiles = allFileList.slice(0, 15);
 
     const duplicateMap = new Map<string, any[]>();
     for (const f of allFileList) {
@@ -288,7 +287,6 @@ export function registerSystem(api: Router) {
         { type: 'card_attachments', label: 'Tệp đính kèm thẻ công việc', files: cardAttachmentsCount, bytes: 0, location: 'Metadata / External Link' },
         ...serverFiles.map((sf: any) => ({ type: `server_${sf.kind}`, label: `Server ${sf.kind}`, files: sf.files, bytes: sf.bytes, location: cloudDatabase ? 'Google Drive' : 'Server Disk' })),
       ],
-      largestFiles,
       duplicates,
     };
 

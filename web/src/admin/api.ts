@@ -154,6 +154,8 @@ export const admin = {
   storage: (refresh?: boolean) => req<any>('GET', `/api/admin/storage${refresh ? '?refresh=true' : ''}`),
   storageCheck: () => req<any>('GET', '/api/admin/storage/check'),
   storageClean: (b: any) => req<any>('POST', '/api/admin/storage/clean', b),
+  hosting: (refresh?: boolean) => req<any>('GET', `/api/admin/hosting${refresh ? '?refresh=1' : ''}`),
+  sql: (b: { sql: string; database?: string; allowWrite?: boolean }) => req<any>('POST', '/api/admin/sql', b),
   backups: () => req<{ supported: boolean; items: { name: string; bytes: number; at: number }[]; command?: string }>('GET', '/api/admin/backups'),
   backup: () => req<{ name: string; bytes: number }>('POST', '/api/admin/backups'),
   supportTickets: (p: Query) => req<Paged<SupportTicket>>('GET', `/api/admin/support${q(p)}`),

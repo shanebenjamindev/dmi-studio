@@ -15,6 +15,7 @@ import * as Services from './pages/Services';
 import * as Notify from './pages/Notify';
 import * as Logs from './pages/Logs';
 import * as System from './pages/System';
+import * as Hosting from './pages/Hosting';
 import * as Support from './pages/Support';
 
 const PAGES: Record<string, ComponentType> = {
@@ -26,7 +27,7 @@ const PAGES: Record<string, ComponentType> = {
   'services/list': Services.ServiceList, 'services/categories': Services.Categories, 'services/packages': Services.Packages,
   'notify/list': Notify.Sent, 'notify/create': Notify.Compose, 'notify/templates': Notify.Templates, 'notify/history': Notify.MailLog,
   'logs/logins': Logs.Logins, 'logs/actions': Logs.Actions, 'logs/data': Logs.DataChanges, 'logs/permissions': Logs.PermissionChanges, 'logs/errors': Logs.Errors,
-  'system/info': System.Info, 'system/general': System.General, 'system/statuses': Work.Statuses, 'system/notifications': System.NotificationConfig, 'system/storage': System.Storage, 'system/backup': System.Backup,
+  'system/info': System.Info, 'system/general': System.General, 'system/statuses': Work.Statuses, 'system/notifications': System.NotificationConfig, 'system/storage': System.Storage, 'system/hosting': Hosting.Hosting, 'system/sql': Hosting.Sql, 'system/backup': System.Backup,
   'support/list': Support.SupportList,
 };
 const LS_OPEN = 'dms.adminOpen';

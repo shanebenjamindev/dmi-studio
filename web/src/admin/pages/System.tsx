@@ -8,6 +8,7 @@ import { NotificationSettings } from '../../components/NotificationSettings';
 import { StorageSettings } from '../../components/Users';
 import { SiteLockSettings } from '../../components/SiteLock';
 import { admin } from '../api';
+import { goAdmin } from '../nav';
 import { PageHead, Section, Field, Kpi, Async, Empty, Badge, Table, useLoad, useCan, act, fmtNum, fmtBytes, fmtTime, fmtDate } from '../kit';
 
 export function Info() {
@@ -197,7 +198,7 @@ export function Storage() {
           return tableReverse ? -diff : diff;
         });
 
-        const filesData = d.filesBreakdown || { totalFiles: 0, totalBytes: 0, byType: [], largestFiles: [], duplicates: [] };
+        const filesData = d.filesBreakdown || { totalFiles: 0, totalBytes: 0, byType: [], duplicates: [] };
         const driveData = d.driveDetails || { connected: false, accounts: [], rootFolder: null };
 
         return (
@@ -354,8 +355,8 @@ export function Storage() {
                       <dd><Badge tone={driveData.connected ? 'ok' : 'warn'}>{driveData.connected ? 'OAuth2 v3 Đã kết nối' : 'Cần kiểm tra quyền'}</Badge></dd>
                       <dt>Môi trường máy chủ</dt>
                       <dd>{d.cloud ? 'Cloudflare Workers (Edge Serverless)' : 'Node.js Local Server'}</dd>
-                      <dt>Giới hạn D1</dt>
-                      <dd>500 MB (Miễn phí) · Hiện dùng: {dbPct > 0 ? `${dbPct}%` : '< 1%'}</dd>
+                      <dt>Dung lượng D1</dt>
+                      <dd>Đã dùng {fmtBytes(ov.databaseBytes)} · còn lại {fmtBytes(Math.max(0, 500e6 - ov.databaseBytes))} · <button type="button" className="ax-kpi-link" onClick={() => goAdmin('system', 'hosting')}>Xem hosting và giới hạn</button></dd>
                     </dl>
                   </Section>
 
@@ -520,36 +521,6 @@ export function Storage() {
                         { key: 'bytes', label: 'Dung lượng', align: 'right', render: (f: any) => fmtBytes(f.bytes) },
                       ]}
                     />
-                  </Section>
-
-                  <Section title="Tệp có dung lượng lớn nhất (Largest Files)">
-                    {filesData.largestFiles?.length ? (
-                      <div className="ax-card flush">
-                        <Table
-                          rows={filesData.largestFiles.map((f: any, i: number) => ({ ...f, id: `${f.name}-${i}` }))}
-                          cols={[
-                            {
-                              key: 'name',
-                              label: 'Tên tệp',
-                              render: (f: any) => (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                                  <span style={{ fontWeight: 600, fontSize: 12.5 }}>{f.name}</span>
-                                  <small style={{ color: 'var(--sub)', fontSize: 11 }}>{f.type} · {f.source}</small>
-                                </div>
-                              ),
-                            },
-                            {
-                              key: 'bytes',
-                              label: 'Dung lượng',
-                              align: 'right',
-                              render: (f: any) => <b>{fmtBytes(f.bytes)}</b>,
-                            },
-                          ]}
-                        />
-                      </div>
-                    ) : (
-                      <p className="note">Chưa có tệp nào được lưu.</p>
-                    )}
                   </Section>
 
                   {filesData.duplicates?.length > 0 && (
@@ -771,7 +742,7 @@ export function Backup() {
         <Section title="Phục hồi"><p className="note">Phục hồi thay toàn bộ dữ liệu hiện tại của mọi người nên không làm từ giao diện. Cách làm: dừng máy chủ, sao lưu file <code>data/studio.db</code> hiện tại, chép bản sao lưu đè lên <code>data/studio.db</code> (xoá <code>studio.db-wal</code> và <code>studio.db-shm</code> nếu có), rồi chạy lại máy chủ.</p></Section>
       </> : <>
         <Section title="Sao lưu trên Cloudflare D1"><p className="note">Máy chủ cloud không có ổ đĩa để tạo file sao lưu. Trên máy đã đăng nhập Cloudflare, chạy lệnh dưới đây trong thư mục dự án để xuất toàn bộ database ra <code>data/backups/d1-latest.sql</code>:</p><pre className="ax-code">{d.command}</pre></Section>
-        <Section title="Phục hồi"><p className="note">Cloudflare D1 giữ lịch sử 30 ngày (Time Travel). Phục hồi về một thời điểm bằng lệnh <code>wrangler d1 time-travel restore dmi-studio-db --timestamp=…</code>, hoặc nạp file .sql bằng <code>wrangler d1 execute dmi-studio-db --remote --file=…</code>. Làm ngoài giờ làm việc vì dữ liệu hiện tại sẽ bị thay.</p></Section>
+        <Section title="Phục hồi"><p className="note">Cloudflare D1 giữ lịch sử 7 ngày (Time Travel). Phục hồi về một thời điểm bằng lệnh <code>wrangler d1 time-travel restore dmi-studio-db --timestamp=…</code>, hoặc nạp file .sql bằng <code>wrangler d1 execute dmi-studio-db --remote --file=…</code>. Làm ngoài giờ làm việc vì dữ liệu hiện tại sẽ bị thay.</p></Section>
       </>}</Async>
     </>
   );
