@@ -4,6 +4,15 @@ import { lazy, type ComponentType } from 'react';
 import { beginLoading } from './loading';
 import type { View } from './store';
 
+const RELOADED = 'dms.reloadedFor';
+/** A page's file that is no longer there (a build or deploy replaced the files while this window was open): the window
+ *  loads the new version, once per page and address, rather than staying on a page that cannot draw. */
+function reloadForNewVersion(page: string) {
+  const key = page + '@' + location.href;
+  try { if (sessionStorage.getItem(RELOADED) === key) return false; sessionStorage.setItem(RELOADED, key); } catch { return false; }
+  location.reload();
+  return true;
+}
 /** A page's code: `preload` fetches it once; `Page` draws it, under the activity signal while it is still coming. */
 function lazyPage<M extends Record<K, ComponentType>, K extends keyof M>(load: () => Promise<M>, name: K) {
   let module: Promise<M> | undefined;
@@ -11,7 +20,13 @@ function lazyPage<M extends Record<K, ComponentType>, K extends keyof M>(load: (
   const preload = () => module ||= load().catch((e) => { module = undefined; throw e; });
   const Page = lazy(async () => {
     const done = beginLoading();
-    try { return { default: (await preload())[name] }; } finally { done(); }
+    try { return { default: (await preload())[name] }; }
+    catch (e) {
+      // Shown, it is a newer version's turn: wait for the reload instead of showing the error.
+      if (reloadForNewVersion(String(name))) await new Promise(() => {});
+      throw e;
+    }
+    finally { done(); }
   });
   return { preload, Page };
 }

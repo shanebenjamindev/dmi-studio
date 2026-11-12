@@ -26,7 +26,7 @@ const keep = (k: string, v: string) => { try { localStorage.setItem(k, v); } cat
 export const savedWsView = (): WsView => { const v = read('dms.wsView'); return v === 'list' || v === 'timeline' || v === 'clients' ? v : 'tiles'; };
 export const saveWsView = (v: WsView) => keep('dms.wsView', v);
 const day = (ms: number | null) => (ms ? shortDate(ms) : '—');
-const byText = (a: string, b: string) => a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' });
+const byText = (a: string, b: string) => (a || '').localeCompare(b || '', 'vi', { numeric: true, sensitivity: 'base' });
 
 /** Pages of a long list: the range shown, then the page numbers to pick (the first, the last and those around this one). */
 function Pages({ page, size, total, onPage }: { page: number; size: number; total: number; onPage: (p: number) => void }) {

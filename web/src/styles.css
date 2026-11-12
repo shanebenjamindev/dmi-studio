@@ -4605,6 +4605,7 @@ a.rail-item { text-decoration: none; }
  .tk-mailbox.has-selection { display:flex; }
  .tk-mailbox.has-selection > .resize-handle { display:none; }
  .tk-mailbox.has-selection>.tk-list-pane { display:none; }
+ .tk-mailbox.has-selection>.tk-reading-pane { flex:1 1 auto; width:100%; }
  .tk-reading-content { padding:12px; }
  .tk-reading-content>.tk-detail-head { padding:16px; }
  .tk-reading-grid .tk-detail-side { position:static; }
@@ -5037,10 +5038,10 @@ a.rail-item { text-decoration: none; }
 .sp-drawer-contact-btns { display: flex; gap: 8px; }
 
 
-/* A narrow board pane (Inbox and Planner open beside it): the title keeps a readable width, buttons stay on one line,
-   and the bar scrolls sideways rather than squeezing them. */
-.bd-bar { overflow-x: auto; scrollbar-width: none; }
-.bd-bar::-webkit-scrollbar { display: none; }
+/* A narrow board pane (Inbox and Planner open beside it): the title keeps a readable width, buttons stay whole, and
+   what does not fit goes onto a second line. (A bar that scrolled sideways hid the title once a button at its end
+   was clicked: the browser scrolled to it.) */
+.bd-bar { flex-wrap: wrap; row-gap: 6px; }
 .bd-bar > * { flex-shrink: 0; }
 .bd-bar > .bd-title { flex-shrink: 1; min-width: 96px; }
 .bd-bar > .bd-gap { flex-shrink: 1; min-width: 0; }
@@ -7346,9 +7347,9 @@ div.rt-view:not(.rt-body) [data-mention]:hover, div.rt-view:not(.rt-body) [data-
   color: var(--label-3) !important;
 }
 
-/* Customer list folding */
+/* Customer list folding: .tk-list-pane and .resize-handle are display:none, so only .tk-reading-pane stays in grid flow (column 1). */
 .crm-page.has-selection.list-folded {
-  grid-template-columns: 0 0 minmax(0, 1fr) !important;
+  grid-template-columns: minmax(0, 1fr) !important;
   gap: 0 !important;
 }
 .crm-page.has-selection.list-folded > .tk-list-pane {
@@ -7391,9 +7392,9 @@ div.rt-view:not(.rt-body) [data-mention]:hover, div.rt-view:not(.rt-body) [data-
   margin: 0 !important;
 }
 
-/* Task reading list folding */
+/* Task reading list folding: .tk-list-pane and .resize-handle are hidden, leaving .tk-reading-pane in column 1. */
 .tk-mailbox.has-selection.task-list-folded {
-  grid-template-columns: 0 0 minmax(0, 1fr) !important;
+  grid-template-columns: minmax(0, 1fr) !important;
   gap: 0 !important;
 }
 .tk-mailbox.has-selection.task-list-folded > .tk-list-pane {
@@ -7835,3 +7836,39 @@ button.ws-board-name {
 .ax-sql-hist button { width: 100%; padding: 8px 10px; border: 1px solid var(--ax-line); border-radius: 8px; background: var(--ax-surface); color: var(--ax-ink-2); text-align: left; cursor: pointer; }
 .ax-sql-hist button:hover { background: var(--ax-hover); }
 .ax-sql-hist code { font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+
+/* Review workflow on a task's page (TaskFlow.tsx): one colour per stage, used by the badge, the steps and the history. */
+.tf-account { --tf: #64748b; } .tf-execution { --tf: var(--tint); } .tf-review { --tf: #8b5cf6; } .tf-completed, .tf-pass { --tf: #16a34a; } .tf-rejected, .tf-fail { --tf: #ef4444; } .tf-redo { --tf: #d97706; }
+.tf-badge { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 18px; background: color-mix(in srgb, var(--tf) 13%, transparent); color: var(--tf); font-size: 13px; font-weight: 500; }
+.tf-badge b { font-size: 11px; letter-spacing: .04em; }
+.tf-redo-count { margin-left: auto; padding: 2px 8px; border-radius: 10px; background: color-mix(in srgb, #d97706 14%, transparent); color: #d97706; letter-spacing: .02em; }
+/* The stages as one row of small chips (wrapping on a narrow card); only the current one says its name. */
+.tf-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 12px; padding: 0; list-style: none; }
+.tf-steps li { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--sep); color: var(--label-3); font-size: 11.5px; white-space: nowrap; }
+.tf-steps li b { font-size: 10px; letter-spacing: .05em; }
+.tf-steps li.tf-sep { padding: 0; border: 0; color: var(--label-3); }
+.tf-steps li.done { border-color: transparent; background: color-mix(in srgb, var(--tf) 9%, transparent); color: var(--label-2); }
+.tf-steps li.now { border-color: var(--tf); background: color-mix(in srgb, var(--tf) 13%, transparent); color: var(--tf); font-weight: 600; }
+.tf-facts { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-bottom: 12px; font-size: 13px; }
+.tf-facts > div { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tf-facts span { color: var(--label-2); }
+.tf-facts select { width: auto; max-width: 240px; min-height: 32px; }
+.tf-act { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.tf-act textarea { width: 100%; }
+.tf-act .note, .tf-wait { margin: 0; font-size: 12.5px; }
+.tf-row { flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.tf-grade { display: flex; flex-wrap: wrap; gap: 8px; }
+.tf-grade .btn { background: color-mix(in srgb, var(--tf) 13%, transparent); color: var(--tf); }
+.tf-grade .btn:hover:not(:disabled) { background: color-mix(in srgb, var(--tf) 22%, transparent); }
+.tf-grade .btn:disabled { opacity: .45; }
+.tf-history { margin-top: 14px; border-top: 1px solid var(--sep); padding-top: 10px; }
+.tf-history > summary { cursor: pointer; font-size: 12.5px; color: var(--label-2); }
+.tf-history ol { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 0; padding: 0; list-style: none; }
+.tf-history li { padding: 10px 12px; border-radius: 10px; background: var(--fill-2); font-size: 13px; }
+.tf-history li header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.tf-out { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; color: var(--tf, var(--label-2)); background: color-mix(in srgb, var(--tf, #8b5cf6) 13%, transparent); }
+.tf-line { margin: 2px 0; color: var(--label-2); font-size: 12px; }
+.tf-quote { margin: 4px 0; padding: 6px 10px; border-left: 3px solid var(--sep); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tf-feedback { border-left-color: var(--tint); }
+.tf-version > summary { cursor: pointer; font-size: 12px; color: var(--tint); }
+@media (max-width: 600px) { .tf-facts select { max-width: 100%; } }

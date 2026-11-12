@@ -96,7 +96,9 @@ export function WorkProjects() {
 
   const select = (id: string | null) => {
     setSelected(id);
-    history.replaceState(null, '', id ? `#projects/${id}` : '#projects');
+    // Opening a project (or going back to the list) is a step Back returns from.
+    const hash = id ? `#projects/${id}` : '#projects';
+    if (location.hash !== hash) history.pushState(null, '', hash);
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   };
   const canManage = (p: ProjectRow) => user?.role === 'admin' || p.level === 'admin';

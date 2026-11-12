@@ -597,13 +597,15 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     assert.equal(card.description,'Working description');
     assert.equal(JSON.stringify(card).includes('private-result'),false);
     assert.equal(card.linkedTask.id,id);
+    // Imported tasks are in the review workflow too: the card follows the task both ways, but only a review finishes it.
     const future=Date.now()+86400000;
-    assert.equal((await server.call('PUT',`/api/tasks/${id}`,{dueAt:future,status:'Hoàn thành'},ed.cookie)).status,200);
+    assert.equal((await server.call('PUT',`/api/tasks/${id}`,{dueAt:future},ed.cookie)).status,200);
     card=(await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data;
-    assert.equal(card.done,true); assert.equal(card.dueAt,future);
-    assert.equal((await server.call('PUT',`/api/cards/${cardId}`,{title:'Board edit',done:false},ed.cookie)).status,200);
+    assert.equal(card.done,false); assert.equal(card.dueAt,future);
+    assert.equal((await server.call('PUT',`/api/cards/${cardId}`,{done:true},ed.cookie)).status,409);
+    assert.equal((await server.call('PUT',`/api/cards/${cardId}`,{title:'Board edit'},ed.cookie)).status,200);
     detail=(await server.call('GET',`/api/tasks/${id}`,undefined,ac)).data;
-    assert.equal(detail.title,'Board edit'); assert.equal(detail.status,'Chưa thực hiện');
+    assert.equal(detail.title,'Board edit'); assert.equal(detail.stage,'execution');
     const review=(await server.call('POST',`/api/boards/${b.id}/lists`,{name:'Chờ khách duyệt'},ac)).data;
     const finished=(await server.call('POST',`/api/boards/${b.id}/lists`,{name:'Hoàn thành'},ac)).data;
     assert.equal((await server.call('PUT',`/api/cards/${cardId}`,{listId:review.id},other.cookie)).status,403);
@@ -611,18 +613,21 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     detail=(await server.call('GET',`/api/tasks/${id}`,undefined,ac)).data;
     assert.equal(detail.status,'Chờ khách duyệt');
     assert.ok(detail.statuses.includes('Chờ khách duyệt'));
-    assert.equal((await server.call('PUT',`/api/tasks/${id}`,{status:'Hoàn thành'},ed.cookie)).status,200);
+    assert.equal((await server.call('PUT',`/api/tasks/${id}`,{status:'Hoàn thành'},ed.cookie)).status,409);
+    assert.equal((await server.call('POST',`/api/tasks/${id}/flow`,{action:'submit'},ed.cookie)).status,200);
+    assert.equal((await server.call('POST',`/api/tasks/${id}/flow`,{action:'pass'},ac)).status,200);
     card=(await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data;
     assert.equal(card.listId,finished.id); assert.equal(card.done,true);
+    // Closed until reopened; then the task's status moves its card again.
+    assert.equal((await server.call('PUT',`/api/tasks/${id}`,{status:'Chờ khách duyệt'},ed.cookie)).status,409);
+    assert.equal((await server.call('POST',`/api/tasks/${id}/flow`,{action:'reopen'},ac)).status,200);
     assert.equal((await server.call('PUT',`/api/tasks/${id}`,{status:'Chờ khách duyệt'},ed.cookie)).status,200);
     card=(await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data;
     assert.equal(card.listId,review.id); assert.equal(card.done,false);
     assert.equal((await server.call('PUT',`/api/lists/${review.id}`,{name:'Chờ khách phản hồi'},ac)).status,200);
     assert.equal((await server.call('GET',`/api/tasks/${id}`,undefined,ac)).data.status,'Chờ khách phản hồi');
-    assert.equal((await server.call('POST',`/api/lists/${review.id}/move-cards`,{to:finished.id},ac)).status,200);
-    detail=(await server.call('GET',`/api/tasks/${id}`,undefined,ac)).data;
-    assert.equal(detail.status,'Hoàn thành');
-    assert.equal((await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data.done,true);
+    assert.equal((await server.call('POST',`/api/lists/${review.id}/move-cards`,{to:finished.id},ac)).status,409);
+    assert.equal((await server.call('GET',`/api/tasks/${id}`,undefined,ac)).data.status,'Chờ khách phản hồi');
     const cardWithProj = (await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data;
     assert.equal(cardWithProj.projectId, task.project.id);
     assert.equal(cardWithProj.projectName, 'Launch');
@@ -1700,7 +1705,7 @@ test('project members update its tasks and their cards; followers only look',asy
   assert.equal((await server.call('PUT',`/api/tasks/${task.id}`,{description:'Rewritten'},doer.cookie)).status,403);
   await server.call('PUT',`/api/boards/${board.id}/members/${doer.id}`,{level:'normal'},ac);
   assert.equal((await server.call('PUT',`/api/cards/${linked.data.cardId}`,{description:'Rewritten on the board'},doer.cookie)).status,403);
-  assert.equal((await server.call('PUT',`/api/tasks/${task.id}`,{status:'Hoàn thành',description:'Brief by the member'},doer.cookie)).status,200);
+  assert.equal((await server.call('PUT',`/api/tasks/${task.id}`,{status:'Tạm dừng',description:'Brief by the member'},doer.cookie)).status,200);
   assert.equal((await server.call('GET',`/api/cards/${linked.data.cardId}`,undefined,member.cookie)).data.canEditDescription,true);
   assert.equal((await server.call('PUT',`/api/cards/${linked.data.cardId}`,{description:'Brief v2'},member.cookie)).status,200);
   assert.equal((await detail(member)).description,'Brief v2');

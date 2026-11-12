@@ -42,6 +42,8 @@ export interface SupportTicket {
   images: number;
 }
 export interface TaskStatus extends DictItem { category: string; locked: boolean }
+/** The review workflow's settings, with how many tasks are in each stage and how many are not in it yet. */
+export interface TaskFlowAdmin { config: import('../../../shared/task-flow').FlowConfig; stages: Partial<Record<import('../../../shared/task-flow').FlowStage, number>>; pending: number }
 export interface TaskTemplate { id: string; name: string; about: string; title: string; checklist: string[]; status: string | null; priorityId: string | null; labels: string[]; dueDays: number | null; createdBy: string | null; updatedBy: string | null; createdAt: number; updatedAt: number }
 export interface CustomerRow {
   id: string; name: string; contact: string; phone: string; email: string; status: string | null; category: { id: string; name: string; color: string } | null; tags?: { id: string; name: string; color: string }[]; source: { id: string; name: string; color: string } | null;
@@ -116,6 +118,9 @@ export const admin = {
   removeStatus: (id: string) => req('DELETE', `/api/admin/task-statuses/${id}`),
   clearUnlistedStatus: (name: string) => req('POST', '/api/admin/task-statuses/clear-unlisted', { name }),
   orderStatuses: (ids: string[]) => req('POST', '/api/admin/task-statuses/order', { ids }),
+  taskFlow: () => req<TaskFlowAdmin>('GET', '/api/admin/task-flow'),
+  saveTaskFlow: (b: import('../../../shared/task-flow').FlowConfig) => req<TaskFlowAdmin>('PUT', '/api/admin/task-flow', b),
+  applyTaskFlow: () => req<TaskFlowAdmin & { applied: number }>('POST', '/api/admin/task-flow/apply'),
   labels: () => req<{ id: string; name: string; color: string; used: number }[]>('GET', '/api/admin/task-labels'),
   createLabel: (b: { name: string; color: string }) => req('POST', '/api/admin/task-labels', b),
   updateLabel: (id: string, b: Partial<{ name: string; color: string }>) => req('PUT', `/api/admin/task-labels/${id}`, b),

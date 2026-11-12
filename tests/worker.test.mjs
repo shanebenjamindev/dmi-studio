@@ -141,8 +141,11 @@ test('Workers: accounts, cookies, cross-isolate Google state, permissions and or
     const board = await call(a, 'GET', `/api/boards/${boardItems.data[0].id}`, undefined, setup.cookie);
     const linked = await call(a, 'POST', `/api/tasks/${taskId}/card`, { listId: board.data.lists[0].id }, setup.cookie);
     assert.equal(linked.status, 201, JSON.stringify(linked.data));
-    assert.equal((await call(b, 'PUT', `/api/cards/${linked.data.cardId}`, { done: true }, setup.cookie)).status, 200);
+    // A task in the review workflow is finished by its review, not by ticking its card; the card follows the review.
+    assert.equal((await call(b, 'PUT', `/api/cards/${linked.data.cardId}`, { done: true }, setup.cookie)).status, 409);
+    for (const action of ['submit', 'pass']) assert.equal((await call(b, 'POST', `/api/tasks/${taskId}/flow`, { action }, setup.cookie)).status, 200);
     assert.equal((await call(a, 'GET', `/api/tasks/${taskId}`, undefined, setup.cookie)).data.status, 'Hoàn thành');
+    assert.equal((await call(a, 'GET', `/api/cards/${linked.data.cardId}`, undefined, setup.cookie)).data.done, true);
     assert.equal((await call(b, 'PUT', `/api/tasks/${taskId}`, { title: 'Updated in D1' }, setup.cookie)).status, 200);
     const card = await call(a, 'GET', `/api/cards/${linked.data.cardId}`, undefined, setup.cookie);
     assert.equal(card.data.title, 'Updated in D1');

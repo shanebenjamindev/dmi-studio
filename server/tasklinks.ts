@@ -4,6 +4,7 @@ import {notificationSnapshot,queueTaskNotifications} from './notifications';
 import { all, get, run, now } from './db';
 import { HttpError } from './http';
 import { statusKey } from './taskimport';
+import { flowSettings, statusBlocked } from './task-flow';
 
 export async function assertLinkedTaskEditable(cardId: string, userId: string) {
   const link = await get<any>('SELECT t.* FROM task_board_links l JOIN tasks t ON t.id=l.task_id WHERE l.card_id=?', cardId);
@@ -11,6 +12,17 @@ export async function assertLinkedTaskEditable(cardId: string, userId: string) {
   // As on the task's own page: its project's managers and members change it (followers and viewers only look); outside
   // projects, whoever edits the card on its board (the caller checked that) does.
   if(link.project_id)await requireProject(userId,link.project_id,'normal');
+}
+
+/** A card move or tick (`listId`, `done`) its task's review workflow does not allow: a closed task stays where it is
+ *  until it is reopened, and only a review finishes an open one (server/task-flow.ts). */
+export async function assertCardFlow(cardId: string, b: { listId?: unknown; done?: unknown }) {
+  const t = await get<any>('SELECT t.stage, t.status, c.list_id, c.done FROM task_board_links l JOIN tasks t ON t.id=l.task_id JOIN board_cards c ON c.id=l.card_id WHERE l.card_id=?', cardId);
+  if (!t) return;
+  const list = b.listId !== undefined && b.listId !== t.list_id ? await get<any>('SELECT name FROM board_lists WHERE id=?', String(b.listId)) : null;
+  const next = list ? list.name : b.done !== undefined && !!b.done !== !!t.done ? (b.done ? 'Hoàn thành' : 'Đang thực hiện') : null;
+  const blocked = next && statusBlocked(t, next, await flowSettings());
+  if (blocked) throw new HttpError(409, blocked);
 }
 
 /** Who wrote a task's description (from before writers were kept: whoever made the task). */
@@ -68,17 +80,20 @@ export async function syncTaskToCard(taskId: string) {
 }
 
 export async function syncCardToTask(cardId: string, moved = false, actorId?: string) {
-  const c = await get<any>('SELECT c.*, l.task_id, t.status task_status, t.done_at task_done FROM board_cards c JOIN task_board_links l ON l.card_id=c.id JOIN tasks t ON t.id=l.task_id WHERE c.id=?', cardId);
+  const c = await get<any>('SELECT c.*, l.task_id, t.status task_status, t.done_at task_done, t.stage task_stage FROM board_cards c JOIN task_board_links l ON l.card_id=c.id JOIN tasks t ON t.id=l.task_id WHERE c.id=?', cardId);
   if (!c) return;
   const beforeNotification=await notificationSnapshot(c.task_id);
   const wasDone = ['done', 'done_late'].includes(statusKey(c.task_status));
   const column=moved ? await get<any>('SELECT name FROM board_lists WHERE id=?',c.list_id) : null;
   const completed = c.done ? true : (column ? ['done', 'done_late'].includes(statusKey(column.name)) : false);
   const doneAt = completed ? c.task_done || now() : null;
-  const status = column ? await columnStatus(column.name, doneAt, c.due_at) : c.done ? (c.due_at && doneAt > c.due_at ? 'Hoàn thành muộn' : 'Hoàn thành') : wasDone ? 'Chưa thực hiện' : c.task_status;
-  if(moved) await run('UPDATE board_cards SET done=? WHERE id=?',completed?1:0,cardId);
+  let status = column ? await columnStatus(column.name, doneAt, c.due_at) : c.done ? (c.due_at && doneAt > c.due_at ? 'Hoàn thành muộn' : 'Hoàn thành') : wasDone ? 'Chưa thực hiện' : c.task_status;
+  // A change the review workflow does not allow (a column renamed, say) leaves the task's status as it was; its card goes back.
+  const kept = !!statusBlocked({ stage: c.task_stage, status: c.task_status }, status, await flowSettings());
+  if (kept) status = c.task_status;
+  if(moved && !kept) await run('UPDATE board_cards SET done=? WHERE id=?',completed?1:0,cardId);
   await run('UPDATE tasks SET title=?, description=?, description_by=?, start_at=?, due_at=?, status=?, done_at=?, updated_at=? WHERE id=?',
-    c.title, c.description || '', c.description_by ?? null, c.start_at, c.due_at, status, doneAt, now(), c.task_id);
-  if(!moved) await syncTaskToCard(c.task_id);
+    c.title, c.description || '', c.description_by ?? null, c.start_at, c.due_at, status, kept ? c.task_done : doneAt, now(), c.task_id);
+  if(!moved || kept) await syncTaskToCard(c.task_id);
   await queueTaskNotifications(c.task_id,beforeNotification,actorId).catch(()=>console.error('Không xếp được thông báo công việc'));
 }

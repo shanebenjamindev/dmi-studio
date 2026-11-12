@@ -179,7 +179,23 @@ export interface CardAttachment { id: string; name: string; url: string; created
 export type TaskState = 'done' | 'done_late' | 'overdue' | 'doing' | 'todo' | 'paused' | 'cancelled' | 'other';
 export interface TaskPerson { id: string; name: string; userId: string | null; avatarAt?: number | null }
 export interface TaskCampaign { id:string; name:string; projectId:string; tasks:number }
+/** Its review workflow (shared/task-flow.ts) as its page shows it: `recorded` false for a task from before the workflow
+ *  (stage read from its status); `can`: the moves this account may make now; `rounds`: newest first. */
+export interface TaskFlowInfo {
+  stage: import('../../shared/task-flow').FlowStage; recorded: boolean;
+  /** Each stage with the name set in Quản trị. */
+  stages: { key: import('../../shared/task-flow').FlowStage; code: string; name: string }[]; reviewer: { id: string; name: string } | null; reviewerChosen: boolean; revision: number;
+  submittedAt: number | null; reviewedAt: number | null;
+  can: { start: boolean; submit: boolean; review: boolean; reopen: boolean; reviewer: boolean };
+  rounds: TaskReviewRound[];
+}
+/** One submission: what was handed in then (`result`, null when hidden from this account) and, once graded, how. */
+export interface TaskReviewRound {
+  id: string; round: number; submittedBy: { id: string; name: string } | null; submittedAt: number; note: string; result: string | null; resultHidden: boolean;
+  outcome: import('../../shared/task-flow').FlowOutcome | null; reviewer: { id: string; name: string } | null; reviewedAt: number | null; feedback: string;
+}
 export interface TaskItem {
+  stage?: import('../../shared/task-flow').FlowStage;
   campaign: {id:string;name:string;projectId:string} | null;
   boardLink?:{cardId:string;boardId:string;boardName:string;listName:string;listId:string}|null;hasBoardLink?:boolean;
   canDelete?: boolean;
@@ -189,6 +205,7 @@ export interface TaskItem {
 }
 export interface TaskDetail extends TaskItem {
   statuses?: string[];
+  flow?: TaskFlowInfo;
   description: string; result: string | null; resultHidden: boolean; canEdit: boolean; canEditDescription: boolean; canDelete: boolean; hasBoardLink: boolean; boardLink: { cardId: string; boardId: string; listId: string; boardName: string; listName: string } | null; path: { id: string; title: string }[];
   /** The whole branch under it (subtasks, theirs, …), each with its `parent`, as far as this account sees them. */
   childTasks: TaskItem[];
@@ -206,6 +223,8 @@ export interface TaskMeta {
 export interface TaskWrite {
   title?: string; description?: string; result?: string; status?: string; startAt?: number | null; dueAt?: number | null;
   campaignId?: string | null; projectId?: string | null; parentId?: string | null; assigneeIds?: string[]; assigneeUserIds?: string[]; followerUserIds?: string[]; labels?: string[]; services?: string[];
+  /** On a new task only: who reviews it (none: whoever makes it). */
+  reviewerUserId?: string;
 }
 export interface TaskImportSheet { id: string; name: string; headers: string[]; rows: string[][]; taskIds: (string | null)[]; titleColumn: number; start: number; total: number; page: number; pages: number }
 export interface TaskImportResult { sheetRows: number; sheetColumns: number; importId: string; sourceName: string; rows: number; skipped: number; created: number; updated: number; parents: number; stubs: number; people: number; linked: number; projects: number; labels: number }

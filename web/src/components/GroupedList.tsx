@@ -94,5 +94,5 @@ export function byKey<T>(rows: T[], keyOf: (r: T) => { key: string; label: strin
     groups.get(k.key)!.rows.push(r as T & { id: string });
   }
   const rank = (k: string) => (k === '_none' ? 1e9 : order.includes(k) ? order.indexOf(k) : order.length + 1);
-  return [...groups.values()].sort((a, b) => rank(a.key) - rank(b.key) || a.label.localeCompare(b.label, 'vi'));
+  return [...groups.values()].sort((a, b) => rank(a.key) - rank(b.key) || (a.label || '').localeCompare(b.label || '', 'vi'));
 }

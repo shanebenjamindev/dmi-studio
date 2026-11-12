@@ -1,4 +1,5 @@
 import {drainNotifications} from './notifications';
+import {remindTasks,settleStages} from './task-flow';
 // DMI Workspace server entry.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -89,5 +90,5 @@ server.listen(PORT, HOST, () => {
 const mailTimer=setInterval(()=>{void drainNotifications().catch(()=>console.error('Chưa xử lý được hàng đợi email'));},60000);
 mailTimer.unref();
 // As the cloud's cron does: data a change may leave out of step is set right every ten minutes.
-const repairTimer=setInterval(()=>{void repairData().catch(()=>console.error('Chưa sửa được dữ liệu lệch'));},600000);
+const repairTimer=setInterval(()=>{void repairData().catch(()=>console.error('Chưa sửa được dữ liệu lệch'));void settleStages().then(()=>remindTasks()).catch(()=>console.error('Chưa gửi được nhắc việc'));},600000);
 repairTimer.unref();

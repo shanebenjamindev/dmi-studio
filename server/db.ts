@@ -114,6 +114,9 @@ async function upgrade() {
     ['board_lists', 'color'],
     // Screenshots sent with a support request (a JSON list of pictures).
     ['support_tickets', 'images'],
+    // Its review workflow (shared/task-flow.ts): the stage (none: from before, read from its status), who grades it, when it
+    // was last handed in and graded, and how many times it was sent back.
+    ['tasks', 'stage'], ['tasks', 'reviewer_id'], ['tasks', 'submitted_at', 'INTEGER'], ['tasks', 'reviewed_at', 'INTEGER'], ['tasks', 'revision', 'INTEGER NOT NULL DEFAULT 0'],
     ['card_comments', 'reply_to_id'],
     ['task_comments', 'reply_to_id']]) {
     // One look at each table's columns, not one per column: every cold start on D1 runs this.

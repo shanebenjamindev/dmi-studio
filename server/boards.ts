@@ -21,7 +21,7 @@ import {customerLevels,customerAccessSql,requireCustomer,visibleCardIds} from '.
 import { Router, HttpError, json, readJson } from './http';
 import type { Req } from './http';
 import { all, get, run, uid, now } from './db';
-import { assertLinkedTaskEditable, syncCardToTask, cardDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
+import { assertCardFlow, assertLinkedTaskEditable, syncCardToTask, cardDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
 import { statusKey } from './taskimport';
 import { boardServices, saveBoardServices, serviceIds } from './project-services';
 import { notifyPeople } from './notifications';
@@ -830,7 +830,7 @@ export function registerBoards(api: Router) {
     const base = (await get<any>('SELECT MAX(pos) m FROM board_cards WHERE list_id = ?', to.id))?.m || 0;
     const cards=await all<any>('SELECT id FROM board_cards WHERE list_id = ? ORDER BY pos',l.id);
     const u=await me(req);
-    for(const c of cards) await assertLinkedTaskEditable(c.id,u.id);
+    for(const c of cards) { await assertLinkedTaskEditable(c.id,u.id); await assertCardFlow(c.id,{listId:to.id}); }
     for (const [i,c] of cards.entries()) {
       await run('UPDATE board_cards SET list_id = ?, pos = ? WHERE id = ?',to.id,base+i+1,c.id);
       if(to.id!==l.id) await syncCardToTask(c.id,true,u.id);
@@ -952,6 +952,7 @@ export function registerBoards(api: Router) {
   api.put('/api/cards/:id', async (req, res) => {
     const c = await mustCard(req, req.params.id), b = await readJson(req), u = await me(req);
     if (['title', 'description', 'startAt', 'dueAt', 'done', 'listId', 'projectId'].some((k) => b[k] !== undefined)) await assertLinkedTaskEditable(c.id, u.id);
+    await assertCardFlow(c.id, b);
     const set: [string, any][] = [], news: string[] = [];
     if (c.card_kind === 'customer' && c.customer_id && b.title !== undefined) {
       await requireCustomer(u.id, c.customer_id, 'admin');

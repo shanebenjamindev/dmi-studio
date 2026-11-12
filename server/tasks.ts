@@ -23,6 +23,7 @@ import { mustBoard, mustCard, mustList, boardLevelForUser, levels as boardLevels
 import { syncTaskToCard, taskDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
 import { readTaskExport, readTaskSheet, statusKey, normName, type TaskRow } from './taskimport';
 import { matcher } from './admin/common';
+import { applyFlow, flowDetail, flowSettings, settleStages, stageOf, statusBlocked } from './task-flow';
 
 const me = async (req: Req) => (await currentUser(req))!;
 /** The names in the task data linked to this account. */
@@ -126,7 +127,8 @@ export async function importTasks(text: string, userId: string, sourceName = '',
       const customer=(await get<any>('SELECT p.customer_id FROM tasks t JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',old.id))?.customer_id;
       if(customer)await requireCustomer(userId,customer,'normal');
       id = old.id;
-      await run('UPDATE tasks SET title=?, status=?, start_at=?, due_at=?, done_at=?, project_id=?, description=?, result=?, created_by=?, source_updated_at=?, import_id=?, stub=0, updated_at=? WHERE id=?', ...fields, t0, id);
+      // The source app's status is the task's again: its stage is read anew from it (settleStages, below).
+      await run('UPDATE tasks SET title=?, status=?, start_at=?, due_at=?, done_at=?, project_id=?, description=?, result=?, created_by=?, source_updated_at=?, import_id=?, stub=0, stage=NULL, updated_at=? WHERE id=?', ...fields, t0, id);
       count.updated++;
     } else {
       id = uid('tk_');
@@ -180,6 +182,7 @@ export async function importTasks(text: string, userId: string, sourceName = '',
   }
   const name = sourceName.trim().slice(0,255) || `Bảng đã nhập ${new Date(t0).toISOString().slice(0,10)}`;
   await run('INSERT INTO task_import_sheets(import_id,name,headers,row_count,parts,title_column) VALUES(?,?,?,?,?,?)', importId, name, JSON.stringify(sheet.headers), sheet.rows.length, parts.length, sheet.titleColumn);
+  await settleStages();
   return { rows: rows.length, skipped, ...count, importId, sourceName: name, sheetRows: sheet.rows.length, sheetColumns: sheet.headers.length };
 }
 
@@ -212,14 +215,14 @@ async function links(req:Req,customers?:Awaited<ReturnType<typeof customerLevels
     linkedTasks.add(row.task_id);
     if(allowed.has(row.boardId)){const{task_id,...link}=row;boardLinks.set(task_id,link);}
   }
-  return { who, tags, followers, onCard, boardLinks, linkedTasks, user, pLevels };
+  return { who, tags, followers, onCard, boardLinks, linkedTasks, user, pLevels, flow: await flowSettings() };
 }
 const TASK_SQL = `SELECT t.*, j.name project_name, j.customer_id, (SELECT name FROM task_campaigns WHERE id=t.campaign_id) campaign_name, c.name creator_name, c.user_id creator_user_id, p.title parent_title,
   (SELECT COUNT(*) FROM tasks x WHERE x.parent_id = t.id) children
   FROM tasks t LEFT JOIN task_projects j ON j.id = t.project_id LEFT JOIN task_people c ON c.id = t.created_by LEFT JOIN tasks p ON p.id = t.parent_id`;
 function taskOut(t: any, l: Awaited<ReturnType<typeof links>>) {
   return {
-    id: t.id, externalId: t.external_id || null, title: t.title, status: t.status, state: stateOf(t), startAt: t.start_at ?? null, dueAt: t.due_at ?? null, doneAt: t.done_at ?? null,
+    id: t.id, externalId: t.external_id || null, title: t.title, status: t.status, state: stateOf(t), stage: stageOf(t, l.who.has(t.id), l.flow), startAt: t.start_at ?? null, dueAt: t.due_at ?? null, doneAt: t.done_at ?? null,
     project: t.project_id ? { id: t.project_id, name: t.project_name || '', customerId: t.customer_id || null } : null,
     campaign: t.campaign_id ? { id:t.campaign_id,name:t.campaign_name || '',projectId:t.project_id } : null,
     parent: t.parent_id ? { id: t.parent_id, title: t.parent_title || '' } : null, children: Number(t.children) || 0,
@@ -236,7 +239,7 @@ function taskOut(t: any, l: Awaited<ReturnType<typeof links>>) {
  *  the task and its card are one piece of work, so both sides follow the same rule. */
 async function mine(req: Req, t: any) {
   const u = await me(req);
-  if (u.role === 'admin') return true;
+  if (u.role === 'admin' || t.reviewer_id === u.id) return true;
   if (t.project_id) { if (['admin', 'normal'].includes((await projectLevels(u.id)).get(t.project_id) || '')) return true; }
   else {
     const board = await get<any>('SELECT b.* FROM task_board_links l JOIN board_cards c ON c.id = l.card_id JOIN boards b ON b.id = c.board_id WHERE l.task_id = ?', t.id);
@@ -670,8 +673,10 @@ export function registerTasks(api: Router) {
       : await all<any>('SELECT k.id, k.text, k.user_id userId, u.name userName, k.created_at createdAt, k.updated_at updatedAt, k.reply_to_id replyToId FROM task_comments k LEFT JOIN users u ON u.id = k.user_id WHERE k.task_id = ? ORDER BY k.created_at ASC', t.id);
     const comments = commentRows.map((k) => ({ id: k.id, userId: k.userId, userName: k.userName || 'Thành viên', text: k.text, createdAt: k.createdAt, updatedAt: k.updatedAt, replyToId: k.replyToId || null }));
 
+    // A linked task's history is its card's, with its review moves (kept on the task) among them.
     const activityRows = linked
-      ? await all<any>("SELECT a.id, a.user_id userId, u.name userName, a.action, a.data, a.created_at at FROM board_activity a LEFT JOIN users u ON u.id = a.user_id WHERE a.card_id = ? AND a.action != 'comment' ORDER BY a.created_at DESC LIMIT 50", linked.cardId)
+      ? [...await all<any>("SELECT a.id, a.user_id userId, u.name userName, a.action, a.data, a.created_at at FROM board_activity a LEFT JOIN users u ON u.id = a.user_id WHERE a.card_id = ? AND a.action != 'comment' ORDER BY a.created_at DESC LIMIT 50", linked.cardId),
+         ...await all<any>("SELECT a.id, a.user_id userId, u.name userName, a.action, a.data, a.created_at at FROM task_activity a LEFT JOIN users u ON u.id = a.user_id WHERE a.task_id = ? AND a.action LIKE 'flow.%' ORDER BY a.created_at DESC LIMIT 50", t.id)].sort((x, y) => y.at - x.at).slice(0, 50)
       : await all<any>("SELECT a.id, a.user_id userId, u.name userName, a.action, a.data, a.created_at at FROM task_activity a LEFT JOIN users u ON u.id = a.user_id WHERE a.task_id = ? AND a.action != 'comment' ORDER BY a.created_at DESC LIMIT 50", t.id);
     const activity = activityRows.map((a) => {
       const d = typeof a.data === 'string' ? (JSON.parse(a.data || '{}') || {}) : (a.data || {});
@@ -682,21 +687,33 @@ export function registerTasks(api: Router) {
       else if (a.action === 'card.due') text = d.due ? 'đã đặt hạn hoàn thành' : 'đã gỡ hạn';
       else if (a.action === 'card.member') text = d.on ? `đã giao việc cho ${d.name || ''}` : `đã gỡ ${d.name || ''}`;
       else if (a.action === 'task.update') text = 'đã cập nhật thông tin';
+      else if (a.action === 'flow.start') text = 'đã giao việc, chuyển sang EXECUTION';
+      else if (a.action === 'flow.submit') text = `đã nộp duyệt (lần ${d.round || 1})`;
+      else if (a.action === 'flow.pass') text = `đã duyệt PASS (lần ${d.round || 1})`;
+      else if (a.action === 'flow.redo') text = `đã trả về REDO (lần ${d.round || 1})`;
+      else if (a.action === 'flow.fail') text = `đã chấm FAIL (lần ${d.round || 1})`;
+      else if (a.action === 'flow.reopen') text = d.reason ? `đã mở lại công việc: ${d.reason}` : 'đã mở lại công việc';
+      else if (a.action === 'flow.reviewer') text = d.reviewer ? `đã chọn ${d.reviewer} làm người duyệt` : 'đã để người tạo làm người duyệt';
       return { id: a.id, userId: a.userId, user: a.userName || 'Hệ thống', text, at: a.at, action: a.action };
     });
 
-    json(res, 200, { ...taskOut(t, l), canDelete: own&&await canDelete(req,t), statuses: boardLink ? (await all<any>('SELECT name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',boardLink.boardId)).map(l=>l.name) : await taskStatuses(), boardLink, hasBoardLink: !!linked, description: t.description || '', result: own ? t.result || '' : null, resultHidden: !own && !!t.result, canEdit: own, canEditDescription: own && mayWriteDescription(await me(req), t.description, await taskDescriptionWriter(t)), path: chain, childTasks: kids, services: (await taskServices([t.id])).get(t.id) || [], comments, activity });
+    json(res, 200, { ...taskOut(t, l), canDelete: own&&await canDelete(req,t), statuses: boardLink ? (await all<any>('SELECT name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',boardLink.boardId)).map(l=>l.name) : await taskStatuses(), boardLink, hasBoardLink: !!linked, description: t.description || '', result: own ? t.result || '' : null, resultHidden: !own && !!t.result, canEdit: own, canEditDescription: own && mayWriteDescription(await me(req), t.description, await taskDescriptionWriter(t)), path: chain, childTasks: kids, services: (await taskServices([t.id])).get(t.id) || [], flow: await flowDetail(t, await me(req), own, own), comments, activity });
   });
   api.post('/api/tasks', async (req, res) => {
     const u = await me(req), b = await readJson(req), input = await taskInput(b,undefined,u.id);
     const services = b.services !== undefined ? await serviceIds(b.services) : null;
     let creator: any = await get('SELECT id FROM task_people WHERE user_id=? ORDER BY created_at LIMIT 1', u.id);
     if (!creator) { creator = { id: uid('tp_') }; await run('INSERT INTO task_people(id,name,user_id,created_at) VALUES(?,?,?,?)', creator.id, u.name, u.id, now()); }
+    // Given to someone when made, it starts in Execution; otherwise its Account gives it out first.
+    const handedOut = !!(input.people?.length || input.userIds?.length);
     if (input.people === undefined && input.userIds === undefined) input.people = [creator.id];
+    const reviewer = b.reviewerUserId ? String(b.reviewerUserId) : null;
+    if (reviewer && !await get('SELECT 1 FROM users WHERE id=? AND disabled=0', reviewer)) throw new HttpError(400, 'Người duyệt phải là tài khoản đang hoạt động');
     const id = uid('tk_'), at = now();
     await run('INSERT INTO tasks(id,title,status,start_at,due_at,done_at,project_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)', id,input.title,input.status,input.start,input.due,input.done,input.project,input.parent,input.description,input.result,creator.id,at,at);
-    await run('UPDATE tasks SET campaign_id=?,description_by=? WHERE id=?',input.campaign,input.description?.trim()?u.id:null,id);
+    await run('UPDATE tasks SET campaign_id=?,description_by=?,stage=?,reviewer_id=? WHERE id=?',input.campaign,input.description?.trim()?u.id:null,stageOf({status:input.status},handedOut,await flowSettings()),reviewer,id);
     await saveLinks(id,input,u.id);
+    if (reviewer && input.project) await grantAccess(reviewer, u.id, { projectId: input.project }, 'normal');
     if (services) await saveTaskServices(id, services, u.id);
     await inheritFollowers(id,input.project,input.parent);
     await routeTaskToWorkspace(id,u.id);
@@ -705,6 +722,8 @@ export function registerTasks(api: Router) {
   });
   api.put('/api/tasks/:id', async (req, res) => {
     const t = await writable(req), b = await readJson(req), input = await taskInput(b,t,(await me(req)).id);
+    const blocked = b.status !== undefined && statusBlocked(t, input.status, await flowSettings());
+    if (blocked) throw new HttpError(409, blocked);
     const services = b.services !== undefined ? await serviceIds(b.services) : null;
     if ((input.description || '') !== (t.description || '')) {
       const u = await me(req), writer = await taskDescriptionWriter(t);
@@ -786,6 +805,16 @@ export function registerTasks(api: Router) {
     const t = await writable(req);
     await run('DELETE FROM task_board_links WHERE task_id=?',t.id);
     json(res,200,{ ok:true });
+  });
+  // A move in its review workflow (shared/task-flow.ts): start, submit, pass, redo, fail, reopen, or a new reviewer.
+  api.post('/api/tasks/:id/flow', async (req, res) => {
+    const t = await get<any>('SELECT * FROM tasks WHERE id=?', req.params.id);
+    if (!t) throw new HttpError(404, 'Không tìm thấy công việc');
+    const u = await me(req), b = await readJson(req);
+    const canEdit = (!t.project_id || (await projectLevels(u.id)).get(t.project_id) !== 'observer') && await mine(req, t);
+    await applyFlow(t, u, canEdit, String(b.action || '') as any, b);
+    if (await get('SELECT 1 FROM task_board_links WHERE task_id=?', t.id)) await syncTaskToCard(t.id);
+    json(res, 200, { ok: true });
   });
   // Importing (admins): the export as text, from a paste or a file read in the browser.
   api.post('/api/tasks/import', async (req, res) => {

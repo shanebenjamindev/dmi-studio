@@ -36,7 +36,7 @@ export function CustomersPage() {
   const canCreate = mayAddCustomer();
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const[sharing,setSharing]=useState(false);
-  const [selected, setSelected] = useState<string | null>(() => window.location.hash.match(/^#customers\/(c_\w+)/)?.[1] || null);
+  const [selected, setSelected] = useState<string | null>(() => window.location.hash.match(/^#customers\/((?:c|cust)_\w+)/)?.[1] || null);
   const [view, setViewState] = useState<CustomerView>(readView);
   const setView = (v: CustomerView) => { setViewState(v); try { localStorage.setItem(LS_VIEW, v); } catch { /* private mode */ } };
   const [query, setQuery] = useState('');
@@ -64,9 +64,11 @@ export function CustomersPage() {
   const loadCampaigns = (id: string) => Promise.all([api.customerProjects(id), api.taskMeta()]).then(([list, m]) => { setCampaigns(list); setMeta(m); }).catch((e) => toast(e.message, true));
   useEntityRefresh(()=>{void load();if(selected)void loadCampaigns(selected);});
   useEffect(() => { load(); }, []);
-  useEffect(()=>{const change=()=>{if(window.location.hash==='#customers')setSelected(null);};window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change);},[]);
+  // Back and Forward go between the list and the customers opened: the one the address names shows.
+  useEffect(()=>{const change=()=>{if(window.location.hash.startsWith('#customers'))setSelected(window.location.hash.match(/^#customers\/((?:c|cust)_\w+)/)?.[1]||null);};window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change);},[]);
   useEffect(() => { setCampaign(null); setCampaigns([]); setName(''); setProject(''); if (selected) loadCampaigns(selected); }, [selected]);
-  const select = (id: string | null) => { setSelected(id); setTab('overview'); if(!id)load(); history.replaceState(null, '', id ? `#customers/${id}` : '#customers'); };
+  // Opening a customer (or going back to the list) is a step Back returns from.
+  const select = (id: string | null) => { setSelected(id); setTab('overview'); if(!id)load(); const hash = id ? `#customers/${id}` : '#customers'; if (window.location.hash !== hash) history.pushState(null, '', hash); };
   const act = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); } };
   const create = () => act(async () => {
     if (!location || !customerName.trim()) return;

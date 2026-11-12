@@ -123,6 +123,15 @@ CREATE TABLE IF NOT EXISTS task_followers (task_id TEXT NOT NULL, user_id TEXT N
 CREATE TABLE IF NOT EXISTS task_labels (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS task_label_links (task_id TEXT NOT NULL, label_id TEXT NOT NULL, PRIMARY KEY (task_id, label_id));
 CREATE TABLE IF NOT EXISTS task_board_links (task_id TEXT PRIMARY KEY, card_id TEXT NOT NULL UNIQUE);
+-- A task's review rounds (shared/task-flow.ts): each submission with what was handed in then (its result, kept as that
+-- version) and, once graded, the outcome and the reviewer's feedback.
+CREATE TABLE IF NOT EXISTS task_reviews (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, round INTEGER NOT NULL, submitted_by TEXT, submitted_at INTEGER NOT NULL,
+  note TEXT, result TEXT, reviewer_id TEXT, reviewed_at INTEGER, outcome TEXT, feedback TEXT
+);
+CREATE INDEX IF NOT EXISTS task_reviews_task ON task_reviews(task_id, round);
+-- Reminders sent (overdue work, reviews waiting): one a day for each task, person and kind.
+CREATE TABLE IF NOT EXISTS task_reminders (task_id TEXT NOT NULL, user_id TEXT NOT NULL, kind TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (task_id, user_id, kind, day));
 CREATE TABLE IF NOT EXISTS task_import_sheets (import_id TEXT PRIMARY KEY, name TEXT NOT NULL, headers TEXT NOT NULL, row_count INTEGER NOT NULL, parts INTEGER NOT NULL, title_column INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS task_import_sheet_parts (import_id TEXT NOT NULL, part INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(import_id,part));
 CREATE TABLE IF NOT EXISTS task_imports (

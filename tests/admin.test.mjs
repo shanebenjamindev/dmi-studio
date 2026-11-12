@@ -164,9 +164,13 @@ test('admin module: task and customer records, their history, and the lists the 
     assert.ok(ok(await s.call('GET', '/api/tasks/meta', undefined, b)).statuses.includes('Chờ khách duyệt'));
     assert.equal((await s.call('PUT', `/api/admin/task-statuses/${first.id}`, { active: false }, b)).status, 400);
     assert.equal((await s.call('DELETE', `/api/admin/task-statuses/${first.id}`, undefined, b)).status, 400);
-    const delRes = ok(await s.call('DELETE', `/api/admin/task-statuses/${review.id}`, undefined, b));
-    assert.equal(delRes.tasksReset, 1, 'deleting an in-use status moves its tasks back to default');
-    assert.equal(ok(await s.call('GET', `/api/tasks/${t1.id}`, undefined, b)).status, 'Chưa thực hiện');
+    // A status a workflow stage gives cannot go; deleting another one gives its tasks the status of their stage.
+    assert.equal((await s.call('DELETE', `/api/admin/task-statuses/${review.id}`, undefined, b)).status, 409);
+    ok(await s.call('PUT', `/api/tasks/${t2.id}`, { status: 'Tạm dừng' }, b));
+    const paused = statuses.find((x) => x.name === 'Tạm dừng');
+    const delRes = ok(await s.call('DELETE', `/api/admin/task-statuses/${paused.id}`, undefined, b));
+    assert.equal(delRes.tasksReset, 1, 'deleting an in-use status gives its tasks their stage\'s status');
+    assert.equal(ok(await s.call('GET', `/api/tasks/${t2.id}`, undefined, b)).status, 'Đang thực hiện');
     const added = ok(await s.call('POST', '/api/admin/task-statuses', { name: 'Huỷ bởi khách', color: '#ef4444' }, b));
     assert.equal(added.category, 'cancelled', 'what a status means comes from its name, as on the Tasks page');
 

@@ -185,6 +185,7 @@ export const api = {
   linkTaskCard: (id: string, body: { listId?: string; cardId?: string }) => req<{ cardId: string; boardId: string }>('POST', `/api/tasks/${id}/card`, body),
   unlinkTaskCard: (id: string) => req('DELETE', `/api/tasks/${id}/card`),
   setTaskStatus: (id: string, status: string) => req('PUT', `/api/tasks/${id}`, { status }),
+  taskFlow: (id: string, body: { action: import('../../shared/task-flow').FlowAction; note?: string; feedback?: string; reason?: string; reviewerId?: string | null }) => req<{ ok: true }>('POST', `/api/tasks/${id}/flow`, body),
   addTaskComment: (taskId: string, text: string, replyToId?: string | null) => req<{ id: string }>('POST', `/api/tasks/${taskId}/comments`, { text, replyToId }),
   editTaskComment: (id: string, text: string) => req('PUT', `/api/tasks/comments/${id}`, { text }),
   deleteTaskComment: (id: string) => req('DELETE', `/api/tasks/comments/${id}`),

@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { openTask, useStore, toast } from '../../store';
 import { Icon } from '../../components/ui';
-import { admin, download, type TaskRow, type TaskStatus, type TaskTemplate } from '../api';
+import { admin, download, type TaskRow, type TaskTemplate } from '../api';
+import { FLOW_STAGES, type FlowConfig, type FlowStage } from '../../../../shared/task-flow';
 import { routeParam, setRouteParam } from '../nav';
 import { PageHead, Toolbar, Select, Table, Pager, Drawer, Field, Section, Badge, ChangeList, Async, Empty, ErrorState, Loading, DictEditor, Kpi, useLoad, useListState, useDebounced, useCan, act, fmtDate, fmtNum, dayStart, dayValue, type Col } from '../kit';
 import type { TaskMeta } from '../../types';
@@ -120,31 +121,81 @@ export function Statuses() {
           { key: 'used', label: 'Công việc', align: 'right', render: (s) => fmtNum(s.used) },
           { key: 'active', label: 'Trạng thái', render: (s) => s.locked ? <Badge tone="muted">Mặc định của việc mới</Badge> : s.active ? <Badge tone="ok">Đang dùng</Badge> : <Badge tone="muted">Đã tắt</Badge> },
           { key: 'x', label: '', align: 'right', render: (s) => editable && !s.locked ? <span className="ax-row-actions"><button className="btn btn-gray btn-sm" onClick={() => act(() => admin.updateStatus(s.id, { active: !s.active }), s.active ? 'Đã tắt' : 'Đã bật', load.reload)}>{s.active ? 'Tắt' : 'Bật'}</button>
-            <button className="bd-icon danger" title="Xoá" aria-label={`Xoá ${s.name}`} onClick={() => confirm(s.used ? `Xoá trạng thái “${s.name}”? ${s.used} công việc đang ở trạng thái này sẽ được chuyển về “Chưa thực hiện”.` : `Xoá trạng thái “${s.name}”?`) && act(() => admin.removeStatus(s.id), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={14} /></button></span> : null },
+            <button className="bd-icon danger" title="Xoá" aria-label={`Xoá ${s.name}`} onClick={() => confirm(s.used ? `Xoá trạng thái “${s.name}”? ${s.used} công việc đang ở trạng thái này sẽ nhận trạng thái theo bước quy trình của chúng.` : `Xoá trạng thái “${s.name}”?`) && act(() => admin.removeStatus(s.id), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={14} /></button></span> : null },
         ]} /></div>
         {!!d.unlisted.length && <Section title="Trạng thái có trong dữ liệu nhưng chưa có trong danh sách">
-          <p className="note">Công việc nhập từ file có thể mang trạng thái khác. Thêm vào danh sách để người dùng chọn được hoặc xoá để chuyển về “Chưa thực hiện”.</p>
+          <p className="note">Công việc nhập từ file có thể mang trạng thái khác. Thêm vào danh sách để người dùng chọn được, hoặc xoá để các công việc đó nhận trạng thái theo bước quy trình.</p>
           <ul className="ax-list">{d.unlisted.map((u) => <li key={u.name}><span><b>{u.name}</b><small>{fmtNum(u.used)} công việc · hệ thống hiểu là {CATEGORY[u.category] || u.category}</small></span>{editable && <span className="ax-row-actions"><button className="btn btn-gray btn-sm" onClick={() => void add(u.name, '#64748b')}><Icon name="plus" size={13} />Thêm vào danh sách</button><button className="bd-icon danger" title="Xoá" aria-label={`Xoá ${u.name}`} onClick={() => confirm(`Xoá trạng thái “${u.name}”? ${u.used} công việc đang ở trạng thái này sẽ được chuyển về “Chưa thực hiện”.`) && act(() => admin.clearUnlistedStatus(u.name), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={14} /></button></span>}</li>)}</ul>
         </Section>}
       </>}</Async>
     </>
   );
 }
+/** What happens in each stage, as the workflow page explains it. */
+const STAGE_WHAT: Record<FlowStage, string> = {
+  account: 'Nhận yêu cầu của khách, thu thập thông tin và giao việc cho người làm.',
+  execution: 'Người làm thực hiện, cập nhật tiến độ rồi nộp duyệt. REDO đưa việc về lại bước này, giữ nguyên lịch sử.',
+  review: 'Người duyệt kiểm tra kết quả và chấm PASS, REDO (kèm nhận xét) hoặc FAIL (kèm lý do).',
+  completed: 'PASS: đạt yêu cầu. Công việc đóng, chỉ người duyệt hoặc Admin mở lại được.',
+  rejected: 'FAIL: không đạt hoặc không thể tiếp tục. Công việc đóng, chỉ người duyệt hoặc Admin mở lại được.',
+};
+/** The review workflow (shared/task-flow.ts): each stage's name and the status it gives, the reminders, bringing existing
+ *  tasks in, and the statuses outside it (to take off the list). */
 export function Workflow() {
   const can = useCan(), editable = can('tasks.manage');
-  const load = useLoad(() => admin.statuses(), []);
-  const move = (list: TaskStatus[], i: number, by: number) => { const ids = list.map((s) => s.id); [ids[i], ids[i + by]] = [ids[i + by], ids[i]]; void act(() => admin.orderStatuses(ids), 'Đã đổi thứ tự quy trình', load.reload); };
+  const load = useLoad(() => Promise.all([admin.taskFlow(), admin.statuses()]), []);
+  const [draft, setDraft] = useState<FlowConfig | null>(null);
+  useEffect(() => { if (load.data) setDraft(load.data[0].config); }, [load.data]);
+  const saved = load.data?.[0].config, dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(saved);
+  const stage = (key: FlowStage, b: Partial<{ name: string; status: string }>) => draft && setDraft({ ...draft, stages: { ...draft.stages, [key]: { ...draft.stages[key], ...b } } });
+  const num = (k: 'reviewRemindHours' | 'remindDays' | 'remindHour', v: string) => draft && setDraft({ ...draft, [k]: Number(v) });
   return (
     <>
-      <PageHead title="Quy trình công việc" sub="Thứ tự các bước một công việc đi qua. Thứ tự này là thứ tự trạng thái trong ô chọn trên trang Công việc. Hệ thống chưa chặn việc nhảy bước: người làm vẫn chọn được trạng thái bất kỳ." />
-      <Async load={load}>{(d) => {
-        const list = d.statuses.filter((s) => s.active);
-        return <ol className="ax-flow">{list.map((s, i) => (
-          <li key={s.id} style={{ ['--c' as any]: s.color }}>
-            <span className="ax-flow-step">{i + 1}</span><b>{s.name}</b><small>{CATEGORY[s.category]} · {fmtNum(s.used)} việc</small>
-            {editable && <span className="ax-row-actions"><button className="bd-icon" disabled={i === 0} onClick={() => move(list, i, -1)} aria-label="Lên trước"><Icon name="left" size={14} /></button><button className="bd-icon" disabled={i === list.length - 1} onClick={() => move(list, i, 1)} aria-label="Xuống sau"><Icon name="right" size={14} /></button></span>}
-          </li>
-        ))}</ol>;
+      <PageHead title="Quy trình công việc" sub="Mọi công việc đi qua ACCOUNT → EXECUTION → REVIEW. Người duyệt chấm PASS (hoàn thành), REDO (trả về làm lại, lặp tới khi PASS hoặc FAIL) hoặc FAIL (từ chối). Trạng thái của công việc đi theo bước của nó; chỉ REVIEW mới hoàn thành hay từ chối được một việc."
+        actions={editable && <><button className="btn btn-gray btn-sm" disabled={!dirty} onClick={() => saved && setDraft(saved)}>Huỷ thay đổi</button><button className="btn btn-primary btn-sm" disabled={!dirty} onClick={() => void act(() => admin.saveTaskFlow(draft!), 'Đã lưu quy trình', load.reload)}>Lưu quy trình</button></>} />
+      <Async load={load}>{([flow, st]) => {
+        if (!draft) return null;
+        const active = st.statuses.filter((s) => s.active);
+        const inFlow = new Set(FLOW_STAGES.map((x) => draft.stages[x.key].status));
+        // The done-late status goes with COMPLETED (a pass after the deadline); the rest is outside the workflow.
+        const outside = st.statuses.filter((s) => !inFlow.has(s.name) && s.category !== 'done_late');
+        return <>
+          <Section title="Các bước">
+            <div className="ax-card flush"><Table rows={FLOW_STAGES.map((x) => ({ ...x, id: x.key }))} cols={[
+              { key: 'code', label: 'Bước', render: (x) => <b>{x.code}</b> },
+              { key: 'name', label: 'Tên hiển thị', render: (x) => editable ? <input className="bk-in ax-cell-input" value={draft.stages[x.key].name} maxLength={60} aria-label={`Tên bước ${x.code}`} onChange={(e) => stage(x.key, { name: e.target.value })} /> : draft.stages[x.key].name },
+              { key: 'status', label: 'Trạng thái công việc', render: (x) => editable
+                ? <select className="bk-in" value={draft.stages[x.key].status} aria-label={`Trạng thái của bước ${x.code}`} onChange={(e) => stage(x.key, { status: e.target.value })}>{!active.some((s) => s.name === draft.stages[x.key].status) && <option>{draft.stages[x.key].status}</option>}{active.map((s) => <option key={s.id}>{s.name}</option>)}</select>
+                : <Badge color={st.statuses.find((s) => s.name === draft.stages[x.key].status)?.color}>{draft.stages[x.key].status}</Badge> },
+              { key: 'what', label: 'Ở bước này', render: (x) => <small>{STAGE_WHAT[x.key]}</small> },
+              { key: 'n', label: 'Công việc', align: 'right', render: (x) => fmtNum(flow.stages[x.key] || 0) },
+            ]} /></div>
+          </Section>
+          <Section title="Nhắc việc tự động">
+            <div className="ax-card ax-form-grid three">
+              <Field label="Gửi từ (giờ Việt Nam)" hint="Mỗi người nhận tối đa một nhắc mỗi ngày cho mỗi việc."><input className="bk-in" type="number" min={0} max={23} disabled={!editable} value={draft.remindHour} onChange={(e) => num('remindHour', e.target.value)} /></Field>
+              <Field label="Nhắc người duyệt sau (giờ chờ)"><input className="bk-in" type="number" min={1} max={720} disabled={!editable} value={draft.reviewRemindHours} onChange={(e) => num('reviewRemindHours', e.target.value)} /></Field>
+              <Field label="Nhắc trong (ngày)" hint="Quá hạn hoặc chờ duyệt lâu hơn thì thôi nhắc."><input className="bk-in" type="number" min={1} max={60} disabled={!editable} value={draft.remindDays} onChange={(e) => num('remindDays', e.target.value)} /></Field>
+            </div>
+          </Section>
+          <Section title="Công việc hiện có">
+            <div className="ax-card ax-row-actions" style={{ justifyContent: 'space-between' }}>
+              <span>{flow.pending ? `${fmtNum(flow.pending)} công việc chưa vào quy trình. Hệ thống tự đưa vào mỗi 10 phút, theo trạng thái hiện tại của từng việc.` : 'Toàn bộ công việc đã theo quy trình.'}</span>
+              {editable && !!flow.pending && <button className="btn btn-primary btn-sm" onClick={() => void act(async () => { const r = await admin.applyTaskFlow(); toast(`Đã đưa ${fmtNum(r.applied)} công việc vào quy trình`); }, undefined, load.reload)}>Áp dụng ngay</button>}
+            </div>
+          </Section>
+          <Section title="Trạng thái không thuộc quy trình">
+            {!outside.length && !st.unlisted.length ? <p className="note">Mọi trạng thái đều thuộc quy trình.</p> : <div className="ax-card">
+              <p className="note">Những trạng thái này không thuộc bước nào. Xoá một trạng thái thì công việc đang mang nó nhận trạng thái theo bước quy trình của chúng.</p>
+              <ul className="ax-list">
+                {outside.map((s) => <li key={s.id}><span><b>{s.name}</b><small>{fmtNum(s.used)} công việc{s.locked ? ' · trạng thái của việc mới, không xoá được' : ''}</small></span>
+                  {editable && !s.locked && <button className="btn btn-danger btn-sm" onClick={() => confirm(s.used ? `Xoá trạng thái “${s.name}”? ${s.used} công việc đang mang nó sẽ nhận trạng thái theo bước quy trình.` : `Xoá trạng thái “${s.name}”?`) && act(() => admin.removeStatus(s.id), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={13} />Xoá</button>}</li>)}
+                {st.unlisted.map((u) => <li key={'u:' + u.name}><span><b>{u.name}</b><small>{fmtNum(u.used)} công việc · có trong dữ liệu nhưng không có trong danh sách</small></span>
+                  {editable && <button className="btn btn-danger btn-sm" onClick={() => confirm(`Xoá trạng thái “${u.name}”? ${u.used} công việc đang mang nó sẽ nhận trạng thái theo bước quy trình.`) && act(() => admin.clearUnlistedStatus(u.name), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={13} />Xoá</button>}</li>)}
+              </ul>
+            </div>}
+          </Section>
+        </>;
       }}</Async>
     </>
   );

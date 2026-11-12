@@ -2,13 +2,15 @@
 // assignees, its creator, followers, its card's members), with its name, status, dates, project and people but never
 // its description or result; its priority and change history. And the lists the Tasks page goes by: statuses (order,
 // colour, on or off), categories (the tasks' labels), priorities and templates. Looking changes nothing.
-import { all, get, run, uid, now } from '../db';
+import { all, get, run, uid, now, setSetting } from '../db';
 import { HttpError, json, readJson, type Router } from '../http';
 import { historyOf } from '../audit';
 import { scopeUsers } from '../rbac';
 import { stateOf } from '../tasks';
 import { statusKey } from '../taskimport';
 import { syncTaskToCard } from '../tasklinks';
+import { flowSettings, restatus, settleStages } from '../task-flow';
+import { FLOW_STAGES, flowConfig } from '../../shared/task-flow';
 import { need, reach, text, color, exists, page, sendCsv, csvDate, changed, logAction, registerDict, dictName, matcher, type Ctx } from './common';
 
 /** New tasks start in this status (server/tasks.ts), so it can be neither renamed nor turned off. */
@@ -129,6 +131,9 @@ export function registerWork(api: Router) {
     if (name !== r.name) {
       moved = (await run('UPDATE tasks SET status = ? WHERE status = ?', name, r.name)).changes;
       await run('UPDATE task_templates SET status = ? WHERE status = ?', name, r.name);
+      // A stage of the review workflow that gave the old name gives the new one.
+      const flow = await flowSettings();
+      if (FLOW_STAGES.some((x) => flow.stages[x.key].status === r.name)) { for (const x of FLOW_STAGES) if (flow.stages[x.key].status === r.name) flow.stages[x.key].status = name; await setSetting('task_flow', flow); }
     }
     await changed(c, { action: 'Sửa trạng thái công việc', type: 'task_status', id: r.id, label: name, before: { name: r.name, color: r.color, active: r.active }, after: { ...next, ...(moved ? { tasksRenamed: moved } : {}) } });
     json(res, 200, statusOut(await mustStatus(r.id), await usedStatuses()));
@@ -136,13 +141,16 @@ export function registerWork(api: Router) {
   api.delete('/api/admin/task-statuses/:id', async (req, res) => {
     const c = await need(req, 'tasks.manage'), r = await mustStatus(req.params.id), n = (await usedStatuses()).get(r.name) || 0;
     if (r.name === DEFAULT_STATUS) throw new HttpError(400, `“${DEFAULT_STATUS}” là trạng thái của công việc mới, không xoá được`);
-    if (n) {
-      const affected = await all<any>('SELECT id FROM tasks WHERE status = ?', r.name);
-      await run('UPDATE tasks SET status = ?, done_at = NULL, updated_at = ? WHERE status = ?', DEFAULT_STATUS, now(), r.name);
-      for (const t of affected) await syncTaskToCard(t.id);
-    }
+    const flow = await flowSettings(), stage = FLOW_STAGES.find((x) => flow.stages[x.key].status === r.name);
+    if (stage) throw new HttpError(409, `“${r.name}” là trạng thái của bước ${stage.code} trong quy trình; chọn trạng thái khác cho bước đó trước`);
     await run('UPDATE task_templates SET status = NULL WHERE status = ?', r.name);
     await run('DELETE FROM task_statuses WHERE id = ?', r.id);
+    // Its tasks take the status of their stage in the review workflow.
+    if (n) {
+      const affected = await all<any>('SELECT id FROM tasks WHERE status = ?', r.name);
+      await restatus(affected.map((t) => t.id), DEFAULT_STATUS);
+      for (const t of affected) await syncTaskToCard(t.id);
+    }
     await changed(c, { action: 'Xoá trạng thái công việc', type: 'task_status', id: r.id, label: r.name, before: { name: r.name, ...(n ? { tasksReset: n } : {}) } });
     json(res, 200, { ok: true, tasksReset: n });
   });
@@ -150,7 +158,7 @@ export function registerWork(api: Router) {
     const c = await need(req, 'tasks.manage'), b = await readJson(req), name = text(b.name, 60, 'tên trạng thái');
     if (name === DEFAULT_STATUS) throw new HttpError(400, `“${DEFAULT_STATUS}” là trạng thái của công việc mới, không xoá được`);
     const affected = await all<any>('SELECT id FROM tasks WHERE status = ?', name);
-    await run('UPDATE tasks SET status = ?, done_at = NULL, updated_at = ? WHERE status = ?', DEFAULT_STATUS, now(), name);
+    await restatus(affected.map((t) => t.id), DEFAULT_STATUS);
     for (const t of affected) await syncTaskToCard(t.id);
     await run('UPDATE task_templates SET status = NULL WHERE status = ?', name);
     await changed(c, { action: 'Xoá trạng thái công việc chưa liệt kê', type: 'task_status', id: '', label: name, before: { name, tasksReset: affected.length } });
@@ -164,6 +172,40 @@ export function registerWork(api: Router) {
     const after = (await all<any>('SELECT name FROM task_statuses ORDER BY pos')).map((r) => r.name).join(' → ');
     await changed(c, { action: 'Sắp xếp quy trình công việc', type: 'task_status', id: '', label: 'Quy trình', before: { order: before }, after: { order: after } });
     json(res, 200, { ok: true });
+  });
+
+  // ---------------------------------------------------------------- the review workflow (shared/task-flow.ts)
+  const flowOut = async () => ({
+    config: await flowSettings(),
+    stages: Object.fromEntries((await all<any>('SELECT stage, COUNT(*) n FROM tasks WHERE stub = 0 AND stage IS NOT NULL GROUP BY stage')).map((r) => [r.stage, Number(r.n)])),
+    pending: Number((await get<any>('SELECT COUNT(*) n FROM tasks WHERE stub = 0 AND stage IS NULL'))?.n || 0),
+  });
+  api.get('/api/admin/task-flow', async (req, res) => { await need(req, 'tasks.view'); json(res, 200, await flowOut()); });
+  // Each stage's name and status, and the reminders. Tasks in a stage whose status changes take the new one.
+  api.put('/api/admin/task-flow', async (req, res) => {
+    const c = await need(req, 'tasks.manage'), before = await flowSettings(), next = flowConfig(await readJson(req));
+    const active = new Set((await all<any>('SELECT name FROM task_statuses WHERE active = 1')).map((r) => r.name as string));
+    for (const x of FLOW_STAGES) if (!active.has(next.stages[x.key].status)) throw new HttpError(400, `Trạng thái “${next.stages[x.key].status}” của bước ${x.code} không có trong danh sách đang dùng`);
+    if (new Set(FLOW_STAGES.map((x) => next.stages[x.key].status)).size < FLOW_STAGES.length) throw new HttpError(400, 'Mỗi bước cần một trạng thái riêng');
+    await setSetting('task_flow', next);
+    let moved = 0;
+    for (const x of FLOW_STAGES) {
+      const from = before.stages[x.key].status, to = next.stages[x.key].status;
+      if (from === to) continue;
+      const ids = (await all<any>('SELECT id FROM tasks WHERE stage = ? AND status = ?', x.key, from)).map((r) => r.id as string);
+      moved += (await run('UPDATE tasks SET status = ?, updated_at = ? WHERE stage = ? AND status = ?', to, now(), x.key, from)).changes;
+      for (const id of ids) await syncTaskToCard(id);
+    }
+    await changed(c, { action: 'Sửa quy trình duyệt công việc', type: 'task_flow', id: '', label: 'Quy trình duyệt', before, after: { ...next, ...(moved ? { tasksMoved: moved } : {}) } });
+    json(res, 200, await flowOut());
+  });
+  // Every task not yet in the workflow joins it now (the cron also does it every ten minutes).
+  api.post('/api/admin/task-flow/apply', async (req, res) => {
+    const c = await need(req, 'tasks.manage');
+    let applied = 0;
+    for (let n = await settleStages(), i = 0; n && i < 20; n = await settleStages(), i++) applied += n;
+    await changed(c, { action: 'Áp dụng quy trình duyệt cho công việc hiện có', type: 'task_flow', id: '', label: 'Quy trình duyệt', after: { applied } });
+    json(res, 200, { ...await flowOut(), applied });
   });
 
   // ---------------------------------------------------------------- categories: the tasks' labels

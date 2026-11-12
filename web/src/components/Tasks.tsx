@@ -25,6 +25,7 @@ import type { Board, BoardItem, TaskWrite, TaskDetail, TaskImportResult, TaskIte
 import { STATE, Badge, when } from './taskkit';
 import { SubtaskTree, addSubtask } from './Subtasks';
 import { ServicePicker } from './ServicePicker';
+import { FlowBadge, TaskFlow } from './TaskFlow';
 
 const initials = (n: string) => n.replace(/^@/, '').split(/[\s._-]+/).filter(Boolean).slice(-2).map((w) => w[0]).join('').toUpperCase() || '?';
 
@@ -794,6 +795,7 @@ function WeworkTaskView({
           />
 
           <div className="wework-controls-bar">
+            {t.flow && <FlowBadge stage={t.flow.stage} stages={t.flow.stages} />}
             <button className="wework-pill-btn" onClick={(e) => setPop({ kind: 'status', el: e.currentTarget })} title="Đổi trạng thái">
               <b>{statusLabel}</b>
               <Icon name="chevron" size={11} />
@@ -815,6 +817,8 @@ function WeworkTaskView({
             )}
           </div>
         </section>
+
+        <TaskFlow task={t} meta={meta} onChanged={onChanged} />
 
         {/* Bento Box 2: Thông tin chung */}
         <section className="wework-bento-card wework-info-card">
@@ -1339,6 +1343,7 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
         <div><dt>Người theo dõi</dt><dd>{t.canEdit&&meta?<TaskInlineFollowers key={t.id+':'+t.updatedAt} task={t} meta={meta} onSaved={()=>{void load();onChanged();}}/>:<EmployeeAvatars people={t.followers}/>}</dd></div>
         <div><dt>Tạo bởi</dt><dd>{t.createdBy?.name || '—'}</dd></div>
       </dl>
+      <TaskFlow task={t} meta={meta} onChanged={() => { void load(); onChanged(); }} />
       {(t.childTasks.length > 0 || t.canEdit) && (
         <SubtaskTree
           task={t}
@@ -1779,6 +1784,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
   const [users,setUsers] = useState<string[]>(task?.assignees.map(p=>p.userId).filter((id):id is string=>!!id&&!!meta?.users.some(u=>u.id===id)) || []);
   const [followers,setFollowers] = useState<string[]>(task?.followers.map(f=>f.id) || []);
   const [labels,setLabels] = useState(task?.labels.join(', ') || '');
+  const [reviewer,setReviewer] = useState('');
   const [parents,setParents] = useState<TaskItem[]>(parentTask ? [parentTask as TaskItem] : []);
   const [busy,setBusy] = useState(false), [error,setError] = useState('');
   // A parent is one of the project's tasks (without a project: one of the account's own).
@@ -1806,6 +1812,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       if(!task || task.result !== null)body.result=result;
       if(!task || status!==task.status)body.status=status;
       body.assigneeIds=people; body.assigneeUserIds=users; body.followerUserIds=followers;
+      if(!task&&reviewer)body.reviewerUserId=reviewer;
       if(task)await api.updateTask(task.id,body);
       const id=task?.id || (await api.createTask(body)).id;
       onSaved(id);
@@ -1925,7 +1932,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
         </div>
       </div>
       <div className="tk-create-row tk-create-description"><Icon name="lines" size={18}/><div className="tk-create-compose"><RichEditor value={description} onChange={setDescription} placeholder="Mô tả"/></div></div>
-      <details className="tk-create-more"><summary>Tuỳ chọn khác</summary><div className="tk-create-advanced"><div className="tk-form-grid"><label>Trạng thái<select value={status} onChange={e=>setStatus(e.target.value)}>{!meta.statuses.includes(status)&&<option>{status}</option>}{meta.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Ngày bắt đầu<input type="datetime-local" value={start} onChange={e=>setStart(e.target.value)}/></label></div><label>Công việc cha<EntitySelect kind="task" context={{projectId:project}} value={parent} onCreated={async()=>setParents((await parentsOf(project)).tasks)} onChange={setParent}><option value="">Không có</option>{parents.filter(p=>!project||p.project?.id===project).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</EntitySelect></label><label>Nhãn tuỳ chỉnh khác<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label><div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
+      <details className="tk-create-more"><summary>Tuỳ chọn khác</summary><div className="tk-create-advanced"><div className="tk-form-grid"><label>Trạng thái<select value={status} onChange={e=>setStatus(e.target.value)}>{!meta.statuses.includes(status)&&<option>{status}</option>}{meta.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Ngày bắt đầu<input type="datetime-local" value={start} onChange={e=>setStart(e.target.value)}/></label></div>{!task&&<label>Người duyệt (REVIEW)<select value={reviewer} onChange={e=>setReviewer(e.target.value)}><option value="">Người tạo (mặc định)</option>{meta.users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label>}<label>Công việc cha<EntitySelect kind="task" context={{projectId:project}} value={parent} onCreated={async()=>setParents((await parentsOf(project)).tasks)} onChange={setParent}><option value="">Không có</option>{parents.filter(p=>!project||p.project?.id===project).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</EntitySelect></label><label>Nhãn tuỳ chỉnh khác<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label><div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
       {(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dự án'} được tự động thêm khi lưu.</p>}
       </div></details>
     </fieldset>)}

@@ -9,6 +9,19 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-12-2',
+    date: '12/11/2026',
+    items: [
+      { kind: 'new', vi: 'Quy trình duyệt cho công việc: ACCOUNT (tiếp nhận, giao việc) → EXECUTION (thực hiện, nộp duyệt) → REVIEW. Người duyệt chấm PASS (hoàn thành), REDO (trả về làm lại, kèm nhận xét) hoặc FAIL (từ chối). Mỗi lần nộp lưu lại bản đã nộp, nhận xét và người duyệt.', en: 'A review workflow for tasks: ACCOUNT (take the request, assign it) → EXECUTION (do it, submit it) → REVIEW. The reviewer grades PASS (completed), REDO (sent back with feedback) or FAIL (rejected). Every submission keeps what was handed in, the feedback and who reviewed it.' },
+      { kind: 'new', vi: 'Mỗi công việc có Người duyệt (mặc định là người tạo), chọn được khi tạo hoặc trong khối Quy trình duyệt. Công việc đã PASS hoặc FAIL không quay lại quy trình cho tới khi người duyệt hoặc Admin bấm Mở lại.', en: 'Each task has a reviewer (by default whoever made it), chosen when creating it or in the review workflow box. A task that passed or failed stays closed until its reviewer or an admin reopens it.' },
+      { kind: 'new', vi: 'Toàn bộ công việc hiện có cũng theo quy trình, theo trạng thái hiện tại của từng việc: việc đã Hoàn thành hoặc Đã huỷ được đóng; việc nhập từ file cũng vậy.', en: 'Every existing task follows the workflow too, from its current status: completed and cancelled tasks are closed, and so are imported ones.' },
+      { kind: 'new', vi: 'Quản trị › Công việc › Quy trình: đổi tên từng bước, chọn trạng thái của mỗi bước, chỉnh giờ và số ngày nhắc việc, và xoá các trạng thái không thuộc quy trình.', en: 'Admin › Tasks › Workflow: rename each stage, choose the status each one gives, set the reminder hour and days, and remove statuses outside the workflow.' },
+      { kind: 'new', vi: 'Nhắc việc tự động mỗi ngày (mặc định từ 8:00): người làm khi công việc quá hạn, người duyệt khi công việc chờ duyệt quá 24 giờ (trong app, và qua email nếu đã bật).', en: 'Automatic daily reminders (from 8:00 by default): to the people doing a task once it is overdue, and to the reviewer once a review has waited 24 hours (in the app, and by email if turned on).' },
+      { kind: 'fix', vi: 'Nút trở về của trình duyệt quay về đúng màn hình trước (danh sách khách hàng, danh sách dự án, tất cả board) thay vì thoát khỏi trang hay hiện màn hình trắng.', en: 'The browser’s Back button returns to the previous screen (the client list, the project list, all boards) instead of leaving the page or showing a blank screen.' },
+      { kind: 'fix', vi: 'Trên board hẹp (mở Planner bên cạnh), bấm “…” không còn đẩy mất tên board: các nút không vừa sẽ xuống dòng.', en: 'On a narrow board (Planner open beside it), clicking “…” no longer pushes the board name out of view: buttons that do not fit go onto a second line.' },
+    ],
+  },
+  {
     id: '2026-11-12-1',
     date: '12/11/2026',
     items: [

@@ -9,11 +9,12 @@ import type { ServiceRef } from '../types';
 
 /** The catalogue, loaded once and shared by every picker on screen. */
 let shared: Promise<ServiceRef[]> | null = null;
-const catalogue = () => (shared ??= api.serviceCatalog().catch((e) => { shared = null; throw e; }));
+export const catalogue = () => (shared ??= api.serviceCatalog().catch((e) => { shared = null; throw e; }));
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').toLowerCase();
 
-/** `value`: the services chosen (they may include ones no longer offered, still shown by `known`'s names). */
-export function ServicePicker({ value, onChange, known = [], suggested = [], disabled }: { value: string[]; onChange: (ids: string[]) => void; known?: ServiceRef[]; suggested?: string[]; disabled?: boolean }) {
+/** `value`: the services chosen (they may include ones no longer offered, still shown by `known`'s names). `single`: one
+ *  at most, a pick replacing it. */
+export function ServicePicker({ value, onChange, known = [], suggested = [], disabled, single }: { value: string[]; onChange: (ids: string[]) => void; known?: ServiceRef[]; suggested?: string[]; disabled?: boolean; single?: boolean }) {
   const [catalog, setCatalog] = useState<ServiceRef[]>([]);
   const [open, setOpen] = useState(false), [q, setQ] = useState(''), [busy, setBusy] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -31,12 +32,15 @@ export function ServicePicker({ value, onChange, known = [], suggested = [], dis
   const ofSuggested = shown.filter((s) => suggested.includes(s.id)), rest = shown.filter((s) => !suggested.includes(s.id));
   const groups = [...(ofSuggested.length ? [{ name: 'Của dự án', list: ofSuggested }] : []), ...[...new Set(rest.map((s) => s.category || ''))].map((g) => ({ name: g, list: rest.filter((s) => (s.category || '') === g) }))];
   const exact = catalog.some((s) => fold(s.name) === fold(q.trim()));
-  const toggle = (id: string) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  const toggle = (id: string) => {
+    if (single) { onChange(value.includes(id) ? [] : [id]); setOpen(false); return; }
+    onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  };
   const add = async () => {
     const n = q.trim();
     if (!n || busy) return;
     setBusy(true);
-    try { const s = await api.createService(n); shared = null; setCatalog((c) => [...c, s]); onChange([...value, s.id]); setQ(''); }
+    try { const s = await api.createService(n); shared = null; setCatalog((c) => [...c, s]); onChange(single ? [s.id] : [...value, s.id]); setQ(''); if (single) setOpen(false); }
     catch (e: any) { toast(e.message, true); } finally { setBusy(false); }
   };
   return (
@@ -45,12 +49,12 @@ export function ServicePicker({ value, onChange, known = [], suggested = [], dis
         <span key={id} className="crm-need-chip">{name(id)}{!disabled && <button type="button" onClick={() => toggle(id)} aria-label={`Bỏ ${name(id)}`}><Icon name="x" size={12} /></button>}</span>
       ))}
       {disabled ? !value.length && <span className="svc-none">—</span>
-        : <button type="button" className={'svc-add' + (value.length ? ' icon' : '')} aria-expanded={open} aria-label="Thêm dịch vụ" title="Thêm dịch vụ" onClick={() => setOpen(!open)}><Icon name="plus" size={13} />{!value.length && 'Dịch vụ'}</button>}
+        : <button type="button" className={'svc-add' + (value.length ? ' icon' : '')} aria-expanded={open} aria-label={single && value.length ? 'Đổi dịch vụ' : 'Thêm dịch vụ'} title={single && value.length ? 'Đổi dịch vụ' : 'Thêm dịch vụ'} onClick={() => setOpen(!open)}><Icon name="plus" size={13} />{!value.length && 'Dịch vụ'}</button>}
       {open && (
         <div className="svc-menu" onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); } }}>
           <input className="bk-in" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={mayAdd ? 'Tìm hoặc thêm dịch vụ…' : 'Tìm dịch vụ…'} aria-label="Tìm dịch vụ"
             onKeyDown={(e) => { if (e.key !== 'Enter') return; e.preventDefault(); if (shown.length === 1) { toggle(shown[0].id); setQ(''); } else if (mayAdd && q.trim() && !exact) void add(); }} />
-          <div className="svc-list" role="listbox" aria-multiselectable aria-label="Dịch vụ">
+          <div className="svc-list" role="listbox" aria-multiselectable={!single} aria-label="Dịch vụ">
             {groups.map((g) => <div key={g.name || '-'}>
               {g.name && <small>{g.name}</small>}
               {g.list.map((s) => <button type="button" key={s.id} role="option" aria-selected={value.includes(s.id)} onClick={() => toggle(s.id)}><span>{s.name}</span>{value.includes(s.id) && <Icon name="check" size={14} />}</button>)}
