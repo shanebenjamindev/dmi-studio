@@ -9,6 +9,13 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-12-1',
+    date: '12/11/2026',
+    items: [
+      { kind: 'fix', vi: 'Cửa sổ Tạo công việc không còn bị tràn khỏi màn hình khi nội dung dài: nút Tạo luôn nhìn thấy và bấm được. Các cửa sổ khác dài hơn màn hình giờ cuộn xuống được.', en: 'The Create task window no longer runs off the screen when its content is long: the Create button is always visible and clickable. Other windows taller than the screen can now be scrolled.' },
+    ],
+  },
+  {
     id: '2026-11-11-1',
     date: '11/11/2026',
     items: [

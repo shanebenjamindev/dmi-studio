@@ -1625,7 +1625,7 @@ dialog.sheet.rp-picker { width: min(900px, 94vw); }
 .bd-tile-new { display: grid; place-items: center; background: var(--bd-hover); color: var(--bd-text); font-size: 14px; }
 .bd-tile-new:hover { background: var(--bd-line); }
 .bd-dot { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; }
-.bd-modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; background: rgba(9, 30, 66, 0.35); }
+.bd-modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; padding-bottom: 24px; overflow-y: auto; background: rgba(9, 30, 66, 0.35); }
 .bd-create { width: 320px; max-width: calc(100% - 32px); display: flex; flex-direction: column; gap: 8px; padding: 12px 14px 16px; border-radius: 10px; background: var(--bd-side); color: var(--bd-text); box-shadow: var(--shadow-lg); }
 .bd-create header { display: flex; align-items: center; justify-content: space-between; }
 .bd-create header b { flex: 1; text-align: center; font-size: 14px; color: var(--bd-muted); }
@@ -4627,7 +4627,7 @@ a.rail-item { text-decoration: none; }
 .tk-reading-grid .tk-facts>div, .tk-reading-grid .tk-facts dd { min-width:0; }
 
 /* Quick task composer: essentials first, secondary fields on demand. */
-.tk-dialog.tk-create-simple { width:min(700px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); padding:0; gap:0; border-radius:13px; }
+.tk-dialog.tk-create-simple { width:min(700px,calc(100vw - 32px)); max-height:calc(100dvh - 12vh - 24px); padding:0; gap:0; border-radius:13px; }
 .tk-create-simple>header { flex:none; padding:18px 22px; border-bottom:1px solid var(--sep); background:var(--fill-2); font-size:17px; }
 .tk-editor .tk-create-fields { padding:22px; gap:18px; }
 .tk-create-title { width:100%; min-width:0; padding:6px 0 12px; border:0; outline:none; background:transparent; color:var(--label); font:500 24px/1.4 var(--font); }
