@@ -4963,5 +4963,8 @@ const EN: Record<string, string> = {
   "Nhập thông tin": "Enter details",
   "Xác nhận": "Confirm",
   "Đồng ý": "OK",
+  "Cửa sổ Tạo công việc mới có cùng giao diện với cửa sổ thẻ: tên công việc và hàng nút nhanh (Khách hàng, Dịch vụ, Thành viên, Nhãn, Ngày, Người duyệt), phần đã chọn hiện như mục thông tin của thẻ, Mô tả và Tuỳ chọn khác trong các khối riêng. Esc trong một cửa sổ chọn chỉ đóng cửa sổ đó; bong bóng chat ẩn khi đang mở cửa sổ.": "The New task window looks like a card's: the title and quick buttons (Customer, Service, Members, Labels, Dates, Reviewer), what is chosen shown as a card's facts, Description and More options in their own sections. Esc in a picker closes only it; the chat bubble hides while a window is open.",
+  "Nhãn khác (cách nhau bằng dấu phẩy)": "Other labels (comma separated)",
+  "Thêm người thực hiện": "Add an assignee",
 };
 export default EN;

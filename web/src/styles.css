@@ -8168,3 +8168,21 @@ button.fo-tile { cursor: pointer; } button.fo-tile:hover { border-color: var(--a
 .ask-in > footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 .ask-danger { background: var(--red, #d93025); color: #fff; border: 0; }
 .ask-danger:hover:not(:disabled) { filter: brightness(.94); }
+/* A new task's window, laid out as a card's: a grey body, its head (title, quick buttons, what is chosen) and each part
+   in white rounded sections. */
+.tk-create-simple .tk-cc { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 14px 16px; border: 0; background: var(--grouped); }
+.tk-cc > .cm-sec { margin: 0; padding: 16px 20px; border: 1px solid var(--sep); border-radius: 16px; background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, .02); }
+.tk-cc .tk-cc-title { width: 100%; box-sizing: border-box; min-height: 40px; margin: 0 0 10px; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--label); font: 600 19px/1.35 var(--font); resize: none; overflow: hidden; }
+.tk-cc .tk-cc-title:hover { background: var(--fill-2); }
+.tk-cc .tk-cc-title:focus { outline: none; border-color: var(--tint); background: var(--surface); box-shadow: 0 0 0 3px var(--tint-soft, rgba(11, 125, 242, .15)); }
+.tk-cc .cm-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.tk-cc .cm-meta { display: flex; flex-wrap: wrap; gap: 12px 22px; margin-top: 14px; }
+.tk-cc .cm-meta h4 { margin: 0 0 6px; font-size: 11px; font-weight: 600; color: var(--label-3); text-transform: uppercase; letter-spacing: .05em; }
+.tk-cc-parent { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 12.5px; color: var(--label-2); }
+.tk-cc-sec > h3, .tk-cc-more > summary { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 11.5px; font-weight: 700; color: var(--label-3); text-transform: uppercase; letter-spacing: .05em; cursor: default; }
+.tk-cc-more > summary { margin: 0; cursor: pointer; list-style: none; }
+.tk-cc-more[open] > summary { margin-bottom: 12px; }
+.tk-cc-more .tk-create-advanced { display: flex; flex-direction: column; gap: 10px; }
+.tk-cc .cm-actions, .tk-cc .cm-meta, .tk-cc .tk-create-compose, .tk-cc .tk-create-advanced { margin-left: 0; padding-left: 0; }
+/* The chat bubble keeps out of the way while a window, picker or question is open (it sat on their buttons). */
+body:has(.bd-modal, .cm-back, .bk-pop, dialog[open]) .fmsg-bubble { display: none; }

@@ -1765,7 +1765,8 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
     },()=>{});
     return()=>{active=false;};
   },[project]);
-  useEffect(() => { const key=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!busy&&!document.querySelector('dialog.qc-dialog[open]')){e.stopPropagation();onClose();}}; document.addEventListener('keydown',key,true);return()=>document.removeEventListener('keydown',key,true); },[busy,onClose]);
+  // Esc closes the window, unless a picker or question is open over it: that one closes first.
+  useEffect(() => { const key=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!busy&&!document.querySelector('dialog.qc-dialog[open], dialog.ask-modal[open], .bk-pop')){e.stopPropagation();onClose();}}; document.addEventListener('keydown',key,true);return()=>document.removeEventListener('keydown',key,true); },[busy,onClose]);
   const save = async (e:React.FormEvent) => {
     e.preventDefault(); if(busy)return;
     setBusy(true);setError('');
@@ -1782,6 +1783,8 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
     } catch(e:any){setError(e.message);}finally{setBusy(false);}
   };
   const [dueChoice,setDueChoice]=useState<''|'today'|'tomorrow'|'custom'>('');
+  // The new task's window is laid out as a card's: quick buttons that open a picker each (place, people, labels, dates, reviewer).
+  const [pick,setPick]=useState<{kind:'place'|'members'|'labels'|'dates'|'reviewer';el:HTMLElement}|null>(null);
   const pickDue=(choice:'today'|'tomorrow'|'custom')=>{
     setDueChoice(choice);
     if(choice==='custom')return;
@@ -1800,6 +1803,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       ];
 
   const currentLabelList = labels.split(',').map((s) => s.trim()).filter(Boolean);
+  const place = placeOf(meta.projects, project);
 
   const toggleTag = (tagName: string) => {
     const norm = tagName.trim();
@@ -1849,55 +1853,57 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       <div className="tk-staff-picker"><EmployeePicker users={meta.users} selected={users} onChange={setUsers} legacy={task?.assignees.filter(p=>people.includes(p.id)) || []} onLegacyChange={setPeople}/></div>
       <div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
       {!task&&(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dịch vụ'} được tự động thêm khi lưu.</p>}
-    </fieldset>):(<fieldset disabled={busy} className="tk-create-fields">
-      {isSubtask && (
-        <div className="tk-create-row tk-create-parent" style={{ background: 'var(--fill-2)', borderRadius: 8, padding: '7px 10px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Icon name="layers" size={16} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, flex: 1, minWidth: 0 }}>
-            <span style={{ color: 'var(--label-2)', whiteSpace: 'nowrap' }}>Thuộc việc cha:</span>
-            <strong style={{ color: 'var(--label)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {parentTask?.title || parents.find((p) => p.id === parent)?.title || 'Công việc cha'}
-            </strong>
-          </div>
+    </fieldset>):(<fieldset disabled={busy} className="tk-create-fields tk-cc">
+      {/* As a card's window: its head (title, quick buttons, what is chosen), then a section for each part. */}
+      <section className="cm-sec cm-header-card tk-cc-head">
+        {isSubtask && <p className="tk-cc-parent"><Icon name="layers" size={14} />Thuộc việc cha: <b>{parentTask?.title || parents.find((p) => p.id === parent)?.title || 'Công việc cha'}</b></p>}
+        <textarea className="cm-title tk-cc-title" rows={1} aria-label="Tên công việc" placeholder={isSubtask ? 'Tên công việc con' : 'Tên công việc'} autoFocus required maxLength={500} value={title}
+          onChange={(e) => { setTitle(e.target.value.replace(/\n/g, ' ')); e.currentTarget.style.height = 'auto'; e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px'; }}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
+        <div className="cm-actions">
+          {!place.customerId && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'place', el: e.currentTarget })}><Icon name="folder" size={14} />Khách hàng</button>}
+          {!place.service && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'place', el: e.currentTarget })}><Icon name="layers" size={14} />Dịch vụ</button>}
+          {!users.length && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'members', el: e.currentTarget })}><Icon name="user" size={14} />Thành viên</button>}
+          {!currentLabelList.length && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'labels', el: e.currentTarget })}><Icon name="tag" size={14} />Nhãn</button>}
+          {!due && !start && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'dates', el: e.currentTarget })}><Icon name="clock" size={14} />Ngày</button>}
+          {!reviewer && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'reviewer', el: e.currentTarget })}><Icon name="eye" size={14} />Người duyệt</button>}
         </div>
-      )}
-      <input className="tk-create-title" aria-label="Tên công việc" placeholder={isSubtask ? "Tên công việc con" : "Tên công việc"} autoFocus required maxLength={500} value={title} onChange={e=>setTitle(e.target.value)}/>
-      <div className="tk-create-row"><Icon name="user" size={18}/><div><div className="tk-staff-picker"><EmployeePicker users={meta.users} selected={users} onChange={setUsers} legacy={[]} onLegacyChange={setPeople}/></div></div></div>
-      <div className="tk-create-row"><Icon name="briefcase" size={18}/><div className="tk-form-grid tk-create-place"><ClientServiceFields projects={meta.projects} value={project} onResolved={reloadMeta} onChange={v=>{setProject(v);setCampaign('');setParent('');}}/></div></div>
-      <div className="tk-create-row"><Icon name="clock" size={18}/><div className="tk-quick-due"><span>Đến hạn vào</span><div role="group" aria-label="Chọn hạn công việc">{([['today','Hôm nay'],['tomorrow','Ngày mai'],['custom','Khác']] as const).map(([key,label])=><button type="button" key={key} aria-pressed={dueChoice===key} onClick={()=>pickDue(key)}>{label}</button>)}{due&&<button type="button" onClick={()=>{setDue('');setDueChoice('');}} aria-label="Bỏ thời hạn"><Icon name="x" size={13}/></button>}</div>{dueChoice==='custom'?<SpanField value={{start:fromLocal(start),end:fromLocal(due)}} onChange={v=>{setStart(toLocal(v.start));setDue(toLocal(v.end));}}/>:due&&<small>{when(new Date(due).getTime())}</small>}</div></div>
-      <div className="tk-create-row tk-create-tags">
-        <Icon name="tag" size={18} />
-        <div className="tk-tag-picker">
-          <div className="tk-tag-chips">
-            {availableLabels.map((lbl) => {
-              const active = currentLabelList.some((l) => l.toLowerCase() === lbl.name.toLowerCase());
-              const isUrgent = lbl.name.toLowerCase().includes('khẩn') || lbl.name.toLowerCase().includes('gấp');
-              return (
-                <button
-                  key={lbl.id || lbl.name}
-                  type="button"
-                  className={'tk-tag-chip' + (active ? ' active' : '') + (isUrgent ? ' urgent' : '')}
-                  onClick={() => toggleTag(lbl.name)}
-                  title={active ? `Bỏ chọn nhãn ${lbl.name}` : `Chọn nhãn ${lbl.name}`}
-                >
-                  {lbl.name}
-                  {active && <span className="tk-tag-check">✔</span>}
-                </button>
-              );
-            })}
+        {(place.customerId || place.service || users.length > 0 || currentLabelList.length > 0 || due || start || reviewer) && (
+          <div className="cm-meta">
+            {place.customerId && <div><h4>Khách hàng</h4><div className="cm-row"><button type="button" className="cm-date" onClick={(e) => setPick({ kind: 'place', el: e.currentTarget })}><Icon name="folder" size={14} />{place.customerName}<Icon name="chevron" size={12} /></button></div></div>}
+            {place.service && <div><h4>Dịch vụ</h4><div className="cm-row"><button type="button" className="cm-date" onClick={(e) => setPick({ kind: 'place', el: e.currentTarget })}><Icon name="layers" size={14} />{place.service.name}<Icon name="chevron" size={12} /></button></div></div>}
+            {users.length > 0 && <div><h4>Người thực hiện</h4><div className="cm-row">{users.map((id) => { const u = meta.users.find((x) => x.id === id); return u ? <Avatar key={id} m={{ id: u.id, name: u.name }} size={30} /> : null; })}<button type="button" className="cm-plus" onClick={(e) => setPick({ kind: 'members', el: e.currentTarget })} aria-label="Thêm người thực hiện"><Icon name="plus" size={15} /></button></div></div>}
+            {currentLabelList.length > 0 && <div><h4>Nhãn</h4><div className="cm-row">{currentLabelList.map((l) => <button type="button" key={l} className={'tk-tag-chip active' + (/khẩn|gấp/i.test(l) ? ' urgent' : '')} onClick={(e) => setPick({ kind: 'labels', el: e.currentTarget })}>{l}</button>)}<button type="button" className="cm-plus" onClick={(e) => setPick({ kind: 'labels', el: e.currentTarget })} aria-label="Thêm nhãn"><Icon name="plus" size={15} /></button></div></div>}
+            {(due || start) && <div><h4>Ngày</h4><div className="cm-row"><button type="button" className="cm-date" onClick={(e) => setPick({ kind: 'dates', el: e.currentTarget })}><Icon name="clock" size={14} />{[start && fullDate(new Date(start).getTime()), due && fullDate(new Date(due).getTime())].filter(Boolean).join(' → ')}<Icon name="chevron" size={12} /></button></div></div>}
+            {reviewer && <div><h4>Người duyệt</h4><div className="cm-row"><button type="button" className="cm-date" onClick={(e) => setPick({ kind: 'reviewer', el: e.currentTarget })}><Icon name="eye" size={14} />{meta.users.find((u) => u.id === reviewer)?.name}<Icon name="chevron" size={12} /></button></div></div>}
           </div>
-          <div className="tk-tag-hint">
-            <span>Chọn nhãn nhanh cho công việc (ví dụ: Khẩn cấp)</span>
-            <a href="#admin/tasks/categories" target="_blank" rel="noreferrer" className="tk-admin-tag-link" title="Mở trang Quản lý Danh mục & Nhãn công việc trong Quản trị">
-              Quản trị nhãn ↗
-            </a>
-          </div>
+        )}
+      </section>
+      <section className="cm-sec tk-cc-sec">
+        <h3><Icon name="lines" size={18} />Mô tả</h3>
+        <div className="tk-create-compose"><RichEditor value={description} onChange={setDescription} placeholder="Thêm mô tả chi tiết hơn…" /></div>
+      </section>
+      <details className="cm-sec tk-cc-sec tk-cc-more"><summary><Icon name="more" size={16} />Tuỳ chọn khác</summary>
+        <div className="tk-create-advanced">
+          <label>Công việc cha<EntitySelect kind="task" context={{projectId:project}} value={parent} onCreated={async()=>setParents((await parentsOf(project)).tasks)} onChange={setParent}><option value="">Không có</option>{parents.filter(p=>!project||p.project?.id===project).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</EntitySelect></label>
+          <div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
+          {(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dịch vụ'} được tự động thêm khi lưu.</p>}
         </div>
-      </div>
-      <div className="tk-create-row tk-create-description"><Icon name="lines" size={18}/><div className="tk-create-compose"><RichEditor value={description} onChange={setDescription} placeholder="Mô tả"/></div></div>
-      <details className="tk-create-more"><summary>Tuỳ chọn khác</summary><div className="tk-create-advanced">{!task&&<label>Người duyệt (REVIEW)<select value={reviewer} onChange={e=>setReviewer(e.target.value)}><option value="">Người tạo (mặc định)</option>{meta.users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label>}<label>Công việc cha<EntitySelect kind="task" context={{projectId:project}} value={parent} onCreated={async()=>setParents((await parentsOf(project)).tasks)} onChange={setParent}><option value="">Không có</option>{parents.filter(p=>!project||p.project?.id===project).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</EntitySelect></label><label>Nhãn tuỳ chỉnh khác<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label><div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
-      {(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dịch vụ'} được tự động thêm khi lưu.</p>}
-      </div></details>
+      </details>
+      {pick?.kind === 'place' && <ClientServicePop anchor={pick.el} customerId={place.customerId} serviceId={place.service?.id || null} onClose={() => setPick(null)}
+        onPick={async (projectId) => { await reloadMeta(); setProject(projectId); setCampaign(''); setParent(''); setPick(null); }}
+        onClear={project ? () => { setProject(''); setPick(null); } : undefined} />}
+      {pick?.kind === 'members' && <Pop anchor={pick.el} title="Người thực hiện" onClose={() => setPick(null)}><MemberChoices people={meta.users} selected={users} onToggle={(id) => setUsers(users.includes(id) ? users.filter((x) => x !== id) : [...users, id])} /></Pop>}
+      {pick?.kind === 'labels' && <Pop anchor={pick.el} title="Nhãn" onClose={() => setPick(null)}>
+        <div className="tk-tag-chips">{availableLabels.map((lbl) => { const active = currentLabelList.some((l) => l.toLowerCase() === lbl.name.toLowerCase()); return <button key={lbl.id || lbl.name} type="button" className={'tk-tag-chip' + (active ? ' active' : '') + (/khẩn|gấp/i.test(lbl.name) ? ' urgent' : '')} onClick={() => toggleTag(lbl.name)}>{lbl.name}{active && <span className="tk-tag-check">✔</span>}</button>; })}</div>
+        <h5>Nhãn khác (cách nhau bằng dấu phẩy)</h5><input className="bk-in" value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="Vd: Paid Ads, Khẩn cấp…" />
+        <a href="#admin/tasks/categories" target="_blank" rel="noreferrer" className="tk-admin-tag-link">Quản trị nhãn ↗</a>
+      </Pop>}
+      {pick?.kind === 'dates' && <SpanPop anchor={pick.el} value={{ start: fromLocal(start), end: fromLocal(due) }} onClose={() => setPick(null)} onSave={(v) => { setStart(toLocal(v.start)); setDue(toLocal(v.end)); }} />}
+      {pick?.kind === 'reviewer' && <Pop anchor={pick.el} title="Người duyệt (REVIEW)" onClose={() => setPick(null)}><div className="bk-menu">
+        <button type="button" onClick={() => { setReviewer(''); setPick(null); }}><span>Người tạo (mặc định)</span>{!reviewer && <Icon name="check" size={15} />}</button>
+        {meta.users.map((u) => <button type="button" key={u.id} onClick={() => { setReviewer(u.id); setPick(null); }}><span>{u.name}</span>{reviewer === u.id && <Icon name="check" size={15} />}</button>)}
+      </div></Pop>}
     </fieldset>)}
     {task?.hasBoardLink&&<p className="note">Tên, mô tả, ngày và hoàn thành sẽ cập nhật trên thẻ liên kết. Kết quả công việc được giữ ở đây.</p>}
     {error&&<p className="note err" role="alert">{error}</p>}
