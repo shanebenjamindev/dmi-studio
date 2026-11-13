@@ -4779,5 +4779,6 @@ const EN: Record<string, string> = {
   "Cần ghi nhận xét để chấm REDO hoặc FAIL.": "Feedback is needed to grade REDO or FAIL.",
   "Công việc đi theo quy trình duyệt: mở công việc để chuyển bước.": "Tasks follow the review workflow: open the task to change its stage.",
   "Quy trình duyệt · {0}": "Review workflow · {0}",
+  "Thanh chọn cách xem (Danh sách, Thẻ, Bảng…) không còn lộ thanh cuộn; khi danh sách thu hẹp cạnh mục đang mở, các tab chỉ còn icon nên không bị cắt chữ.": "View tabs (List, Cards, Table…) no longer show a scrollbar; when the list narrows beside an open item, the tabs show their icons only so nothing is cut off.",
 };
 export default EN;

@@ -8094,3 +8094,10 @@ button.fo-tile { cursor: pointer; } button.fo-tile:hover { border-color: var(--a
 .tf-modal-in > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 -6px 12px 0; }
 .tf-modal-in > header b { font-size: 15px; font-weight: 600; }
 .tf-modal .tf-act { margin-top: 10px; }
+
+/* Horizontal tabs scroll without showing a bar; in a narrow list beside an open item (has-selection) the tabs not
+   chosen show their icon only (their name on hover), so all of them fit. */
+.reading-tabs:not([aria-orientation="vertical"]) { scrollbar-width: none; }
+.reading-tabs:not([aria-orientation="vertical"])::-webkit-scrollbar { display: none; }
+.tk-mailbox.has-selection .tk-head .reading-tabs button:not([aria-selected="true"]):has(> svg) > span { display: none; }
+.tk-mailbox.has-selection .tk-head .reading-tabs button:not([aria-selected="true"]):has(> svg) { padding-inline: 10px; }
