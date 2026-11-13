@@ -24,7 +24,7 @@ export async function handleApi(req0: IncomingMessage, res: ServerResponse) {
   } catch (e: any) {
     const status = e instanceof HttpError ? e.status : e instanceof ProviderError ? (e.status >= 400 && e.status < 600 ? e.status : 502) : 500;
     if (status >= 500) { console.error('API error:', req.method, req.path); await logError(req, user, e, status); }
-    if (!res.headersSent) json(res, status, { error: status >= 500 ? 'Không xử lý được yêu cầu, hãy thử lại.' : e.message });
+    if (!res.headersSent) json(res, status, { error: status >= 500 ? 'Không xử lý được yêu cầu, hãy thử lại.' : e.message, ...(e instanceof HttpError && e.need ? { need: e.need } : {}) });
     else res.end();
   }
 }

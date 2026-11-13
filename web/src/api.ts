@@ -29,7 +29,8 @@ export async function req<T>(method: string, url: string, body?: any, headers: R
   const data = await res.json().catch(() => ({ error: `Lỗi ${res.status}` }));
   if (res.status === 401 && !url.startsWith('/api/auth/')) auth.onSignedOut();
   if (res.status === 423) auth.onLocked(data.error || '');
-  if (!res.ok) throw new Error(data.error || `Lỗi ${res.status}`);
+  // `need`: what the server asks for to do it after all (a drag that grades a task: its feedback), for the page to ask.
+  if (!res.ok) throw Object.assign(new Error(data.error || `Lỗi ${res.status}`), data.need ? { need: data.need as string } : {});
   if(method!=='GET'&&/^\/api\/(tasks|cards)(\/|$)/.test(url))window.dispatchEvent(new Event('dms:notifications-changed'));
   if(method!=='GET'&&/^\/api\/admin\/customer-statuses(?:\/|$)/.test(url))window.dispatchEvent(new Event('dms:customer-statuses'));
   if(method!=='GET'&&/^\/api\/(cards|lists|boards|tasks|task-projects|customers)(\/|$)/.test(url))window.dispatchEvent(new Event('dms:entities-changed'));
@@ -118,7 +119,18 @@ export const api = {
   deleteList: (id: string) => req('DELETE', `/api/lists/${id}`),
   createCard: (listId: string, title: string, top = false, syncTask = true, kind: 'customer' | 'project' | 'task' = 'task', projectCardId: string | null = null, customerCardId: string | null = null, customerId: string | null = null) => req<BoardCard>('POST', `/api/lists/${listId}/cards`, { title, top, syncTask, kind, projectCardId, customerCardId, customerId }),
   card: (id: string) => req<CardDetail>('GET', `/api/cards/${id}`),
-  updateCard: (id: string, c: Partial<{ title: string; description: string; result: string; startAt: number | null; dueAt: number | null; done: boolean; cover: string | null; archived: boolean; customerId: string | null; projectId: string | null; linkTask: boolean; listId: string; index: number }>) => req<CardDetail>('PUT', `/api/cards/${id}`, c),
+  updateCard: (id: string, c: Partial<{ title: string; description: string; result: string; startAt: number | null; dueAt: number | null; done: boolean; cover: string | null; archived: boolean; customerId: string | null; projectId: string | null; linkTask: boolean; listId: string; index: number; feedback: string; reason: string }>) => req<CardDetail>('PUT', `/api/cards/${id}`, c),
+  /** A card to another column; when that is a review workflow move needing words (REDO and FAIL need feedback,
+   *  reopening a closed task takes a reason), they are asked, then the move is made. Cancelled: null. */
+  moveCard: async (id: string, to: { listId: string; index?: number }): Promise<CardDetail | null> => {
+    try { return await api.updateCard(id, to); } catch (e: any) {
+      if (!e.need) throw e;
+      const text = prompt(e.message);
+      if (text === null) return null;
+      if (e.need === 'feedback' && !text.trim()) throw new Error('Cần ghi nhận xét để chấm REDO hoặc FAIL.');
+      return api.updateCard(id, { ...to, [e.need]: text });
+    }
+  },
   deleteCard: (id: string) => req('DELETE', `/api/cards/${id}`),
   bulkDeleteCards: (ids: string[]) => req<{ ok: true; deleted: number }>('POST', '/api/cards/bulk-delete', { ids }),
   copyCard: (id: string, title: string) => req<{ id: string }>('POST', `/api/cards/${id}/copy`, { title }),

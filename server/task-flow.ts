@@ -135,6 +135,12 @@ export async function applyFlow(t: any, actor: { id: string; role: string }, can
       await notifyPeople(told.filter(Boolean) as string[], actor.id, { title: action === 'pass' ? `Công việc đã được duyệt (${code})` : action === 'redo' ? `Công việc cần làm lại (${code})` : `Công việc không đạt (${code})`, body: t.title, link: link(t.id) });
       return;
     }
+    case 'back':
+      need(canEdit, 'Chỉ người tạo, người được giao, thành viên dự án hoặc Admin đổi được bước của công việc');
+      need(stage === 'execution', 'Chỉ việc đang ở EXECUTION mới trả về ACCOUNT được', 409);
+      await move('account');
+      await log(t.id, actor.id, 'back', {});
+      return;
     case 'reopen':
       need(isClosedStage(stage), 'Công việc chưa đóng', 409);
       need(mayReview, 'Chỉ người duyệt của công việc hoặc Admin mở lại được công việc đã đóng');

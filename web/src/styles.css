@@ -4847,7 +4847,10 @@ a.rail-item { text-decoration: none; }
 .crm-missing h3 { margin:0; font-size:16px; color:var(--label); }
 .crm-missing .note { margin:0; max-width:420px; }
 .crm-missing-actions { display:flex; gap:8px; margin-top:6px; flex-wrap:wrap; justify-content:center; }
-.crm-side-title { display:flex; flex-direction:column; gap:4px; padding:0 8px; }
+.crm-side-title { display:flex; align-items:flex-start; gap:8px; padding:0 8px; }
+/* The customer's name (and status) beside the button that folds the menu, which keeps to the top right corner. */
+.crm-side-title > div { display:flex; flex-direction:column; gap:4px; flex:1; min-width:0; }
+.crm-side-title > .crm-side-fold-btn { flex:none; margin:-4px -4px 0 0; }
 .crm-side-title span { color:var(--bd-muted); font-size:11px; }
 .crm-side-title h2 { margin:0; font-size:17px; line-height:1.35; letter-spacing:-.3px; overflow-wrap:anywhere; }
 .crm-side-status { align-self:flex-start; display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:999px; background:color-mix(in srgb, var(--stage-color) 14%, transparent); color:var(--bd-text); font-style:normal; font-size:11.5px; font-weight:500; }
@@ -8074,3 +8077,20 @@ button.fo-tile { cursor: pointer; } button.fo-tile:hover { border-color: var(--a
 /* Stage badges in the step's own colour: solid (task lists, as on cards) or tinted (beside other text). */
 .tf-solid, .wework-badge.tf-solid { background: var(--tf); color: #fff; }
 .tk-badge.tf-tint, .crm-status.tf-tint { background: color-mix(in srgb, var(--tf) 15%, transparent); color: var(--tf); }
+/* The card's window: the review workflow as its top row; picking a step opens its moves in a window by it. */
+.tf-steps.pickable li:not(.tf-sep) { padding: 0; }
+.tf-steps.pickable li > button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 0; border-radius: inherit; background: none; color: inherit; font: inherit; cursor: pointer; }
+.tf-steps.pickable li:not(.tf-sep):hover { border-color: var(--tf, var(--label-3)); }
+.tf-steps.pickable .tf-caret { color: var(--label-2); }
+.cm-top .tf-steps { margin: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.cm-top .tf-steps li:not(.tf-sep) { background: var(--surface); }
+.cm-top .tf-steps li.done { background: color-mix(in srgb, var(--tf) 12%, var(--surface)); }
+.cm-top .tf-steps li.now { background: color-mix(in srgb, var(--tf) 16%, var(--surface)); }
+.cm-cover .tf-steps .tf-sep, .cm-cover .tf-steps .tf-caret { color: rgba(255, 255, 255, .9); }
+/* The review workflow's moves over a dimmed page (FlowPop). */
+.tf-modal { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 0; border-radius: 16px; background: var(--surface); color: var(--label); box-shadow: 0 24px 64px rgba(0, 0, 0, .28); overflow: auto; }
+.tf-modal::backdrop { background: rgba(9, 15, 30, .55); }
+.tf-modal-in { padding: 14px 20px 20px; }
+.tf-modal-in > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 -6px 12px 0; }
+.tf-modal-in > header b { font-size: 15px; font-weight: 600; }
+.tf-modal .tf-act { margin-top: 10px; }

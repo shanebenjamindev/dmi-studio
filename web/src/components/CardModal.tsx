@@ -14,6 +14,7 @@ import { MemberAvatar } from './MemberAvatar';
 import { MentionPeople, RichEditor, RichView } from './RichText';
 import { addSubtask } from './Subtasks';
 import { LinkedTaskFacts } from './Tasks';
+import { FlowPop, FlowSteps } from './TaskFlow';
 import { SpanPop } from './DateRange';
 import { ClientServicePop } from './ClientServicePick';
 import { COLOR, COLOR_NAME, Avatar, Pop, activityText, ago, dueState, fullDate, fileThumb } from './boardkit';
@@ -34,6 +35,14 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
   // Result files come from the customer's folder, which only people with the Drive page open.
   const drive = useStore((s) => s.pages.includes('workspace'));
   const load = () => api.card(id).then(setC).catch((e) => { toast(e.message, true); onClose(); });
+  // The task the card is (if it is one): its facts, and its review workflow as the row of steps on top, whose moves
+  // (reviewer, note, submit or grade) open under it when a step is picked.
+  const [task, setTask] = useState<TaskDetail | null>(null), [meta, setMeta] = useState<TaskMeta | null>(null);
+  const [flowEl, setFlowEl] = useState<HTMLElement | null>(null);
+  const taskId = c?.linkedTask?.id;
+  const loadTask = () => { if (taskId) void api.task(taskId).then(setTask, () => setTask(null)); };
+  useEffect(() => { setTask(null); loadTask(); if (taskId) api.taskMeta().then(setMeta, () => {}); }, [taskId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const taskChanged = () => { loadTask(); void load(); onChanged(); };
   // Whom @ suggests: the others who see the board.
   const others = board.members.filter((m) => m.id !== me.id);
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -61,7 +70,8 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
 
   const top = (
     <div className="cm-top">
-      {edit ? <button className="cm-list-b" onClick={open('move')} title="Chuyển sang danh sách khác">{c.listName}<Icon name="chevron" size={12} /></button> : <span className="cm-list-b">{c.listName}</span>}
+      {task?.flow ? <FlowSteps stage={task.flow.stage} open={!!flowEl} onPick={(el) => setFlowEl(flowEl === el ? null : el)} />
+        : edit ? <button className="cm-list-b" onClick={open('move')} title="Chuyển sang danh sách khác">{c.listName}<Icon name="chevron" size={12} /></button> : <span className="cm-list-b">{c.listName}</span>}
       <span className="cm-gap" />
       <button className="cm-top-b" onClick={()=>setCommentsOpen(v=>!v)} aria-label={commentsOpen?'Ẩn bình luận':'Hiện bình luận'} aria-expanded={commentsOpen} aria-controls="card-comments" title={commentsOpen?'Ẩn bình luận':'Hiện bình luận'}><Icon name="comment" size={16}/></button>
       {edit && <button className="cm-top-b" onClick={open('cover')} aria-label="Ảnh bìa" title="Ảnh bìa"><Icon name="cover" size={16} /></button>}
@@ -131,7 +141,7 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
           </section>
 
             {/* The card is a task: its facts, review workflow and subtasks, as on the task's own page (there `extra`). */}
-            {extra ?? (c.linkedTask && <LinkedTaskFacts taskId={c.linkedTask.id} onOpen={(taskId) => { onClose(); openTask(taskId); }} onChanged={() => { void load(); onChanged(); }} />)}
+            {extra ?? (task && <LinkedTaskFacts task={task} meta={meta} onOpen={(taskId) => { onClose(); openTask(taskId); }} onChanged={taskChanged} />)}
             {/* @ in the description and the comments suggests the people who see the board; they are told (server/boards.ts). */}
             <MentionPeople.Provider value={others}><Description value={c.description} readOnly={!edit || !c.canEditDescription} onSave={(t) => act(() => api.updateCard(c.id, { description: t }))} /></MentionPeople.Provider>
 
@@ -212,6 +222,7 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
           </MentionPeople.Provider></aside>
         </div>
       </div>
+      {task?.flow && flowEl && <FlowPop task={task} meta={meta} onClose={() => setFlowEl(null)} onChanged={taskChanged} />}
       {pop && <CardPop pop={pop} card={c} board={board} me={me} edit={edit} setPop={setPop} act={act} onGone={() => { onChanged(); onClose(); }} />}
     </div>
   );
@@ -661,7 +672,7 @@ function MovePop({ anchor, board, card, onClose, act }: { anchor: HTMLElement; b
       <h5>Chọn đích đến</h5>
       <label className="bk-field"><span>Danh sách</span><EntitySelect kind="list" context={{boardId:board.id}} value={list} onCreated={r=>setExtraLists(old=>[...old,{...r,cards:[]}])} onChange={v=>{setList(v);setAt(0);}}>{lists.map((l) => <option key={l.id} value={l.id}>{l.name}{l.id === card.listId ? ' (hiện tại)' : ''}</option>)}</EntitySelect></label>
       <label className="bk-field"><span>Vị trí</span><select value={Math.min(at, count - 1)} onChange={(e) => setAt(Number(e.target.value))}>{Array.from({ length: count }, (_, i) => <option key={i} value={i}>{i + 1}</option>)}</select></label>
-      <button className="btn btn-primary btn-sm" onClick={() => { onClose(); act(() => api.updateCard(card.id, { listId: list, index: Math.min(at, count - 1) })); }}>Di chuyển</button>
+      <button className="btn btn-primary btn-sm" onClick={() => { onClose(); act(() => api.moveCard(card.id, { listId: list, index: Math.min(at, count - 1) })); }}>Di chuyển</button>
     </Pop>
   );
 }

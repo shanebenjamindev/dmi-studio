@@ -34,3 +34,8 @@ export function columnStage(name: string): FlowStage | null {
   return null;
 }
 export const isOverdueColumn = (name: string) => statusKey(name) === 'overdue';
+/** The colour a column of each step is made with (a key of the lists' palette, like its badge's default): it can be
+ *  changed on the board like any column's. */
+export const FLOW_LIST_COLOR: Record<FlowStage, string> = { account: 'black', execution: 'blue', review: 'purple', completed: 'green', rejected: 'red' };
+/** A new column's colour: its step's, or none for a column of no step. */
+export const listColor = (name: string) => { const s = columnStage(name); return s ? FLOW_LIST_COLOR[s] : null; };

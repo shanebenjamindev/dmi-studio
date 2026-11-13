@@ -4,7 +4,8 @@
 // reviewer (or an admin) reopens it. Its status follows the stage (server/task-flow.ts).
 export type FlowStage = 'account' | 'execution' | 'review' | 'completed' | 'rejected';
 export type FlowOutcome = 'pass' | 'redo' | 'fail';
-export type FlowAction = 'start' | 'submit' | FlowOutcome | 'reopen' | 'reviewer';
+/** `back`: EXECUTION back to ACCOUNT (dragged back on a board), to be given out again. */
+export type FlowAction = 'start' | 'submit' | FlowOutcome | 'reopen' | 'reviewer' | 'back';
 /** Each stage: its code (the same for everyone, in every language) and what it is called. */
 export const FLOW_STAGES: { key: FlowStage; code: string; vi: string; en: string }[] = [
   { key: 'account', code: 'ACCOUNT', vi: 'Tiếp nhận', en: 'Intake' },

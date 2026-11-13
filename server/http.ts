@@ -7,7 +7,8 @@ export type Req = http.IncomingMessage & { params: Record<string, string>; query
 export type Res = http.ServerResponse;
 type Handler = (req: Req, res: Res) => any;
 
-export class HttpError extends Error { constructor(public status: number, msg: string) { super(msg); } }
+/** `need`: what the request lacks and the page may ask for, then send again (a drag that grades a task: its feedback). */
+export class HttpError extends Error { constructor(public status: number, msg: string, public need?: string) { super(msg); } }
 
 export class Router {
   private routes: { method: string; re: RegExp; keys: string[]; h: Handler }[] = [];

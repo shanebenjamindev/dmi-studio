@@ -6,7 +6,7 @@ import { HttpError } from './http';
 import { statusKey } from './taskimport';
 import { applyFlow, flowSettings, statusBlocked } from './task-flow';
 import { columnStage, isOverdueColumn } from './flow-columns';
-import { isFlowStage, type FlowAction } from '../shared/task-flow';
+import { isClosedStage, isFlowStage, type FlowAction, type FlowStage } from '../shared/task-flow';
 
 export async function assertLinkedTaskEditable(cardId: string, userId: string) {
   const link = await get<any>('SELECT t.* FROM task_board_links l JOIN tasks t ON t.id=l.task_id WHERE l.card_id=?', cardId);
@@ -17,26 +17,47 @@ export async function assertLinkedTaskEditable(cardId: string, userId: string) {
 }
 
 /** A card move or tick (`listId`, `done`) its task's review workflow does not allow: a closed task stays where it is
- *  until it is reopened, and only a review finishes an open one (server/task-flow.ts). A move to the column of the next
- *  step is that step's move, made by `actor`: ACCOUNT → EXECUTION gives the work out, EXECUTION → REVIEW hands it in,
- *  REVIEW → COMPLETED passes it. REDO and FAIL need feedback, so they are made on the task. */
-export async function assertCardFlow(cardId: string, b: { listId?: unknown; done?: unknown }, actor?: { id: string; role: string }) {
+ *  until it is reopened, and only a review finishes an open one (server/task-flow.ts). A move to the column of another
+ *  step is that step's move, made by `actor`: forward, each step in turn (ACCOUNT → EXECUTION gives the work out,
+ *  EXECUTION → REVIEW hands it in, REVIEW → COMPLETED passes it; a pass this account may not give leaves it in REVIEW);
+ *  EXECUTION → ACCOUNT takes it back; REVIEW back or to REJECTED grades it REDO or FAIL with `feedback`; a closed task
+ *  dragged back is reopened (`reason`). What is missing comes back as the error's `need`, for the page to ask. */
+export async function assertCardFlow(cardId: string, b: { listId?: unknown; done?: unknown; feedback?: unknown; reason?: unknown }, actor?: { id: string; role: string }) {
   const t = await get<any>('SELECT t.*, c.list_id, c.done FROM task_board_links l JOIN tasks t ON t.id=l.task_id JOIN board_cards c ON c.id=l.card_id WHERE l.card_id=?', cardId);
   if (!t) return;
   const list = b.listId !== undefined && b.listId !== t.list_id ? await get<any>('SELECT name FROM board_lists WHERE id=?', String(b.listId)) : null;
   const to = list && isFlowStage(t.stage) ? columnStage(list.name) : null;
   if (to && to !== t.stage) {
-    const action = DRAG_MOVE[`${t.stage}>${to}`];
-    if (!action || !actor) throw new HttpError(409, t.stage === 'completed' || t.stage === 'rejected' ? 'Công việc đã đóng (PASS hoặc FAIL). Người duyệt hoặc Admin bấm Mở lại để làm tiếp.'
-      : t.stage === 'review' ? 'REDO và FAIL cần nhận xét: mở công việc để chấm.' : 'Công việc đi theo quy trình ACCOUNT → EXECUTION → REVIEW: kéo sang bước kế tiếp.');
-    await applyFlow(t, actor, true, action);
+    if (!actor) throw new HttpError(409, 'Công việc đi theo quy trình duyệt: mở công việc để chuyển bước.');
+    const from = t.stage as FlowStage, again = () => get<any>('SELECT * FROM tasks WHERE id=?', t.id);
+    if (isClosedStage(from)) {
+      if (b.reason === undefined) throw new HttpError(409, 'Công việc đã đóng. Mở lại để làm tiếp? Lý do mở lại (không bắt buộc):', 'reason');
+      await applyFlow(t, actor, true, 'reopen', { reason: b.reason });
+      return;
+    }
+    if (from === 'review' && to !== 'completed') {
+      const action = to === 'rejected' ? 'fail' : 'redo', feedback = String(b.feedback ?? '').trim();
+      if (!feedback) throw new HttpError(409, action === 'fail' ? 'Chấm FAIL: ghi lý do không đạt' : 'Trả về REDO: ghi rõ cần sửa gì', 'feedback');
+      await applyFlow(t, actor, true, action, { feedback });
+      return;
+    }
+    if (to === 'rejected') throw new HttpError(409, 'Chỉ việc đang ở REVIEW mới chấm FAIL được: hãy nộp duyệt trước.');
+    if (from === 'execution' && to === 'account') { await applyFlow(t, actor, true, 'back'); return; }
+    // Forward, a step at a time.
+    for (let at = FORWARD.indexOf(from), goal = FORWARD.indexOf(to), first = true; at < goal; at++, first = false) {
+      const move = applyFlow(await again(), actor, true, FORWARD_MOVE[at]);
+      // A pass chained after handing it in, that this account may not give: it waits in REVIEW for its reviewer.
+      if (FORWARD_MOVE[at] === 'pass' && !first) { await move.catch(() => {}); break; }
+      await move;
+    }
     return;
   }
   const next = list ? list.name : b.done !== undefined && !!b.done !== !!t.done ? (b.done ? 'Hoàn thành' : 'Đang thực hiện') : null;
   const blocked = next && statusBlocked(t, next, await flowSettings());
   if (blocked) throw new HttpError(409, blocked);
 }
-const DRAG_MOVE: Record<string, FlowAction> = { 'account>execution': 'start', 'execution>review': 'submit', 'review>completed': 'pass' };
+const FORWARD: FlowStage[] = ['account', 'execution', 'review', 'completed'];
+const FORWARD_MOVE: FlowAction[] = ['start', 'submit', 'pass'];
 
 /** Who wrote a task's description (from before writers were kept: whoever made the task). */
 export async function taskDescriptionWriter(t: any): Promise<string | null> {

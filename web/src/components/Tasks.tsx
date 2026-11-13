@@ -26,7 +26,7 @@ import type { Board, BoardItem, TaskWrite, TaskDetail, TaskImportResult, TaskIte
 import { Badge, STEP_ORDER, stepCode, stepGroup, when } from './taskkit';
 import { SubtaskTree, addSubtask } from './Subtasks';
 import { ServicePicker } from './ServicePicker';
-import { FlowBadge, TaskFlow } from './TaskFlow';
+import { FlowBadge, FlowPop, FlowSteps, TaskFlow } from './TaskFlow';
 import { SpanField, SpanPop, fromLocal, toLocal } from './DateRange';
 import { FlowOverview } from './FlowOverview';
 import { FLOW_FILTERS, FLOW_FILTER_LABEL } from '../../../shared/flow-filter';
@@ -1275,7 +1275,7 @@ function WeworkTaskView({
 }
 
 /** A task's own facts in its card's window, on its page and on the board alike: project (no card), services, people,
- *  who made it, the review workflow (ACCOUNT → EXECUTION → REVIEW, its reviewer and moves) and its subtasks. */
+ *  who made it and its subtasks. Its review workflow is the card's top row (FlowSteps), opening its moves below. */
 function TaskFacts({ t, meta, isLinked, busy = false, onOpen, onChanged, onAddSubtask, onDelete }: {
   t: TaskDetail; meta: TaskMeta | null; isLinked: boolean; busy?: boolean; onOpen: (id: string) => void; onChanged: () => void;
   onAddSubtask?: (parentId: string, parentTask?: TaskDetail | TaskItem) => void; onDelete?: () => void;
@@ -1292,7 +1292,6 @@ function TaskFacts({ t, meta, isLinked, busy = false, onOpen, onChanged, onAddSu
       <div><dt>Người theo dõi</dt><dd>{t.canEdit&&meta?<TaskInlineFollowers key={t.id+':'+t.updatedAt} task={t} meta={meta} onSaved={onChanged}/>:<EmployeeAvatars people={t.followers}/>}</dd></div>
       <div><dt>Tạo bởi</dt><dd>{t.createdBy?.name || '—'}</dd></div>
     </dl>
-    <TaskFlow task={t} meta={meta} onChanged={onChanged} />
     {(t.childTasks.length > 0 || t.canEdit) && (
       <SubtaskTree
         task={t}
@@ -1305,12 +1304,10 @@ function TaskFacts({ t, meta, isLinked, busy = false, onOpen, onChanged, onAddSu
   );
 }
 
-/** The facts of the task a board card is (TaskFacts), for the card's window over the board; subtasks are added in place. */
-export function LinkedTaskFacts({ taskId, onOpen, onChanged }: { taskId: string; onOpen: (id: string) => void; onChanged: () => void }) {
-  const [t, setT] = useState<TaskDetail | null>(null), [meta, setMeta] = useState<TaskMeta | null>(null);
-  const load = () => api.task(taskId).then(setT, (e) => toast(e.message, true));
-  useEffect(() => { setT(null); void load(); api.taskMeta().then(setMeta, () => {}); }, [taskId]); // eslint-disable-line react-hooks/exhaustive-deps
-  return t && <TaskFacts t={t} meta={meta} isLinked onOpen={onOpen} onChanged={() => { void load(); onChanged(); }} />;
+/** The facts of the task a board card is (TaskFacts), for the card's window over the board (which loads the task, for
+ *  its row of steps too); subtasks are added in place. */
+export function LinkedTaskFacts({ task, meta, onOpen, onChanged }: { task: TaskDetail; meta: TaskMeta | null; onOpen: (id: string) => void; onChanged: () => void }) {
+  return <TaskFacts t={task} meta={meta} isLinked onOpen={onOpen} onChanged={onChanged} />;
 }
 
 /** A task's detail: beside the list, or as its own page (`page`) with the unified CardModal layout (Image 2). */
@@ -1425,6 +1422,8 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
   const [editingResult, setEditingResult] = useState(false);
   const [resultDraft, setResultDraft] = useState(t.result || '');
   const [labelsDraft, setLabelsDraft] = useState(t.labels.join(', '));
+  // The review workflow's moves open in a window by the step picked on its row of steps on top.
+  const [flowEl, setFlowEl] = useState<HTMLElement | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -1463,7 +1462,7 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
 
   const top = (
     <div className="cm-top">
-      {t.flow ? <FlowBadge stage={t.flow.stage} /> : <Badge t={t} />}
+      {t.flow ? <FlowSteps stage={t.flow.stage} open={!!flowEl} onPick={(el) => setFlowEl(flowEl === el ? null : el)} /> : <Badge t={t} />}
       <span className="cm-gap" />
       <button className="cm-top-b" onClick={() => setCommentsOpen((v) => !v)} aria-label={commentsOpen ? 'Ẩn bình luận' : 'Hiện bình luận'} aria-expanded={commentsOpen} aria-controls="card-comments" title={commentsOpen ? 'Ẩn bình luận' : 'Hiện bình luận'}><Icon name="comment" size={16} /></button>
       {edit && <button className="cm-top-b" onClick={onLink} aria-label="Liên kết Workspace" title="Liên kết thẻ Workspace"><Icon name="boards" size={16} /></button>}
@@ -1614,6 +1613,7 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
         </div>
       </div>
 
+      {t.flow && flowEl && <FlowPop task={t} meta={meta} onClose={() => setFlowEl(null)} onChanged={onChanged} />}
       {pop?.kind === 'add' && (
         <Pop anchor={pop.el} title="Thêm vào công việc" onClose={closePop}>
           <div className="cm-add-menu">

@@ -9,7 +9,7 @@ import { taskBoardCategory, type TaskBoardCategory } from '../shared/task-routin
 import { boardLevelForUser } from './boards';
 import { columnFor, syncTaskToCard } from './tasklinks';
 import { statusKey } from './taskimport';
-import { FLOW_COLUMNS, columnStage } from './flow-columns';
+import { FLOW_COLUMNS, columnStage, listColor } from './flow-columns';
 import { isFlowStage } from '../shared/task-flow';
 import { customerBoardId, syncBoardGrants, syncBoardPeople, syncProjectBoards } from './board-people';
 
@@ -23,7 +23,7 @@ async function makeBoard(id: string, name: string, owner: string | null, custome
   owner ||= (await get<any>("SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1"))?.id || null;
   const t = now();
   const made = await run('INSERT OR IGNORE INTO boards(id,name,bg,created_by,pos,created_at,updated_at,private,customer_id) VALUES(?,?,?,?,?,?,?,1,?)', id, name, 'ocean', owner, 90, t, t, customerId);
-  if (made.changes) for (const [i, l] of HOME_LISTS.entries()) await run('INSERT INTO board_lists(id,board_id,name,pos,created_at) VALUES(?,?,?,?,?)', listId(id, l), id, l, i + 1, t);
+  if (made.changes) for (const [i, l] of HOME_LISTS.entries()) await run('INSERT INTO board_lists(id,board_id,name,pos,created_at,color) VALUES(?,?,?,?,?,?)', listId(id, l), id, l, i + 1, t, listColor(l));
   return get<any>('SELECT * FROM boards WHERE id=?', id);
 }
 /** The customer's own board, made the first time, named after it and kept by whoever keeps the customer: the projects
@@ -115,7 +115,7 @@ async function listFor(board: any, task: any) {
   const found=columnFor(lists,status)||(isFlowStage(task.stage)?lists.find((l)=>columnStage(l.name)===task.stage):undefined)||(task.done_at?named('Đã giao','Đã báo cáo'):/đánh giá|duyệt/i.test(status)?named('Chờ duyệt'):statusKey(status)==='todo'?lists[0]:undefined);
   if (found) return found;
   const id=listId(board.id,status);
-  await run('INSERT OR IGNORE INTO board_lists(id,board_id,name,pos,created_at) VALUES(?,?,?,?,?)',id,board.id,status,(lists.at(-1)?.pos||0)+1,now());
+  await run('INSERT OR IGNORE INTO board_lists(id,board_id,name,pos,created_at,color) VALUES(?,?,?,?,?,?)',id,board.id,status,(lists.at(-1)?.pos||0)+1,now(),listColor(status));
   return get<any>('SELECT * FROM board_lists WHERE id=?',id);
 }
 /** The card made for a task of a project goes under the project's card (see projectHome): one made before (on its

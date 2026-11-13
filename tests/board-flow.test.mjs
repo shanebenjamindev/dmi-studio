@@ -63,7 +63,10 @@ test('every board follows the review workflow: a column per step, no Quá hạn 
   assert.equal(await listOf('k_mix'),'EXECUTION');
 
   const again=await normalizeBoard('b_one');
-  assert.deepEqual([again.added,again.archived,again.renamed,again.reordered,again.cardsMoved],[[],[],[],false,0]);
+  assert.deepEqual([again.added,again.archived,again.renamed,again.colored,again.reordered,again.cardsMoved],[[],[],[],0,false,0]);
+  // Each step's column wears its step's colour; a board's own columns keep theirs (none).
+  assert.deepEqual((await all("SELECT color FROM board_lists WHERE board_id='b_one' AND archived=0 ORDER BY pos")).map(r=>r.color),['black','blue','purple','green','red']);
+  assert.equal((await get("SELECT color FROM board_lists WHERE id='m2'")).color,null);
   assert.deepEqual(await normalizeAllBoards(),{boards:3,changed:0});
   assert.deepEqual(await normalizeAllBoards(),{boards:0,changed:0});                       // the flag: once
 
@@ -81,14 +84,24 @@ test('every board follows the review workflow: a column per step, no Quá hạn 
   await run("INSERT INTO board_cards(id,board_id,list_id,title,pos,done,created_at,updated_at) VALUES('k_d','b_one',?,'Drag',9,0,1,1)",ids.ACCOUNT);
   await run("INSERT INTO task_board_links(task_id,card_id) VALUES('tk_d','k_d')");
   const doer={id:'u_a',role:'member'},admin={id:'u_admin',role:'admin'};
-  const drag=async(to,who)=>{await assertCardFlow('k_d',{listId:ids[to]},who);await run('UPDATE board_cards SET list_id=? WHERE id=?',ids[to],'k_d');await syncCardToTask('k_d',true,who.id);};
+  const drag=async(to,who,extra={})=>{await assertCardFlow('k_d',{listId:ids[to],...extra},who);await run('UPDATE board_cards SET list_id=? WHERE id=?',ids[to],'k_d');await syncCardToTask('k_d',true,who.id);};
   const tk=()=>get("SELECT stage,status,done_at FROM tasks WHERE id='tk_d'");
+  const needs=(p)=>p.then(()=>null,(e)=>[e.status,e.need||null]);
   await drag('EXECUTION',doer);assert.equal((await tk()).stage,'execution');assert.equal((await tk()).status,'Đang thực hiện');
-  await assert.rejects(assertCardFlow('k_d',{listId:ids.COMPLETED},doer),(e)=>e.status===409);   // only a review finishes it
-  await drag('REVIEW',doer);assert.equal((await tk()).stage,'review');assert.equal(await listOf('k_d'),'REVIEW');
-  await assert.rejects(assertCardFlow('k_d',{listId:ids.EXECUTION},admin),(e)=>e.status===409);  // REDO needs feedback
-  await drag('COMPLETED',admin);assert.equal((await tk()).stage,'completed');assert.ok((await tk()).done_at);
+  await drag('ACCOUNT',doer);assert.equal((await tk()).stage,'account');                       // back, to give out again
+  await drag('EXECUTION',doer);
+  assert.deepEqual(await needs(assertCardFlow('k_d',{listId:ids.REJECTED},doer)),[409,null]);   // only a review fails it
+  // Straight to COMPLETED: handed in, then passed if this account may grade it; its doer may not, so it waits in REVIEW.
+  await drag('COMPLETED',doer);assert.equal((await tk()).stage,'review');assert.equal(await listOf('k_d'),'REVIEW');
+  // REVIEW back: REDO, which says what to fix (asked for when missing).
+  assert.deepEqual(await needs(assertCardFlow('k_d',{listId:ids.EXECUTION},admin)),[409,'feedback']);
+  await drag('EXECUTION',admin,{feedback:'Sửa tiêu đề'});assert.equal((await tk()).stage,'execution');
+  assert.equal((await get("SELECT revision FROM tasks WHERE id='tk_d'")).revision,1);
+  await drag('REVIEW',doer);await drag('COMPLETED',admin);assert.equal((await tk()).stage,'completed');assert.ok((await tk()).done_at);
   assert.equal((await get("SELECT done FROM board_cards WHERE id='k_d'")).done,1);
+  // Closed: dragged back, it is reopened (the reason asked for, which may be empty).
+  assert.deepEqual(await needs(assertCardFlow('k_d',{listId:ids.EXECUTION},admin)),[409,'reason']);
+  await drag('EXECUTION',admin,{reason:''});assert.equal((await tk()).stage,'execution');assert.equal(await listOf('k_d'),'EXECUTION');
  }finally{
   try{db?.close?.();}catch{}
   await rm(dir,{recursive:true,force:true});

@@ -68,7 +68,7 @@ const server = http.createServer(async (req0, res) => {
   } catch (e: any) {
     const status = e instanceof HttpError ? e.status : e instanceof ProviderError ? (e.status >= 400 && e.status < 600 ? e.status : 502) : 500;
     if (status >= 500) { console.error('✖', req.method, req.path, e); if (req.path.startsWith('/api/')) await logError(req, user, e, status); }
-    if (!res.headersSent) json(res, status, { error: e.message || 'Lỗi máy chủ' });
+    if (!res.headersSent) json(res, status, { error: e.message || 'Lỗi máy chủ', ...(e instanceof HttpError && e.need ? { need: e.need } : {}) });
     else res.end();
   }
 });

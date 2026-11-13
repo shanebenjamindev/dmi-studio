@@ -1,5 +1,5 @@
 import { defaultCustomerStatus } from './customer-statuses';
-import { FLOW_COLUMNS, columnStage } from './flow-columns';
+import { FLOW_COLUMNS, columnStage, listColor } from './flow-columns';
 import {assertTaskDelete,removeCardRecord,removeTaskRecord,removeProjectRecord,syncProjectCards} from './work-sync';
 import {grantAccess,projectLevels,requireProject} from './project-access';
 import {customerLevels,customerAccessSql,requireCustomer,visibleCardIds} from './customer-access';
@@ -25,6 +25,8 @@ import { all, get, run, uid, now } from './db';
 import { assertCardFlow, assertLinkedTaskEditable, syncCardToTask, cardDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
 import { statusKey } from './taskimport';
 import { boardServices, saveBoardServices, serviceIds } from './project-services';
+/** A board is of one service (its kind): none or one of the catalogue. */
+const boardService = async (v: unknown) => { const ids = await serviceIds(v); if (ids.length > 1) throw new HttpError(400, 'Mỗi board chỉ có một dịch vụ'); return ids; };
 import { notifyPeople } from './notifications';
 import { currentUser, PAGES, pagesOf, deptLevel, USER_SQL, type Level } from './auth';
 import { customerFile, clientCustomers } from './workspace';
@@ -89,7 +91,7 @@ async function newBoard(name: string, bg: string, roleId: string | null, by: str
   const id = uid('b_'), t = now();
   const pos = ((await get<any>('SELECT MAX(pos) m FROM boards'))?.m || 0) + 1;
   await run('INSERT INTO boards(id, name, bg, role_id, created_by, pos, created_at, updated_at, workspace_id, private) VALUES(?,?,?,?,?,?,?,?,?,?)', id, name, bg, roleId, by, pos, t, t, workspaceId, priv ? 1 : 0);
-  for (const [i, l] of lists.entries()) await run('INSERT INTO board_lists(id, board_id, name, pos, created_at) VALUES(?,?,?,?,?)', uid('l_'), id, l, i + 1, t);
+  for (const [i, l] of lists.entries()) await run('INSERT INTO board_lists(id, board_id, name, pos, created_at, color) VALUES(?,?,?,?,?,?)', uid('l_'), id, l, i + 1, t, listColor(l));
   await defaultLabels(id);
   return id;
 }
@@ -586,7 +588,7 @@ export function registerBoards(api: Router) {
   api.post('/api/boards', async (req, res) => {
     const u = await me(req), b = await readJson(req);
     const roleId = b.roleId ? String(b.roleId) : null, ws = await workspaceFor(req, b.workspaceId), customer = await customerFor(req, b.customerId);
-    const services = b.services !== undefined ? await serviceIds(b.services) : [];
+    const services = b.services !== undefined ? await boardService(b.services) : [];
     if (!ws && wsLevel(u, null) === 'observer') throw new HttpError(403, 'Role của bạn trong phòng chỉ được xem, không tạo được board');
     if (roleId) { if (ws) throw new HttpError(400, ROLE_IN_COMPANY); await checkRole(req, roleId); }
     const id = await newBoard(text(b.name, 80, 'tên board'), BGS.includes(b.bg) ? b.bg : 'ocean', roleId, u.id,
@@ -624,7 +626,7 @@ export function registerBoards(api: Router) {
   api.put('/api/boards/:id', async (req, res) => {
     const bd = await mustBoard(req, req.params.id), b = await readJson(req), u = await me(req);
     if (['name', 'bg', 'about', 'labelText', 'view', 'startAt', 'services'].some((k) => b[k] !== undefined) && !shapes(bd)) throw new HttpError(403, NO_SHAPE);
-    const start = b.startAt !== undefined ? startIn(b.startAt) ?? bd.created_at : undefined, services = b.services !== undefined ? await serviceIds(b.services) : undefined;
+    const start = b.startAt !== undefined ? startIn(b.startAt) ?? bd.created_at : undefined, services = b.services !== undefined ? await boardService(b.services) : undefined;
     let roleId = bd.role_id, priv = 1, ws = bd.workspace_id || null;
     if ((b.memberEdit !== undefined || b.editorShare !== undefined || b.customerId !== undefined) && bd.level !== 'admin') throw new HttpError(403, DENIED.admin);
     if (b.customerId !== undefined && (b.customerId || null) !== (bd.customer_id || null)) {
@@ -780,10 +782,11 @@ export function registerBoards(api: Router) {
   api.post('/api/boards/:id/lists', async (req, res) => {
     const b = await mustShape(req, req.params.id), name = text((await readJson(req)).name, 80, 'tên danh sách');
     const id = uid('l_'), pos = ((await get<any>('SELECT MAX(pos) m FROM board_lists WHERE board_id = ?', b.id))?.m || 0) + 1;
-    await run('INSERT INTO board_lists(id, board_id, name, pos, created_at) VALUES(?,?,?,?,?)', id, b.id, name, pos, now());
+    const color = listColor(name);
+    await run('INSERT INTO board_lists(id, board_id, name, pos, created_at, color) VALUES(?,?,?,?,?,?)', id, b.id, name, pos, now(), color);
     await log(b.id, null, (await me(req)).id, 'list.add', { name });
     await touch(b.id);
-    json(res, 201, { id, name, cards: [] });
+    json(res, 201, { id, name, color, cards: [] });
   });
   // Rename, move (`index`), archive or restore (`archived`), fold or unfold (`folded`, for everyone).
   api.put('/api/lists/:id', async (req, res) => {
@@ -856,7 +859,7 @@ export function registerBoards(api: Router) {
   api.post('/api/lists/:id/copy', async (req, res) => {
     const l = await mustShapeList(req, req.params.id), name = text((await readJson(req)).name || l.name, 80, 'tên danh sách'), t = now();
     const id = uid('l_');
-    await run('INSERT INTO board_lists(id, board_id, name, pos, created_at) VALUES(?,?,?,?,?)', id, l.board_id, name, l.pos + 0.5, t);
+    await run('INSERT INTO board_lists(id, board_id, name, pos, created_at, color) VALUES(?,?,?,?,?,?)', id, l.board_id, name, l.pos + 0.5, t, l.color ?? listColor(name));
     for (const c of await all<any>('SELECT * FROM board_cards WHERE list_id = ? AND archived = 0 ORDER BY pos', l.id)) {
       const cid = uid('k_');
       await run('INSERT INTO board_cards(id, board_id, list_id, title, pos, created_by, created_at, updated_at, description, start_at, due_at, done, cover, customer_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',

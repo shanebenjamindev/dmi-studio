@@ -1058,7 +1058,7 @@ function TileSettings({ b, onSaved }: { b: BoardItem; onSaved: () => void }) {
         onBlur={() => { const n = name.replace(/\s+/g, ' ').trim(); if (!n) setName(b.name); else if (n !== b.name) void save({ name: n }, () => setName(b.name)); }}
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} /></>}
     <h5>Loại board (dịch vụ)</h5>
-    <ServicePicker value={services} known={b.services} disabled={!b.canShape}
+    <ServicePicker single value={services} known={b.services} disabled={!b.canShape}
       onChange={(ids) => { const was = services; setServices(ids); void save({ services: ids }, () => setServices(was)); }} />
     {b.canShape && <><h5>Dạng xem mặc định</h5>
       <BoardTypePicker value={view} onChange={(v) => { const was = view; setView(v); void save({ view: v }, () => setView(was)); }} /></>}
@@ -1599,7 +1599,7 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
         tgt.cards.splice(index, 0, moved);
       }
     });
-    act(() => api.updateCard(d.id, { listId: to.list, index }));
+    act(() => api.moveCard(d.id, { listId: to.list, index }));
   };
   const startList = (e: React.DragEvent<HTMLElement>, listId: string) => {
     const col = e.currentTarget.closest<HTMLElement>('[data-list]')!;
@@ -1974,7 +1974,7 @@ function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { 
         </div>}
         {view === 'about' && <>
           <h5>Loại board (dịch vụ)</h5>
-          <ServicePicker value={(board.services || []).map((x) => x.id)} known={board.services} disabled={!canShape}
+          <ServicePicker single value={(board.services || []).map((x) => x.id)} known={board.services} disabled={!canShape}
             onChange={(ids) => act(() => api.updateBoard(board.id, { services: ids }))} />
           <h5 id="bd-about-type">Dạng xem mặc định</h5>
           {canShape

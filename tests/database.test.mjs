@@ -586,6 +586,8 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     const b = (await server.call('POST','/api/boards',{name:'Task board',bg:'ocean',roleId:null,private:true},ac)).data;
     const board = (await server.call('GET',`/api/boards/${b.id}`,undefined,ac)).data;
     const list = board.lists[0];
+    // A new board's columns are the workflow's steps, each in its step's colour.
+    assert.deepEqual(board.lists.map((l)=>[l.name,l.color]),[['ACCOUNT','black'],['EXECUTION','blue'],['REVIEW','purple'],['COMPLETED','green'],['REJECTED','red']]);
     assert.equal((await server.call('POST',`/api/tasks/${id}/card`,{listId:list.id},ed.cookie)).status,404);
     await server.call('PUT',`/api/boards/${b.id}/members/${ed.id}`,{level:'normal'},ac);
     await server.call('PUT',`/api/boards/${b.id}/members/${other.id}`,{level:'normal'},ac);
@@ -1526,6 +1528,10 @@ test('a workspace of one\'s own can be for a customer; its boards\' work counts 
   const svc=(await server.call('POST','/api/admin/services',{name:'Website'},ac)).data;
   const typed=(await server.call('POST','/api/boards',{name:'Board website',bg:'ocean',roleId:null,private:true,workspaceId:ws.id,services:[svc.id]},ac)).data;
   assert.deepEqual(typed.services.map((x)=>x.name),['Website']);
+  // A board is of one service: two are refused, on making it and on changing it.
+  const other=(await server.call('POST','/api/admin/services',{name:'Quảng cáo'},ac)).data;
+  assert.equal((await server.call('POST','/api/boards',{name:'Hai dịch vụ',bg:'ocean',roleId:null,private:true,services:[svc.id,other.id]},ac)).status,400);
+  assert.equal((await server.call('PUT',`/api/boards/${typed.id}`,{services:[svc.id,other.id]},ac)).status,400);
   assert.deepEqual((await server.call('GET','/api/boards',undefined,ac)).data.find((b)=>b.id===typed.id).services.map((x)=>x.name),['Website']);
   assert.equal((await server.call('PUT',`/api/workspaces/${ws.id}`,{customerId:one.id},ac)).status,200);
   const tl=(await server.call('GET',`/api/boards/${typed.id}`,undefined,ac)).data.lists[0];
