@@ -14,7 +14,7 @@ import { ProjectEditDialog } from './ProjectEditDialog';
 import type { TaskMeta } from '../types';
 import { PROJECT_STAGES, type ProjectStage } from '../../../shared/projects';
 
-type View = 'list' | 'grid' | 'table';
+type View = 'list' | 'table';
 type GroupBy = 'customer' | 'stage' | 'none';
 const LS_VIEW = 'dms.projectView', LS_GROUP = 'dms.projectGroup';
 const read = <T extends string>(k: string, ok: readonly T[], d: T): T => { try { const v = localStorage.getItem(k) as T; return ok.includes(v) ? v : d; } catch { return d; } };
@@ -64,7 +64,7 @@ export function WorkProjects() {
   const [meta, setMeta] = useState<TaskMeta | null>(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
-  const [view, setViewState] = useState<View>(() => read(LS_VIEW, ['list', 'grid', 'table'] as const, 'list'));
+  const [view, setViewState] = useState<View>(() => read(LS_VIEW, ['list', 'table'] as const, 'list'));
   const [groupBy, setGroupByState] = useState<GroupBy>(() => read(LS_GROUP, ['customer', 'stage', 'none'] as const, 'customer'));
   const setView = (v: View) => { setViewState(v); keep(LS_VIEW, v); };
   const setGroupBy = (g: GroupBy) => { setGroupByState(g); keep(LS_GROUP, g); };
@@ -156,7 +156,6 @@ export function WorkProjects() {
               value={view}
               items={[
                 { value: 'list' as View, label: 'Danh sách', icon: 'list' },
-                { value: 'grid' as View, label: 'Thẻ', icon: 'grid' },
                 { value: 'table' as View, label: 'Bảng', icon: 'sheet' },
               ]}
               onChange={(v) => setView(v)}
@@ -177,7 +176,7 @@ export function WorkProjects() {
             </>
           )}
           <label className="tk-find"><Icon name="search" size={14} /><input aria-label="Tìm dự án" placeholder="Tìm dự án, khách hàng…" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
-          {view !== 'grid' && <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}><option value="customer">Khách hàng</option><option value="stage">Trạng thái</option><option value="none">Không nhóm</option></select></label>}
+          <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}><option value="customer">Khách hàng</option><option value="stage">Trạng thái</option><option value="none">Không nhóm</option></select></label>
         </div>
         {error ? <p className="note err" role="alert">{error}</p>
           : !meta ? <BrandLoading label="Đang tải dự án…" />
@@ -250,27 +249,6 @@ export function WorkProjects() {
                 },
               ]}
             />
-          ) : view === 'grid' ? (
-            <div className="cd-cards">
-              {tasks.map((p) => (
-                <div key={p.id} className="cd-customer" role="button" tabIndex={0} onClick={() => select(p.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(p.id); } }}>
-                  <header><span className="cd-monogram">{p.name.replace(/^\W*(\[[^\]]*\]\s*)?/, '').split(/\s+/).slice(0, 2).map((s) => s[0]).join('').toUpperCase() || 'DA'}</span><ProjectStateBadge p={p} /></header>
-                  <h3>{p.name}</h3>
-                  <p>{p.customerName || 'Chưa phân loại'}</p>
-                  {!!p.services?.length && <ServiceChips p={p} />}
-                  <div className="cd-card-stats"><span><b>{p.tasks}</b>Công việc</span><span><b>{p.completed || 0}/{p.tasks}</b>Hoàn thành</span></div>
-                  <footer>
-                    <EmployeeAvatars people={p.assignees || []} />
-                    {canManage(p) ? (
-                      <span className="crm-campaign-actions" onClick={(e) => e.stopPropagation()}>
-                        <button type="button" className="btn btn-gray btn-sm" disabled={busyId === p.id} onClick={() => setEditing(p)}><Icon name="edit" size={13} />Sửa</button>
-                        <button type="button" className="btn btn-sm cm-danger" disabled={busyId === p.id} onClick={() => void deleteProject(p)}>Xoá</button>
-                      </span>
-                    ) : <span>Xem chi tiết</span>}
-                  </footer>
-                </div>
-              ))}
-            </div>
           ) : (
             <div className="cd-table work-project-list">
               <table>

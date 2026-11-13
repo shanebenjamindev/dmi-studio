@@ -4782,5 +4782,6 @@ const EN: Record<string, string> = {
   "Thanh chọn cách xem (Danh sách, Thẻ, Bảng…) không còn lộ thanh cuộn; khi danh sách thu hẹp cạnh mục đang mở, các tab chỉ còn icon nên không bị cắt chữ.": "View tabs (List, Cards, Table…) no longer show a scrollbar; when the list narrows beside an open item, the tabs show their icons only so nothing is cut off.",
   "Mỗi dự án là một dịch vụ của khách: chỉ chọn một dịch vụ": "A project is one service of its customer: pick one service only",
   "Mỗi dự án là một dịch vụ của khách: chỉ chọn một dịch vụ (trang dự án, sửa dự án, tạo nhanh). Tổng quan trong trang dự án cuộn được. Ô trả lời bình luận gọn lại: tên người được trả lời một dòng, nút × nhỏ, ô nhập rộng hết khung.": "A project is one service of its customer: pick one service only (project page, project editing, quick create). The Overview on a project page scrolls. The comment reply box is tidier: who is answered on one line, a small ×, a full-width box.",
+  "Bỏ dạng xem Thẻ ở trang Dự án: chỉ còn Danh sách và Bảng.": "The Projects page drops its Cards view: List and Table remain.",
 };
 export default EN;
