@@ -34,6 +34,7 @@ import { matcher } from './admin/common';
 import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
 import { AUTO, syncBoardGrants, syncBoardPeople } from './board-people';
 import { projectCustomerChanged } from './taskworkspace';
+import { flowSettings, statusFor } from './task-flow';
 
 /** Board backgrounds and label / cover colours (drawn by the web app). */
 export const BGS = ['ocean', 'forest', 'sunset', 'grape', 'berry', 'slate', 'sky', 'lime', 'rose', 'night'];
@@ -325,7 +326,12 @@ async function cardOut(c: any, u: any) {
     id: c.id, boardId: c.board_id, listId: c.list_id, listName: list?.name || '', title: c.title, description: c.description || '', cover: c.cover || null,
     startAt: c.start_at ?? null, dueAt: c.due_at ?? null, done: !!c.done, archived: !!c.archived, createdAt: c.created_at, createdBy: c.created_by || null,
     customerId: customer?.id || null, customerName: customer?.name || null,
-    projectId: c.work_project_id || linkedTask?.projectId || null, projectName: linkedTask?.projectName || null,
+    projectId: c.work_project_id || linkedTask?.projectId || null,
+    projectName: linkedTask?.projectName || (c.work_project_id ? (await get<any>('SELECT name FROM task_projects WHERE id=?', c.work_project_id))?.name : null) || null,
+    // A service's card (a project's): the work under it on its board, each task with its step, as its list of tasks.
+    projectTasks: c.card_kind === 'project' ? (await all<any>(`SELECT k.id cardId, t.id taskId, t.title, t.stage, t.status, t.due_at dueAt, t.done_at doneAt FROM board_cards k
+      JOIN task_board_links l ON l.card_id=k.id JOIN tasks t ON t.id=l.task_id WHERE k.project_card_id=? AND k.archived=0 ORDER BY t.done_at IS NOT NULL, COALESCE(t.due_at, 9e15), t.created_at`, c.id))
+      .map((r) => ({ ...r, dueAt: r.dueAt ?? null, doneAt: r.doneAt ?? null })) : undefined,
     labels: (await all<any>('SELECT label_id FROM card_labels WHERE card_id = ?', c.id)).map((r) => r.label_id),
     members: (await all<any>('SELECT user_id FROM card_members WHERE card_id = ?', c.id)).map((r) => r.user_id),
     checklists: checklists.map((k) => ({ id: k.id, title: k.title, items: items.filter((i) => i.checklist_id === k.id).map((i) => ({ id: i.id, text: i.text, done: !!i.done })) })),
@@ -1041,8 +1047,12 @@ export function registerBoards(api: Router) {
         const taskId = uid('tk_'), t = now();
         const list = await get<any>('SELECT name FROM board_lists WHERE id = ?', c.list_id);
         const isDone = ['done', 'done_late'].includes(statusKey(list?.name || ''));
-        await run('INSERT INTO tasks(id,title,status,start_at,due_at,done_at,project_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
-          taskId, c.title, list?.name || '', c.start_at, c.due_at, isDone ? t : null, null, null, c.description || '', null, creator.id, t, t);
+        // The task starts at the step of its column (with that step's status), in the service its card sits under.
+        const step = columnStage(list?.name || ''), doneAt = isDone || step === 'completed' ? t : null;
+        const status = step ? await statusFor(step, { id: taskId, due_at: c.due_at }, doneAt, await flowSettings()) : list?.name || '';
+        const project = c.work_project_id || (c.project_card_id ? (await get<any>('SELECT work_project_id FROM board_cards WHERE id=?', c.project_card_id))?.work_project_id : null) || null;
+        await run('INSERT INTO tasks(id,title,status,stage,start_at,due_at,done_at,project_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          taskId, c.title, status, step, c.start_at, c.due_at, doneAt, project, null, c.description || '', null, creator.id, t, t);
         await run('INSERT OR IGNORE INTO task_assignees(task_id, person_id) VALUES(?,?)', taskId, creator.id);
         await run('INSERT OR IGNORE INTO task_board_links(task_id, card_id) VALUES(?,?)', taskId, c.id);
       }

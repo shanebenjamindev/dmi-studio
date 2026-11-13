@@ -8116,3 +8116,15 @@ button.fo-tile { cursor: pointer; } button.fo-tile:hover { border-color: var(--a
 .wework-reply-btns { display: flex; justify-content: flex-end; gap: 8px; }
 .crm-side-fold-btn { color: var(--label-2); }
 .crm-side-fold-btn:hover { color: var(--label); background: var(--fill-2); }
+/* A service's card: its tasks, each a row with its step, name and due date; a field to add one. */
+.cm-svc-tasks h3 small { margin-left: 6px; font-size: 11px; font-weight: 600; color: var(--label-3); letter-spacing: .03em; }
+.cm-svc-tasks ul { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.cm-svc-tasks li > button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border: 0; border-radius: 10px; background: none; color: var(--label); font: inherit; text-align: left; cursor: pointer; }
+.cm-svc-tasks li > button:hover { background: var(--fill-2); }
+.cm-svc-tasks .tf-badge { height: 24px; padding: 0 9px; flex: none; }
+.cm-svc-tasks li b { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-svc-tasks li b.done { color: var(--label-3); text-decoration: line-through; }
+.cm-svc-tasks li em { flex: none; font-style: normal; font-size: 12px; }
+.cm-svc-status { flex: none; font-size: 11px; color: var(--label-2); }
+.cm-svc-add { display: flex; gap: 8px; }
+.cm-svc-add .bk-in { flex: 1; min-width: 0; }

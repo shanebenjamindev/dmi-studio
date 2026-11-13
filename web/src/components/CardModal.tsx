@@ -7,14 +7,14 @@ import { ResizeHandle } from './ResizeHandle';
 // delete). Someone who only views the board (observer) reads everything and comments.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
-import { toast, useStore, goto, openTask } from '../store';
+import { toast, useStore, goto, openCard, openTask } from '../store';
 import { Icon } from './ui';
 import { MemberChoices } from './EmployeePicker';
 import { MemberAvatar } from './MemberAvatar';
 import { MentionPeople, RichEditor, RichView } from './RichText';
 import { addSubtask } from './Subtasks';
 import { LinkedTaskFacts } from './Tasks';
-import { FlowPop, FlowSteps } from './TaskFlow';
+import { FlowBadge, FlowPop, FlowSteps } from './TaskFlow';
 import { SpanPop } from './DateRange';
 import { ClientServicePop } from './ClientServicePick';
 import { COLOR, COLOR_NAME, Avatar, Pop, activityText, ago, dueState, fullDate, fileThumb } from './boardkit';
@@ -43,6 +43,14 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
   const loadTask = () => { if (taskId) void api.task(taskId).then(setTask, () => setTask(null)); };
   useEffect(() => { setTask(null); loadTask(); if (taskId) api.taskMeta().then(setMeta, () => {}); }, [taskId]); // eslint-disable-line react-hooks/exhaustive-deps
   const taskChanged = () => { loadTask(); void load(); onChanged(); };
+  // A card is a task (cards and tasks are one piece of work): a plain card opened by someone who edits the board becomes
+  // one, so it has the task's steps, facts and subtasks. A service's card (a project's) lists its tasks instead.
+  const linking = useRef<string | null>(null);
+  useEffect(() => {
+    if (!c || (c.kind || 'task') !== 'task' || c.linkedTask || c.archived || board.level === 'observer' || linking.current === c.id) return;
+    linking.current = c.id;
+    api.updateCard(c.id, { linkTask: true }).then(() => { void load(); onChanged(); }, () => {});
+  }, [c?.id, c?.linkedTask]); // eslint-disable-line react-hooks/exhaustive-deps
   // Whom @ suggests: the others who see the board.
   const others = board.members.filter((m) => m.id !== me.id);
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -142,6 +150,7 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
 
             {/* The card is a task: its facts, review workflow and subtasks, as on the task's own page (there `extra`). */}
             {extra ?? (task && <LinkedTaskFacts task={task} meta={meta} onOpen={(taskId) => { onClose(); openTask(taskId); }} onChanged={taskChanged} />)}
+            {c.kind === 'project' && <ServiceTasks card={c} edit={edit} onOpen={(cardId) => { onClose(); openCard(c.boardId, cardId); }} onChanged={() => { void load(); onChanged(); }} />}
             {/* @ in the description and the comments suggests the people who see the board; they are told (server/boards.ts). */}
             <MentionPeople.Provider value={others}><Description value={c.description} readOnly={!edit || !c.canEditDescription} onSave={(t) => act(() => api.updateCard(c.id, { description: t }))} /></MentionPeople.Provider>
 
@@ -225,6 +234,33 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
       {task?.flow && flowEl && <FlowPop task={task} meta={meta} onClose={() => setFlowEl(null)} onChanged={taskChanged} />}
       {pop && <CardPop pop={pop} card={c} board={board} me={me} edit={edit} setPop={setPop} act={act} onGone={() => { onChanged(); onClose(); }} />}
     </div>
+  );
+}
+
+/** A service's card (a project's): the tasks under it, each with its step and due date, opened by a click; a new one
+ *  is made in the service (it lands under this card on the board). */
+function ServiceTasks({ card, edit, onOpen, onChanged }: { card: CardDetail; edit: boolean; onOpen: (cardId: string) => void; onChanged: () => void }) {
+  const [title, setTitle] = useState(''), [busy, setBusy] = useState(false);
+  const rows = card.projectTasks || [], done = rows.filter((r) => r.stage === 'completed').length;
+  const add = async () => {
+    const t = title.replace(/\s+/g, ' ').trim();
+    if (!t || busy || !card.projectId) return;
+    setBusy(true);
+    try { await api.createTask({ title: t, projectId: card.projectId }); setTitle(''); onChanged(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); }
+  };
+  return (
+    <section className="cm-sec cm-svc-tasks" aria-label="Công việc của dịch vụ">
+      <h3><Icon name="checklist" size={18} />Công việc{rows.length > 0 && <small>{`${done}/${rows.length} COMPLETED`}</small>}</h3>
+      {rows.length ? <ul>{rows.map((r) => <li key={r.cardId}><button type="button" onClick={() => onOpen(r.cardId)}>
+        {r.stage ? <FlowBadge stage={r.stage} /> : <span className="cm-svc-status">{r.status}</span>}
+        <b className={r.stage === 'completed' ? 'done' : ''}>{r.title}</b>
+        {r.dueAt && <em className={'cm-due ' + (dueState(r.dueAt, r.stage === 'completed') || '')}>{fullDate(r.dueAt)}</em>}
+      </button></li>)}</ul> : <p className="note">Dịch vụ này chưa có công việc.</p>}
+      {edit && card.projectId && <form className="cm-svc-add" onSubmit={(e) => { e.preventDefault(); void add(); }}>
+        <input className="bk-in" value={title} maxLength={500} disabled={busy} onChange={(e) => setTitle(e.target.value)} placeholder="Thêm công việc cho dịch vụ này…" aria-label="Tên công việc mới" />
+        <button className="btn btn-primary btn-sm" disabled={busy || !title.trim()}><Icon name="plus" size={14} />Thêm</button>
+      </form>}
+    </section>
   );
 }
 

@@ -290,6 +290,9 @@ export interface CustomerTask {
 }
 /** Everything on a card (its back). */
 export interface CardDetail {
+  /** A service's card: the tasks under it on its board, with their steps. */
+  projectTasks?: { cardId: string; taskId: string; title: string; stage: import('../../shared/task-flow').FlowStage | null; status: string; dueAt: number | null; doneAt: number | null }[];
+  kind?: 'customer' | 'project' | 'task';
   linkedTask?: { id: string } | null;
   /** The result note of a card without a task (null for those who may not read it; `resultHidden` when there is one). */
   result: string | null; resultHidden: boolean;

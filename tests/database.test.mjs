@@ -667,6 +667,9 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     assert.equal(unlinkedCard.linkedTask, undefined);
     const updatedWithTask = (await server.call('PUT', `/api/cards/${unlinkedCard.id}`, { linkTask: true }, ac)).data;
     assert.ok(updatedWithTask.linkedTask?.id);
+    // The task a card becomes starts at its column's step (the board's first column: ACCOUNT), not with the column's name.
+    const madeTask=(await server.call('GET',`/api/tasks/${updatedWithTask.linkedTask.id}`,undefined,ac)).data;
+    assert.equal(madeTask.stage,'account'); assert.equal(madeTask.status,'Chưa thực hiện');
     const updatedWithProject = (await server.call('PUT', `/api/cards/${unlinkedCard.id}`, { projectId: task.project.id }, ac)).data;
     assert.equal(updatedWithProject.projectId, task.project.id);
     assert.equal(updatedWithProject.projectName, 'Launch');

@@ -4783,5 +4783,11 @@ const EN: Record<string, string> = {
   "Mỗi dự án là một dịch vụ của khách: chỉ chọn một dịch vụ": "A project is one service of its customer: pick one service only",
   "Mỗi dự án là một dịch vụ của khách: chỉ chọn một dịch vụ (trang dự án, sửa dự án, tạo nhanh). Tổng quan trong trang dự án cuộn được. Ô trả lời bình luận gọn lại: tên người được trả lời một dòng, nút × nhỏ, ô nhập rộng hết khung.": "A project is one service of its customer: pick one service only (project page, project editing, quick create). The Overview on a project page scrolls. The comment reply box is tidier: who is answered on one line, a small ×, a full-width box.",
   "Bỏ dạng xem Thẻ ở trang Dự án: chỉ còn Danh sách và Bảng.": "The Projects page drops its Cards view: List and Table remain.",
+  "Thẻ dịch vụ trên board hiện tên dịch vụ và danh sách công việc bên trong (bước, hạn chót, bấm để mở), thêm được công việc mới cho dịch vụ. Thẻ thường chưa gắn công việc khi mở sẽ tự thành công việc, có đủ thanh quy trình, việc con và các trường; công việc bắt đầu ở đúng bước của cột.": "A service's card on a board shows the service's name and the tasks under it (step, due date, click to open), and takes new tasks for the service. A plain card with no task becomes one when opened, with the workflow bar, subtasks and fields; the task starts at its column's step.",
+  "Công việc của dịch vụ": "The service's tasks",
+  "Dịch vụ này chưa có công việc.": "This service has no tasks yet.",
+  "Thêm công việc cho dịch vụ này…": "Add a task to this service…",
+  "Tên công việc mới": "New task name",
+  "{0}/{1} COMPLETED": "{0}/{1} COMPLETED",
 };
 export default EN;
