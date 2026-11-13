@@ -24,6 +24,7 @@ import { AvatarStack } from './AvatarStack';
 import { PlannerPanel, Dock, SwitchBoards, dragged, changed, useChanged, type Panels } from './BoardPanels';
 import { toggleMessenger, openConversation } from './Messenger';
 import type { Board, BoardActivity, BoardCard, BoardItem, BoardLabel, BoardMember, Level, Person, TeamRole, User, Workspace, WorkspaceMember } from '../types';
+import { SpanField, fromLocal, toLocal } from './DateRange';
 
 /** Board backgrounds, by the names the server keeps. */
 export const BG: Record<string, string> = {
@@ -108,6 +109,9 @@ function WorkspaceTreeTable({
   onSettings,
   onStar,
   onMore,
+  picked = [],
+  onPick,
+  canPick,
 }: {
   spaces: Workspace[];
   boards: BoardItem[];
@@ -123,6 +127,10 @@ function WorkspaceTreeTable({
   onSettings?: (w: Workspace, el: HTMLElement) => void;
   onStar?: (b: BoardItem) => void;
   onMore?: (b: BoardItem) => ((el: HTMLElement) => void) | undefined;
+  /** Workspaces ticked for deleting with others; only those `canPick` has a tick box. */
+  picked?: string[];
+  onPick?: (id: string) => void;
+  canPick?: (w: Workspace) => boolean;
 }) {
   const [sort, setSort] = useState<'name' | 'kind' | 'boards' | 'members' | 'updated'>('name');
   const [reverse, setReverse] = useState(false);
@@ -260,9 +268,10 @@ function WorkspaceTreeTable({
             return (
               <Fragment key={w.id}>
                 {/* Level 1: Workspace Folder Row */}
-                <tr className={'ws-tree-ws-row' + (isOpen ? ' open' : '')} onClick={() => toggleWs(w.id)}>
+                <tr className={'ws-tree-ws-row' + (isOpen ? ' open' : '') + (picked.includes(w.id) ? ' picked' : '')} onClick={() => toggleWs(w.id)}>
                   <th scope="row" className="ws-tree-ws-cell">
                     <div className="ws-tree-ws-title-wrap">
+                      {onPick && canPick?.(w) && <input type="checkbox" className="bd-ws-pick" checked={picked.includes(w.id)} onClick={(e) => e.stopPropagation()} onChange={() => onPick(w.id)} aria-label={`Chọn workspace ${w.name}`} />}
                       <button
                         type="button"
                         className="tk-fold ws-tree-fold-btn"
@@ -570,6 +579,21 @@ export function BoardsPage() {
     if (!confirm(`Xoá vĩnh viễn board “${b.name}” cùng mọi danh sách và thẻ trong đó? Không khôi phục được.`)) return;
     try { await api.deleteBoard(b.id); toast(`Đã xoá board “${b.name}”`); if (open.board === b.id) go(null); else load(); } catch (e: any) { toast(e.message, true); }
   };
+  // Workspaces ticked to delete together: only personal ones this account may delete (their owner, or an admin).
+  const [pickedWs, setPickedWs] = useState<string[]>([]);
+  const canRemoveWs = (w: Workspace) => w.kind === 'personal' && (w.ownerId === me.id || me.role === 'admin');
+  const pickWs = (id: string) => setPickedWs((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const removeWorkspaces = async () => {
+    const chosen = spaces.filter((w) => pickedWs.includes(w.id) && canRemoveWs(w));
+    const n = (boards || []).filter((b) => chosen.some((w) => w.id === b.workspaceId)).length;
+    if (!chosen.length || !confirm(`Xoá vĩnh viễn ${chosen.length} workspace${n ? ` cùng ${n} board trong đó` : ''}? Không khôi phục được.`)) return;
+    const failed: string[] = [];
+    for (const w of chosen) await api.deleteWorkspace(w.id).catch(() => failed.push(w.name));
+    setPickedWs([]);
+    toast(failed.length ? `Đã xoá ${chosen.length - failed.length}/${chosen.length} workspace; không xoá được: ${failed.join(', ')}` : `Đã xoá ${chosen.length} workspace`, failed.length > 0);
+    if (chosen.some((w) => w.id === wsId)) setWsId('company');
+    void load();
+  };
   const [globalView, setGlobalViewState] = useState<GlobalWsView>(savedGlobalWsView);
   const setGlobalView = (v: GlobalWsView) => { setGlobalViewState(v); saveGlobalWsView(v); };
   const [wsSearch, setWsSearch] = useState('');
@@ -616,7 +640,9 @@ export function BoardsPage() {
           ? <BoardView key={open.board} id={open.board} card={open.card} me={me} roles={roles} ws={openWs} onStar={star} onGone={() => go(null)} onChanged={load}
               onCard={(card) => go(open.board, card)} />
           : open.people
-          ? <WorkspacePeople key={open.people} ws={spaces.find((w) => w.id === open.people)} me={me} onChanged={load} onGone={() => { setWsId('company'); go(null); }} />
+          ? <WorkspacePeople key={open.people} ws={spaces.find((w) => w.id === open.people)} me={me} boards={inWs(open.people)} onChanged={load} onGone={() => { setWsId('company'); go(null); }}
+              onOpenBoard={(id) => go(id)} onStar={star} onBoardMore={moreOf}
+              onCreateBoard={spaces.find((w) => w.id === open.people)?.level !== 'observer' ? () => setCreating(open.people!) : undefined} />
           : (
             <main className="bd-home">
               {boards === null ? <BrandLoading label="Đang tải…"/> : <>
@@ -666,6 +692,18 @@ export function BoardsPage() {
                   </div>
                 </div>
 
+                {(globalView === 'sections' || globalView === 'table' || (globalView as string) === 'list') && (() => {
+                  const pickable = filteredSpaces.filter(canRemoveWs), all = pickable.length > 0 && pickable.every((w) => pickedWs.includes(w.id));
+                  return pickable.length > 0 && <div className={'bd-ws-bulk' + (pickedWs.length ? ' on' : '')}>
+                    <label><input type="checkbox" checked={all} onChange={() => setPickedWs(all ? [] : pickable.map((w) => w.id))} />{`Chọn tất cả workspace bạn xoá được (${pickable.length})`}</label>
+                    {pickedWs.length > 0 && <>
+                      <span>{`Đã chọn ${pickedWs.length}`}</span>
+                      <button className="btn btn-sm cm-danger" onClick={() => void removeWorkspaces()}><Icon name="trash" size={14} />{`Xoá ${pickedWs.length} workspace`}</button>
+                      <button className="btn btn-sm btn-gray" onClick={() => setPickedWs([])}>Bỏ chọn</button>
+                    </>}
+                  </div>;
+                })()}
+
                 {globalView === 'sections' && (
                   <>
                     {!q && recentBoards.length > 0 && <Tiles title="Đã xem gần đây" icon={<Icon name="clock" size={16} />} list={recentBoards.slice(0, 4)} roles={roles} spaces={spaces} onOpen={go} onStar={star} onMore={moreOf} />}
@@ -675,7 +713,8 @@ export function BoardsPage() {
                       {filteredSpaces.map((w) => (
                         <WorkspaceSection key={w.id} ws={w} me={me} roles={roles} boards={q ? filteredBoards.filter((b) => b.workspaceId === w.id) : inWs(w.id)} onOpen={go} onCard={peekCard} onTask={setPeekTask} onStar={star} onMore={moreOf}
                           onSettings={w.kind === 'personal' && w.ownerId === me.id ? (el) => setWsAct(wsAct?.w.id === w.id ? null : { w, el }) : undefined}
-                          onCreate={w.level !== 'observer' ? () => setCreating(w.id) : undefined} onPeople={() => goPeople(w.id)} />
+                          onCreate={w.level !== 'observer' ? () => setCreating(w.id) : undefined} onPeople={() => goPeople(w.id)}
+                          picked={pickedWs.includes(w.id)} onPick={canRemoveWs(w) ? () => pickWs(w.id) : undefined} />
                       ))}
                       {!filteredSpaces.length && <p className="note" style={{ textAlign: 'center', margin: '40px 0' }}>Không tìm thấy workspace hoặc board nào khớp với từ khoá.</p>}
                     </div>
@@ -723,6 +762,9 @@ export function BoardsPage() {
                       onSettings={(w, el) => setWsAct({ w, el })}
                       onStar={star}
                       onMore={moreOf}
+                      picked={pickedWs}
+                      onPick={pickWs}
+                      canPick={canRemoveWs}
                     />
                   </div>
                 )}
@@ -838,10 +880,12 @@ export function BoardsPage() {
 
 /** A workspace on the home page: its boards (as tiles, a list, or the work by client), with ways to its members and to a
  *  new board. */
-function WorkspaceSection({ ws, me, roles, boards, onOpen, onCard, onTask, onStar, onMore, onCreate, onPeople, onSettings }: {
+function WorkspaceSection({ ws, me, roles, boards, onOpen, onCard, onTask, onStar, onMore, onCreate, onPeople, onSettings, picked, onPick }: {
   ws: Workspace; me: User; roles: TeamRole[]; boards: BoardItem[]; onOpen: (id: string) => void; onCard: (boardId: string, cardId: string) => void; onTask: (taskId: string) => void; onStar: (b: BoardItem) => void;
   onMore: (b: BoardItem) => ((el: HTMLElement) => void) | undefined; onCreate?: () => void; onPeople: () => void;
   onSettings?: (el: HTMLElement) => void;
+  /** Ticked for deleting with others (`onPick` only on a workspace this account may delete). */
+  picked?: boolean; onPick?: () => void;
 }) {
   const myRole = roles.find((r) => r.id === me.teamRole);
   const mine = boards.filter((b) => b.roleId && b.roleId === me.teamRole), byRole = boards.filter((b) => b.roleId && b.roleId !== me.teamRole), rest = boards.filter((b) => !b.roleId);
@@ -850,7 +894,8 @@ function WorkspaceSection({ ws, me, roles, boards, onOpen, onCard, onTask, onSta
   const current = WS_VIEWS.find((v) => v.value === view)!;
   return (
     <section className="bd-wsec">
-      <div className="bd-wsec-h">
+      <div className={'bd-wsec-h' + (picked ? ' picked' : '')}>
+        {onPick && <input type="checkbox" className="bd-ws-pick" checked={!!picked} onChange={onPick} aria-label={`Chọn workspace ${ws.name}`} />}
         <WsMark ws={ws} size={30} />
         <div><b>{ws.name}</b><span>{wsKind(ws, me)}{ws.customerName && <> · <button className="bd-ws-client" onClick={() => openLink(`#customers/${ws.customerId}`)} title="Mở trang khách hàng"><Icon name="users" size={12} />{ws.customerName}</button></>}</span></div>
         <span className="bd-gap" />
@@ -981,8 +1026,8 @@ function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User
         <span className="bd-label">Loại board (dịch vụ) <em>*</em></span>
         <ServicePicker single value={services} onChange={setServices} />
         <p className="bd-create-hint">Tên board là tên dịch vụ; đổi được sau khi tạo.</p>
-        <label className="bd-label" htmlFor="bd-start">Ngày bắt đầu</label>
-        <input id="bd-start" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
+        <span className="bd-label">Ngày bắt đầu</span>
+        <SpanField single endLabel="Ngày bắt đầu" placeholder="Chọn ngày bắt đầu" value={{ start: null, end: fromLocal(start) }} onChange={(v) => setStart(toLocal(v.end))} />
         <p className="bd-create-hint">Để trống thì lấy thời điểm tạo board.</p>
         <label className="bd-label" htmlFor="bd-ws">Workspace</label>
         <EntitySelect kind="workspace" onCreated={async()=>setOwnSpaces(await api.workspaces())} id="bd-ws" value={space} onChange={setSpace}>
@@ -999,13 +1044,19 @@ function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User
  *  own menu (About this board, Client), changed by the same people. */
 function TileSettings({ b, onSaved }: { b: BoardItem; onSaved: () => void }) {
   const [services, setServices] = useState((b.services || []).map((x) => x.id)), [customer, setCustomer] = useState(b.customerId || ''), [view, setView] = useState<BoardViewKind>(b.view || 'board');
+  const [name, setName] = useState(b.name);
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>(b.customerId ? [{ id: b.customerId, name: b.customerName || '' }] : []);
   const loadCustomers = () => api.customersAll().then((list) => setCustomers((had) => [...list, ...had.filter((c) => !list.some((x) => x.id === c.id))]), () => {});
   useEffect(() => { if (b.level === 'admin') void loadCustomers(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const save = async (body: { services?: string[]; customerId?: string | null; view?: BoardViewKind }, undo: () => void) => {
+  const save = async (body: { services?: string[]; customerId?: string | null; view?: BoardViewKind; name?: string }, undo: () => void) => {
     try { await api.updateBoard(b.id, body); onSaved(); } catch (e: any) { undo(); toast(e.message, true); }
   };
   return <div className="bd-tile-settings">
+    {b.level === 'admin' && <><h5>Tên board</h5>
+      <input className="bk-in" value={name} maxLength={100} aria-label="Tên board"
+        onChange={(e) => setName(e.target.value)}
+        onBlur={() => { const n = name.replace(/\s+/g, ' ').trim(); if (!n) setName(b.name); else if (n !== b.name) void save({ name: n }, () => setName(b.name)); }}
+        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} /></>}
     <h5>Loại board (dịch vụ)</h5>
     <ServicePicker value={services} known={b.services} disabled={!b.canShape}
       onChange={(ids) => { const was = services; setServices(ids); void save({ services: ids }, () => setServices(was)); }} />
@@ -1107,8 +1158,24 @@ function PeopleAdd({ people, button, onAdd }: { people: Person[]; button: string
 }
 
 /** A workspace's people: who is in it at which level; its admins invite, change and remove; anyone may leave. */
-function WorkspacePeople({ ws, me, onChanged, onGone }: { ws: Workspace | undefined; me: User; onChanged: () => void; onGone: () => void }) {
+function WorkspacePeople({ ws, me, boards, onChanged, onGone, onOpenBoard, onCreateBoard, onStar, onBoardMore }: { ws: Workspace | undefined; me: User; boards: BoardItem[]; onChanged: () => void; onGone: () => void; onOpenBoard: (id: string) => void; onCreateBoard?: () => void; onStar: (b: BoardItem) => void; onBoardMore: (b: BoardItem) => ((el: HTMLElement) => void) | undefined }) {
   const [data, setData] = useState<{ members: WorkspaceMember[]; people: Person[] } | null>(null);
+  // CRUD for the workspace's boards right here: pick one or many (the ones one administers) and delete them together.
+  const [sel, setSel] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const deletable = boards.filter((b) => b.level === 'admin');
+  const picked = boards.filter((b) => sel.includes(b.id));
+  const toggleSel = (id: string) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const bulkDelete = async () => {
+    if (!picked.length || bulkBusy) return;
+    if (!confirm(`Xoá vĩnh viễn ${picked.length} board đã chọn cùng mọi danh sách và thẻ trong đó? Không khôi phục được.`)) return;
+    setBulkBusy(true);
+    let ok = 0, firstErr = '';
+    for (const b of picked) { try { await api.deleteBoard(b.id); ok++; } catch (e: any) { if (!firstErr) firstErr = `${b.name}: ${e.message}`; } }
+    setBulkBusy(false); setSel([]); onChanged();
+    if (firstErr) toast(`Đã xoá ${ok}/${picked.length} board. Lỗi: ${firstErr}`, true);
+    else toast(`Đã xoá ${ok} board`);
+  };
   const [name, setName] = useState(ws?.name || '');
   const [about, setAbout] = useState(ws?.about || '');
   const [avatarBusy, setAvatarBusy] = useState(false);
@@ -1191,6 +1258,41 @@ function WorkspacePeople({ ws, me, onChanged, onGone }: { ws: Workspace | undefi
       {!company && (admin
         ? <textarea className="bd-people-about" rows={2} value={about} onChange={(e) => setAbout(e.target.value)} onBlur={() => about !== ws.about && save({ about })} placeholder="Mô tả workspace (không bắt buộc)" />
         : ws.about && <p className="bd-people-about-t">{ws.about}</p>)}
+      <section className="bd-people-sec bd-ws-boards">
+        <div className="bd-ws-boards-head">
+          <h3>{`Board trong workspace (${boards.length})`}</h3>
+          <div className="bd-ws-boards-actions">
+            {sel.length > 0 && <>
+              <button className="btn btn-sm cm-danger" disabled={bulkBusy} onClick={() => void bulkDelete()}><Icon name="trash" size={13} />{bulkBusy ? 'Đang xoá…' : `Xoá ${sel.length} board đã chọn`}</button>
+              <button className="btn btn-gray btn-sm" disabled={bulkBusy} onClick={() => setSel([])}>Bỏ chọn</button>
+            </>}
+            {onCreateBoard && <button className="btn btn-primary btn-sm" onClick={onCreateBoard}><Icon name="plus" size={13} />Tạo board</button>}
+          </div>
+        </div>
+        {!boards.length ? <p className="note">Workspace chưa có board nào.</p> : <>
+          {deletable.length > 1 && (
+            <label className="bd-ws-boards-all">
+              <input type="checkbox" checked={sel.length === deletable.length && deletable.length > 0} onChange={(e) => setSel(e.target.checked ? deletable.map((b) => b.id) : [])} />
+              {`Chọn tất cả board bạn quản trị (${deletable.length})`}
+            </label>
+          )}
+          <ul className="bd-ws-board-list">
+            {boards.map((b) => (
+              <li key={b.id} className={sel.includes(b.id) ? 'picked' : undefined}>
+                <input type="checkbox" disabled={b.level !== 'admin' || bulkBusy} checked={sel.includes(b.id)} onChange={() => toggleSel(b.id)}
+                  title={b.level !== 'admin' ? 'Chỉ quản trị board mới chọn để xoá được' : 'Chọn board'} aria-label={`Chọn board ${b.name}`} />
+                <button type="button" className="bd-ws-board-open" onClick={() => onOpenBoard(b.id)} title="Mở board">
+                  <span className="bd-ws-board-mark" style={{ background: bg(b.bg) }} aria-hidden="true" />
+                  <b>{b.name}</b>
+                  {b.customerName && <small>{b.customerName}</small>}
+                </button>
+                <button type="button" className={'bd-icon bd-ws-board-star' + (b.starred ? ' on' : '')} onClick={() => onStar(b)} title={b.starred ? 'Bỏ gắn sao' : 'Gắn sao'} aria-label={b.starred ? `Bỏ gắn sao board ${b.name}` : `Gắn sao board ${b.name}`}><Icon name="star" size={14} /></button>
+                {onBoardMore(b) && <button type="button" className="bd-icon" onClick={(e) => onBoardMore(b)!(e.currentTarget)} title="Cài đặt board (tên, màu, loại, khách hàng, xoá)" aria-label={`Thao tác với board ${b.name}`}><Icon name="more" size={14} /></button>}
+              </li>
+            ))}
+          </ul>
+        </>}
+      </section>
       {company
         ? <p className="note">Mọi tài khoản của công ty đều ở workspace này; thêm người, đổi phòng ban (role) ở trang Quản trị. Quản trị viên xem được mọi board; mỗi phòng chỉ xem board của phòng mình; ai được thêm vào một board thì xem theo quyền được cấp ở board đó.</p>
         : admin && data && <section className="bd-people-sec"><h3>Mời vào workspace</h3><PeopleAdd people={data.people.filter((p) => !data.members.some((m) => m.id === p.id))} button="Mời" onAdd={set} /></section>}
@@ -1881,8 +1983,8 @@ function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { 
           <p className="note">Board mở ở chế độ xem này; các chế độ khác vẫn chọn được ở thanh trên.</p>
           <h5>Ngày bắt đầu</h5>
           {canShape
-            ? <input className="bk-in" type="datetime-local" aria-label="Ngày bắt đầu" value={start} onChange={(e) => setStart(e.target.value)}
-                onBlur={() => { if (start === stamp(board.startAt)) return; const at = start ? new Date(start).getTime() : null; act(() => api.updateBoard(board.id, { startAt: Number.isFinite(at) ? at : null })); }} />
+            ? <SpanField single endLabel="Ngày bắt đầu" placeholder="Chọn ngày bắt đầu" value={{ start: null, end: fromLocal(start) }}
+                onChange={(v) => { setStart(toLocal(v.end)); if (v.end !== board.startAt) act(() => api.updateBoard(board.id, { startAt: v.end })); }} />
             : <p className="bd-about">{board.startAt ? fullDate(board.startAt) : '—'}</p>}
           <h5>Mô tả</h5>
           {canShape ? <>

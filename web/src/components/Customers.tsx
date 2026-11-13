@@ -24,7 +24,7 @@ import type { CustomerRecord, Loc, ServiceRef, TaskMeta } from '../types';
 type CustomerRow = CustomerRecord;
 type Campaign = { id: string; name: string; tasks: number; campaigns?:number; services?: ServiceRef[] };
 const LS_VIEW = 'dms.customerView';
-const readView = (): CustomerView => { try { const v = localStorage.getItem(LS_VIEW) as CustomerView; return ['list', 'kanban', 'grid'].includes(v) ? v : 'list'; } catch { return 'list'; } };
+const readView = (): CustomerView => { try { const v = localStorage.getItem(LS_VIEW) as CustomerView; return ['list', 'kanban', 'overview'].includes(v) ? v : 'list'; } catch { return 'list'; } };
 
 export function CustomersPage() {
   const user = useStore((s) => s.user)!;
@@ -46,6 +46,8 @@ export function CustomersPage() {
   type Tab = 'overview' | 'campaigns' | 'tasks' | 'drive' | 'reports' | 'members' | 'history';
   const [tab, setTab] = useState<Tab>('overview');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [catalog, setCatalog] = useState<ServiceRef[]>([]);
+  useEffect(() => { api.serviceCatalog().then(setCatalog, () => setCatalog([])); }, []);
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [meta, setMeta] = useState<TaskMeta | null>(null);
   const [editingProject, setEditingProject] = useState<TaskMeta['projects'][number] | null>(null);
@@ -61,7 +63,8 @@ export function CustomersPage() {
   const [importing, setImporting] = useState(false);
   const [google, setGoogle] = useState(false);
   const load = () => api.customerDirectory().then(rows=>{setCustomers(rows);setError('');}).catch((e) => setError(e.message)).finally(()=>setLoading(false));
-  const loadCampaigns = (id: string) => Promise.all([api.customerProjects(id), api.taskMeta()]).then(([list, m]) => { setCampaigns(list); setMeta(m); }).catch((e) => toast(e.message, true));
+  // A customer the address names but the directory does not have shows its own empty state; no toast on top of it.
+  const loadCampaigns = (id: string) => Promise.all([api.customerProjects(id), api.taskMeta()]).then(([list, m]) => { setCampaigns(list); setMeta(m); }).catch((e) => { if (!/Không tìm thấy khách hàng/.test(String(e.message))) toast(e.message, true); });
   useEntityRefresh(()=>{void load();if(selected)void loadCampaigns(selected);});
   useEffect(() => { load(); }, []);
   // Back and Forward go between the list and the customers opened: the one the address names shows.
@@ -118,7 +121,7 @@ export function CustomersPage() {
         </div>
         <ReadingTabs vertical className="crm-vtabs" label="Thông tin khách hàng" value={tab} items={[
           {value:'overview' as Tab,label:sideFolded ? '' : 'Tổng quan',icon:'info'},
-          {value:'campaigns' as Tab,label:sideFolded ? '' : `Dự án (${current?.projects ?? campaigns.length})`,icon:'folder'},
+          {value:'campaigns' as Tab,label:sideFolded ? '' : `Dịch vụ (${current?.projects ?? campaigns.length})`,icon:'layers'},
           {value:'tasks' as Tab,label:sideFolded ? '' : `Công việc (${current?.tasks ?? 0})`,icon:'checklist'},
           ...(drive?[{value:'drive' as Tab,label:sideFolded ? '' : 'Drive',icon:'folder'}]:[]),
           {value:'reports' as Tab,label:sideFolded ? '' : 'Báo cáo',icon:'file'},
@@ -128,9 +131,18 @@ export function CustomersPage() {
       </aside>
       {!sideFolded && <ResizeHandle cssVar="--crm-side-w" storage="customer-side" min={150} max={360} label="Đổi độ rộng menu khách hàng" />}
       <div className={'tk-reading-content crm-split-main' + (campaign ? ' has-campaign' : '')}>
-      {!current ? (error?<p className="note err" role="alert">{error}</p>:loading?<BrandLoading label="Đang tải khách hàng…"/>:<p className="note">Không tìm thấy khách hàng hoặc bạn không có quyền truy cập.</p>)
+      {!current ? (loading ? <BrandLoading label="Đang tải khách hàng…"/>
+        : <div className="crm-missing" role={error ? 'alert' : undefined}>
+            <Icon name="users" size={34}/>
+            <h3>{error ? 'Không tải được danh sách khách hàng' : 'Không tìm thấy khách hàng'}</h3>
+            <p className="note">{error || 'Khách hàng không tồn tại, đã bị xoá, hoặc bạn không có quyền truy cập.'}</p>
+            <div className="crm-missing-actions">
+              <button className="btn btn-primary btn-sm" onClick={() => { foldList(false); select(null); }}><Icon name="left" size={14}/>Về danh sách khách hàng</button>
+              {error && <button className="btn btn-gray btn-sm" onClick={() => { setLoading(true); void load(); }}>Thử lại</button>}
+            </div>
+          </div>)
       : tab === 'overview' ? <><div className="crm-detail-stages"><CustomerStages status={current.status||''} disabled={!manage||busy} onChange={status=>void act(async()=>{await api.saveCustomerRecord(current.id,{status:status||null});await load();})}/></div><div className="tk-reading-grid crm-detail-layout"><div className="crm-detail-body"><CustomerOverview key={selected} c={current} view={view} onTab={(t) => setTab(t as Tab)} onChanged={load} /></div><CustomerContext c={current} onTab={t=>{setTab(t as Tab);setCampaign(null);}} onChanged={load}/></div></>
-      : campaign ? <ProjectCampaigns key={campaign.id} id={campaign.id} name={campaign.name} displayView={view === 'grid' ? 'grid' : 'list'} onBack={() => { setCampaign(null); loadCampaigns(selected); }} onEdited={() => { void loadCampaigns(selected); void load(); }} onDeleted={() => { setCampaign(null); void loadCampaigns(selected); void load(); }} />
+      : campaign ? <ProjectCampaigns key={campaign.id} id={campaign.id} name={campaign.name} displayView="list" onBack={() => { setCampaign(null); loadCampaigns(selected); }} onEdited={() => { void loadCampaigns(selected); void load(); }} onDeleted={() => { setCampaign(null); void loadCampaigns(selected); void load(); }} />
       : <div className="crm-detail-body crm-tab-surface">{
         tab === 'tasks' ? <CustomerTasks key={selected} id={selected} view={view} />
         : tab === 'members' ? <CustomerMembersTab key={selected} id={selected} onManage={() => setSharing(true)} />
@@ -139,11 +151,19 @@ export function CustomersPage() {
         : tab === 'reports' ? <ReportList key={selected} customerId={selected} projectId="" driveFolder="" />
         : <section className="crm-campaigns">
           {manage && <div className="tk-toolbar crm-project-toolbar">
-            <form className="crm-inline-form" onSubmit={(e) => { e.preventDefault(); act(async () => { const c = await api.createCustomerProject(selected, { name: name.trim(), services: (current?.needs || []).map((n) => n.id) }); setName(''); await loadCampaigns(selected); setCampaign({ ...c, tasks: 0 }); }); }}><input className="bk-in" placeholder="Tên dự án mới…" maxLength={200} required value={name} onChange={(e) => setName(e.target.value)} /><button className="btn btn-primary btn-sm" disabled={busy || !name.trim()}><Icon name="plus" size={14}/>Tạo dự án</button></form>
-            <form className="crm-inline-form" onSubmit={(e) => { e.preventDefault(); act(async () => { await api.createCustomerProject(selected, { projectId: project }); setProject(''); await loadCampaigns(selected); }); }}><EntitySelect kind="project" context={{customerId:selected}} createdValue={()=>''} className="bk-in" value={project} onCreated={async r=>{const[rows,m]=await Promise.all([api.customerProjects(selected),api.taskMeta()]);setCampaigns(rows);setMeta(m);setCampaign({...r,tasks:0});}} onChange={setProject}><option value="">Gắn dự án công việc đã có…</option>{meta?.projects.filter((p) => !p.customerId).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.tasks} công việc)</option>)}</EntitySelect><button className="btn btn-gray btn-sm" disabled={busy || !project}>Liên kết</button></form>
+            {/* Like Base Wework: a customer's work is grouped by the services it buys; adding one opens it. */}
+            <form className="crm-inline-form" onSubmit={(e) => { e.preventDefault(); if (!name) return; act(async () => { const p = await api.projectForService(selected, name); setName(''); await loadCampaigns(selected); await load(); setCampaign({ id: p.id, name: p.name, tasks: 0 }); }); }}>
+              <select className="bk-in" required value={name} onChange={(e) => setName(e.target.value)} aria-label="Dịch vụ cần thêm">
+                <option value="">Thêm dịch vụ cho khách hàng…</option>
+                {catalog.filter((s) => !campaigns.some((c) => c.services?.some((x) => x.id === s.id))).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <button className="btn btn-primary btn-sm" disabled={busy || !name}><Icon name="plus" size={14}/>Thêm dịch vụ</button>
+            </form>
+            <form className="crm-inline-form" onSubmit={(e) => { e.preventDefault(); act(async () => { await api.createCustomerProject(selected, { projectId: project }); setProject(''); await loadCampaigns(selected); }); }}><EntitySelect kind="project" context={{customerId:selected}} createdValue={()=>''} className="bk-in" value={project} onCreated={async r=>{const[rows,m]=await Promise.all([api.customerProjects(selected),api.taskMeta()]);setCampaigns(rows);setMeta(m);setCampaign({...r,tasks:0});}} onChange={setProject}><option value="">Gắn nhóm công việc cũ (dự án chưa có khách)…</option>{meta?.projects.filter((p) => !p.customerId).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.tasks} công việc)</option>)}</EntitySelect><button className="btn btn-gray btn-sm" disabled={busy || !project}>Liên kết</button></form>
           </div>}
-          {!campaigns.length && <p className="note">Chưa có dự án. Mỗi công việc trong dự án có thể giao cho nhiều nhân viên.</p>}
-          <div className={view === 'grid' ? 'cd-cards' : 'crm-campaign-grid crm-project-list'}>{campaigns.map((c) => <article key={c.id} className={view === 'grid' ? 'cd-customer' : undefined}><button className="crm-campaign-title" onClick={() => setCampaign(c)}><Icon name="folder" size={20} /><b>{c.name}</b><span>{c.tasks} công việc</span></button>{!!c.services?.length && <span className="crm-need-chips" title="Dịch vụ của dự án">{c.services.map((sv) => <span key={sv.id} className="crm-need-chip plain">{sv.name}</span>)}</span>}{manage && <div className="crm-campaign-actions"><button className="btn btn-gray btn-sm" disabled={busy} onClick={() => { const row = meta?.projects.find((p) => p.id === c.id); if (row) setEditingProject(row); else toast('Không tìm thấy dự án này', true); }}><Icon name="edit" size={13} />Sửa</button><button className="btn btn-gray btn-sm" disabled={busy} onClick={() => { if (confirm(`Gỡ liên kết “${c.name}” khỏi khách hàng? Dự án và công việc vẫn được giữ.`)) act(async () => { await api.updateCustomerProject(selected, c.id, { unlink: true }); await loadCampaigns(selected); }); }}>Gỡ liên kết</button><button className="btn btn-sm cm-danger" disabled={busy} onClick={() => { if (confirm(`Xoá hẳn dự án “${c.name}”? Các công việc được giữ lại và gỡ khỏi dự án.`)) act(async () => { await api.deleteTaskProject(c.id); await loadCampaigns(selected); await load(); }); }}>Xoá</button></div>}</article>)}</div>
+          {!campaigns.length && <p className="note">Khách hàng chưa có dịch vụ nào. Thêm một dịch vụ để bắt đầu giao công việc cho khách.</p>}
+          {manage && !catalog.length && <p className="note">Danh mục dịch vụ đang trống. <a href="#admin/services/list">Thêm dịch vụ trong Quản trị</a> để chọn được ở đây.</p>}
+          <div className="crm-campaign-grid crm-project-list">{campaigns.map((c) => { const svc = c.services?.[0]?.name; return <article key={c.id}><button className="crm-campaign-title" onClick={() => setCampaign({ ...c, name: svc || c.name })}><Icon name="layers" size={20} /><b>{svc || c.name}</b><span>{c.tasks} công việc{svc && svc !== c.name ? ` · ${c.name}` : ''}</span></button>{(c.services?.length || 0) > 1 && <span className="crm-need-chips" title="Các dịch vụ khác của nhóm này">{c.services!.slice(1).map((sv) => <span key={sv.id} className="crm-need-chip plain">{sv.name}</span>)}</span>}{manage && <div className="crm-campaign-actions"><button className="btn btn-gray btn-sm" disabled={busy} onClick={() => { const row = meta?.projects.find((p) => p.id === c.id); if (row) setEditingProject(row); else toast('Không tìm thấy dự án này', true); }}><Icon name="edit" size={13} />Sửa</button><button className="btn btn-gray btn-sm" disabled={busy} onClick={() => { if (confirm(`Gỡ liên kết “${c.name}” khỏi khách hàng? Dự án và công việc vẫn được giữ.`)) act(async () => { await api.updateCustomerProject(selected, c.id, { unlink: true }); await loadCampaigns(selected); }); }}>Gỡ liên kết</button><button className="btn btn-sm cm-danger" disabled={busy} onClick={() => { if (confirm(`Xoá dịch vụ “${svc || c.name}” khỏi khách hàng? Các công việc được giữ lại, chỉ không còn thuộc dịch vụ này.`)) act(async () => { await api.deleteTaskProject(c.id); await loadCampaigns(selected); await load(); }); }}>Xoá</button></div>}</article>; })}</div>
         </section>
       }</div>}
       </div>

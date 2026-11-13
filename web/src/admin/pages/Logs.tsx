@@ -5,6 +5,7 @@ import { Icon } from '../../components/ui';
 import { admin, download, type LogEntry } from '../api';
 import { PageHead, Toolbar, Select, Table, Pager, Drawer, Badge, Diff, Async, Empty, useLoad, useDebounced, useCan, act, fmtTime, fmtDate, dayStart, type Col } from '../kit';
 import { device } from './Staff';
+import { DayRangeField } from '../../components/DateRange';
 
 type Kind = 'login' | 'action' | 'data' | 'permission' | 'error';
 const ENTITY: Record<string, string> = { task: 'Công việc', customer: 'Khách hàng', user: 'Nhân viên', card: 'Thẻ', board: 'Board', department: 'Phòng ban', position: 'Chức vụ', team: 'Nhóm', role: 'Vai trò', service: 'Dịch vụ', service_package: 'Gói dịch vụ', notification: 'Thông báo', settings: 'Cấu hình', backup: 'Sao lưu', task_status: 'Trạng thái', task_label: 'Danh mục', task_priority: 'Mức ưu tiên', task_template: 'Mẫu công việc', customer_category: 'Phân loại KH', customer_source: 'Nguồn KH', service_category: 'Danh mục DV', notification_template: 'Mẫu thông báo', log: 'Nhật ký', stats: 'Thống kê' };
@@ -42,8 +43,7 @@ function LogPage({ kind, title, sub }: { kind: Kind; title?: string; sub?: strin
     <>
       <PageHead title={title || t} sub={sub || s} actions={can('logs.export') && <button className="btn btn-gray btn-sm" onClick={() => act(() => download(`/api/admin/logs/export${admin.q(filter)}`, `nhat-ky-${kind}.csv`))}><Icon name="download" size={14} />Xuất CSV</button>} />
       <Toolbar search={q} onSearch={setQ} placeholder={kind === 'login' ? 'Tìm email, IP, lý do…' : 'Tìm hành động, đối tượng, người…'}>
-        <label className="ax-date"><span>Từ</span><input type="date" className="bk-in" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label className="ax-date"><span>Đến</span><input type="date" className="bk-in" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+        <DayRangeField from={from} to={to} placeholder="Mọi ngày" onChange={(f, t) => { setFrom(f); setTo(t); }} />
         {kind === 'login' && <Select value={result} onChange={setResult} label="Kết quả"><option value="">Mọi kết quả</option><option value="ok">Thành công</option><option value="fail">Thất bại</option></Select>}
         {(kind === 'data' || kind === 'action') && <Select value={entity} onChange={setEntity} label="Đối tượng"><option value="">Mọi đối tượng</option>{['task', 'customer', 'user', 'card', 'board', 'department', 'team', 'service', 'notification', 'settings'].map((k) => <option key={k} value={k}>{ENTITY[k]}</option>)}</Select>}
       </Toolbar>

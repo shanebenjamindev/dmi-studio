@@ -12,8 +12,11 @@ import { Icon } from './ui';
 import { MemberChoices } from './EmployeePicker';
 import { MemberAvatar } from './MemberAvatar';
 import { MentionPeople, RichEditor, RichView } from './RichText';
-import { CardSubtasks, addSubtask } from './Subtasks';
-import { COLOR, COLOR_NAME, Avatar, Pop, activityText, ago, dateIn, dueState, fullDate, timeIn, fileThumb } from './boardkit';
+import { addSubtask } from './Subtasks';
+import { LinkedTaskFacts } from './Tasks';
+import { SpanPop } from './DateRange';
+import { ClientServicePop } from './ClientServicePick';
+import { COLOR, COLOR_NAME, Avatar, Pop, activityText, ago, dueState, fullDate, fileThumb } from './boardkit';
 import type { Board, BoardLabel, CardDetail, DriveFile, TaskDetail, TaskMeta, User } from '../types';
 
 export type PopKind = 'add' | 'subtask' | 'members' | 'labels' | 'label' | 'checklist' | 'dates' | 'customer' | 'project' | 'files' | 'attach' | 'cover' | 'move' | 'copy' | 'actions';
@@ -84,6 +87,8 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
         {pending > 0 && <p className="cm-saving" role="status">Đang lưu…</p>}
         <div className={'cm-panes'+(!commentsOpen?' comments-hidden':'')}>
           <main className="cm-left">
+          {/* Like the task page: the title, quick chips and facts in one card, each section below in its own. */}
+          <section className="cm-sec cm-header-card" aria-label="Tên thẻ và thông tin nhanh">
           <header className={'cm-head' + (c.linkedTask ? ' has-task' : '')}>
             <button className={'cm-done' + (c.done ? ' on' : '')} disabled={!edit} onClick={() => act(() => api.updateCard(c.id, { done: !c.done }))} aria-label={c.done ? 'Bỏ đánh dấu hoàn thành' : 'Đánh dấu hoàn thành'} title={c.done ? 'Bỏ đánh dấu hoàn thành' : 'Đánh dấu hoàn thành'}>
               {c.done ? <Icon name="check" size={14} /> : null}
@@ -95,7 +100,7 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
               <div className="cm-actions">
                 <button className="cm-chip cm-add-chip" onClick={open('add')} aria-haspopup="dialog" aria-expanded={pop?.kind === 'add'}><Icon name="plus" size={14} />Thêm</button>
                 {!c.customerId && <button className="cm-chip" onClick={open('customer')}><Icon name="folder" size={14} />Khách hàng</button>}
-                {!c.projectId && <button className="cm-chip" onClick={open('project')}><Icon name="folder" size={14} />Dự án</button>}
+                {!c.projectId && <button className="cm-chip" onClick={open('project')}><Icon name="layers" size={14} />Dịch vụ</button>}
                 {!c.members.includes(me.id) && <button className="cm-chip" onClick={() => act(() => api.cardMember(c.id, me.id, true))}><Icon name="user" size={14} />Tham gia</button>}
                 {labels.length === 0 && <button className="cm-chip" onClick={open('labels')}><Icon name="tag" size={14} />Nhãn</button>}
                 {!c.dueAt && !c.startAt && <button className="cm-chip" onClick={open('dates')}><Icon name="clock" size={14} />Ngày</button>}
@@ -106,8 +111,8 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
             {(members.length > 0 || labels.length > 0 || c.dueAt || c.startAt || c.customerId || c.projectId) && (
               <div className="cm-meta">
                 {c.customerId && <div><h4>Khách hàng</h4><div className="cm-row"><button className="cm-date" disabled={!edit} onClick={open('customer')}><Icon name="folder" size={14} />{c.customerName || 'Khách hàng đã xoá'}{edit && <Icon name="chevron" size={12} />}</button></div></div>}
-                {c.projectId && <div><h4>Dự án</h4><div className="cm-row"><button className="cm-date" disabled={!edit} onClick={open('project')}><Icon name="folder" size={14} />{c.projectName || 'Dự án'}{edit && <Icon name="chevron" size={12} />}</button></div></div>}
-                {members.length > 0 && <div><h4>Thành viên</h4><div className="cm-row">{members.map((m) => <MemberAvatar key={m.id} person={m} onUpdated={onChanged} onRemove={edit ? ()=>act(()=>api.cardMember(c.id,m.id,false)) : undefined}/>)}{edit && <button className="cm-plus employee-picker-add" onClick={open('members')} aria-label="Thêm thành viên"><Icon name="plus" size={22} /></button>}</div></div>}
+                {c.projectId && <div><h4>Dịch vụ</h4><div className="cm-row"><button className="cm-date" disabled={!edit} onClick={open('project')}><Icon name="layers" size={14} />{c.projectName || 'Dịch vụ'}{edit && <Icon name="chevron" size={12} />}</button></div></div>}
+                {members.length > 0 && <div><h4>{c.linkedTask ? 'Người thực hiện' : 'Thành viên'}</h4><div className="cm-row">{members.map((m) => <MemberAvatar key={m.id} person={m} onUpdated={onChanged} onRemove={edit ? ()=>act(()=>api.cardMember(c.id,m.id,false)) : undefined}/>)}{edit && <button className="cm-plus employee-picker-add" onClick={open('members')} aria-label="Thêm thành viên"><Icon name="plus" size={22} /></button>}</div></div>}
                 {labels.length > 0 && <div><h4>Nhãn</h4><div className="cm-row">{labels.map((l) => <button key={l.id} className="cm-label" style={{ background: COLOR[l.color] }} disabled={!edit} onClick={open('labels')}>{l.name || '\u00a0'}</button>)}{edit && <button className="cm-plus" onClick={open('labels')} aria-label="Thêm nhãn"><Icon name="plus" size={15} /></button>}</div></div>}
                 {(c.dueAt || c.startAt) && (
                   <div><h4>{c.dueAt ? (c.startAt ? 'Ngày' : 'Ngày hết hạn') : 'Ngày bắt đầu'}</h4>
@@ -123,10 +128,10 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
                 )}
               </div>
             )}
+          </section>
 
-            
-            {/* The card is a task: its subtasks (on a task's own page, `extra` shows them with the task's facts). */}
-            {extra ?? (c.linkedTask && <CardSubtasks taskId={c.linkedTask.id} onOpen={(taskId) => { onClose(); openTask(taskId); }} onChanged={onChanged} />)}
+            {/* The card is a task: its facts, review workflow and subtasks, as on the task's own page (there `extra`). */}
+            {extra ?? (c.linkedTask && <LinkedTaskFacts taskId={c.linkedTask.id} onOpen={(taskId) => { onClose(); openTask(taskId); }} onChanged={() => { void load(); onChanged(); }} />)}
             {/* @ in the description and the comments suggests the people who see the board; they are told (server/boards.ts). */}
             <MentionPeople.Provider value={others}><Description value={c.description} readOnly={!edit || !c.canEditDescription} onSave={(t) => act(() => api.updateCard(c.id, { description: t }))} /></MentionPeople.Provider>
 
@@ -440,7 +445,7 @@ export function CardPop({ pop, card, board, me, edit, setPop, act, onGone }: {
         { kind: 'attach', icon: 'clip', title: 'Đính kèm', desc: 'Thêm liên kết và tài liệu' },
         { kind: 'cover', icon: 'cover', title: 'Ảnh bìa', desc: 'Chọn màu bìa cho thẻ' },
         { kind: 'customer', icon: 'folder', title: 'Khách hàng', desc: 'Liên kết thẻ với khách hàng' },
-        { kind: 'project', icon: 'folder', title: 'Dự án', desc: 'Liên kết thẻ với dự án công việc' },
+        { kind: 'project', icon: 'layers', title: 'Dịch vụ', desc: 'Gắn thẻ vào một dịch vụ của khách hàng' },
       ];
       return <Pop anchor={pop.el} title="Thêm vào thẻ" onClose={close}><div className="cm-add-menu">{items.map((item) => <button key={item.kind} onClick={() => (item.kind === 'subtask' ? void addChild() : setPop({ kind: item.kind, el: pop.el }))}><span className="cm-add-icon"><Icon name={item.icon} size={19} /></span><span><b>{item.title}</b><small>{item.desc}</small></span></button>)}{drive && card.customerId && <button onClick={() => setPop({ kind: 'files', el: pop.el })}><span className="cm-add-icon"><Icon name="check" size={19} /></span><span><b>Kết quả công việc</b><small>Chọn file từ thư mục khách hàng</small></span></button>}</div></Pop>;
     }
@@ -469,7 +474,9 @@ export function CardPop({ pop, card, board, me, edit, setPop, act, onGone }: {
     case 'checklist': return <ChecklistPop anchor={pop.el} onClose={close} onAdd={(t) => { close(); act(() => api.addChecklist(card.id, t)); }} />;
     case 'dates': return <DatesPop anchor={pop.el} card={card} onClose={close} act={act} />;
     case 'customer': return <CustomerPop anchor={pop.el} card={card} onClose={close} onPick={async(id)=>{const ok=await act(()=>api.updateCard(card.id,{customerId:id}));if(ok)close();return ok;}} />;
-    case 'project': return <ProjectPop anchor={pop.el} card={card} onClose={close} onPick={async(id)=>{const ok=await act(()=>api.updateCard(card.id,{projectId:id}));if(ok)close();return ok;}} />;
+    case 'project': return <ClientServicePop anchor={pop.el} customerId={card.customerId} serviceId={null} onClose={close}
+      onPick={async (projectId, _service, customerId) => act(() => api.updateCard(card.id, { customerId, projectId }))}
+      onClear={card.projectId ? () => { void act(() => api.updateCard(card.id, { projectId: null })).then((ok) => ok && close()); } : undefined} />;
     case 'files': return <DriveFilesPop anchor={pop.el} card={card} onClose={close} onAdd={(keys) => { close(); act(() => api.addCardFiles(card.id, keys)); }} />;
     case 'attach': return <AttachPop anchor={pop.el} onClose={close} onAdd={(url, name) => { close(); act(() => api.addAttachment(card.id, url, name)); }} />;
     case 'cover':
@@ -562,26 +569,7 @@ function ChecklistPop({ anchor, onClose, onAdd }: { anchor: HTMLElement; onClose
 }
 
 function DatesPop({ anchor, card, onClose, act }: { anchor: HTMLElement; card: CardDetail; onClose: () => void; act: (fn: () => Promise<unknown>) => Promise<boolean> }) {
-  const base = card.dueAt || Date.now() + 864e5;
-  const [hasStart, setHasStart] = useState(!!card.startAt);
-  const [start, setStart] = useState(dateIn(card.startAt || Date.now()));
-  const [hasDue, setHasDue] = useState(!!card.dueAt || !card.startAt);
-  const [due, setDue] = useState(dateIn(base));
-  const [at, setAt] = useState(card.dueAt ? timeIn(card.dueAt) : '17:00');
-  const ms = (d: string, t = '00:00') => new Date(`${d}T${t}`).getTime();
-  return (
-    <Pop anchor={anchor} title="Ngày" onClose={onClose}>
-      <label className="bk-check"><input type="checkbox" checked={hasStart} onChange={(e) => setHasStart(e.target.checked)} />Ngày bắt đầu</label>
-      <input className="bk-in" type="date" disabled={!hasStart} value={start} onChange={(e) => setStart(e.target.value)} />
-      <label className="bk-check"><input type="checkbox" checked={hasDue} onChange={(e) => setHasDue(e.target.checked)} />Ngày hết hạn</label>
-      <div className="cm-row">
-        <input className="bk-in" type="date" disabled={!hasDue} value={due} onChange={(e) => setDue(e.target.value)} />
-        <input className="bk-in bk-time" type="time" disabled={!hasDue} value={at} onChange={(e) => setAt(e.target.value)} />
-      </div>
-      <button className="btn btn-primary bk-wide" onClick={() => { onClose(); act(() => api.updateCard(card.id, { startAt: hasStart && start ? ms(start) : null, dueAt: hasDue && due ? ms(due, at || '00:00') : null })); }}>Lưu</button>
-      <button className="btn btn-gray bk-wide" onClick={() => { onClose(); act(() => api.updateCard(card.id, { startAt: null, dueAt: null })); }}>Gỡ bỏ</button>
-    </Pop>
-  );
+  return <SpanPop anchor={anchor} value={{ start: card.startAt, end: card.dueAt }} onClose={onClose} onSave={(v) => act(() => api.updateCard(card.id, { startAt: v.start, dueAt: v.end }))} />;
 }
 
 
@@ -611,31 +599,6 @@ function CustomerPop({ anchor, card, onClose, onPick }: { anchor: HTMLElement; c
   );
 }
 
-function ProjectPop({ anchor, card, onClose, onPick }: { anchor: HTMLElement; card: CardDetail; onClose: () => void; onPick: (id: string | null) => void | Promise<boolean> }) {
-  const [meta, setMeta] = useState<TaskMeta | null>(null);
-  const [q, setQ] = useState('');
-  const reload = () => api.taskMeta().then(setMeta);
-  useEffect(() => { void reload().catch((e) => toast(e.message, true)); }, []);
-  useEntityRefresh(() => { void reload().catch(() => {}); });
-  const projects = (meta?.projects || []).filter((p) => p.name.toLowerCase().includes(q.trim().toLowerCase()) || (p.customerName && p.customerName.toLowerCase().includes(q.trim().toLowerCase())));
-  return (
-    <Pop anchor={anchor} title="Dự án" onClose={onClose}>
-      <input className="bk-in" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm dự án…" />
-      {meta === null ? <p className="note">Đang tải…</p> : (
-        <div className="bk-scroll">
-          {projects.map((p) => (
-            <button key={p.id} className="bk-opt" onClick={() => onPick(p.id)}>
-              <Icon name="folder" size={16} /><span>{p.name}{p.customerName ? ` (${p.customerName})` : ''}</span>{card.projectId === p.id && <Icon name="check" size={15} />}
-            </button>
-          ))}
-          {!projects.length && <p className="note">{meta.projects.length ? 'Không có dự án nào khớp.' : 'Chưa có dự án công việc nào.'}</p>}
-        </div>
-      )}
-      <QuickCreateButton kind="project" onCreated={async (r) => { await reload(); if (await onPick(r.id) === false) throw new Error('Chưa liên kết được dự án với thẻ'); }} />
-      {card.projectId && <button className="btn btn-gray bk-wide" onClick={() => onPick(null)}>Bỏ chọn dự án</button>}
-    </Pop>
-  );
-}
 
 /** The files of the card's customer (its folder and the folders in it), to put on the card as the work's result. */
 function DriveFilesPop({ anchor, card, onClose, onAdd }: { anchor: HTMLElement; card: CardDetail; onClose: () => void; onAdd: (keys: string[]) => void }) {

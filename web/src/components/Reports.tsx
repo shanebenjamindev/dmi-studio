@@ -12,6 +12,7 @@ import { toast } from '../store';
 import { Icon, Segmented } from './ui';
 import { setDriveView, useDriveView } from '../driveView';
 import type { AdAccount, Report, ReportData, ReportDriveFolder, ReportItem, ReportKV, ReportShot, ReportVideo } from '../types';
+import { DayRangeField } from './DateRange';
 
 const two = (n: number) => String(n).padStart(2, '0');
 const day = (ms: number) => { const d = new Date(ms); return `${two(d.getHours())}:${two(d.getMinutes())} · ${two(d.getDate())}/${two(d.getMonth() + 1)}`; };
@@ -428,9 +429,7 @@ function MetaSection({ r, up, flush, onTaken, onBusy }: { r: Report; up: (fn: (d
             {RANGES.map(([k, label, f]) => { const x = f(); return <button key={k} className={x.since === range.since && x.until === range.until ? 'on' : ''} onClick={() => setRange(x)}>{label}</button>; })}
           </div>
           <div className="rp-meta-dates">
-            <input type="date" value={range.since} max={range.until} onChange={(e) => e.target.value && setRange({ ...range, since: e.target.value })} aria-label="Từ ngày" />
-            <span>–</span>
-            <input type="date" value={range.until} min={range.since} onChange={(e) => e.target.value && setRange({ ...range, until: e.target.value })} aria-label="Đến ngày" />
+            <DayRangeField from={range.since} to={range.until} onChange={(f, t) => f && setRange({ since: f, until: t || f })} />
             <button className="btn btn-primary btn-sm" disabled={busy || !account} onClick={take}>{busy ? 'Đang lấy từ Meta…' : pf.data ? 'Lấy lại số liệu' : 'Lấy số liệu'}</button>
           </div>
         </div>

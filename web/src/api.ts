@@ -174,6 +174,8 @@ export const api = {
   renameTaskProject:(id:string,name:string)=>req<{ok:true;id:string;name:string}>('PUT',`/api/task-projects/${id}`,{name}),
   updateTaskProject:(id:string,b:{name?:string;customerId?:string|null;teamId?:string|null;hold?:'paused'|'cancelled'|null;services?:string[]})=>req<{ok:true;id:string;name:string;customerId:string|null;teamId:string|null}>('PUT',`/api/task-projects/${id}`,b),
   createTaskProject:(b:{name:string;customerId?:string|null;teamId?:string|null;services?:string[]})=>req<{id:string;name:string;customerId:string|null;teamId:string|null}>('POST','/api/task-projects',b),
+  /** The project behind a customer's service (one per customer × service), made on the spot if there is none yet. */
+  projectForService:(customerId:string,serviceId:string)=>req<{id:string;name:string;created:boolean}>('POST','/api/task-projects/for-service',{customerId,serviceId}),
   deleteTaskProject:(id:string)=>req<{ok:true}>('DELETE',`/api/task-projects/${id}`),
   bulkDeleteTaskProjects:(ids:string[])=>req<{ok:true;deleted:number}>('POST','/api/task-projects/bulk-delete',{ids}),
   taskMeta: () => req<TaskMeta>('GET', '/api/tasks/meta'),
@@ -305,6 +307,7 @@ export const api = {
   orderQuickNotes: (ids: string[]) => req('PUT', '/api/quick-notes/order', { ids }),
   removeQuickNotes: (ids: string[]) => req<{ deleted: number }>('POST', '/api/quick-notes/delete', { ids }),
   customerTaskList: (id: string) => req<CustomerTaskRow[]>('GET', `/api/customers/${id}/tasks`),
+  customerFlow: () => req<import('./components/FlowOverview').FlowRow[]>('GET', '/api/customer-flow'),
   customerHistory: (id: string) => req<RecordChange[]>('GET', `/api/customers/${id}/history`),
   /** Adds a service to the catalogue by name (needs the services.create permission of Quản trị). */
   createService: (name: string) => req<ServiceRef>('POST', '/api/admin/services', { name }),

@@ -9,7 +9,8 @@ import { scopeUsers } from '../rbac';
 import { stateOf } from '../tasks';
 import { statusKey } from '../taskimport';
 import { syncTaskToCard } from '../tasklinks';
-import { flowSettings, restatus, settleStages } from '../task-flow';
+import { flowSettings, restatus, settleStages, stageOf } from '../task-flow';
+import { normalizeAllBoards } from '../board-flow';
 import { FLOW_STAGES, flowConfig } from '../../shared/task-flow';
 import { need, reach, text, color, exists, page, sendCsv, csvDate, changed, logAction, registerDict, dictName, matcher, type Ctx } from './common';
 
@@ -19,7 +20,7 @@ export const STATE_LABEL: Record<string, string> = { todo: 'Chưa làm', doing: 
 
 /** Every task (but the placeholders made for missing parents) with the people on it. */
 export async function taskRows() {
-  const tasks = await all<any>(`SELECT t.id, t.title, t.status, t.start_at, t.due_at, t.done_at, t.created_at, t.updated_at, t.parent_id, t.project_id, t.priority_id, t.campaign_id, t.external_id,
+  const tasks = await all<any>(`SELECT t.id, t.title, t.status, t.stage, t.revision, t.submitted_at, t.start_at, t.due_at, t.done_at, t.created_at, t.updated_at, t.parent_id, t.project_id, t.priority_id, t.campaign_id, t.external_id,
     j.name project_name, j.customer_id, j.team_id project_dept, cu.name customer_name, ca.name campaign_name, pr.name priority_name, pr.color priority_color, pr.pos priority_pos, cp.user_id creator_user, cp.name creator_name, pa.title parent_title,
     (SELECT COUNT(*) FROM tasks x WHERE x.parent_id = t.id) children
     FROM tasks t LEFT JOIN task_projects j ON j.id = t.project_id LEFT JOIN customers cu ON cu.id = j.customer_id LEFT JOIN task_campaigns ca ON ca.id = t.campaign_id
@@ -34,7 +35,7 @@ export async function taskRows() {
     const who = assignees.get(t.id) || [];
     const people = new Set([...who.map((a) => a.userId), t.creator_user, ...(followers.get(t.id) || []), ...(onCard.get(t.id) || [])].filter(Boolean) as string[]);
     return {
-      id: t.id, title: t.title, status: t.status, state: stateOf(t), category: statusKey(t.status), startAt: t.start_at ?? null, dueAt: t.due_at ?? null, doneAt: t.done_at ?? null, createdAt: t.created_at, updatedAt: t.updated_at,
+      id: t.id, title: t.title, status: t.status, state: stateOf(t), stage: stageOf(t, who.length > 0), revision: Number(t.revision) || 0, submittedAt: (t.submitted_at ?? null) as number | null, category: statusKey(t.status), startAt: t.start_at ?? null, dueAt: t.due_at ?? null, doneAt: t.done_at ?? null, createdAt: t.created_at, updatedAt: t.updated_at,
       externalId: t.external_id || null, project: t.project_id ? { id: t.project_id, name: t.project_name || '', departmentId: (t.project_dept || null) as string | null } : null, customer: t.customer_id ? { id: t.customer_id, name: t.customer_name || '' } : null,
       campaign: t.campaign_id ? { id: t.campaign_id, name: t.campaign_name || '' } : null, parent: t.parent_id ? { id: t.parent_id, title: t.parent_title || '' } : null, children: Number(t.children) || 0,
       priority: t.priority_id ? { id: t.priority_id, name: t.priority_name || '', color: t.priority_color || '#94a3b8', pos: Number(t.priority_pos) || 0 } : null,
@@ -206,6 +207,13 @@ export function registerWork(api: Router) {
     for (let n = await settleStages(), i = 0; n && i < 20; n = await settleStages(), i++) applied += n;
     await changed(c, { action: 'Áp dụng quy trình duyệt cho công việc hiện có', type: 'task_flow', id: '', label: 'Quy trình duyệt', after: { applied } });
     json(res, 200, { ...await flowOut(), applied });
+  });
+  // Every board's columns made to follow the workflow now (the cron did it once already; this does it again).
+  api.post('/api/admin/task-flow/boards', async (req, res) => {
+    const c = await need(req, 'tasks.manage');
+    const r = await normalizeAllBoards(true);
+    await changed(c, { action: 'Chuẩn hoá cột board theo quy trình', type: 'task_flow', id: '', label: 'Quy trình duyệt', after: r });
+    json(res, 200, r);
   });
 
   // ---------------------------------------------------------------- categories: the tasks' labels

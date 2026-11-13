@@ -118,12 +118,16 @@ export function Columns({ keys, values, period, name }: { keys: string[]; values
 }
 
 /** A distribution as horizontal bars, largest first, each with its value at the end. */
-export function Bars({ dist, total }: { dist: Dist; total?: number }) {
+/** Props of a row that opens what it counts (`onPick`): a button for the pointer and the keyboard alike. */
+const pickable = (key: string, onPick?: (key: string) => void) => onPick
+  ? { role: 'button', className: 'pick', onClick: () => onPick(key), onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(key); } } }
+  : {};
+export function Bars({ dist, total, onPick }: { dist: Dist; total?: number; onPick?: (key: string) => void }) {
   const max = Math.max(1, ...dist.map((d) => d.value)), sum = total ?? dist.reduce((a, d) => a + d.value, 0);
   if (!dist.length) return <p className="ax-nodata">Chưa có số liệu</p>;
   return (
     <ul className="ax-bars">{dist.map((d, i) => (
-      <li key={d.key} title={`${d.label}: ${fmtNum(d.value)}${sum ? ` (${Math.round((d.value / sum) * 100)}%)` : ''}`} tabIndex={0}>
+      <li key={d.key} title={`${d.label}: ${fmtNum(d.value)}${sum ? ` (${Math.round((d.value / sum) * 100)}%)` : ''}`} tabIndex={0} {...pickable(d.key, onPick)}>
         <span className="ax-bar-label">{d.label}</span>
         <span className="ax-bar-track"><span className="ax-bar-fill" style={{ width: `${(d.value / max) * 100}%`, background: d.color || (dist.length > 8 ? 'var(--viz-1)' : SERIES(i)) }} /></span>
         <span className="ax-bar-value">{fmtNum(d.value)}{sum ? <small>{Math.round((d.value / sum) * 100)}%</small> : null}</span>
@@ -132,16 +136,16 @@ export function Bars({ dist, total }: { dist: Dist; total?: number }) {
   );
 }
 /** Two parts of each row side by side in one bar (e.g. in progress and overdue). */
-export function StackBars({ rows, parts }: { rows: { key: string; label: string; values: number[] }[]; parts: { name: string; color: string }[] }) {
+export function StackBars({ rows, parts, onPick }: { rows: { key: string; label: string; values: number[] }[]; parts: { name: string; color: string }[]; onPick?: (key: string) => void }) {
   const max = Math.max(1, ...rows.map((r) => r.values.reduce((a, v) => a + v, 0)));
   if (!rows.length) return <p className="ax-nodata">Chưa có số liệu</p>;
   return (
     <ul className="ax-bars">{rows.map((r) => (
-      <li key={r.key} title={`${r.label}: ${r.values.map((v, i) => `${parts[i].name} ${fmtNum(v)}`).join(' · ')}`} tabIndex={0}>
+      <li key={r.key} title={`${r.label}: ${r.values.map((v, i) => `${parts[i].name} ${fmtNum(v)}`).join(' · ')}`} tabIndex={0} {...pickable(r.key, onPick)}>
         <span className="ax-bar-label">{r.label}</span>
         <span className="ax-bar-track stack">{r.values.map((v, i) => (v ? <span key={i} className="ax-bar-fill" style={{ width: `${(v / max) * 100}%`, background: parts[i].color }} /> : null))}</span>
-        {/* Each part's name is its own text, so the English interface can put it in English. */}
-        <span className="ax-bar-value">{r.values.map((v, i) => <span key={i}>{i > 0 && ' · '}{fmtNum(v)} {parts[i].name.toLocaleLowerCase('vi')}</span>)}</span>
+        {/* Each part's name is its own text, so the English interface can put it in English; a code (REVIEW) keeps its case. */}
+        <span className="ax-bar-value">{r.values.map((v, i) => <span key={i}>{i > 0 && ' · '}{fmtNum(v)} {/^[A-Z]+$/.test(parts[i].name) ? parts[i].name : parts[i].name.toLocaleLowerCase('vi')}</span>)}</span>
       </li>
     ))}</ul>
   );

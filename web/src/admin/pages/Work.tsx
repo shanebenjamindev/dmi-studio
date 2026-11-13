@@ -3,13 +3,14 @@
 // of the workflow, and templates (applied through the Tasks API with the person's own rights in the project).
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
-import { openTask, useStore, toast } from '../../store';
+import { applyFlowColors, openTask, useStore, toast } from '../../store';
 import { Icon } from '../../components/ui';
 import { admin, download, type TaskRow, type TaskTemplate } from '../api';
-import { FLOW_STAGES, type FlowConfig, type FlowStage } from '../../../../shared/task-flow';
+import { FLOW_STAGES, flowColors, type FlowConfig, type FlowStage } from '../../../../shared/task-flow';
 import { routeParam, setRouteParam } from '../nav';
 import { PageHead, Toolbar, Select, Table, Pager, Drawer, Field, Section, Badge, ChangeList, Async, Empty, ErrorState, Loading, DictEditor, Kpi, useLoad, useListState, useDebounced, useCan, act, fmtDate, fmtNum, dayStart, dayValue, type Col } from '../kit';
 import type { TaskMeta } from '../../types';
+import { DayRangeField } from '../../components/DateRange';
 
 export const STATE: Record<string, [string, 'ok' | 'bad' | 'warn' | 'muted' | undefined]> = {
   todo: ['Chưa làm', 'muted'], doing: ['Đang làm', undefined], review: ['Đang đánh giá', undefined], paused: ['Tạm dừng', 'warn'], overdue: ['Quá hạn', 'bad'],
@@ -56,8 +57,7 @@ function TaskList({ overdue }: { overdue?: boolean }) {
         {!!teams.data?.length && <Select value={team} onChange={setTeam} label="Nhóm"><option value="">Mọi nhóm</option>{teams.data.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>}
         {!!people.data?.items.length && <Select value={user} onChange={setUser} label="Nhân viên"><option value="">Mọi nhân viên</option>{people.data.items.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>}
         {!!meta.data?.projects.length && <Select value={project} onChange={setProject} label="Dự án"><option value="">Mọi dự án</option>{meta.data.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>}
-        <label className="ax-date"><span>Hạn từ</span><input type="date" className="bk-in" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label className="ax-date"><span>đến</span><input type="date" className="bk-in" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+        <DayRangeField from={from} to={to} startLabel="Hạn từ" endLabel="Đến" placeholder="Lọc theo hạn" onChange={(f, t) => { setFrom(f); setTo(t); }} />
       </Toolbar>
       <div className="ax-card flush"><Async load={load}>{(d) => <>
         <Table cols={cols} rows={d.items} sort={L.sort} dir={L.dir} onSort={L.onSort} onRow={(t) => show(t.id)} selected={open}
@@ -147,12 +147,12 @@ export function Workflow() {
   const [draft, setDraft] = useState<FlowConfig | null>(null);
   useEffect(() => { if (load.data) setDraft(load.data[0].config); }, [load.data]);
   const saved = load.data?.[0].config, dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(saved);
-  const stage = (key: FlowStage, b: Partial<{ name: string; status: string }>) => draft && setDraft({ ...draft, stages: { ...draft.stages, [key]: { ...draft.stages[key], ...b } } });
+  const stage = (key: FlowStage, b: Partial<{ name: string; status: string; color: string }>) => draft && setDraft({ ...draft, stages: { ...draft.stages, [key]: { ...draft.stages[key], ...b } } });
   const num = (k: 'reviewRemindHours' | 'remindDays' | 'remindHour', v: string) => draft && setDraft({ ...draft, [k]: Number(v) });
   return (
     <>
       <PageHead title="Quy trình công việc" sub="Mọi công việc đi qua ACCOUNT → EXECUTION → REVIEW. Người duyệt chấm PASS (hoàn thành), REDO (trả về làm lại, lặp tới khi PASS hoặc FAIL) hoặc FAIL (từ chối). Trạng thái của công việc đi theo bước của nó; chỉ REVIEW mới hoàn thành hay từ chối được một việc."
-        actions={editable && <><button className="btn btn-gray btn-sm" disabled={!dirty} onClick={() => saved && setDraft(saved)}>Huỷ thay đổi</button><button className="btn btn-primary btn-sm" disabled={!dirty} onClick={() => void act(() => admin.saveTaskFlow(draft!), 'Đã lưu quy trình', load.reload)}>Lưu quy trình</button></>} />
+        actions={editable && <><button className="btn btn-gray btn-sm" disabled={!dirty} onClick={() => saved && setDraft(saved)}>Huỷ thay đổi</button><button className="btn btn-primary btn-sm" disabled={!dirty} onClick={() => void act(async () => { await admin.saveTaskFlow(draft!); applyFlowColors(flowColors(draft!)); }, 'Đã lưu quy trình', load.reload)}>Lưu quy trình</button></>} />
       <Async load={load}>{([flow, st]) => {
         if (!draft) return null;
         const active = st.statuses.filter((s) => s.active);
@@ -162,8 +162,8 @@ export function Workflow() {
         return <>
           <Section title="Các bước">
             <div className="ax-card flush"><Table rows={FLOW_STAGES.map((x) => ({ ...x, id: x.key }))} cols={[
-              { key: 'code', label: 'Bước', render: (x) => <b>{x.code}</b> },
-              { key: 'name', label: 'Tên hiển thị', render: (x) => editable ? <input className="bk-in ax-cell-input" value={draft.stages[x.key].name} maxLength={60} aria-label={`Tên bước ${x.code}`} onChange={(e) => stage(x.key, { name: e.target.value })} /> : draft.stages[x.key].name },
+              { key: 'code', label: 'Bước', render: (x) => <span className="tf-badge tf-solid" style={{ ['--tf' as string]: draft.stages[x.key].color }}><b>{x.code}</b></span> },
+              { key: 'color', label: 'Màu', render: (x) => <input type="color" value={draft.stages[x.key].color} disabled={!editable} aria-label={`Màu của bước ${x.code}`} onChange={(e) => stage(x.key, { color: e.target.value })} /> },
               { key: 'status', label: 'Trạng thái công việc', render: (x) => editable
                 ? <select className="bk-in" value={draft.stages[x.key].status} aria-label={`Trạng thái của bước ${x.code}`} onChange={(e) => stage(x.key, { status: e.target.value })}>{!active.some((s) => s.name === draft.stages[x.key].status) && <option>{draft.stages[x.key].status}</option>}{active.map((s) => <option key={s.id}>{s.name}</option>)}</select>
                 : <Badge color={st.statuses.find((s) => s.name === draft.stages[x.key].status)?.color}>{draft.stages[x.key].status}</Badge> },
@@ -182,6 +182,10 @@ export function Workflow() {
             <div className="ax-card ax-row-actions" style={{ justifyContent: 'space-between' }}>
               <span>{flow.pending ? `${fmtNum(flow.pending)} công việc chưa vào quy trình. Hệ thống tự đưa vào mỗi 10 phút, theo trạng thái hiện tại của từng việc.` : 'Toàn bộ công việc đã theo quy trình.'}</span>
               {editable && !!flow.pending && <button className="btn btn-primary btn-sm" onClick={() => void act(async () => { const r = await admin.applyTaskFlow(); toast(`Đã đưa ${fmtNum(r.applied)} công việc vào quy trình`); }, undefined, load.reload)}>Áp dụng ngay</button>}
+            </div>
+            <div className="ax-card ax-row-actions" style={{ justifyContent: 'space-between' }}>
+              <span>Cột của mọi board theo quy trình: mỗi board có cột cho từng bước (thêm cột còn thiếu, giữ tên cột riêng của board), cột "Quá hạn" được lưu trữ và thẻ trong đó về đúng cột, mỗi thẻ nằm ở cột của bước công việc đang ở.</span>
+              {editable && <button className="btn btn-gray btn-sm" onClick={() => void act(async () => { const r = await admin.normalizeBoards(); toast(`Đã chuẩn hoá ${fmtNum(r.changed)}/${fmtNum(r.boards)} board`); }, undefined, load.reload)}>Chuẩn hoá board</button>}
             </div>
           </Section>
           <Section title="Trạng thái không thuộc quy trình">
@@ -332,7 +336,7 @@ function ApplyTemplate({ tpl, onClose }: { tpl: TaskTemplate; onClose: () => voi
         {error && <p className="note err" role="alert">{error}</p>}
         <Field label="Tên công việc"><input className="bk-in" value={title} maxLength={500} onChange={(e) => setTitle(e.target.value)} /></Field>
         <Field label="Dự án" hint="Chỉ các dự án bạn được sửa."><select className="bk-in" value={project} onChange={(e) => setProject(e.target.value)}><option value="">Không thuộc dự án</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
-        <Field label="Thời hạn"><input className="bk-in" type="date" value={due} onChange={(e) => setDue(e.target.value)} /></Field>
+        <Field label="Thời hạn"><DayRangeField single from="" to={due} endLabel="Thời hạn" placeholder="Chọn thời hạn" onChange={(_, t) => setDue(t)} /></Field>
         {!!tpl.checklist.length && <Field label={`Công việc con (${tpl.checklist.length})`}><ul className="ax-list">{tpl.checklist.map((c, i) => <li key={i}><span>{c}</span></li>)}</ul></Field>}
       </div>
     </Drawer>

@@ -9,6 +9,8 @@ import { taskBoardCategory, type TaskBoardCategory } from '../shared/task-routin
 import { boardLevelForUser } from './boards';
 import { columnFor, syncTaskToCard } from './tasklinks';
 import { statusKey } from './taskimport';
+import { FLOW_COLUMNS, columnStage } from './flow-columns';
+import { isFlowStage } from '../shared/task-flow';
 import { customerBoardId, syncBoardGrants, syncBoardPeople, syncProjectBoards } from './board-people';
 
 const CATEGORIES: [TaskBoardCategory, string, string][] = [['media','Media Execute','ocean'],['content','Content / Script','sunset'],['ads','Ads / Performance','grape'],['website','Website','forest'],['account','Account / Sale','sky'],['general','Việc chung','slate']];
@@ -16,7 +18,7 @@ const CATEGORIES: [TaskBoardCategory, string, string][] = [['media','Media Execu
 export const projectBoardId = (projectId: string) => `b_proj_${createHash('sha256').update(projectId).digest('hex').slice(0, 16)}`;
 /** A renamed project's own board takes the new name (when it has one). */
 export const renameProjectBoard = (projectId: string, name: string) => run('UPDATE boards SET name=? WHERE id=?', name, projectBoardId(projectId));
-const HOME_LISTS = ['Cần làm', 'Đang làm', 'Xong'];
+const HOME_LISTS = FLOW_COLUMNS;
 async function makeBoard(id: string, name: string, owner: string | null, customerId: string | null) {
   owner ||= (await get<any>("SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1"))?.id || null;
   const t = now();
@@ -110,7 +112,7 @@ async function listFor(board: any, task: any) {
   // A column of its name or meaning (see columnFor); a done task in a board's own last step (Đã giao, Đã báo cáo); one
   // waiting for review in Chờ duyệt; one not started in the board's first column. Only then a column of its own.
   const named=(...n:string[])=>n.map((x)=>lists.find((l)=>l.name===x)).find(Boolean);
-  const found=columnFor(lists,status)||(task.done_at?named('Đã giao','Đã báo cáo'):/đánh giá|duyệt/i.test(status)?named('Chờ duyệt'):statusKey(status)==='todo'?lists[0]:undefined);
+  const found=columnFor(lists,status)||(isFlowStage(task.stage)?lists.find((l)=>columnStage(l.name)===task.stage):undefined)||(task.done_at?named('Đã giao','Đã báo cáo'):/đánh giá|duyệt/i.test(status)?named('Chờ duyệt'):statusKey(status)==='todo'?lists[0]:undefined);
   if (found) return found;
   const id=listId(board.id,status);
   await run('INSERT OR IGNORE INTO board_lists(id,board_id,name,pos,created_at) VALUES(?,?,?,?,?)',id,board.id,status,(lists.at(-1)?.pos||0)+1,now());

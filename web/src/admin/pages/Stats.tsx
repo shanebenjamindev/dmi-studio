@@ -8,6 +8,7 @@ import { admin, download } from '../api';
 import { goAdmin } from '../nav';
 import { PageHead, Select, Kpi, Table, Async, Empty, useLoad, useCan, act, fmtNum, fmtDate, dayStart, dayValue } from '../kit';
 import { ChartCard, LineChart, Columns, Bars, StackBars, Donut, SERIES, periodLabel, type Dist, type Trend } from '../charts';
+import { DayRangeField } from '../../components/DateRange';
 
 const PERIODS: [string, string][] = [['day', 'Ngày'], ['week', 'Tuần'], ['month', 'Tháng'], ['quarter', 'Quý'], ['year', 'Năm']];
 const SPAN: Record<string, number> = { day: 30, week: 84, month: 365, quarter: 730, year: 1825 };
@@ -37,8 +38,7 @@ function StatsPage({ view, title, sub, render, taskFilter }: { view: string; tit
       <PageHead title={title} sub={sub} actions={can('stats.export') && <button className="btn btn-gray btn-sm" onClick={() => act(() => download(`/api/admin/stats/export${admin.q(params)}`, `thong-ke-${view}.csv`))}><Icon name="download" size={14} />Xuất báo cáo</button>} />
       <div className="ax-toolbar ax-filters">
         <div className="ax-seg" role="radiogroup" aria-label="Chu kỳ">{PERIODS.map(([k, l]) => <button key={k} role="radio" aria-checked={period === k} onClick={() => pickPeriod(k)}>{l}</button>)}</div>
-        <label className="ax-date"><span>Từ</span><input type="date" className="bk-in" value={from || dayValue(load.data?.from)} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label className="ax-date"><span>Đến</span><input type="date" className="bk-in" value={to || dayValue(load.data ? load.data.to - 1 : Date.now())} onChange={(e) => setTo(e.target.value)} /></label>
+        <DayRangeField from={from || dayValue(load.data?.from)} to={to || dayValue(load.data ? load.data.to - 1 : Date.now())} onChange={(f, t) => { setFrom(f); setTo(t || f); }} />
         <Select value={dept} onChange={(v) => { setDept(v); setTeam(''); setUser(''); }} label="Phòng ban"><option value="">Mọi phòng ban</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</Select>
         {!!teams.data?.length && <Select value={team} onChange={(v) => { setTeam(v); setUser(''); }} label="Nhóm"><option value="">Mọi nhóm</option>{teams.data.filter((t) => !dept || !t.departmentId || t.departmentId === dept).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>}
         {!!people.data?.items.length && <Select value={user} onChange={setUser} label="Nhân viên"><option value="">Mọi nhân viên</option>{people.data.items.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>}

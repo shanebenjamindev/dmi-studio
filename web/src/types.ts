@@ -196,6 +196,8 @@ export interface TaskReviewRound {
 }
 export interface TaskItem {
   stage?: import('../../shared/task-flow').FlowStage;
+  /** Rounds sent back with REDO, and when it was last handed in for review. */
+  revision?: number; submittedAt?: number | null;
   campaign: {id:string;name:string;projectId:string} | null;
   boardLink?:{cardId:string;boardId:string;boardName:string;listName:string;listId:string}|null;hasBoardLink?:boolean;
   canDelete?: boolean;
@@ -307,7 +309,7 @@ export interface CardDetail {
 export type Page = 'workspace' | 'editor' | 'ads';
 /** What the signed-in account may do in Quản trị (shared/permissions.ts): each permission it holds, at its scope. */
 export interface AdminAccess { superAdmin: boolean; rank: number; perms: Record<string, 'personal' | 'team' | 'department' | 'organization'> }
-export interface AuthInfo { siteLock?: { message: string } | null; admin?: AdminAccess | null; user: User | null; pages?: Page[]; prefs?: Record<string, string> | null; setup: boolean; setupCode?: boolean; google: boolean }
+export interface AuthInfo { siteLock?: { message: string } | null; admin?: AdminAccess | null; user: User | null; pages?: Page[]; prefs?: Record<string, string> | null; flowColors?: Record<string, string> | null; setup: boolean; setupCode?: boolean; google: boolean }
 
 /** A Meta Ads campaign report (see server/reports.ts): every field of the page sent to the client; images are file names. */
 export interface ReportKV { label: string; value: string }
@@ -342,7 +344,7 @@ export interface ReportVideo { id:string; account:string; name:string; url:strin
 /** One Drive folder in the report's video picker: where it is, its sub-folders and the videos directly in it. */
 /** A change to a customer's record, on its History tab. */
 export interface RecordChange { action: string; by: string | null; before: Record<string, any> | null; after: Record<string, any> | null; at: number }
-export interface CustomerTaskRow { id: string; title: string; status: string; state: string; category: string; dueAt: number | null; doneAt: number | null; project: { id: string; name: string } | null; campaign: { id: string; name: string } | null; assignees: { id: string; name: string; userId: string | null }[]; priority: { id: string; name: string; color: string } | null }
+export interface CustomerTaskRow { id: string; title: string; status: string; state: string; stage: import('../../shared/task-flow').FlowStage; category: string; dueAt: number | null; doneAt: number | null; project: { id: string; name: string } | null; campaign: { id: string; name: string } | null; assignees: { id: string; name: string; userId: string | null }[]; priority: { id: string; name: string; color: string } | null }
 /** A private sticky note (Ghi chú nhanh): `body` is its formatted text (only when one note is fetched). */
 export type NoteColor = 'yellow' | 'green' | 'pink' | 'purple' | 'blue' | 'dark';
 export interface QuickNote { id: string; title: string; preview: string; color: NoteColor; open: boolean; x: number | null; y: number | null; w: number | null; h: number | null; hasImage: boolean; createdAt: number; updatedAt: number; body?: string }

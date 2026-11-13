@@ -57,7 +57,7 @@ export function registerSearch(api: Router) {
       const desc = new Map((await all<any>("SELECT id, description FROM tasks WHERE description IS NOT NULL AND description <> ''")).map((r) => [r.id, richToText(String(r.description))]));
       const rows = visible.filter((t) => hit(t.id, t.title, t.project?.name, t.customer?.name, t.campaign?.name, t.labels.join(' '), t.externalId, t.status, t.assignees.map((a) => a.name).join(' '), desc.get(t.id)))
         .sort((a, b) => Number(hit(b.title)) - Number(hit(a.title)) || b.updatedAt - a.updatedAt);
-      out.tasks = take(rows.map((t) => ({ id: t.id, title: t.title, status: t.status, state: t.state, category: t.category, project: t.project, assignees: t.assignees.map((a) => a.name), startAt: t.startAt, dueAt: t.dueAt,
+      out.tasks = take(rows.map((t) => ({ id: t.id, title: t.title, status: t.status, state: t.state, stage: t.stage, category: t.category, project: t.project, assignees: t.assignees.map((a) => a.name), startAt: t.startAt, dueAt: t.dueAt,
         snippet: hit(t.title, t.project?.name) ? '' : around(desc.get(t.id) || '', words) })));
     }
     if (want('customers')) {

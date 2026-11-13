@@ -5,7 +5,6 @@ import { api } from '../api';
 import { toast } from '../store';
 import { Icon } from './ui';
 import { Badge, when } from './taskkit';
-import { ServicePicker } from './ServicePicker';
 import type { TaskDetail, TaskItem } from '../types';
 
 /** Opens the field that adds subtasks under a task (in its branch). A tree not shown yet (a card linking its task first)
@@ -102,23 +101,4 @@ function SubtaskAdder({ parent, onAdded, onClose }: { parent: TaskItem; onAdded:
       <button className="btn btn-gray btn-sm" disabled={busy} onClick={onClose}>Xong</button>
     </div>
   </div>;
-}
-
-
-/** What the task a card is adds to the card: its services, and its subtasks once there are some (or one is being added). */
-export function CardSubtasks({ taskId, onOpen, onChanged }: { taskId: string; onOpen: (id: string) => void; onChanged: () => void }) {
-  const [task, setTask] = useState<TaskDetail | null>(null);
-  const [ids, setIds] = useState<string[]>([]);
-  const load = () => api.task(taskId).then((t) => { setTask(t); setIds((t.services || []).map((x) => x.id)); }, () => setTask(null));
-  useEffect(() => { void load(); }, [taskId]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!task) return null;
-  const save = async (next: string[]) => {
-    const before = ids;
-    setIds(next);
-    try { await api.updateTask(task.id, { services: next }); void load(); onChanged(); } catch (e: any) { setIds(before); toast(e.message, true); }
-  };
-  return <>
-    {(task.canEdit || ids.length > 0) && <div className="cm-svc"><h4>Dịch vụ</h4><ServicePicker value={ids} onChange={(next) => void save(next)} known={task.services} disabled={!task.canEdit} /></div>}
-    <section className="cm-sec cm-subtasks"><SubtaskTree task={task} hideEmpty onOpen={onOpen} onChanged={() => { void load(); onChanged(); }} /></section>
-  </>;
 }

@@ -24,6 +24,7 @@ import { syncTaskToCard, taskDescriptionWriter, mayWriteDescription, assertDescr
 import { readTaskExport, readTaskSheet, statusKey, normName, type TaskRow } from './taskimport';
 import { matcher } from './admin/common';
 import { applyFlow, flowDetail, flowSettings, settleStages, stageOf, statusBlocked } from './task-flow';
+import { isFlowFilter, flowMatch } from '../shared/flow-filter';
 
 const me = async (req: Req) => (await currentUser(req))!;
 /** The names in the task data linked to this account. */
@@ -232,6 +233,8 @@ function taskOut(t: any, l: Awaited<ReturnType<typeof links>>) {
     boardLink:l.boardLinks.get(t.id)||null,hasBoardLink:l.linkedTasks.has(t.id),
     canDelete: l.user.role === 'admin' || (t.creator_user_id != null && t.creator_user_id === l.user.id) || (t.project_id ? l.pLevels.get(t.project_id) === 'admin' : false),
     sourceUpdatedAt: t.source_updated_at ?? null, stub: !!t.stub, updatedAt: t.updated_at, createdAt: t.created_at,
+    // The review workflow's own facts, for the overview: rounds sent back (REDO) and when it was last handed in.
+    revision: Number(t.revision) || 0, submittedAt: t.submitted_at ?? null,
   };
 }
 /** May this account see a task's result and change it: admins, the task's own people, its project's managers and
@@ -371,6 +374,23 @@ async function inheritFollowers(id: string, project: string | null, parent: stri
   for (const userId of ids) if (!project || (await projectLevels(userId)).has(project)) await run('INSERT OR IGNORE INTO task_followers(task_id,user_id) SELECT ?,id FROM users WHERE id=? AND disabled=0', id, userId);
 }
 
+/** The project behind a customer's service: the oldest of the customer's projects carrying it, else a new one named
+ *  after the service. Anyone who may work on the customer resolves it. */
+export async function projectForService(user:{id:string;team_role?:string|null},customerId:string,serviceId:string){
+  if(!customerId||!serviceId)throw new HttpError(400,'Cần chọn khách hàng và dịch vụ');
+  await requireCustomer(user.id,customerId,'normal');
+  const svc=await get<any>('SELECT id,name FROM services WHERE id=? AND deleted_at IS NULL',serviceId);
+  if(!svc)throw new HttpError(404,'Không tìm thấy dịch vụ trong danh mục');
+  const found=await get<any>('SELECT p.id,p.name FROM task_projects p JOIN project_services ps ON ps.project_id=p.id WHERE p.customer_id=? AND ps.service_id=? ORDER BY p.created_at ASC',customerId,serviceId);
+  if(found)return{id:found.id as string,name:found.name as string,created:false};
+  const id=uid('tj_');
+  await run('INSERT INTO task_projects(id,name,customer_id,created_by,team_id,created_at) VALUES(?,?,?,?,?,?)',id,svc.name,customerId,user.id,user.team_role||null,now());
+  await saveProjectServices(id,[svc.id],user.id);
+  await run('DELETE FROM customer_needs WHERE customer_id=? AND service_id=?',customerId,svc.id);
+  if(await getSetting('task_workspace_auto',true))await projectHome(id);
+  return{id,name:svc.name as string,created:true};
+}
+
 async function canManageProject(user:any,id:string){return (await requireProject(user.id,id,'admin'))==='admin';}
 export function registerTasks(api: Router) {
   api.post('/api/task-projects',async(req,res)=>{
@@ -389,6 +409,13 @@ export function registerTasks(api: Router) {
     // On Workspace at once: a card on its customer's board (or its own board), where its tasks will go.
     if(await getSetting('task_workspace_auto',true))await projectHome(id);
     json(res,201,{id,name,customerId,teamId});
+  });
+  // Dịch vụ làm trục chính (Khách → Dịch vụ → Công việc): the project behind a customer's service, found or made on the
+  // spot — one per customer × service, named after the service. Anyone who may work on the customer resolves it.
+  api.post('/api/task-projects/for-service',async(req,res)=>{
+    const user=await me(req),b=await readJson(req);
+    const r=await projectForService(user,String(b.customerId||''),String(b.serviceId||''));
+    json(res,r.created?201:200,r);
   });
   api.put('/api/task-projects/:project',async(req,res)=>{
     const user=await me(req),id=req.params.project;await requireProject(user.id,id,'admin');
@@ -576,7 +603,7 @@ export function registerTasks(api: Router) {
       .filter((t) => (scope === 'all' || (scope === 'team' ? ofTeam(t) : related(t))) && (!person || t.assignees.some((a) => a.id === person)))
       .filter((t) => { const e = q.get('employee'); return !e || t.assignees.some((a) => a.userId === e) || !!onCard.get(t.id)?.includes(e); })
       .filter((t) => !q.get('campaign') || t.campaign?.id === q.get('campaign'))
-      .filter((t) => !state || (state === 'open' ? !['done', 'done_late', 'cancelled'].includes(t.state) : state === 'done' ? ['done', 'done_late'].includes(t.state) : t.state === state))
+      .filter((t) => !state || (isFlowFilter(state) ? flowMatch(t, state) : state === 'open' ? !['done', 'done_late', 'cancelled'].includes(t.state) : state === 'done' ? ['done', 'done_late'].includes(t.state) : t.state === state))
       .filter((t) => hit(t.id, t.title, t.project?.name, t.labels.join(' '), t.services.map((x) => x.name).join(' '), t.externalId, t.status, t.state === 'overdue' ? 'Quá hạn' : '', t.createdBy?.name, t.assignees.map((a) => a.name).join(' ')));
     json(res, 200, { tasks: rows, linked: ids.length > 0 });
   });

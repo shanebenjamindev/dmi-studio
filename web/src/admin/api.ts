@@ -121,6 +121,7 @@ export const admin = {
   taskFlow: () => req<TaskFlowAdmin>('GET', '/api/admin/task-flow'),
   saveTaskFlow: (b: import('../../../shared/task-flow').FlowConfig) => req<TaskFlowAdmin>('PUT', '/api/admin/task-flow', b),
   applyTaskFlow: () => req<TaskFlowAdmin & { applied: number }>('POST', '/api/admin/task-flow/apply'),
+  normalizeBoards: () => req<{ boards: number; changed: number }>('POST', '/api/admin/task-flow/boards'),
   labels: () => req<{ id: string; name: string; color: string; used: number }[]>('GET', '/api/admin/task-labels'),
   createLabel: (b: { name: string; color: string }) => req('POST', '/api/admin/task-labels', b),
   updateLabel: (id: string, b: Partial<{ name: string; color: string }>) => req('PUT', `/api/admin/task-labels/${id}`, b),

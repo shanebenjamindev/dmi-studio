@@ -126,8 +126,13 @@ export async function signedIn(user: User) {
   if (!/^#(tasks\/tk_|boards\/b_[^/]+\/c\/)/.test(location.hash)) { history.replaceState(null, '', '#boards'); setState({ view: 'boards' }); }
   const m = await api.me().catch(() => null);
   if (accountPrefs(user.id, m?.prefs)) return;
+  applyFlowColors(m?.flowColors);
   setState({ user, setup: false, ...(m ? { pages: m.pages || [], admin: m.admin || null, siteLock: m.siteLock?.message || null } : {}) });
   await loadApp();
+}
+/** Each workflow stage's badge colour (set in Quản trị), as CSS variables every stage badge reads (--stage-account…). */
+export function applyFlowColors(colors: Record<string, string> | null | undefined) {
+  for (const [stage, color] of Object.entries(colors || {})) document.documentElement.style.setProperty(`--stage-${stage}`, color);
 }
 /** Puts the account's own theme, language and board layout in place; true when the page reloads to show its language. */
 function accountPrefs(userId: string, saved: Record<string, string> | null | undefined) {
@@ -180,6 +185,7 @@ export async function init() {
   try {
     const me = await api.me();
     if (me.user && accountPrefs(me.user.id, me.prefs)) return;
+    applyFlowColors(me.flowColors);
     setState({ user: me.user, siteLock: me.siteLock?.message || null, pages: me.pages || [], admin: me.admin || null, setup: me.setup, setupCode: !!me.setupCode, googleSignin: me.google, ready: true });
     if (me.user) void loadApp(health);
   } catch (e: any) {

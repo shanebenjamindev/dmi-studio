@@ -1,4 +1,5 @@
 import { defaultCustomerStatus } from './customer-statuses';
+import { FLOW_COLUMNS, columnStage } from './flow-columns';
 import {assertTaskDelete,removeCardRecord,removeTaskRecord,removeProjectRecord,syncProjectCards} from './work-sync';
 import {grantAccess,projectLevels,requireProject} from './project-access';
 import {customerLevels,customerAccessSql,requireCustomer,visibleCardIds} from './customer-access';
@@ -35,7 +36,8 @@ import { projectCustomerChanged } from './taskworkspace';
 /** Board backgrounds and label / cover colours (drawn by the web app). */
 export const BGS = ['ocean', 'forest', 'sunset', 'grape', 'berry', 'slate', 'sky', 'lime', 'rose', 'night'];
 const COLORS = ['green', 'yellow', 'orange', 'red', 'purple', 'blue', 'sky', 'lime', 'pink', 'black'];
-const BASIC = ['Cần làm', 'Đang làm', 'Xong'];
+/** A new board's columns: one for each step of the review workflow (flow-columns.ts). */
+const BASIC = FLOW_COLUMNS;
 /** The ways a board can show, the first its usual one: its type, picked when it is made, is the view it opens in. */
 const VIEWS = ['board', 'table', 'calendar', 'dashboard', 'timeline'];
 const viewIn = (x: any) => (VIEWS.includes(x) ? x : 'board');
@@ -590,6 +592,8 @@ export function registerBoards(api: Router) {
     const id = await newBoard(text(b.name, 80, 'tên board'), BGS.includes(b.bg) ? b.bg : 'ocean', roleId, u.id,
       Array.isArray(b.lists) && b.lists.length ? b.lists.slice(0, 20).map((x: any) => text(x, 80, 'tên danh sách')) : BASIC, ws, !!b.private && !roleId);
     if (customer) await run('UPDATE boards SET customer_id = ? WHERE id = ?', customer, id);
+    // Columns of its own still get one for each workflow step they lack.
+    if (Array.isArray(b.lists) && b.lists.length) await (await import('./board-flow')).normalizeBoard(id);
     // No date given: it starts now.
     await run('UPDATE boards SET view = ?, start_at = ? WHERE id = ?', viewIn(b.view), startIn(b.startAt) ?? now(), id);
     // Its type: the services it is for.
@@ -830,7 +834,7 @@ export function registerBoards(api: Router) {
     const base = (await get<any>('SELECT MAX(pos) m FROM board_cards WHERE list_id = ?', to.id))?.m || 0;
     const cards=await all<any>('SELECT id FROM board_cards WHERE list_id = ? ORDER BY pos',l.id);
     const u=await me(req);
-    for(const c of cards) { await assertLinkedTaskEditable(c.id,u.id); await assertCardFlow(c.id,{listId:to.id}); }
+    for(const c of cards) { await assertLinkedTaskEditable(c.id,u.id); await assertCardFlow(c.id,{listId:to.id},u); }
     for (const [i,c] of cards.entries()) {
       await run('UPDATE board_cards SET list_id = ?, pos = ? WHERE id = ?',to.id,base+i+1,c.id);
       if(to.id!==l.id) await syncCardToTask(c.id,true,u.id);
@@ -952,7 +956,7 @@ export function registerBoards(api: Router) {
   api.put('/api/cards/:id', async (req, res) => {
     const c = await mustCard(req, req.params.id), b = await readJson(req), u = await me(req);
     if (['title', 'description', 'startAt', 'dueAt', 'done', 'listId', 'projectId'].some((k) => b[k] !== undefined)) await assertLinkedTaskEditable(c.id, u.id);
-    await assertCardFlow(c.id, b);
+    await assertCardFlow(c.id, b, u);
     const set: [string, any][] = [], news: string[] = [];
     if (c.card_kind === 'customer' && c.customer_id && b.title !== undefined) {
       await requireCustomer(u.id, c.customer_id, 'admin');
@@ -1525,8 +1529,9 @@ export function registerBoards(api: Router) {
     const ofBoard = await boardServices([...boards.keys()]);
     // Where the work stands: finished (or called off), late, under way, or not started.
     const stage = (done: boolean, due: number | null, status: string) => {
-      const k = statusKey(status || '');
-      return done || ['done', 'done_late', 'cancelled'].includes(k) ? 'done' : due && due < t0 ? 'overdue' : k === 'doing' || k === 'other' ? 'doing' : 'todo';
+      const k = statusKey(status || ''), step = columnStage(status || '');
+      return done || ['done', 'done_late', 'cancelled'].includes(k) || step === 'completed' || step === 'rejected' ? 'done' : due && due < t0 ? 'overdue'
+        : (step ? step !== 'account' : k === 'doing' || k === 'other') ? 'doing' : 'todo';
     };
     json(res, 200, [
       ...cards.map((c) => {

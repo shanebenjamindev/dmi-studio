@@ -9,6 +9,7 @@ import { useStore, toast } from '../store';
 import { ReportEditor } from './Reports';
 import { Icon, Segmented } from './ui';
 import type { AdAccount, AdsConversion, AdsReport, AdsSettings } from '../types';
+import { DayRangeField } from './DateRange';
 
 const LS = 'dms.ads';
 type Preset = '7' | '14' | '30' | 'month' | 'lastMonth' | 'custom';
@@ -143,9 +144,7 @@ function MetaReport({ accounts, saved, save, onAccounts, onReport }: { accounts:
         </div>
         {saved.preset === 'custom' && (
           <div className="ad-custom">
-            <input type="date" value={since} max={until} onChange={(e) => e.target.value && save({ since: e.target.value })} aria-label="Từ ngày" />
-            <span>–</span>
-            <input type="date" value={until} min={since} onChange={(e) => e.target.value && save({ until: e.target.value })} aria-label="Đến ngày" />
+            <DayRangeField from={since} to={until} onChange={(f, t) => f && save({ since: f, until: t || f })} />
           </div>
         )}
         <button className="btn btn-primary btn-sm" disabled={creating || busy || !r || !!err || since > until} onClick={createReport}><Icon name="plus" size={14} />{creating ? 'Đang tạo báo cáo…' : 'Tạo báo cáo'}</button>

@@ -614,20 +614,25 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     assert.equal(detail.status,'Chờ khách duyệt');
     assert.ok(detail.statuses.includes('Chờ khách duyệt'));
     assert.equal((await server.call('PUT',`/api/tasks/${id}`,{status:'Hoàn thành'},ed.cookie)).status,409);
-    assert.equal((await server.call('POST',`/api/tasks/${id}/flow`,{action:'submit'},ed.cookie)).status,200);
+    assert.equal(detail.stage,'review','a drag to the review column hands it in');
     assert.equal((await server.call('POST',`/api/tasks/${id}/flow`,{action:'pass'},ac)).status,200);
     card=(await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data;
     assert.equal(card.listId,finished.id); assert.equal(card.done,true);
-    // Closed until reopened; then the task's status moves its card again.
+    // Closed until reopened; then its card goes back to the column of its step, EXECUTION.
     assert.equal((await server.call('PUT',`/api/tasks/${id}`,{status:'Chờ khách duyệt'},ed.cookie)).status,409);
     assert.equal((await server.call('POST',`/api/tasks/${id}/flow`,{action:'reopen'},ac)).status,200);
-    assert.equal((await server.call('PUT',`/api/tasks/${id}`,{status:'Chờ khách duyệt'},ed.cookie)).status,200);
     card=(await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data;
-    assert.equal(card.listId,review.id); assert.equal(card.done,false);
+    assert.equal(card.listName,'EXECUTION'); assert.equal(card.done,false);
+    // A status set by hand that names another step does not move the card off its step.
+    assert.equal((await server.call('PUT',`/api/tasks/${id}`,{status:'Chờ khách duyệt'},ed.cookie)).status,200);
+    assert.equal((await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data.listName,'EXECUTION');
+    assert.equal((await server.call('PUT',`/api/cards/${cardId}`,{listId:review.id},ed.cookie)).status,200);   // handed in again
     assert.equal((await server.call('PUT',`/api/lists/${review.id}`,{name:'Chờ khách phản hồi'},ac)).status,200);
     assert.equal((await server.call('GET',`/api/tasks/${id}`,undefined,ac)).data.status,'Chờ khách phản hồi');
-    assert.equal((await server.call('POST',`/api/lists/${review.id}/move-cards`,{to:finished.id},ac)).status,409);
-    assert.equal((await server.call('GET',`/api/tasks/${id}`,undefined,ac)).data.status,'Chờ khách phản hồi');
+    // The reviewer passes it by moving its column's cards to the finished one.
+    assert.equal((await server.call('POST',`/api/lists/${review.id}/move-cards`,{to:finished.id},ac)).status,200);
+    detail=(await server.call('GET',`/api/tasks/${id}`,undefined,ac)).data;
+    assert.equal(detail.stage,'completed'); assert.equal(detail.status,'Hoàn thành');
     const cardWithProj = (await server.call('GET',`/api/cards/${cardId}`,undefined,ac)).data;
     assert.equal(cardWithProj.projectId, task.project.id);
     assert.equal(cardWithProj.projectName, 'Launch');

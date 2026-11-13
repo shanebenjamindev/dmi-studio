@@ -7,6 +7,7 @@ import { ScheduleViews } from './ScheduleViews';
 import { CardPop, type PopKind } from './CardModal';
 import { COLOR } from './boardkit';
 import type { Board, BoardCard, BoardViewKind, CardDetail, User } from '../types';
+import { DayRangeField } from './DateRange';
 
 
 export function QuickCard({ id, rect, board, me, onClose, onOpen, onChanged }: { id: string; rect: DOMRect; board: Board; me: User; onClose: () => void; onOpen: () => void; onChanged: () => void }) {
@@ -68,7 +69,7 @@ function AddCard({ lists, onAdd }: { lists: { id: string; name: string }[]; onAd
   return <form className="bv-add" onSubmit={submit}>
     <input ref={input} autoFocus aria-label="Tên thẻ" placeholder="Nhập tên thẻ…" maxLength={500} value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }} />
     <select aria-label="Danh sách" value={list} onChange={(e) => setList(e.target.value)}>{lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>
-    <input type="date" aria-label="Thời hạn" title="Thời hạn (không bắt buộc)" value={due} onChange={(e) => setDue(e.target.value)} />
+    <DayRangeField single from="" to={due} endLabel="Thời hạn" placeholder="Thời hạn" onChange={(_, t) => setDue(t)} />
     <button className="btn btn-primary btn-sm" disabled={!title.trim() || busy}>{busy ? 'Đang thêm…' : 'Thêm thẻ'}</button>
     <button type="button" className="bd-icon" onClick={() => setOpen(false)} aria-label="Đóng"><Icon name="x" size={15} /></button>
   </form>;

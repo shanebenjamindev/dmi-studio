@@ -13,6 +13,7 @@ import { ACCOUNT_PREFS } from '../shared/account-prefs';
 import { accessOf, accessOut, syncSuperAdmin } from './rbac';
 import { audit, logLogin, clientIp, clientAgent } from './audit';
 import { assertSiteOpen, siteLock } from './site-lock';
+import { flowColors } from '../shared/task-flow';
 
 export type Role = 'admin' | 'member';
 /** `team_role`: the person's department (phòng ban); `dept_role`: their role in it, whose level (`dept_level`) says what
@@ -151,7 +152,8 @@ export async function guard(req: Req): Promise<User | null> {
   let scopedCustomer:string|null=customerMatch?decodeURIComponent(customerMatch[1]):null;
   const reportMatch=pathOf(req).match(/^\/api\/reports\/(r_[^/]+)(?:\/|$)/);
   const projectMatch=pathOf(req).match(/^\/api\/(?:projects|task-projects)\/([^/]+)(?:\/|$)/);
-  const actualProjectMatch=projectMatch&&projectMatch[1]!=='bulk-delete'?projectMatch:null;
+  // Not project ids: routes under the path that check access themselves (for-service checks the customer).
+  const actualProjectMatch=projectMatch&&!['bulk-delete','for-service'].includes(projectMatch[1])?projectMatch:null;
   const taskMatch=pathOf(req).match(/^\/api\/tasks\/(tk_[^/]+)(?:\/|$)/);
   if(reportMatch)scopedCustomer=(await get<any>('SELECT customer_id FROM reports WHERE id=?',reportMatch[1]))?.customer_id||null;
   if(actualProjectMatch){const table=pathOf(req).startsWith('/api/task-projects/')?'task_projects':'projects';scopedCustomer=(await get<any>(`SELECT customer_id FROM ${table} WHERE id=?`,actualProjectMatch[1]))?.customer_id||null;}
@@ -256,7 +258,7 @@ export function registerAuth(api: Router) {
   api.get('/api/auth/me', async (req, res) => {
     const u = await currentUser(req);
     const c = await G.oauthConfig(), lock = await siteLock();
-    json(res, 200, { siteLock: lock.on ? { message: lock.message } : null, user: u ? userOut(u) : null, pages: u ? await pagesOf(u) : [], admin: u ? accessOut(await accessOf(u)) : null, prefs: u ? await prefsOf(u.id) : null, setup: await userCount() === 0, setupCode: !!process.env.SETUP_CODE, google: !!(c.clientId && c.clientSecret) });
+    json(res, 200, { siteLock: lock.on ? { message: lock.message } : null, user: u ? userOut(u) : null, pages: u ? await pagesOf(u) : [], admin: u ? accessOut(await accessOf(u)) : null, prefs: u ? await prefsOf(u.id) : null, flowColors: u ? flowColors(await (await import('./task-flow')).flowSettings()) : null, setup: await userCount() === 0, setupCode: !!process.env.SETUP_CODE, google: !!(c.clientId && c.clientSecret) });
   });
   // Merges into the account's interface choices; null forgets one.
   api.put('/api/auth/prefs', async (req, res) => {

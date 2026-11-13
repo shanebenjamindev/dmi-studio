@@ -10,6 +10,8 @@ import { Avatar, Pop, Rich } from './boardkit';
 import { MemberAvatar } from './MemberAvatar';
 import { MemberChoices } from './EmployeePicker';
 import { BrandLoading } from './BrandLoading';
+import { FLOW_STAGES, isClosedStage, type FlowStage } from '../../../shared/task-flow';
+import { stepCode } from './taskkit';
 import type { CustomerMembersData, CustomerRecord, CustomerTag, CustomerTaskRow, RecordChange } from '../types';
 import type { CustomerView } from './CustomerDashboard';
 
@@ -28,17 +30,13 @@ function useData<T>(fn: () => Promise<T>, deps: unknown[]) {
 const State = ({ error, empty, icon, children }: { error: string; empty?: string; icon?: string; children?: React.ReactNode }) =>
   error ? <p className="note err" role="alert">{error}</p> : empty ? <div className="crm-empty"><Icon name={icon || 'inbox'} size={30} /><p>{empty}</p></div> : <>{children}</>;
 
-const TONE: Record<string, string> = { done: 'ok', done_late: 'warn', cancelled: 'muted', todo: 'muted', paused: 'warn' };
-const late = (t: CustomerTaskRow) => t.state === 'overdue';
+const late = (t: CustomerTaskRow) => t.state === 'overdue' && !isClosedStage(t.stage);
+/** A step's own colour (Quản trị › Quy trình công việc), for its Kanban column. */
+const STEP_COLOR = (s: FlowStage) => `var(--stage-${s}, #64748b)`;
 
 function CustomerTaskViews({ rows, view }: { rows: CustomerTaskRow[]; view: CustomerView }) {
   if (view === 'kanban') {
-    const cols = [
-      { key: 'todo', label: 'Chưa thực hiện', color: '#64748b', items: rows.filter((t) => !late(t) && (t.category === 'todo' || t.category === 'paused' || t.category === 'other')) },
-      { key: 'doing', label: 'Đang thực hiện', color: '#2563eb', items: rows.filter((t) => !late(t) && t.category === 'doing') },
-      { key: 'overdue', label: 'Quá hạn', color: '#dc2626', items: rows.filter((t) => late(t)) },
-      { key: 'done', label: 'Hoàn thành', color: '#16a34a', items: rows.filter((t) => t.category === 'done' || t.category === 'done_late') },
-    ];
+    const cols = FLOW_STAGES.map((x) => ({ key: x.key, label: x.code, color: STEP_COLOR(x.key), items: rows.filter((t) => t.stage === x.key) }));
     return (
       <div className="cd-kanban crm-task-kanban">
         {cols.map((col) => (
@@ -62,26 +60,6 @@ function CustomerTaskViews({ rows, view }: { rows: CustomerTaskRow[]; view: Cust
       </div>
     );
   }
-  if (view === 'grid') {
-    return (
-      <div className="cd-cards crm-task-cards">
-        {rows.map((t) => (
-          <button key={t.id} className="cd-customer" onClick={() => openTask(t.id)}>
-            <header>
-              <span className={'crm-status ' + (TONE[t.category] || '')}>{t.status}</span>
-              {late(t) && <span className="crm-status bad">Quá hạn</span>}
-            </header>
-            <h3>{t.title}</h3>
-            <p>{t.project?.name || 'Chưa gắn dự án'}</p>
-            <footer>
-              <span>{t.assignees.map((a) => a.name).join(', ') || 'Chưa giao'}</span>
-              <span>Hạn: {day(t.dueAt)}</span>
-            </footer>
-          </button>
-        ))}
-      </div>
-    );
-  }
   return (
     <div className="cd-table">
       <table>
@@ -90,7 +68,7 @@ function CustomerTaskViews({ rows, view }: { rows: CustomerTaskRow[]; view: Cust
           {rows.map((t) => (
             <tr key={t.id} className="crm-row" onClick={() => openTask(t.id)}>
               <td><b>{t.title}</b>{t.project?.name && <small className="crm-sub">{t.project.name}</small>}</td>
-              <td><span className={'crm-status ' + (TONE[t.category] || '')}>{t.status}</span>{late(t) && <span className="crm-status bad">Quá hạn</span>}</td>
+              <td><span className={'crm-status tf-tint tf-' + t.stage}>{stepCode(t.stage)}</span>{late(t) && <span className="crm-status bad">Quá hạn</span>}</td>
               <td>{t.assignees.map((a) => a.name).join(', ') || '—'}</td>
               <td>{day(t.dueAt)}</td>
             </tr>
@@ -126,7 +104,7 @@ export function CustomerOverview({ c, view = 'list', onTab, onChanged }: { c: Cu
       <section className="crm-ov-card">
         <header><h3>Tiến độ công việc</h3><button className="btn btn-gray btn-sm" onClick={()=>onTab('tasks')}>Xem công việc</button></header>
         <div className="crm-ov-stats">
-          <button onClick={() => onTab('campaigns')}><b>{c.projects || 0}</b><span>Dự án</span></button>
+          <button onClick={() => onTab('campaigns')}><b>{c.projects || 0}</b><span>Dịch vụ</span></button>
           <button onClick={() => onTab('tasks')}><b>{c.completed || 0}/{c.tasks || 0}</b><span>Công việc xong</span></button>
         </div>
         <progress aria-label="Tiến độ hoàn thành công việc" max={c.tasks || 1} value={c.completed || 0} />

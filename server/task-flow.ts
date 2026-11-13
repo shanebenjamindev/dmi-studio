@@ -4,6 +4,7 @@
 import { all, get, run, now, uid, getSetting } from './db';
 import { HttpError } from './http';
 import { statusKey, normName } from './taskimport';
+import { codeStage } from './flow-columns';
 import { notifyPeople } from './notifications';
 import { grantAccess } from './project-access';
 import { DEFAULT_FLOW, FLOW_OUTCOMES, FLOW_STAGES, OUTCOME_STAGE, flowConfig, isClosedStage, isFlowStage, type FlowAction, type FlowConfig, type FlowStage } from '../shared/task-flow';
@@ -47,7 +48,7 @@ export function statusBlocked(t: { stage?: string | null; status: string }, next
 
 /** The status a stage gives: the one set for it in Quản trị (finished after its deadline: the done-late status, if
  *  there is one); a status no longer in the list falls back to one of the same meaning. On a board, a review column of
- *  its own. */
+ *  its own (not REVIEW, the step's own column). */
 export async function statusFor(stage: FlowStage, t: any, doneAt: number | null, cfg: FlowConfig) {
   const statuses = (await all<any>('SELECT name FROM task_statuses WHERE active = 1 ORDER BY pos')).map((r) => r.name as string);
   const byKey = (key: string, fallback: string) => statuses.find((n) => statusKey(n) === key) || fallback;
@@ -60,7 +61,7 @@ export async function statusFor(stage: FlowStage, t: any, doneAt: number | null,
     return t.due_at && doneAt! > t.due_at && statusKey(done) === 'done' ? byKey('done_late', done) : done;
   }
   const lists = (await all<any>('SELECT bl.name FROM task_board_links l JOIN board_cards c ON c.id=l.card_id JOIN board_lists bl ON bl.board_id=c.board_id WHERE l.task_id=? AND bl.archived=0 ORDER BY bl.pos', t.id)).map((r) => r.name as string);
-  return (set && lists.includes(set) ? set : lists.find((n) => REVIEWING.test(normName(n)))) || set || statuses.find((n) => REVIEWING.test(normName(n))) || 'Đang đánh giá';
+  return (set && lists.includes(set) ? set : lists.find((n) => REVIEWING.test(normName(n)) && !codeStage(n))) || set || statuses.find((n) => REVIEWING.test(normName(n))) || 'Đang đánh giá';
 }
 
 async function log(taskId: string, userId: string, action: string, data: object) {

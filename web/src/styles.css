@@ -33,6 +33,10 @@
   --ed-bg: #ececf0; --ed-gap: #d9d9de; --ed-bar: #f7f7f9; --ed-panel: #ffffff; --ed-panel-2: #f2f2f5; --ed-screen: #e4e4e8;
   --ed-input: #e7e7eb; --ed-input-2: #d6d6dc; --ed-text: #18181b; --ed-text-2: #52525b; --ed-text-3: #75757e;
   --ed-row-bg: #dbe4ff; --ed-row-fg: #3142a8; --ed-sel: #0b7df2; --ed-head: #e5484d;
+  /* Names some views were written with: the theme's tokens under other names, so they follow light and dark too
+     (left undefined, each fell back to a light colour and the dark theme showed white panels). */
+  --card-bg: var(--surface); --text: var(--label); --sub: var(--label-2); --primary: var(--tint);
+  --fill-1: var(--fill-2); --fill-3: var(--fill); --line: var(--sep);
 }
 :root[data-theme="dark"] {
   --bg: #0f0f11; --surface: #18181b; --grouped: #141417; --fill: rgba(255, 255, 255, 0.08); --fill-2: rgba(255, 255, 255, 0.05);
@@ -2069,7 +2073,7 @@ button.bk-label:hover { filter: brightness(0.92); }
 }
 .bd-home-view-btn:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--fill);
 }
 .bd-home-view-btn.active {
   background: var(--card-bg, #fff);
@@ -2451,6 +2455,9 @@ button.ws-board-name:hover,
   padding: 0 8px;
   font-size: 12px;
 }
+/* A quiet button on a row: no fill until hovered, in either theme. */
+.btn-ghost { background: transparent; color: var(--label-2); }
+.btn-ghost:hover:not(:disabled) { background: var(--fill); color: var(--label); }
 .bd-wsec { display: flex; flex-direction: column; gap: 16px; }
 .bd-wsec-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .bd-wsec-h > div { display: flex; flex-direction: column; min-width: 0; }
@@ -2494,6 +2501,22 @@ button.ws-board-name:hover,
 .bd-people-sec { display: flex; flex-direction: column; gap: 10px; }
 .bd-people-sec h3 { margin: 0; font-size: 14px; font-weight: 600; }
 .bd-people-sec .cm-danger { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; }
+/* The workspace page's own board list: open, star, settings, and one-or-many delete. */
+.bd-ws-boards-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.bd-ws-boards-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bd-ws-boards-actions .cm-danger { align-self: auto; }
+.bd-ws-boards-all { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--label-2); cursor: pointer; }
+.bd-ws-board-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--sep); border-radius: 12px; overflow: hidden; }
+.bd-ws-board-list li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface); }
+.bd-ws-board-list li + li { border-top: 1px solid var(--sep); }
+.bd-ws-board-list li.picked { background: var(--tint-soft); }
+.bd-ws-board-list input[type=checkbox] { flex: none; }
+.bd-ws-board-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: none; border: 0; padding: 4px 0; cursor: pointer; text-align: left; color: var(--label); }
+.bd-ws-board-open b { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-ws-board-open small { color: var(--label-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-ws-board-open:hover b { text-decoration: underline; }
+.bd-ws-board-mark { flex: none; width: 28px; height: 20px; border-radius: 6px; }
+.bd-ws-board-star.on { color: #eab308; }
 .bd-people-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .bd-people-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 4px; border-bottom: 1px solid var(--bd-line); }
 .bd-person-info { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; }
@@ -2555,6 +2578,29 @@ button.cm-list-b:hover { background: var(--bd-line); }
 .cm-panes { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 0 clamp(280px, var(--cm-side-w, 40%), 60%); }
 .cm-left { min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 14px 18px 24px; }
 .cm-right { min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 16px 20px 28px; border-left: 1px solid var(--bd-line); background: var(--bd-list); }
+/* The card window laid out like the task page: a grouped background with each section in its own rounded card. */
+.cm-left { background: var(--grouped); }
+.cm-left, .cm-right { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.cm-left:hover, .cm-left:focus-within, .cm-right:hover, .cm-right:focus-within { scrollbar-color: color-mix(in srgb, var(--label-3) 45%, transparent) transparent; }
+.cm-left > .cm-sec {
+  background: var(--surface);
+  border: 1px solid var(--sep);
+  border-radius: 16px;
+  padding: 18px 22px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02), 0 4px 12px -2px rgba(0, 0, 0, 0.03);
+  transition: border-color .15s ease;
+}
+.cm-left > .cm-sec:hover { border-color: rgba(100, 116, 139, 0.22); }
+.cm-left > .cm-sec > :not(h3) { margin-left: 0; }
+.cm-left > .cm-sec > h3 { font-size: 11.5px; font-weight: 700; color: var(--label-3); text-transform: uppercase; letter-spacing: .05em; gap: 8px; }
+.cm-left > .cm-sec > h3 > svg { width: 14px; height: 14px; }
+.cm-header-card { display: flex; flex-direction: column; gap: 12px; }
+.cm-header-card > .cm-head { padding: 0; }
+.cm-header-card > .cm-meta, .cm-header-card > .cm-actions { padding-left: 34px; }
+.cm-left > .cm-subtasks:empty { display: none; }
+/* The linked task's services row becomes a card of its own, titled like the rest. */
+.cm-left > .cm-svc { background: var(--surface); border: 1px solid var(--sep); border-radius: 16px; padding: 14px 22px; margin: 0; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02), 0 4px 12px -2px rgba(0, 0, 0, 0.03); }
+.cm-left > .cm-svc h4 { font-size: 11.5px; font-weight: 700; color: var(--label-3); text-transform: uppercase; letter-spacing: .05em; }
 .cm-right-h { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 15px; font-weight: 600; }
 .cm-right-h > .ico { flex: none; color: var(--bd-muted); }
 .cm-right-h .btn { margin-left: auto; }
@@ -3732,14 +3778,14 @@ button.cm-list-b:hover { background: var(--bd-line); }
    The app's own blue (the logo's) as the accent, used sparingly: the current page, primary buttons, admin badges. Chart
    series take the validated categorical order (--viz-*, light and dark steps); status colours are reserved for states
    and always labelled. */
-.ax, .ax-drawer-back {
+.ax, .ax-drawer-back, .fo {
   --ax-bg: #f6f6f7; --ax-surface: #ffffff; --ax-line: rgba(15, 23, 42, 0.09); --ax-line-2: rgba(15, 23, 42, 0.06); --ax-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(15, 23, 42, 0.04);
   --ax-ink: #18181b; --ax-ink-2: #52525b; --ax-ink-3: #8a8a93; --ax-hover: rgba(15, 23, 42, 0.04);
   --viz-1: #2a78d6; --viz-1-strong: #1c5cab; --viz-2: #eb6834; --viz-3: #1baf7a; --viz-4: #eda100; --viz-5: #e87ba4; --viz-6: #008300; --viz-7: #6250d6; --viz-8: #e34948;
   --st-good: #0ca30c; --st-warning: #fab219; --st-serious: #ec835a; --st-critical: #d03b3b;
   --ax-grid: #e1e0d9; --ax-axis: #c3c2b7; --ax-tick: #898781;
 }
-:root[data-theme="dark"] .ax, :root[data-theme="dark"] .ax-drawer-back {
+:root[data-theme="dark"] .ax, :root[data-theme="dark"] .ax-drawer-back, :root[data-theme="dark"] .fo {
   --ax-bg: #0f0f11; --ax-surface: #18181b; --ax-line: rgba(255, 255, 255, 0.09); --ax-line-2: rgba(255, 255, 255, 0.05); --ax-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   --ax-ink: #f4f4f5; --ax-ink-2: #c3c2b7; --ax-ink-3: #8f8f98; --ax-hover: rgba(255, 255, 255, 0.05);
   --viz-1: #3987e5; --viz-1-strong: #6da7ec; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500; --viz-5: #d55181; --viz-6: #008300; --viz-7: #9085e9; --viz-8: #e66767;
@@ -4792,6 +4838,15 @@ a.rail-item { text-decoration: none; }
 /* Customer details like Outlook: its parts in a column, only the chosen one beside it. */
 .crm-split { flex:1; min-height:0; display:grid; grid-template-columns:min(var(--crm-side-w,220px),45%) 0 minmax(0,1fr); }
 .crm-side { min-height:0; overflow:auto; display:flex; flex-direction:column; gap:14px; padding:16px 10px; border-right:1px solid var(--bd-line); background:var(--bd-side); }
+/* Like the task page: the pane's scrollbar only shows while the pointer is over it. */
+.crm-side, .crm-split-main { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.crm-side:hover, .crm-split-main:hover { scrollbar-color: color-mix(in srgb, var(--label-3) 45%, transparent) transparent; }
+/* A customer the directory does not have (deleted, or out of one's reach): a way back instead of a bare pane. */
+.crm-missing { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; min-height:min(60vh,420px); text-align:center; padding:24px; color:var(--label-2); }
+.crm-missing > svg { color:var(--label-3); }
+.crm-missing h3 { margin:0; font-size:16px; color:var(--label); }
+.crm-missing .note { margin:0; max-width:420px; }
+.crm-missing-actions { display:flex; gap:8px; margin-top:6px; flex-wrap:wrap; justify-content:center; }
 .crm-side-title { display:flex; flex-direction:column; gap:4px; padding:0 8px; }
 .crm-side-title span { color:var(--bd-muted); font-size:11px; }
 .crm-side-title h2 { margin:0; font-size:17px; line-height:1.35; letter-spacing:-.3px; overflow-wrap:anywhere; }
@@ -6862,6 +6917,9 @@ div.rt-view:not(.rt-body) [data-mention]:hover, div.rt-view:not(.rt-body) [data-
   flex-direction: column;
   gap: 14px;
 }
+/* The page's scrollbars stay out of sight until the pointer is over the pane. */
+.wework-main, .wework-sidebar { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.wework-main:hover, .wework-main:focus-within, .wework-sidebar:hover, .wework-sidebar:focus-within { scrollbar-color: color-mix(in srgb, var(--label-3) 45%, transparent) transparent; }
 
 /* Bento Box modular cards */
 .wework-bento-card {
@@ -6884,13 +6942,13 @@ div.rt-view:not(.rt-body) [data-mention]:hover, div.rt-view:not(.rt-body) [data-
   color: var(--label-3);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 .wework-top-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 .wework-top-label {
   font-size: 11.5px;
@@ -6935,7 +6993,7 @@ div.rt-view:not(.rt-body) [data-mention]:hover, div.rt-view:not(.rt-body) [data-
   resize: none;
   line-height: 1.35;
   font-family: inherit;
-  margin: 0 0 14px;
+  margin: 0 0 12px;
   padding: 4px 6px;
   border-radius: 8px;
 }
@@ -6991,7 +7049,7 @@ div.rt-view:not(.rt-body) [data-mention]:hover, div.rt-view:not(.rt-body) [data-
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 4px;
+  margin-top: 0;
   flex-wrap: wrap;
 }
 .wework-pill-btn {
@@ -7365,10 +7423,13 @@ div.rt-view:not(.rt-body) [data-mention]:hover, div.rt-view:not(.rt-body) [data-
   font-size: 12px;
 }
 
-/* Customer menu (side) folding */
+/* Customer menu (side) folding. The resize handle (the grid's middle column) is not rendered while folded, so the
+   content is pinned to the last column; without this it lands in the 0px column and the pane looks blank. */
 .crm-split.side-folded {
   grid-template-columns: 56px 0 minmax(0, 1fr) !important;
 }
+.crm-split.side-folded > .crm-side { grid-column: 1; }
+.crm-split.side-folded > .crm-split-main { grid-column: 3; }
 .crm-side.folded {
   width: 56px !important;
   min-width: 56px !important;
@@ -7838,7 +7899,10 @@ button.ws-board-name {
 .ax-sql-hist code { font-size: 12px; white-space: pre-wrap; word-break: break-word; }
 
 /* Review workflow on a task's page (TaskFlow.tsx): one colour per stage, used by the badge, the steps and the history. */
-.tf-account { --tf: #64748b; } .tf-execution { --tf: var(--tint); } .tf-review { --tf: #8b5cf6; } .tf-completed, .tf-pass { --tf: #16a34a; } .tf-rejected, .tf-fail { --tf: #ef4444; } .tf-redo { --tf: #d97706; }
+/* Each step's colour is set in Quản trị › Quy trình công việc (store.ts puts it in --stage-*); these are the defaults. */
+.tf-account { --tf: var(--stage-account, #64748b); } .tf-execution { --tf: var(--stage-execution, #2563eb); } .tf-review { --tf: var(--stage-review, #8b5cf6); }
+.tf-completed { --tf: var(--stage-completed, #16a34a); } .tf-rejected { --tf: var(--stage-rejected, #ef4444); }
+.tf-pass { --tf: var(--stage-completed, #16a34a); } .tf-fail { --tf: var(--stage-rejected, #ef4444); } .tf-redo { --tf: #d97706; }
 .tf-badge { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 18px; background: color-mix(in srgb, var(--tf) 13%, transparent); color: var(--tf); font-size: 13px; font-weight: 500; }
 .tf-badge b { font-size: 11px; letter-spacing: .04em; }
 .tf-redo-count { margin-left: auto; padding: 2px 8px; border-radius: 10px; background: color-mix(in srgb, #d97706 14%, transparent); color: #d97706; letter-spacing: .02em; }
@@ -7872,3 +7936,141 @@ button.ws-board-name {
 .tf-feedback { border-left-color: var(--tint); }
 .tf-version > summary { cursor: pointer; font-size: 12px; color: var(--tint); }
 @media (max-width: 600px) { .tf-facts select { max-width: 100%; } }
+
+/* Khách hàng · Dịch vụ: where a task or card belongs (ClientServicePick.tsx). */
+.csp-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 12px; font-weight: 600; color: var(--label-2); }
+.csp-field .bk-in { font-weight: 400; }
+.csp-note { margin: 0 0 10px; font-size: 12px; }
+.tk-create-place { flex: 1; min-width: 0; }
+.wework-meta-val:disabled { cursor: default; opacity: 1; }
+.csp-empty { display: block; margin-top: 4px; font-size: 11.5px; font-weight: 400; color: var(--label-3); }
+
+/* Date spans, Airbnb-like (DateRange.tsx): one pill for start → due, a two-month calendar with the days between as one band. */
+.dr-field { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; max-width: 100%; padding: 6px 12px; border: 1px solid var(--sep); border-radius: 999px; background: var(--surface); color: var(--label); font: inherit; font-size: 13px; cursor: pointer; text-align: left; transition: border-color .15s, box-shadow .15s; }
+.dr-field:hover:not(:disabled) { border-color: var(--label-3); }
+.dr-field.open { border-color: var(--label); box-shadow: 0 0 0 1px var(--label); }
+.dr-field:disabled { opacity: .55; cursor: default; }
+.dr-field > svg { flex: none; color: var(--label-2); }
+.dr-part { display: inline-flex; flex-direction: column; line-height: 1.2; white-space: nowrap; font-weight: 600; }
+.dr-part small { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--label-3); }
+.dr-part.empty { font-weight: 400; color: var(--label-3); }
+.dr-pop.bk-pop { background: var(--surface); color: var(--label); border-radius: 16px; }
+.dr-pop .bk-pop-b { padding: 4px 16px 16px; }
+.dr { display: flex; flex-direction: column; gap: 14px; }
+.dr-bar { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border-radius: 999px; background: var(--fill-2); border: 1px solid var(--sep); }
+.dr-bar.single { grid-template-columns: 1fr; }
+.dr-seg { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 34px 8px 18px; border: 0; border-radius: 999px; background: none; color: var(--label); font: inherit; text-align: left; cursor: pointer; }
+.dr-seg:hover:not(.on) { background: var(--fill); }
+.dr-seg.on { background: var(--surface); box-shadow: 0 4px 14px rgba(0, 0, 0, .12); }
+.dr-seg small { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--label-2); }
+.dr-seg b { font-size: 14px; font-weight: 600; }
+.dr-seg i { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--fill); color: var(--label-2); font-style: normal; }
+.dr-seg i:hover { background: var(--sep); color: var(--label); }
+.dr-cal { position: relative; }
+.dr-nav { position: absolute; top: 0; display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 50%; background: none; color: var(--label); cursor: pointer; z-index: 1; }
+.dr-nav:hover { background: var(--fill); }
+.dr-nav.prev { left: 0; } .dr-nav.next { right: 0; }
+.dr-months { display: grid; grid-template-columns: repeat(auto-fit, minmax(252px, 1fr)); gap: 28px; }
+.dr-month h4 { margin: 0 0 10px; height: 32px; line-height: 32px; text-align: center; font-size: 15px; font-weight: 600; color: var(--label); }
+.dr-grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
+.dr-wd { padding-bottom: 6px; text-align: center; font-size: 11px; font-weight: 600; color: var(--label-3); }
+.dr-day { position: relative; aspect-ratio: 1; min-width: 0; padding: 0; border: 0; background: none; color: var(--label); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.dr-day > span { position: relative; z-index: 1; display: grid; place-items: center; width: 100%; height: 100%; border: 1.5px solid transparent; border-radius: 50%; }
+.dr-day:hover > span { border-color: var(--label); }
+.dr-day.is-past { color: var(--label-3); font-weight: 400; }
+.dr-day.is-today > span::after { content: ''; position: absolute; bottom: 5px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; }
+.dr-day.in-range { background: var(--fill); }
+.dr-day.in-range, .dr-day.in-range.is-past { color: var(--label); }
+.dr-day.has-band::before { content: ''; position: absolute; inset: 0; background: var(--fill); }
+.dr-day.has-band.is-start::before { left: 50%; } .dr-day.has-band.is-end::before { right: 50%; }
+.dr-day.is-start > span, .dr-day.is-end > span { background: var(--label); border-color: var(--label); color: var(--surface); }
+.dr-grid > .dr-day.in-range:nth-child(7n + 1), .dr-grid > .dr-day.has-band.is-end:nth-child(7n + 1)::before { border-radius: 999px 0 0 999px; }
+.dr-grid > .dr-day.in-range:nth-child(7n) { border-radius: 0 999px 999px 0; }
+.dr-quick { display: flex; flex-wrap: wrap; gap: 8px; }
+.dr-chip { padding: 6px 14px; border: 1px solid var(--sep); border-radius: 999px; background: var(--surface); color: var(--label); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.dr-chip:hover { border-color: var(--label); }
+.dr-chip.on { border-color: var(--label); background: var(--fill); }
+.dr-times { display: flex; flex-wrap: wrap; gap: 12px; }
+.dr-times label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--label-2); }
+.dr-time { width: auto; min-width: 92px; }
+.dr-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--sep); }
+.dr-clear { padding: 0; border: 0; background: none; color: var(--label); font: inherit; font-size: 13px; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.dr-clear:disabled { color: var(--label-3); cursor: default; text-decoration: none; }
+.tk-span-field { display: flex; flex-direction: column; gap: 6px; grid-column: 1 / -1; font-size: 13px; }
+.tk-span-field > span { color: var(--label-2); }
+.tk-span-field .dr-field, .tk-quick-due .dr-field { align-self: flex-start; }
+/* The task a card is, in the card's window: its facts and subtasks each a card of their own, like the sections around. */
+.cm-left > .tk-card-task.is-linked { gap: 12px; }
+.cm-left > .tk-card-task.is-linked > .tk-card-facts, .cm-left > .tk-card-task.is-linked > .tk-child-tasks-block { margin: 0; padding: 14px 22px; background: var(--surface); border: 1px solid var(--sep); border-radius: 16px; }
+
+/* Tổng quan of the Tasks and Customers pages (FlowOverview.tsx): the admin charts' tokens (.ax), tiles per step, the
+   things needing a hand, then the charts and lists in a grid. */
+.fo { display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 24px; color: var(--ax-ink); }
+.fo-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.fo-tile { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--ax-line); border-radius: 12px; background: var(--ax-surface); box-shadow: var(--ax-shadow); color: var(--ax-ink); font: inherit; text-align: left; }
+button.fo-tile { cursor: pointer; } button.fo-tile:hover { border-color: var(--ax-ink-3); }
+.fo-tile-k { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; color: var(--ax-ink-2); }
+.fo-tile-k i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.fo-tile > b { font-size: 26px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.fo-tile > small { font-size: 12px; color: var(--ax-ink-3); }
+.fo-alert .fo-tile-k { letter-spacing: 0; font-weight: 600; }
+.fo-alert.bad { border-color: color-mix(in srgb, var(--st-critical) 45%, transparent); } .fo-alert.bad .fo-tile-k { color: var(--st-critical); }
+.fo-alert.warn { border-color: color-mix(in srgb, var(--st-warning) 55%, transparent); } .fo-alert.warn .fo-tile-k { color: color-mix(in srgb, var(--st-warning) 70%, var(--ax-ink)); }
+.fo-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: stretch; }
+@media (max-width: 860px) { .fo-grid { grid-template-columns: minmax(0, 1fr); } }
+.fo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.fo-list li + li { border-top: 1px solid var(--ax-line-2); }
+.fo-list button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 4px; border: 0; border-radius: 8px; background: none; color: var(--ax-ink); font: inherit; text-align: left; cursor: pointer; }
+.fo-list button:hover { background: var(--ax-hover); }
+.fo-list-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.fo-list-main b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fo-list-main small { font-size: 12px; color: var(--ax-ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fo-list em { flex: none; font-style: normal; font-size: 12px; font-weight: 600; color: var(--ax-ink-2); font-variant-numeric: tabular-nums; }
+.fo-empty { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 13px; color: var(--ax-ink-3); }
+.fo-links { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; font-size: 12.5px; }
+.fo-links > span { color: var(--ax-ink-3); }
+.fo-switch { margin-left: auto; }
+/* The task page: one button for the review workflow (its step's badge, the steps and moves open under it). */
+.wework-pill-btn.tf-toggle { padding: 0 12px 0 0; gap: 4px; border-color: transparent; background: none; }
+.wework-pill-btn.tf-toggle .tf-badge { height: 34px; }
+.wework-pill-btn.tf-toggle:hover .tf-badge, .wework-pill-btn.tf-toggle.on .tf-badge { box-shadow: inset 0 0 0 1.5px var(--tf); }
+.wework-pill-btn.tf-toggle > svg { color: var(--label-3); }
+.tf-inline { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--sep); }
+.tf-card.tf-bare { padding: 0; border: 0; background: none; box-shadow: none; }
+/* Thông tin chung in the right column. */
+.wework-sidebar .wework-info-card .wework-bento-title { margin-bottom: 12px; }
+.wework-sidebar .wework-info-card .wework-meta-label { width: 76px; }
+.wework-sidebar .wework-info-card .wework-meta-val { min-width: 0; text-align: left; }
+.wework-sidebar .wework-info-card .wework-meta-val > span { overflow-wrap: anywhere; }
+/* Comments on the task page: who and when on one line with room between, the text as written (rich), actions apart. */
+.wework-comments-list { display: flex; flex-direction: column; }
+.wework-comment-header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wework-comment-author { font-size: 13px; font-weight: 600; color: var(--label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wework-comment-time { flex: none; font-size: 11.5px; color: var(--label-3); }
+.wework-comment-body { margin: 4px 0 0 32px; font-size: 13px; line-height: 1.5; color: var(--label); overflow-wrap: anywhere; }
+.wework-reply-item .wework-comment-body { margin-left: 28px; }
+.wework-comment-body p { margin: 0; }
+.wework-comment-actions { display: flex; align-items: center; gap: 14px; margin: 4px 0 0 32px; }
+.wework-reply-item .wework-comment-actions { margin-left: 28px; }
+/* The subtasks card already says what it is: no second heading inside it. */
+.wework-subtasks-card .tk-child-tasks-block > h4 { display: none; }
+/* Ticking workspaces on Tất cả board to delete several at once. */
+.bd-ws-pick { flex: none; width: 17px; height: 17px; margin: 0; accent-color: var(--tint); cursor: pointer; }
+.bd-wsec-h.picked { border-radius: 12px; box-shadow: 0 0 0 2px var(--tint-soft, rgba(11, 125, 242, .18)); }
+.ws-tree-ws-row.picked > * { background: var(--tint-soft, rgba(11, 125, 242, .08)); }
+.bd-ws-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--sep); border-radius: 10px; background: var(--surface); font-size: 13px; color: var(--label-2); }
+.bd-ws-bulk.on { border-color: var(--tint); }
+.bd-ws-bulk label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.bd-ws-bulk label input { width: 16px; height: 16px; margin: 0; accent-color: var(--tint); }
+.bd-ws-bulk > span { margin-left: auto; font-weight: 600; color: var(--label); }
+/* Tổng quan: every number opens what it counts. */
+.ax-bars li.pick { cursor: pointer; }
+.ax-bars li.pick:hover .ax-bar-label { color: var(--tint); text-decoration: underline; }
+.fo-tile.on { border-color: var(--tint); box-shadow: 0 0 0 1px var(--tint); }
+.fo-more { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 0; border: 0; background: none; color: var(--tint); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.fo-more:hover { text-decoration: underline; }
+.fo-drill { scroll-margin-top: 12px; border-color: var(--tint); }
+
+/* Stage badges in the step's own colour: solid (task lists, as on cards) or tinted (beside other text). */
+.tf-solid, .wework-badge.tf-solid { background: var(--tf); color: #fff; }
+.tk-badge.tf-tint, .crm-status.tf-tint { background: color-mix(in srgb, var(--tf) 15%, transparent); color: var(--tf); }

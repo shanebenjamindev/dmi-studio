@@ -7,6 +7,7 @@ import { api } from '../api';
 import { openCard, openLink, openProfile, openTask } from '../store';
 import { Icon } from './ui';
 import { openNote } from './QuickNotes';
+import { stepCode } from './taskkit';
 
 type Tab = 'all' | 'members' | 'tasks' | 'customers' | 'projects' | 'boards' | 'notes';
 const TABS: [Tab, string][] = [['all', 'Tất cả'], ['members', 'Thành viên'], ['tasks', 'Công việc'], ['customers', 'Khách hàng'], ['projects', 'Dự án'], ['boards', 'Board & thẻ'], ['notes', 'Ghi chú']];
@@ -72,7 +73,7 @@ export function GlobalSearch() {
     if (g === 'members') hits.push({ key: `m${it.id}`, group: g, open: go(() => openProfile(it.id)), node: <><span className="gs-av">{it.avatarAt ? <img src={`/api/avatars/${it.id}?v=${it.avatarAt}`} alt="" /> : it.name.charAt(0).toUpperCase()}</span><span className="gs-main"><b><Mark text={it.name} words={words} /></b><small><Mark text={[it.email, it.position, it.department].filter(Boolean).join(' · ')} words={words} /></small></span></> });
     if (g === 'tasks') hits.push({ key: `t${it.id}`, group: g, open: go(() => openTask(it.id)), node: <><span className="gs-ico"><Icon name="checklist" size={16} /></span><span className="gs-main"><b><Mark text={it.title} words={words} /></b>
       <small><Facts list={[it.project && ['Dự án:', it.project.name], it.assignees.length > 0 && ['Người thực hiện:', it.assignees.join(', ')], !!it.dueAt && ['Thời hạn:', day(it.dueAt)]]} /></small>
-      {it.snippet && <small className="gs-snip">Mô tả: <Mark text={it.snippet} words={words} /></small>}</span><span className={'tk-badge ' + (TONE[it.state] || 'idle')}>{it.state === 'overdue' ? 'Quá hạn' : it.status}</span></> });
+      {it.snippet && <small className="gs-snip">Mô tả: <Mark text={it.snippet} words={words} /></small>}</span><span className={'tk-badge ' + (TONE[it.state] || 'idle')}>{it.state === 'overdue' ? 'Quá hạn' : it.stage ? stepCode(it.stage) : it.status}</span></> });
     if (g === 'customers') hits.push({ key: `c${it.id}`, group: g, open: go(() => openLink(`#customers/${it.id}`)), node: <><span className="gs-ico"><Icon name="users" size={16} /></span><span className="gs-main"><b><Mark text={it.name} words={words} /></b><small><Mark text={[it.contact, it.phone, it.email].filter(Boolean).join(' · ')} words={words} /></small></span></> });
     if (g === 'projects') hits.push({ key: `p${it.id}`, group: g, open: go(() => openLink(`#projects/${it.id}`)), node: <><span className="gs-ico"><Icon name="folder" size={16} /></span><span className="gs-main"><b><Mark text={it.name} words={words} /></b><small>{it.customer && <Facts list={[['Khách hàng:', it.customer]]} />}{it.customer && ' · '}{`${it.tasks} công việc`}</small></span></> });
     if (g === 'boards') hits.push({ key: `b${it.id}`, group: g, open: go(() => (it.kind === 'card' ? openCard(it.boardId, it.id) : openLink(`#boards/${it.id}`))), node: <><span className="gs-ico"><Icon name={it.kind === 'card' ? 'card' : 'boards'} size={16} /></span><span className="gs-main"><b><Mark text={it.kind === 'card' ? it.title : it.name} words={words} /></b><small>{it.kind === 'card' ? `${it.boardName} · ${it.listName}` : 'Board'}</small></span></> });

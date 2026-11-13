@@ -23,16 +23,18 @@ export const isClosedStage = (s: FlowStage | null | undefined) => s === 'complet
 /** The stage each outcome leads to. */
 export const OUTCOME_STAGE: Record<FlowOutcome, FlowStage> = { pass: 'completed', redo: 'execution', fail: 'rejected' };
 
-/** What admins set in Quản trị › Công việc › Quy trình công việc: each stage's name and the status it gives a task, and
+/** What admins set in Quản trị › Công việc › Quy trình công việc: each stage's name, the status it gives a task and the
+ *  colour of its badge, and
  *  the reminders (a review waiting `reviewRemindHours`, sent from `remindHour` Vietnam time, for `remindDays` days). */
 export interface FlowConfig {
-  stages: Record<FlowStage, { name: string; status: string }>;
+  stages: Record<FlowStage, { name: string; status: string; color: string }>;
   reviewRemindHours: number; remindDays: number; remindHour: number;
 }
 export const DEFAULT_FLOW: FlowConfig = {
   stages: {
-    account: { name: 'Tiếp nhận', status: 'Chưa thực hiện' }, execution: { name: 'Thực hiện', status: 'Đang thực hiện' },
-    review: { name: 'Chờ duyệt', status: 'Đang đánh giá' }, completed: { name: 'Hoàn thành', status: 'Hoàn thành' }, rejected: { name: 'Từ chối', status: 'Đã huỷ' },
+    account: { name: 'Tiếp nhận', status: 'Chưa thực hiện', color: '#64748b' }, execution: { name: 'Thực hiện', status: 'Đang thực hiện', color: '#2563eb' },
+    review: { name: 'Chờ duyệt', status: 'Đang đánh giá', color: '#8b5cf6' }, completed: { name: 'Hoàn thành', status: 'Hoàn thành', color: '#16a34a' },
+    rejected: { name: 'Từ chối', status: 'Đã huỷ', color: '#ef4444' },
   },
   reviewRemindHours: 24, remindDays: 7, remindHour: 8,
 };
@@ -41,6 +43,10 @@ export function flowConfig(x: any): FlowConfig {
   const num = (v: unknown, min: number, max: number, d: number) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= min && n <= max ? n : d; };
   const str = (v: unknown, d: string) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 60); return t || d; };
   const stages = {} as FlowConfig['stages'];
-  for (const { key } of FLOW_STAGES) stages[key] = { name: str(x?.stages?.[key]?.name, DEFAULT_FLOW.stages[key].name), status: str(x?.stages?.[key]?.status, DEFAULT_FLOW.stages[key].status) };
+  const hex = (v: unknown, d: string) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : d);
+  for (const { key } of FLOW_STAGES) stages[key] = { name: str(x?.stages?.[key]?.name, DEFAULT_FLOW.stages[key].name), status: str(x?.stages?.[key]?.status, DEFAULT_FLOW.stages[key].status), color: hex(x?.stages?.[key]?.color, DEFAULT_FLOW.stages[key].color) };
   return { stages, reviewRemindHours: num(x?.reviewRemindHours, 1, 720, 24), remindDays: num(x?.remindDays, 1, 60, 7), remindHour: num(x?.remindHour, 0, 23, 8) };
 }
+
+/** Each stage's badge colour, as the page's CSS variables (--stage-account…): every badge of a stage wears it. */
+export const flowColors = (cfg: FlowConfig) => Object.fromEntries(FLOW_STAGES.map(({ key }) => [key, cfg.stages[key].color])) as Record<FlowStage, string>;

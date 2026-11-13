@@ -6,6 +6,7 @@ import { Icon } from './ui';
 import { ADS_SUMMARY_COLUMNS, type AdsService, type AdsSummary as SummaryData, type AdsSummaryRow, type SummaryConversion, type SummaryKpi } from '../../../shared/ads-summary';
 import { shiftDay, summaryUntil } from '../../../server/ads-summary-math';
 import type { AdAccount } from '../types';
+import { DayRangeField } from './DateRange';
 
 const TYPES:SummaryConversion[]=['LeadForm','Messages','Traffic','Engagement'];
 const KPIS:SummaryKpi[]=['Auto','CPL','CPA','CPMe','CPLC','CPC','CTR','Primary Results'];
@@ -35,7 +36,7 @@ export function AdsSummary({accounts,accountError}:{accounts:AdAccount[];account
   return <>
     <div className="as-toolbar">
       <label className="rp-search"><Icon name="search" size={15}/><input placeholder="Tìm khách, dịch vụ, người phụ trách…" aria-label="Tìm dòng báo cáo" value={query} onChange={e=>setQuery(e.target.value)}/></label>
-      <label>Đến ngày<input type="date" max={maxDay()} value={until} onChange={e=>e.target.value&&setUntil(e.target.value)}/></label>
+      <DayRangeField single from="" to={until} max={maxDay()} endLabel="Đến ngày" onChange={(_,t)=>t&&setUntil(t)}/>
       <select aria-label="Service Status" value={status} onChange={e=>setStatus(e.target.value)}><option value="">Mọi Service Status</option>{[...new Set(data?.rows.map(r=>r.serviceStatus)||[])].map(s=><option key={s}>{s}</option>)}</select>
       <select aria-label="Conversion Type" value={type} onChange={e=>setType(e.target.value)}><option value="">Mọi Conversion Type</option>{TYPES.map(t=><option key={t}>{t}</option>)}</select>
       <button className="btn btn-gray btn-sm" disabled={busy} onClick={()=>read(true)}><Icon name="refresh" size={14}/>{busy?'Đang lấy số liệu…':'Làm mới'}</button>

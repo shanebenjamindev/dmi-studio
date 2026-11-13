@@ -11,7 +11,8 @@ import {EntitySelect,useEntityRefresh} from './QuickCreate';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { EmployeePicker, EmployeeAvatars, MemberChoices } from './EmployeePicker';
 import { MemberAvatar } from './MemberAvatar';
-import { Avatar, Pop, ago, dateIn, dueState, fullDate, timeIn } from './boardkit';
+import { Avatar, Pop, ago, dueState, fullDate } from './boardkit';
+import { ClientServiceFields, ClientServicePop, placeOf } from './ClientServicePick';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { useStore, toast, getState, goto } from '../store';
@@ -22,10 +23,14 @@ import { RichEditor, RichView } from './RichText';
 import { normName, readTaskExport, readTaskSheet } from '../../../server/taskimport';
 import { CardModal } from './CardModal';
 import type { Board, BoardItem, TaskWrite, TaskDetail, TaskImportResult, TaskItem, TaskMeta, TaskState } from '../types';
-import { STATE, Badge, when } from './taskkit';
+import { Badge, STEP_ORDER, stepCode, stepGroup, when } from './taskkit';
 import { SubtaskTree, addSubtask } from './Subtasks';
 import { ServicePicker } from './ServicePicker';
 import { FlowBadge, TaskFlow } from './TaskFlow';
+import { SpanField, SpanPop, fromLocal, toLocal } from './DateRange';
+import { FlowOverview } from './FlowOverview';
+import { FLOW_FILTERS, FLOW_FILTER_LABEL } from '../../../shared/flow-filter';
+import type { FlowStage } from '../../../shared/task-flow';
 
 const initials = (n: string) => n.replace(/^@/, '').split(/[\s._-]+/).filter(Boolean).slice(-2).map((w) => w[0]).join('').toUpperCase() || '?';
 
@@ -50,6 +55,9 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deletingMany, setDeletingMany] = useState(false);
   const [taskListFolded, setTaskListFolded] = useState(false);
+  // Danh sách or Tổng quan (FlowOverview), remembered per browser.
+  const [overview, setOverviewState] = useState(() => { try { return localStorage.getItem('dms.taskOverview') === '1'; } catch { return false; } });
+  const setOverview = (on: boolean) => { setOverviewState(on); try { localStorage.setItem('dms.taskOverview', on ? '1' : '0'); } catch { /* private mode */ } };
   const listPane=useRef<HTMLElement>(null),listScroll=useRef(0);
   useLayoutEffect(()=>{if(listPane.current)listPane.current.scrollTop=open?0:listScroll.current;},[!!open]);
   const [full, setFull] = useState(onTaskPage);
@@ -116,10 +124,10 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   }, []);
 
   useEffect(() => {
-    if (!embedded && data?.tasks?.length && !open && !location.hash.startsWith('#tasks/')) {
+    if (!embedded && !overview && data?.tasks?.length && !open && !location.hash.startsWith('#tasks/')) {
       showTask(data.tasks[0].id);
     }
-  }, [data?.tasks, open, embedded]);
+  }, [data?.tasks, open, embedded, overview]);
 
   const toggleTaskDone = async (t: TaskItem) => {
     const finished = t.state === 'done' || t.state === 'done_late';
@@ -205,7 +213,7 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
           </div>
         )}
         <label className="tk-find"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm công việc, dự án, nhãn, mã" aria-label="Tìm công việc" /></label>
-        <label className="tk-pick"><Icon name="filter" size={14} /><select aria-label="Trạng thái" value={state} onChange={(e) => setState(e.target.value)}><option value="">Tất cả trạng thái</option><option value="open">Chưa xong</option><option value="overdue">Quá hạn</option><option value="done">Hoàn thành</option></select></label>
+        <label className="tk-pick"><Icon name="filter" size={14} /><select aria-label="Quy trình" value={state} onChange={(e) => setState(e.target.value)}><FlowFilterOptions /></select></label>
         {!initialProject && <label className="tk-pick"><Icon name="folder" size={14} /><EntitySelect kind="project" onCreated={async()=>setMeta(await api.taskMeta())} value={project} onChange={v=>{setProject(v);setCampaign('');}} aria-label="Dự án">
           <option value="">Tất cả dự án</option>
           {meta?.projects.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.tasks})</option>)}
@@ -215,7 +223,8 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
           <option value="">Cả team</option>
           {meta?.users.filter((u) => !teamId || u.teamId === teamId || (u.workTeamIds || []).includes(teamId)).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
         </EntitySelect></label>}
-        {effectiveView !== 'table' && <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}><option value="due">Thời hạn</option><option value="status">Trạng thái</option><option value="project">Dự án</option></select></label>}
+        <div className="ax-seg fo-switch" role="radiogroup" aria-label="Cách xem công việc">{([[false, 'Danh sách'], [true, 'Tổng quan']] as const).map(([on, label]) => <button key={label} role="radio" aria-checked={overview === on} onClick={() => setOverview(on)}>{label}</button>)}</div>
+        {!overview && effectiveView !== 'table' && <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}><option value="due">Thời hạn</option><option value="status">Quy trình</option><option value="project">Dự án</option></select></label>}
       </div>}
       {error ? <p className="note err" role="alert">{error} <button className="btn btn-gray btn-sm" onClick={load}>Thử lại</button></p> : !data ? <BrandLoading label="Đang tải…"/> : !data.tasks.length ? (
         <p className="note">{meta && !meta.people.length ? (admin ? 'Chưa có dữ liệu công việc. Bấm “Thêm file sheet” và chọn file hoặc dán bảng.' : 'Chưa có dữ liệu công việc. Quản trị viên cần nhập dữ liệu trước.') : listed === 'mine' && !state && !q.trim() && !project && !campaign ? 'Chưa có công việc nào giao cho bạn, có tên bạn trên thẻ, hoặc bạn đang theo dõi.' : 'Không có công việc nào khớp.'}</p>
@@ -238,8 +247,11 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
           projectName={projectName}
           meta={meta}
           onFold={() => setTaskListFolded(true)}
+          onOverview={() => { showTask(null); setOverview(true); }}
         />
-      ) : effectiveView === 'table' ? <TaskTable tasks={data.tasks} selected={open} onOpen={showTask} selection={selection} />
+      ) : overview ? <FlowOverview rows={data.tasks.map((t) => { const p = meta?.projects.find((x) => x.id === t.project?.id); return { ...t, customer: p?.customerId ? { id: p.customerId, name: p.customerName || '' } : null }; })}
+          onOpenTask={(id) => showTask(id)} onPick={(f) => { setData(null); setState(f); setOverview(false); }} />
+        : effectiveView === 'table' ? <TaskTable tasks={data.tasks} selected={open} onOpen={showTask} selection={selection} />
         : <TaskGroups tasks={data.tasks} groupBy={groupBy} selected={open} onOpen={showTask} onNew={() => setCreating(true)} onChanged={load} selection={selection} />}
       </section>
       {open && !taskListFolded && <ResizeHandle cssVar="--rd-list-w" storage={embedded ? 'tasks-embedded' : 'tasks'} min={220} max={640} label="Đổi độ rộng danh sách công việc" />}
@@ -305,6 +317,15 @@ function byWeek(tasks: TaskItem[]) {
   return sorted;
 }
 
+/** The filters of the task lists: every step, then what needs a hand (shared/flow-filter.ts; Tổng quan's numbers). */
+function FlowFilterOptions() {
+  return <>
+    <option value="">Tất cả bước</option>
+    <optgroup label="Bước">{STEP_ORDER.map((k) => <option key={k} value={k}>{stepCode(k as FlowStage)}</option>)}</optgroup>
+    <optgroup label="Cần chú ý"><option value="open">Chưa xong</option>{FLOW_FILTERS.filter((f) => !STEP_ORDER.includes(f)).map((f) => <option key={f} value={f}>{FLOW_FILTER_LABEL[f]}</option>)}</optgroup>
+  </>;
+}
+
 function TaskReadingList({
   tasks,
   groupBy,
@@ -323,6 +344,7 @@ function TaskReadingList({
   projectName,
   meta,
   onFold,
+  onOverview,
 }: {
   tasks: TaskItem[];
   groupBy?: string;
@@ -341,6 +363,8 @@ function TaskReadingList({
   projectName?: string;
   meta?: TaskMeta | null;
   onFold?: () => void;
+  /** Leave the open task for Tổng quan. */
+  onOverview?: () => void;
 }) {
   const user = useStore((s) => s.user);
 
@@ -349,7 +373,7 @@ function TaskReadingList({
       return byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dự án');
     }
     if (groupBy === 'status') {
-      return byKey(tasks, (t) => ({ key: t.state, label: STATE[t.state]?.[0] || t.status || 'Khác' }), 'Khác');
+      return byKey(tasks, stepGroup, 'Khác', STEP_ORDER);
     }
     return byWeek(tasks);
   }, [tasks, groupBy]);
@@ -374,6 +398,7 @@ function TaskReadingList({
               <Icon name="left" size={14} />
             </button>
           )}
+          {onOverview && <button type="button" className="bd-icon" onClick={onOverview} title="Tổng quan công việc" aria-label="Tổng quan công việc"><Icon name="chart" size={15} /></button>}
           {onNew && (
             <button type="button" className="btn btn-primary btn-sm" onClick={onNew} title="Thêm công việc mới">
               <Icon name="plus" size={13} />
@@ -401,12 +426,9 @@ function TaskReadingList({
           style={{ width: 'auto', fontSize: 12, height: 34, padding: '0 8px', borderRadius: 8, background: 'var(--fill-2)', border: '1px solid var(--sep)', color: 'var(--label)' }}
           value={state}
           onChange={(e) => setState(e.target.value)}
-          aria-label="Lọc trạng thái"
+          aria-label="Lọc theo quy trình"
         >
-          <option value="">Tất cả</option>
-          <option value="open">Chưa xong</option>
-          <option value="overdue">Quá hạn</option>
-          <option value="done">Hoàn thành</option>
+          <FlowFilterOptions />
         </select>
       </div>
 
@@ -417,7 +439,7 @@ function TaskReadingList({
             {g.rows.map((t) => {
               const isDone = t.state === 'done' || t.state === 'done_late';
               const isSelected = selected === t.id;
-              const isDoing = t.state === 'doing' || t.status.toLowerCase().includes('đang');
+              const isDoing = t.stage ? t.stage === 'execution' || t.stage === 'review' : t.state === 'doing' || t.status.toLowerCase().includes('đang');
               const assignee = t.assignees[0];
 
               return (
@@ -485,13 +507,10 @@ function TaskReadingList({
                     </div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flex: 'none' }}>
-                    {isDone ? (
-                      <span className="wework-badge done">HOÀN THÀNH</span>
-                    ) : isDoing ? (
-                      <span className="wework-badge doing">ĐANG LÀM</span>
-                    ) : (
-                      <span className="wework-badge" style={{ background: 'var(--fill)', color: 'var(--label-2)' }}>{t.status || 'CHƯA XONG'}</span>
-                    )}
+                    {t.stage ? <span className={'wework-badge tf-solid tf-' + t.stage}>{stepCode(t.stage)}</span>
+                      : isDone ? <span className="wework-badge done">HOÀN THÀNH</span>
+                      : isDoing ? <span className="wework-badge doing">ĐANG LÀM</span>
+                      : <span className="wework-badge" style={{ background: 'var(--fill)', color: 'var(--label-2)' }}>{t.status || 'CHƯA XONG'}</span>}
                     {assignee && <Avatar m={{ id: assignee.id, name: assignee.name }} size={22} />}
                   </div>
                 </div>
@@ -514,8 +533,7 @@ function TaskGroups({ tasks, groupBy, selected, onOpen, onNew, onChanged, select
     try { await api.updateTask(t.id, { status: finished(t) ? 'Chưa thực hiện' : 'Hoàn thành' }); onChanged(); }
     catch (e: any) { toast(e.message, true); }
   };
-  const order = ['overdue', 'doing', 'todo', 'paused', 'other', 'done_late', 'done', 'cancelled'];
-  const groups = groupBy === 'status' ? byKey(tasks, (t) => ({ key: t.state, label: STATE[t.state][0] || t.status || 'Khác' }), 'Khác', order).map((g) => ({ ...g, onAdd: onNew }))
+  const groups = groupBy === 'status' ? byKey(tasks, stepGroup, 'Khác', STEP_ORDER).map((g) => ({ ...g, onAdd: onNew }))
     : groupBy === 'project' ? byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dự án').map((g) => ({ ...g, onAdd: onNew }))
     : byDueDate(tasks, onNew);
   return <GroupedList foldKey={`dms.taskFold.${groupBy}`} groups={groups} nameLabel="Tên công việc" addLabel="Tạo công việc" onOpen={(t) => onOpen(t.id)} selected={selected}
@@ -523,7 +541,7 @@ function TaskGroups({ tasks, groupBy, selected, onOpen, onNew, onChanged, select
     check={{ done: finished, toggle: (t) => void toggle(t), label: (t) => (finished(t) ? `Mở lại “${t.title}”` : `Hoàn thành “${t.title}”`) }}
     name={(t) => <><span className={finished(t) ? 'tk-done-title' : ''}>{t.title}</span>{t.children > 0 && <small className="tk-kids">{t.children} việc con</small>}{t.parent && <small className="tk-parent-of" title="Công việc cha"><Icon name="up" size={11} />{t.parent.title}</small>}</>}
     columns={[
-      { key: 'status', label: 'Trạng thái', width: 130, render: (t) => <Badge t={t} /> },
+      { key: 'status', label: 'Quy trình', width: 130, render: (t) => <Badge t={t} /> },
       // Those given the task, then the people on its card (it is listed as their work too).
       { key: 'who', label: 'Người làm', width: 110, render: (t) => <EmployeeAvatars people={[...t.assignees, ...(t.cardPeople || [])]} /> },
       { key: 'start', label: 'Bắt đầu', width: 120, render: (t) => when(t.startAt) },
@@ -547,7 +565,7 @@ function TaskTable({ tasks, selected, onOpen, selection }: { tasks: TaskItem[]; 
         <thead>
           <tr>
             {selection && <th style={{ width: 36, minWidth: 36, textAlign: 'center' }} scope="col">{selection.toggleAll && <input type="checkbox" checked={!!selection.all} onChange={(e) => selection.toggleAll!(e.target.checked)} aria-label="Chọn tất cả để thao tác" />}</th>}
-            {['Mã công việc', 'Tên công việc', 'Trạng thái', 'Dự án', 'Dịch vụ', 'Board / thẻ', 'Giao cho', 'Ngày bắt đầu', 'Thời hạn', 'Hoàn thành', 'Công việc cha', 'Nhãn', 'Tạo bởi', 'Cập nhật'].map(label => <th key={label} scope="col">{label}</th>)}
+            {['Mã công việc', 'Tên công việc', 'Quy trình', 'Dự án', 'Dịch vụ', 'Board / thẻ', 'Giao cho', 'Ngày bắt đầu', 'Thời hạn', 'Hoàn thành', 'Công việc cha', 'Nhãn', 'Tạo bởi', 'Cập nhật'].map(label => <th key={label} scope="col">{label}</th>)}
           </tr>
         </thead>
         <tbody>{pageTasks.map(t => <tr key={t.id} className={(selected === t.id ? 'on' : '') + (selection?.selected.includes(t.id) ? ' checked' : '')}>
@@ -587,13 +605,15 @@ function WeworkTaskView({
   onUnfoldList?: () => void;
 }) {
   const me = useStore((s) => s.user)!;
-  const [pop, setPop] = useState<{ kind: 'status' | 'members' | 'dates' | 'project' | 'actions'; el: HTMLElement } | null>(null);
+  const [pop, setPop] = useState<{ kind: 'members' | 'dates' | 'project' | 'actions'; el: HTMLElement } | null>(null);
   const [busy, setBusy] = useState(false);
   const [titleDraft, setTitleDraft] = useState(t.title);
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState(t.description || '');
   const [foldAssignor, setFoldAssignor] = useState(false);
   const [foldFollowers, setFoldFollowers] = useState(false);
+  // The review workflow opens from its step's badge (one button), shut until then.
+  const [flowOpen, setFlowOpen] = useState(false);
   const [foldActivity, setFoldActivity] = useState(false);
   const [starred, setStarred] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
@@ -622,21 +642,9 @@ function WeworkTaskView({
     return () => window.removeEventListener('dms:add-subtask', handleAddSubtask);
   }, [t]);
 
-  // Dates state for date picker popover
-  const [hasStart, setHasStart] = useState(!!t.startAt);
-  const [startDate, setStartDate] = useState(dateIn(t.startAt || Date.now()));
-  const [hasDue, setHasDue] = useState(!!t.dueAt || !t.startAt);
-  const [dueDate, setDueDate] = useState(dateIn(t.dueAt || Date.now() + 864e5 * 7));
-  const [dueTime, setDueTime] = useState(t.dueAt ? timeIn(t.dueAt) : '10:30');
-
   useEffect(() => {
     setTitleDraft(t.title);
     setDescDraft(t.description || '');
-    setHasStart(!!t.startAt);
-    setStartDate(dateIn(t.startAt || Date.now()));
-    setHasDue(!!t.dueAt || !t.startAt);
-    setDueDate(dateIn(t.dueAt || Date.now() + 864e5 * 7));
-    setDueTime(t.dueAt ? timeIn(t.dueAt) : '10:30');
     setComments(t.comments || []);
     setActivity(t.activity || []);
     setReplyingTo(null);
@@ -653,8 +661,6 @@ function WeworkTaskView({
 
   const roles = useStore((s) => s.roles);
   const edit = t.canEdit;
-  const statusLabel = STATE[t.state]?.[0] || t.status || 'Đang làm';
-  const allStatuses = statuses.length ? statuses : ['Chưa thực hiện', 'Đang làm', 'Đang đánh giá', 'Tạm dừng', 'Hoàn thành', 'Đã huỷ'];
 
   const hasAssignee = t.assignees.length > 0;
   const assignee = t.assignees[0];
@@ -670,6 +676,12 @@ function WeworkTaskView({
 
   const projObj = t.project?.id ? meta?.projects.find((p) => p.id === t.project!.id) : null;
   const customerName = projObj?.customerName || null;
+  const place = placeOf(meta?.projects, t.project?.id);
+  const placeService = place.service || t.services?.[0] || null;
+  // Picking a customer and a service puts the task in that pair's project, and the service among the task's own.
+  const pickPlace = async (projectId: string, serviceId: string) => act(() => api.updateTask(t.id, {
+    projectId, services: [...new Set([serviceId, ...(t.services || []).map((s) => s.id)])],
+  }));
 
   const closePop = () => setPop(null);
 
@@ -795,11 +807,9 @@ function WeworkTaskView({
           />
 
           <div className="wework-controls-bar">
-            {t.flow && <FlowBadge stage={t.flow.stage} stages={t.flow.stages} />}
-            <button className="wework-pill-btn" onClick={(e) => setPop({ kind: 'status', el: e.currentTarget })} title="Đổi trạng thái">
-              <b>{statusLabel}</b>
-              <Icon name="chevron" size={11} />
-            </button>
+            {t.flow ? <button type="button" className={'wework-pill-btn tf-toggle' + (flowOpen ? ' on' : '')} aria-expanded={flowOpen} aria-controls="task-flow" title={flowOpen ? 'Ẩn quy trình duyệt' : 'Mở quy trình duyệt'} onClick={() => setFlowOpen(!flowOpen)}>
+              <FlowBadge stage={t.flow.stage} /><Icon name={flowOpen ? 'up' : 'chevron'} size={11} />
+            </button> : <Badge t={t} />}
             {hasAssignee ? (
               <button className="wework-pill-btn" onClick={(e) => setPop({ kind: 'members', el: e.currentTarget })} title="Người thực hiện">
                 <Avatar m={{ id: assignee.id, name: assigneeName }} size={20} />
@@ -816,90 +826,7 @@ function WeworkTaskView({
               </button>
             )}
           </div>
-        </section>
-
-        <TaskFlow task={t} meta={meta} onChanged={onChanged} />
-
-        {/* Bento Box 2: Thông tin chung */}
-        <section className="wework-bento-card wework-info-card">
-          <div className="wework-bento-title">
-            <Icon name="folder" size={14} />
-            <span>THÔNG TIN CHUNG</span>
-          </div>
-          <div className="wework-meta-list">
-            <div className="wework-meta-row">
-              <span className="wework-meta-ico"><Icon name="folder" size={15} /></span>
-              <span className="wework-meta-label">Dự án</span>
-              <button className="wework-meta-val" onClick={(e) => setPop({ kind: 'project', el: e.currentTarget })}>
-                <span>{t.project ? t.project.name : 'Không có dự án'}</span>
-                <Icon name="chevron" size={11} />
-              </button>
-            </div>
-            {customerName && (
-              <div className="wework-meta-row">
-                <span className="wework-meta-ico"><Icon name="briefcase" size={15} /></span>
-                <span className="wework-meta-label">Khách hàng</span>
-                <span className="wework-meta-val" style={{ cursor: 'default' }}>
-                  <span>{customerName}</span>
-                </span>
-              </div>
-            )}
-            {t.campaign?.name && t.campaign.name !== 'Công việc hiện có' && (
-              <div className="wework-meta-row">
-                <span className="wework-meta-ico"><Icon name="tag" size={15} /></span>
-                <span className="wework-meta-label">Chiến dịch</span>
-                <span className="wework-meta-val" style={{ cursor: 'default' }}>
-                  <span>{t.campaign.name}</span>
-                </span>
-              </div>
-            )}
-            <div className="wework-meta-row">
-              <span className="wework-meta-ico"><Icon name="clock" size={15} /></span>
-              <span className="wework-meta-label">Thời hạn</span>
-              <button className="wework-meta-val blue" onClick={(e) => setPop({ kind: 'dates', el: e.currentTarget })}>
-                <span>{t.dueAt ? `${t.startAt ? `${formatWeworkDateTime(t.startAt)} → ` : ''}${formatWeworkDate(t.dueAt)}` : 'Chưa đặt thời hạn'}</span>
-              </button>
-            </div>
-            <div className="wework-meta-row" style={{ alignItems: 'flex-start' }}>
-              <span className="wework-meta-ico" style={{ marginTop: 4, display: 'inline-flex' }}><Icon name="tag" size={15} /></span>
-              <span className="wework-meta-label" style={{ marginTop: 4 }}>Dịch vụ</span>
-              <div style={{ flex: 1 }}>
-                <TaskServices task={t} meta={meta} onSaved={onChanged} />
-              </div>
-            </div>
-            <div className="wework-meta-row" style={{ alignItems: 'flex-start' }}>
-              <span className="wework-meta-ico" style={{ marginTop: 4, display: 'inline-flex' }}><Icon name="tag" size={15} /></span>
-              <span className="wework-meta-label" style={{ marginTop: 4 }}>Nhãn / Tag</span>
-              <div className="tk-tag-chips" style={{ flex: 1, gap: 6 }}>
-                {((meta?.labels && meta.labels.length > 0) ? meta.labels : [
-                  { id: 'tl_urgent', name: 'Khẩn cấp', color: '#ef4444' },
-                  { id: 'tl_paidads', name: 'Paid Ads', color: '#0b7df2' },
-                ]).map((lbl) => {
-                  const active = (t.labels || []).some((l) => l.toLowerCase() === lbl.name.toLowerCase());
-                  const isUrgent = lbl.name.toLowerCase().includes('khẩn') || lbl.name.toLowerCase().includes('gấp');
-                  return (
-                    <button
-                      key={lbl.id || lbl.name}
-                      type="button"
-                      className={'tk-tag-chip' + (active ? ' active' : '') + (isUrgent ? ' urgent' : '')}
-                      style={{ fontSize: 11, padding: '3px 9px' }}
-                      onClick={() => {
-                        const curr = t.labels || [];
-                        const next = active
-                          ? curr.filter((l) => l.toLowerCase() !== lbl.name.toLowerCase())
-                          : [...curr, lbl.name];
-                        void act(() => api.updateTask(t.id, { labels: next }));
-                      }}
-                      title={active ? `Bỏ chọn nhãn ${lbl.name}` : `Chọn nhãn ${lbl.name}`}
-                    >
-                      {lbl.name}
-                      {active && <span className="tk-tag-check">✔</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+          {t.flow && flowOpen && <div id="task-flow" className="tf-inline"><TaskFlow task={t} meta={meta} bare onChanged={onChanged} /></div>}
         </section>
 
         {/* Bento Box 3: Mô tả công việc */}
@@ -966,6 +893,88 @@ function WeworkTaskView({
             </button>
           )}
         </div>
+
+        {/* Thông tin chung, beside the work rather than above it. */}
+        <section className="wework-sidebar-card wework-info-card">
+          <div className="wework-bento-title">
+            <Icon name="folder" size={14} />
+            <span>THÔNG TIN CHUNG</span>
+          </div>
+          <div className="wework-meta-list">
+            <div className="wework-meta-row">
+              <span className="wework-meta-ico"><Icon name="users" size={15} /></span>
+              <span className="wework-meta-label">Khách hàng</span>
+              <button className="wework-meta-val" disabled={!t.canEdit} onClick={(e) => setPop({ kind: 'project', el: e.currentTarget })}>
+                <span>{customerName || 'Chọn khách hàng'}</span>
+                {t.canEdit && <Icon name="chevron" size={11} />}
+              </button>
+            </div>
+            <div className="wework-meta-row">
+              <span className="wework-meta-ico"><Icon name="layers" size={15} /></span>
+              <span className="wework-meta-label">Dịch vụ</span>
+              <button className="wework-meta-val" disabled={!t.canEdit} onClick={(e) => setPop({ kind: 'project', el: e.currentTarget })}
+                title={t.project && placeService && t.project.name !== placeService.name ? `Thuộc: ${t.project.name}` : undefined}>
+                <span>{placeService?.name || (t.project ? t.project.name : 'Chọn dịch vụ')}</span>
+                {t.canEdit && <Icon name="chevron" size={11} />}
+              </button>
+            </div>
+            {t.campaign?.name && t.campaign.name !== 'Công việc hiện có' && (
+              <div className="wework-meta-row">
+                <span className="wework-meta-ico"><Icon name="tag" size={15} /></span>
+                <span className="wework-meta-label">Chiến dịch</span>
+                <span className="wework-meta-val" style={{ cursor: 'default' }}>
+                  <span>{t.campaign.name}</span>
+                </span>
+              </div>
+            )}
+            <div className="wework-meta-row">
+              <span className="wework-meta-ico"><Icon name="clock" size={15} /></span>
+              <span className="wework-meta-label">Thời hạn</span>
+              <button className="wework-meta-val blue" onClick={(e) => setPop({ kind: 'dates', el: e.currentTarget })}>
+                <span>{t.dueAt ? `${t.startAt ? `${formatWeworkDateTime(t.startAt)} → ` : ''}${formatWeworkDate(t.dueAt)}` : 'Chưa đặt thời hạn'}</span>
+              </button>
+            </div>
+            <div className="wework-meta-row" style={{ alignItems: 'flex-start' }}>
+              <span className="wework-meta-ico" style={{ marginTop: 4, display: 'inline-flex' }}><Icon name="tag" size={15} /></span>
+              <span className="wework-meta-label" style={{ marginTop: 4 }}>Dịch vụ kèm</span>
+              <div style={{ flex: 1 }}>
+                <TaskServices task={t} meta={meta} onSaved={onChanged} />
+              </div>
+            </div>
+            <div className="wework-meta-row" style={{ alignItems: 'flex-start' }}>
+              <span className="wework-meta-ico" style={{ marginTop: 4, display: 'inline-flex' }}><Icon name="tag" size={15} /></span>
+              <span className="wework-meta-label" style={{ marginTop: 4 }}>Nhãn / Tag</span>
+              <div className="tk-tag-chips" style={{ flex: 1, gap: 6 }}>
+                {((meta?.labels && meta.labels.length > 0) ? meta.labels : [
+                  { id: 'tl_urgent', name: 'Khẩn cấp', color: '#ef4444' },
+                  { id: 'tl_paidads', name: 'Paid Ads', color: '#0b7df2' },
+                ]).map((lbl) => {
+                  const active = (t.labels || []).some((l) => l.toLowerCase() === lbl.name.toLowerCase());
+                  const isUrgent = lbl.name.toLowerCase().includes('khẩn') || lbl.name.toLowerCase().includes('gấp');
+                  return (
+                    <button
+                      key={lbl.id || lbl.name}
+                      type="button"
+                      className={'tk-tag-chip' + (active ? ' active' : '') + (isUrgent ? ' urgent' : '')}
+                      style={{ fontSize: 11, padding: '3px 9px' }}
+                      onClick={() => {
+                        const curr = t.labels || [];
+                        const next = active
+                          ? curr.filter((l) => l.toLowerCase() !== lbl.name.toLowerCase())
+                          : [...curr, lbl.name];
+                        void act(() => api.updateTask(t.id, { labels: next }));
+                      }}
+                      title={active ? `Bỏ chọn nhãn ${lbl.name}` : `Chọn nhãn ${lbl.name}`}
+                    >
+                      {lbl.name}
+                      {active && <span className="tk-tag-check">✔</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
 
         <div className="wework-sidebar-card">
           <div className="wework-sec-block">
@@ -1059,7 +1068,7 @@ function WeworkTaskView({
                             <b className="wework-comment-author">{c.userName}</b>
                             <span className="wework-comment-time">{ago(c.createdAt)}</span>
                           </div>
-                          <div className="wework-comment-body">{c.text}</div>
+                          <div className="wework-comment-body"><RichView text={c.text} /></div>
                           <div className="wework-comment-actions">
                             <button
                               type="button"
@@ -1093,7 +1102,7 @@ function WeworkTaskView({
                                   <b className="wework-comment-author">{r.userName}</b>
                                   <span className="wework-comment-time">{ago(r.createdAt)}</span>
                                 </div>
-                                <div className="wework-comment-body">{r.text}</div>
+                                <div className="wework-comment-body"><RichView text={r.text} /></div>
                                 <div className="wework-comment-actions">
                                   <button
                                     type="button"
@@ -1226,18 +1235,6 @@ function WeworkTaskView({
       )}
 
       {/* Popovers */}
-      {pop?.kind === 'status' && (
-        <Pop anchor={pop.el} title="Đổi trạng thái" onClose={closePop}>
-          <div className="bk-menu">
-            {allStatuses.map((s) => (
-              <button key={s} onClick={() => { closePop(); void act(() => api.setTaskStatus(t.id, s)); }}>
-                <span>{s}</span>
-                {t.status === s && <Icon name="check" size={15} />}
-              </button>
-            ))}
-          </div>
-        </Pop>
-      )}
 
       {pop?.kind === 'members' && meta && (
         <Pop anchor={pop.el} title="Thành viên" onClose={closePop}>
@@ -1245,35 +1242,13 @@ function WeworkTaskView({
         </Pop>
       )}
 
-      {pop?.kind === 'project' && meta && (
-        <Pop anchor={pop.el} title="Dự án" onClose={closePop}>
-          <div className="bk-menu">
-            {meta.projects.map((p) => (
-              <button key={p.id} onClick={() => { closePop(); void act(() => api.updateTask(t.id, { projectId: p.id })); }}>
-                <span>{p.name}</span>
-                {t.project?.id === p.id && <Icon name="check" size={15} />}
-              </button>
-            ))}
-          </div>
-        </Pop>
+      {pop?.kind === 'project' && (
+        <ClientServicePop anchor={pop.el} customerId={place.customerId} serviceId={placeService?.id || null} onClose={closePop} onPick={pickPlace}
+          onClear={t.project ? () => { closePop(); void act(() => api.updateTask(t.id, { projectId: null })); } : undefined} />
       )}
 
       {pop?.kind === 'dates' && (
-        <Pop anchor={pop.el} title="Ngày" onClose={closePop}>
-          <label className="bk-check"><input type="checkbox" checked={hasStart} onChange={(e) => setHasStart(e.target.checked)} />Ngày bắt đầu</label>
-          <input className="bk-in" type="date" disabled={!hasStart} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          <label className="bk-check"><input type="checkbox" checked={hasDue} onChange={(e) => setHasDue(e.target.checked)} />Ngày hết hạn</label>
-          <div className="cm-row">
-            <input className="bk-in" type="date" disabled={!hasDue} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-            <input className="bk-in bk-time" type="time" disabled={!hasDue} value={dueTime} onChange={(e) => setDueTime(e.target.value)} />
-          </div>
-          <button className="btn btn-primary bk-wide" onClick={() => {
-            closePop();
-            const ms = (d: string, tm = '00:00') => new Date(`${d}T${tm}`).getTime();
-            void act(() => api.updateTask(t.id, { startAt: hasStart && startDate ? ms(startDate) : null, dueAt: hasDue && dueDate ? ms(dueDate, dueTime || '00:00') : null }));
-          }}>Lưu</button>
-          <button className="btn btn-gray bk-wide" onClick={() => { closePop(); void act(() => api.updateTask(t.id, { startAt: null, dueAt: null })); }}>Gỡ bỏ</button>
-        </Pop>
+        <SpanPop anchor={pop.el} value={{ start: t.startAt, end: t.dueAt }} onClose={closePop} onSave={(v) => void act(() => api.updateTask(t.id, { startAt: v.start, dueAt: v.end }))} />
       )}
 
       {pop?.kind === 'actions' && (
@@ -1297,6 +1272,45 @@ function WeworkTaskView({
       )}
     </div>
   );
+}
+
+/** A task's own facts in its card's window, on its page and on the board alike: project (no card), services, people,
+ *  who made it, the review workflow (ACCOUNT → EXECUTION → REVIEW, its reviewer and moves) and its subtasks. */
+function TaskFacts({ t, meta, isLinked, busy = false, onOpen, onChanged, onAddSubtask, onDelete }: {
+  t: TaskDetail; meta: TaskMeta | null; isLinked: boolean; busy?: boolean; onOpen: (id: string) => void; onChanged: () => void;
+  onAddSubtask?: (parentId: string, parentTask?: TaskDetail | TaskItem) => void; onDelete?: () => void;
+}) {
+  return (
+  <section className={'cm-sec tk-card-task' + (isLinked ? ' is-linked' : '')} aria-label="Thông tin công việc">
+    {!isLinked && <h3><Icon name="checklist" size={18} />Công việc{t.externalId && <small>#{t.externalId}</small>}
+      {t.canDelete && onDelete && <button className="btn btn-gray btn-sm" disabled={busy} onClick={onDelete}><Icon name="trash" size={14} />Xoá công việc</button>}</h3>}
+    {t.path.length > 0 && <nav className="tk-path" aria-label="Công việc cha">{t.path.map((p) => <button key={p.id} onClick={() => onOpen(p.id)}>{p.title}</button>)}</nav>}
+    <dl className="tk-facts tk-card-facts">
+      {!isLinked && <div><dt>Dự án</dt><dd><TaskInlineField task={t} field="projectId" label="Dự án" value={t.project?.id||''} meta={meta} onSaved={onChanged}>{t.project?.name||'—'}</TaskInlineField></dd></div>}
+      <div><dt>{isLinked ? 'Dịch vụ kèm' : 'Dịch vụ'}</dt><dd><TaskServices task={t} meta={meta} onSaved={onChanged}/></dd></div>
+      {!isLinked && <div><dt>Giao cho</dt><dd>{t.canEdit&&meta?<TaskInlineMembers key={t.id+':'+t.updatedAt} task={t} meta={meta} onSaved={onChanged}/>:<EmployeeAvatars people={t.assignees}/>}</dd></div>}
+      <div><dt>Người theo dõi</dt><dd>{t.canEdit&&meta?<TaskInlineFollowers key={t.id+':'+t.updatedAt} task={t} meta={meta} onSaved={onChanged}/>:<EmployeeAvatars people={t.followers}/>}</dd></div>
+      <div><dt>Tạo bởi</dt><dd>{t.createdBy?.name || '—'}</dd></div>
+    </dl>
+    <TaskFlow task={t} meta={meta} onChanged={onChanged} />
+    {(t.childTasks.length > 0 || t.canEdit) && (
+      <SubtaskTree
+        task={t}
+        onOpen={onOpen}
+        onChanged={onChanged}
+        onAddSubtask={onAddSubtask}
+      />
+    )}
+  </section>
+  );
+}
+
+/** The facts of the task a board card is (TaskFacts), for the card's window over the board; subtasks are added in place. */
+export function LinkedTaskFacts({ taskId, onOpen, onChanged }: { taskId: string; onOpen: (id: string) => void; onChanged: () => void }) {
+  const [t, setT] = useState<TaskDetail | null>(null), [meta, setMeta] = useState<TaskMeta | null>(null);
+  const load = () => api.task(taskId).then(setT, (e) => toast(e.message, true));
+  useEffect(() => { setT(null); void load(); api.taskMeta().then(setMeta, () => {}); }, [taskId]); // eslint-disable-line react-hooks/exhaustive-deps
+  return t && <TaskFacts t={t} meta={meta} isLinked onOpen={onOpen} onChanged={() => { void load(); onChanged(); }} />;
 }
 
 /** A task's detail: beside the list, or as its own page (`page`) with the unified CardModal layout (Image 2). */
@@ -1330,30 +1344,9 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
   }, [t]);
 
   // Unified task facts section displayed inside the card view (both linked and standalone tasks).
-  const isLinked = !!(t && t.boardLink && asCard);
-  const taskFacts = t && (
-    <section className={'cm-sec tk-card-task' + (isLinked ? ' is-linked' : '')} aria-label="Thông tin công việc">
-      {!isLinked && <h3><Icon name="checklist" size={18} />Công việc{t.externalId && <small>#{t.externalId}</small>}
-        {t.canDelete && <button className="btn btn-gray btn-sm" disabled={busy} onClick={async () => { if (!confirm('Xoá công việc này? Việc con và thẻ Workspace được giữ lại, liên kết sẽ được gỡ.')) return; setBusy(true); try { await api.deleteTask(id); onChanged(); onClose(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); } }}><Icon name="trash" size={14} />Xoá công việc</button>}</h3>}
-      {t.path.length > 0 && <nav className="tk-path" aria-label="Công việc cha">{t.path.map((p) => <button key={p.id} onClick={() => onOpen(p.id)}>{p.title}</button>)}</nav>}
-      <dl className="tk-facts tk-card-facts">
-        {!isLinked && <div><dt>Dự án</dt><dd><TaskInlineField task={t} field="projectId" label="Dự án" value={t.project?.id||''} meta={meta} onSaved={()=>{void load();onChanged();}}>{t.project?.name||'—'}</TaskInlineField></dd></div>}
-        <div><dt>Dịch vụ</dt><dd><TaskServices task={t} meta={meta} onSaved={()=>{void load();onChanged();}}/></dd></div>
-        {!isLinked && <div><dt>Giao cho</dt><dd>{t.canEdit&&meta?<TaskInlineMembers key={t.id+':'+t.updatedAt} task={t} meta={meta} onSaved={()=>{void load();onChanged();}}/>:<EmployeeAvatars people={t.assignees}/>}</dd></div>}
-        <div><dt>Người theo dõi</dt><dd>{t.canEdit&&meta?<TaskInlineFollowers key={t.id+':'+t.updatedAt} task={t} meta={meta} onSaved={()=>{void load();onChanged();}}/>:<EmployeeAvatars people={t.followers}/>}</dd></div>
-        <div><dt>Tạo bởi</dt><dd>{t.createdBy?.name || '—'}</dd></div>
-      </dl>
-      <TaskFlow task={t} meta={meta} onChanged={() => { void load(); onChanged(); }} />
-      {(t.childTasks.length > 0 || t.canEdit) && (
-        <SubtaskTree
-          task={t}
-          onOpen={onOpen}
-          onChanged={() => { void load(); onChanged(); }}
-          onAddSubtask={(parentId, parentTask) => setSubtaskParent({ id: parentId, task: parentTask })}
-        />
-      )}
-    </section>
-  );
+  const taskFacts = t && <TaskFacts t={t} meta={meta} isLinked={!!(t.boardLink && asCard)} busy={busy} onOpen={onOpen} onChanged={() => { void load(); onChanged(); }}
+    onAddSubtask={(parentId, parentTask) => setSubtaskParent({ id: parentId, task: parentTask })}
+    onDelete={async () => { if (!confirm('Xoá công việc này? Việc con và thẻ Workspace được giữ lại, liên kết sẽ được gỡ.')) return; setBusy(true); try { await api.deleteTask(id); onChanged(); onClose(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); } }} />;
 
   // Inline beside the list: the card's own top row carries expand and close, so there is no separate header line.
   const topActions = inline ? <>
@@ -1414,7 +1407,7 @@ function TaskServices({ task, meta, onSaved }: { task: TaskDetail; meta: TaskMet
   return <ServicePicker value={ids} onChange={(next) => void save(next)} known={task.services} suggested={suggested} disabled={!task.canEdit} />;
 }
 
-type TaskPopKind = 'status' | 'add' | 'labels' | 'dates' | 'members' | 'actions';
+type TaskPopKind = 'add' | 'labels' | 'dates' | 'members' | 'actions';
 
 /** Renders a task without an accessible Workspace card using the exact same CardModal layout (Image 2). */
 function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActions, onClose, onChanged, onLink }: {
@@ -1432,11 +1425,6 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
   const [editingResult, setEditingResult] = useState(false);
   const [resultDraft, setResultDraft] = useState(t.result || '');
   const [labelsDraft, setLabelsDraft] = useState(t.labels.join(', '));
-  const [hasStart, setHasStart] = useState(!!t.startAt);
-  const [startDate, setStartDate] = useState(dateIn(t.startAt || Date.now()));
-  const [hasDue, setHasDue] = useState(!!t.dueAt || !t.startAt);
-  const [dueDate, setDueDate] = useState(dateIn(t.dueAt || Date.now() + 864e5));
-  const [dueTime, setDueTime] = useState(t.dueAt ? timeIn(t.dueAt) : '17:00');
   const titleRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -1444,11 +1432,6 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
     setDescDraft(t.description || '');
     setResultDraft(t.result || '');
     setLabelsDraft(t.labels.join(', '));
-    setHasStart(!!t.startAt);
-    setStartDate(dateIn(t.startAt || Date.now()));
-    setHasDue(!!t.dueAt || !t.startAt);
-    setDueDate(dateIn(t.dueAt || Date.now() + 864e5));
-    setDueTime(t.dueAt ? timeIn(t.dueAt) : '17:00');
   }, [t.id, t.title, t.description, t.result, t.startAt, t.dueAt, t.labels]);
 
   useEffect(() => {
@@ -1470,8 +1453,6 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
   const toggleDone = () => { if (edit) void act(() => api.setTaskStatus(t.id, isDone ? 'Chưa thực hiện' : 'Hoàn thành')); };
   const openPop = (kind: TaskPopKind) => (e: React.MouseEvent<HTMLElement>) => setPop({ kind, el: e.currentTarget });
   const closePop = () => setPop(null);
-  const statusLabel = STATE[t.state]?.[0] || t.status || 'Chưa thực hiện';
-  const allStatuses = statuses.length ? statuses : ['Chưa thực hiện', 'Đang thực hiện', 'Đang đánh giá', 'Tạm dừng', 'Hoàn thành', 'Đã huỷ'];
 
   const selectedUserIds = t.assignees.flatMap((p) => (p.userId && meta?.users.some((u) => u.id === p.userId) ? [p.userId] : []));
   const legacyIds = t.assignees.filter((p) => !p.userId || !meta?.users.some((u) => u.id === p.userId)).map((p) => p.id);
@@ -1482,7 +1463,7 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
 
   const top = (
     <div className="cm-top">
-      {edit ? <button className="cm-list-b" onClick={openPop('status')} title="Đổi trạng thái công việc">{statusLabel}<Icon name="chevron" size={12} /></button> : <span className="cm-list-b">{statusLabel}</span>}
+      {t.flow ? <FlowBadge stage={t.flow.stage} /> : <Badge t={t} />}
       <span className="cm-gap" />
       <button className="cm-top-b" onClick={() => setCommentsOpen((v) => !v)} aria-label={commentsOpen ? 'Ẩn bình luận' : 'Hiện bình luận'} aria-expanded={commentsOpen} aria-controls="card-comments" title={commentsOpen ? 'Ẩn bình luận' : 'Hiện bình luận'}><Icon name="comment" size={16} /></button>
       {edit && <button className="cm-top-b" onClick={onLink} aria-label="Liên kết Workspace" title="Liên kết thẻ Workspace"><Icon name="boards" size={16} /></button>}
@@ -1633,18 +1614,6 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
         </div>
       </div>
 
-      {pop?.kind === 'status' && (
-        <Pop anchor={pop.el} title="Đổi trạng thái" onClose={closePop}>
-          <div className="bk-menu">
-            {allStatuses.map((s) => (
-              <button key={s} onClick={() => { closePop(); void act(() => api.setTaskStatus(t.id, s)); }}>
-                <span>{s}</span>
-                {t.status === s && <Icon name="check" size={15} />}
-              </button>
-            ))}
-          </div>
-        </Pop>
-      )}
       {pop?.kind === 'add' && (
         <Pop anchor={pop.el} title="Thêm vào công việc" onClose={closePop}>
           <div className="cm-add-menu">
@@ -1692,21 +1661,7 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
         </Pop>
       )}
       {pop?.kind === 'dates' && (
-        <Pop anchor={pop.el} title="Ngày" onClose={closePop}>
-          <label className="bk-check"><input type="checkbox" checked={hasStart} onChange={(e) => setHasStart(e.target.checked)} />Ngày bắt đầu</label>
-          <input className="bk-in" type="date" disabled={!hasStart} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          <label className="bk-check"><input type="checkbox" checked={hasDue} onChange={(e) => setHasDue(e.target.checked)} />Ngày hết hạn</label>
-          <div className="cm-row">
-            <input className="bk-in" type="date" disabled={!hasDue} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-            <input className="bk-in bk-time" type="time" disabled={!hasDue} value={dueTime} onChange={(e) => setDueTime(e.target.value)} />
-          </div>
-          <button className="btn btn-primary bk-wide" onClick={() => {
-            closePop();
-            const ms = (d: string, tm = '00:00') => new Date(`${d}T${tm}`).getTime();
-            void act(() => api.updateTask(t.id, { startAt: hasStart && startDate ? ms(startDate) : null, dueAt: hasDue && dueDate ? ms(dueDate, dueTime || '00:00') : null }));
-          }}>Lưu</button>
-          <button className="btn btn-gray bk-wide" onClick={() => { closePop(); void act(() => api.updateTask(t.id, { startAt: null, dueAt: null })); }}>Gỡ bỏ</button>
-        </Pop>
+        <SpanPop anchor={pop.el} value={{ start: t.startAt, end: t.dueAt }} onClose={closePop} onSave={(v) => void act(() => api.updateTask(t.id, { startAt: v.start, dueAt: v.end }))} />
       )}
       {pop?.kind === 'members' && meta && (
         <Pop anchor={pop.el} title="Thành viên" onClose={closePop}>
@@ -1770,11 +1725,10 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
   const reloadMeta=()=>api.taskMeta().then(setMeta);
   useEffect(()=>{ if(!meta) void reloadMeta().catch(()=>{}); },[meta]);
   useEntityRefresh(()=>{void reloadMeta().catch(()=>{});});
-  const[linkedStatuses,setLinkedStatuses]=useState(task?.statuses);
   const [title,setTitle] = useState(task?.title || '');
   const [description,setDescription] = useState(task?.description || '');
   const [result,setResult] = useState(task?.result || '');
-  const [status,setStatus] = useState(task?.status || 'Chưa thực hiện');
+  const [status] = useState(task?.status || 'Chưa thực hiện');
   const [project,setProject] = useState(task?.project?.id || projectId || parentTask?.project?.id || '');
   const [campaign,setCampaign] = useState(task?.campaign?.id || campaignId || '');
   const [parent,setParent] = useState(task?.parent?.id || parentId || '');
@@ -1810,7 +1764,8 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
     try {
       const body: TaskWrite={title:title.trim(),description,campaignId:campaign||null,projectId:project||null,parentId:parent||null,startAt:start?new Date(start).getTime():null,dueAt:due?new Date(due).getTime():null,labels:labels.split(',').map(x=>x.trim()).filter(Boolean)};
       if(!task || task.result !== null)body.result=result;
-      if(!task || status!==task.status)body.status=status;
+      // The workflow sets a task's status (TaskFlow); a new one starts at ACCOUNT, or EXECUTION when it is given out.
+      if(!task)body.status=status;
       body.assigneeIds=people; body.assigneeUserIds=users; body.followerUserIds=followers;
       if(!task&&reviewer)body.reviewerUserId=reviewer;
       if(task)await api.updateTask(task.id,body);
@@ -1851,9 +1806,9 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
     <header><b>{headerTitle}</b><button type="button" className="bd-icon" disabled={busy} onClick={onClose} aria-label="Đóng"><Icon name="x" size={15}/></button></header>
     {task?(<fieldset disabled={busy}>
       <label>Tên công việc<input autoFocus required maxLength={500} value={title} onChange={e=>setTitle(e.target.value)}/></label>
-      <div className="tk-form-grid"><label>Trạng thái{task?.boardLink?<EntitySelect kind="list" context={{boardId:task.boardLink.boardId}} createdValue={r=>r.name} onCreated={async()=>setLinkedStatuses((await api.board(task.boardLink!.boardId)).lists.map(l=>l.name))} value={status} onChange={setStatus}>{!(linkedStatuses||meta.statuses).includes(status)&&<option>{status}</option>}{(linkedStatuses||meta.statuses).map(s=><option key={s}>{s}</option>)}</EntitySelect>:<select value={status} onChange={e=>setStatus(e.target.value)}>{!meta.statuses.includes(status)&&<option>{status}</option>}{meta.statuses.map(s=><option key={s}>{s}</option>)}</select>}</label>
-      <label>Dự án<EntitySelect kind="project" value={project} onCreated={reloadMeta} onChange={v=>{setProject(v);setCampaign('');setParent('');}}><option value="">Không có dự án</option>{meta.projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</EntitySelect></label>
-      <label>Ngày bắt đầu<input type="datetime-local" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Thời hạn<input type="datetime-local" value={due} onChange={e=>setDue(e.target.value)}/></label></div>
+      <div className="tk-form-grid">
+      <ClientServiceFields projects={meta.projects} value={project} onResolved={reloadMeta} onChange={v=>{setProject(v);setCampaign('');setParent('');}}/>
+      <div className="tk-span-field"><span>Thời gian</span><SpanField value={{start:fromLocal(start),end:fromLocal(due)}} onChange={v=>{setStart(toLocal(v.start));setDue(toLocal(v.end));}}/></div></div>
       <label>Công việc cha<EntitySelect kind="task" context={{projectId:project}} value={parent} onCreated={async()=>setParents((await parentsOf(project)).tasks)} onChange={setParent}><option value="">Không có</option>{task?.parent&&!parents.some(p=>p.id===task.parent!.id)&&<option value={task.parent.id}>{task.parent.title}</option>}{parents.filter(p=>p.id!==task?.id&&(!project||p.project?.id===project)).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</EntitySelect></label>
       {/* Not <label>: one around the editor would press its first toolbar button on any click inside. */}
       <div className="tk-rt-field" title={task?.canEditDescription===false?'Chỉ người viết mô tả mới sửa được mô tả':undefined}><span>Mô tả</span>{task.canEditDescription===false?<div className="tk-rich"><RichView text={description||'Chưa có mô tả.'}/></div>:<RichEditor value={task.description||''} onChange={setDescription} placeholder="Mô tả"/>}</div>
@@ -1900,8 +1855,8 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       )}
       <input className="tk-create-title" aria-label="Tên công việc" placeholder={isSubtask ? "Tên công việc con" : "Tên công việc"} autoFocus required maxLength={500} value={title} onChange={e=>setTitle(e.target.value)}/>
       <div className="tk-create-row"><Icon name="user" size={18}/><div><div className="tk-staff-picker"><EmployeePicker users={meta.users} selected={users} onChange={setUsers} legacy={[]} onLegacyChange={setPeople}/></div></div></div>
-      <div className="tk-create-row"><Icon name="folder" size={18}/><div><label>Dự án<EntitySelect kind="project" value={project} onCreated={reloadMeta} onChange={v=>{setProject(v);setCampaign('');setParent('');}}><option value="">Không có dự án</option>{meta.projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</EntitySelect></label></div></div>
-      <div className="tk-create-row"><Icon name="clock" size={18}/><div className="tk-quick-due"><span>Đến hạn vào</span><div role="group" aria-label="Chọn hạn công việc">{([['today','Hôm nay'],['tomorrow','Ngày mai'],['custom','Khác']] as const).map(([key,label])=><button type="button" key={key} aria-pressed={dueChoice===key} onClick={()=>pickDue(key)}>{label}</button>)}{due&&<button type="button" onClick={()=>{setDue('');setDueChoice('');}} aria-label="Bỏ thời hạn"><Icon name="x" size={13}/></button>}</div>{dueChoice==='custom'?<input type="datetime-local" aria-label="Thời hạn công việc" value={due} onChange={e=>setDue(e.target.value)}/>:due&&<small>{when(new Date(due).getTime())}</small>}</div></div>
+      <div className="tk-create-row"><Icon name="briefcase" size={18}/><div className="tk-form-grid tk-create-place"><ClientServiceFields projects={meta.projects} value={project} onResolved={reloadMeta} onChange={v=>{setProject(v);setCampaign('');setParent('');}}/></div></div>
+      <div className="tk-create-row"><Icon name="clock" size={18}/><div className="tk-quick-due"><span>Đến hạn vào</span><div role="group" aria-label="Chọn hạn công việc">{([['today','Hôm nay'],['tomorrow','Ngày mai'],['custom','Khác']] as const).map(([key,label])=><button type="button" key={key} aria-pressed={dueChoice===key} onClick={()=>pickDue(key)}>{label}</button>)}{due&&<button type="button" onClick={()=>{setDue('');setDueChoice('');}} aria-label="Bỏ thời hạn"><Icon name="x" size={13}/></button>}</div>{dueChoice==='custom'?<SpanField value={{start:fromLocal(start),end:fromLocal(due)}} onChange={v=>{setStart(toLocal(v.start));setDue(toLocal(v.end));}}/>:due&&<small>{when(new Date(due).getTime())}</small>}</div></div>
       <div className="tk-create-row tk-create-tags">
         <Icon name="tag" size={18} />
         <div className="tk-tag-picker">
@@ -1932,7 +1887,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
         </div>
       </div>
       <div className="tk-create-row tk-create-description"><Icon name="lines" size={18}/><div className="tk-create-compose"><RichEditor value={description} onChange={setDescription} placeholder="Mô tả"/></div></div>
-      <details className="tk-create-more"><summary>Tuỳ chọn khác</summary><div className="tk-create-advanced"><div className="tk-form-grid"><label>Trạng thái<select value={status} onChange={e=>setStatus(e.target.value)}>{!meta.statuses.includes(status)&&<option>{status}</option>}{meta.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Ngày bắt đầu<input type="datetime-local" value={start} onChange={e=>setStart(e.target.value)}/></label></div>{!task&&<label>Người duyệt (REVIEW)<select value={reviewer} onChange={e=>setReviewer(e.target.value)}><option value="">Người tạo (mặc định)</option>{meta.users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label>}<label>Công việc cha<EntitySelect kind="task" context={{projectId:project}} value={parent} onCreated={async()=>setParents((await parentsOf(project)).tasks)} onChange={setParent}><option value="">Không có</option>{parents.filter(p=>!project||p.project?.id===project).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</EntitySelect></label><label>Nhãn tuỳ chỉnh khác<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label><div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
+      <details className="tk-create-more"><summary>Tuỳ chọn khác</summary><div className="tk-create-advanced">{!task&&<label>Người duyệt (REVIEW)<select value={reviewer} onChange={e=>setReviewer(e.target.value)}><option value="">Người tạo (mặc định)</option>{meta.users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label>}<label>Công việc cha<EntitySelect kind="task" context={{projectId:project}} value={parent} onCreated={async()=>setParents((await parentsOf(project)).tasks)} onChange={setParent}><option value="">Không có</option>{parents.filter(p=>!project||p.project?.id===project).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</EntitySelect></label><label>Nhãn tuỳ chỉnh khác<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label><div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
       {(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dự án'} được tự động thêm khi lưu.</p>}
       </div></details>
     </fieldset>)}

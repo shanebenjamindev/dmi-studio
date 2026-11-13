@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { httpServerHandler } from 'cloudflare:node';
 import {drainNotifications} from './notifications';
 import {remindTasks,settleStages} from './task-flow';
+import {normalizeAllBoards} from './board-flow';
 import { handleApi } from './app';
 import { initDatabase, repairData, type D1Binding } from './db';
 
@@ -14,7 +15,7 @@ export default {
   async scheduled(event:ScheduledEvent,env:{DB?:D1Binding},ctx:ExecutionContext){
     // Every tenth minute the data repairs run as well (they read whole tables), tasks not yet in the review workflow join
     // it, and the reminders for overdue work and waiting reviews go out.
-    ctx.waitUntil((async()=>{await initDatabase(env.DB);if(new Date(event.scheduledTime).getUTCMinutes()%10===0){await repairData();await settleStages();await remindTasks();}await drainNotifications();})());
+    ctx.waitUntil((async()=>{await initDatabase(env.DB);if(new Date(event.scheduledTime).getUTCMinutes()%10===0){await repairData();await settleStages();await normalizeAllBoards();await remindTasks();}await drainNotifications();})());
   },
   async fetch(request: WorkerRequest, env: { ASSETS: Fetcher; DB?: D1Binding }, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);

@@ -10,19 +10,16 @@ import { RichView } from './RichText';
 import { FLOW_OUTCOMES, FLOW_STAGES, isClosedStage, type FlowAction, type FlowStage } from '../../../shared/task-flow';
 import type { TaskDetail, TaskMeta } from '../types';
 
-const DONE: Record<string, string> = { start: 'Đã giao việc, chuyển sang Thực hiện', submit: 'Đã nộp duyệt', pass: 'Đã duyệt PASS: công việc hoàn thành', redo: 'Đã trả về REDO để làm lại', fail: 'Đã chấm FAIL: công việc bị từ chối', reopen: 'Đã mở lại công việc', reviewer: 'Đã đổi người duyệt' };
+const DONE: Record<string, string> = { start: 'Đã giao việc, chuyển sang EXECUTION', submit: 'Đã nộp duyệt', pass: 'Đã duyệt PASS: công việc hoàn thành', redo: 'Đã trả về REDO để làm lại', fail: 'Đã chấm FAIL: công việc bị từ chối', reopen: 'Đã mở lại công việc', reviewer: 'Đã đổi người duyệt' };
 
-/** A stage's code and its name (as set in Quản trị), one way wherever a stage shows. */
-const named = (key: FlowStage, stages?: { key: FlowStage; code: string; name: string }[]) => {
-  const s = FLOW_STAGES.find((x) => x.key === key)!;
-  return { code: s.code, name: stages?.find((x) => x.key === key)?.name || s.vi };
-};
-export function FlowBadge({ stage, stages }: { stage: FlowStage; stages?: { key: FlowStage; code: string; name: string }[] }) {
-  const s = named(stage, stages);
-  return <span className={'tf-badge tf-' + stage} title={s.name}><b>{s.code}</b>{s.name}</span>;
+/** The workflow speaks English only: each step shows as its code (ACCOUNT, EXECUTION…), the same in every language. */
+const codeOf = (key: FlowStage) => FLOW_STAGES.find((x) => x.key === key)!.code;
+export function FlowBadge({ stage }: { stage: FlowStage; stages?: unknown }) {
+  return <span className={'tf-badge tf-' + stage}><b>{codeOf(stage)}</b></span>;
 }
 
-export function TaskFlow({ task, meta, onChanged }: { task: TaskDetail; meta: TaskMeta | null; onChanged: () => void }) {
+/** `bare`: laid inside another card (the task page opens it under the step's badge), so no card of its own. */
+export function TaskFlow({ task, meta, onChanged, bare = false }: { task: TaskDetail; meta: TaskMeta | null; onChanged: () => void; bare?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   const [feedback, setFeedback] = useState('');
@@ -38,20 +35,17 @@ export function TaskFlow({ task, meta, onChanged }: { task: TaskDetail; meta: Ta
   const at = order.indexOf(f.stage), closed = isClosedStage(f.stage);
   const outcome = (key: string | null) => FLOW_OUTCOMES.find((o) => o.key === key);
   return (
-    <section className="wework-bento-card tf-card" aria-label="Quy trình duyệt">
+    <section className={(bare ? '' : 'wework-bento-card ') + 'tf-card' + (bare ? ' tf-bare' : '')} aria-label="Quy trình duyệt">
       <div className="wework-bento-title">
         <Icon name="checklist" size={14} />
         <span>QUY TRÌNH DUYỆT</span>
         {f.revision > 0 && <span className="tf-redo-count" title="Số lần bị trả về làm lại">REDO ×{f.revision}</span>}
       </div>
       <ol className="tf-steps">
-        {order.map((key, i) => {
-          const s = named(key, f.stages);
-          return [i > 0 && <li key={key + '-sep'} className="tf-sep" aria-hidden="true">›</li>,
-            <li key={key} className={'tf-' + key + (i < at || (i === at && closed) ? ' done' : '') + (i === at ? ' now' : '')} aria-current={i === at ? 'step' : undefined} title={s.name}>
-              {i < at && <Icon name="check" size={11} />}<b>{s.code}</b>{i === at && <span>{s.name}</span>}
-            </li>];
-        })}
+        {order.map((key, i) => [i > 0 && <li key={key + '-sep'} className="tf-sep" aria-hidden="true">›</li>,
+          <li key={key} className={'tf-' + key + (i < at || (i === at && closed) ? ' done' : '') + (i === at ? ' now' : '')} aria-current={i === at ? 'step' : undefined}>
+            {i < at && <Icon name="check" size={11} />}<b>{codeOf(key)}</b>
+          </li>])}
       </ol>
 
       <div className="tf-facts">
@@ -68,8 +62,8 @@ export function TaskFlow({ task, meta, onChanged }: { task: TaskDetail; meta: Ta
       </div>
 
       {f.stage === 'account' && (f.can.start
-        ? <div className="tf-act"><p className="note">Đã nhận yêu cầu và giao người làm. Bấm để chuyển sang Thực hiện.</p><button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void act('start')}>Giao việc → EXECUTION</button></div>
-        : <p className="note tf-wait">{task.canEdit ? 'Hãy giao việc cho ít nhất một người, rồi chuyển sang Thực hiện.' : 'Đang chờ Account giao việc.'}</p>)}
+        ? <div className="tf-act"><p className="note">Đã nhận yêu cầu và giao người làm. Bấm để chuyển sang EXECUTION.</p><button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void act('start')}>Giao việc → EXECUTION</button></div>
+        : <p className="note tf-wait">{task.canEdit ? 'Hãy giao việc cho ít nhất một người, rồi chuyển sang EXECUTION.' : 'Đang chờ Account giao việc.'}</p>)}
 
       {f.can.submit && (
         <div className="tf-act">
@@ -83,9 +77,9 @@ export function TaskFlow({ task, meta, onChanged }: { task: TaskDetail; meta: Ta
         <div className="tf-act">
           <textarea className="bk-in" rows={3} maxLength={4000} value={feedback} disabled={busy} onChange={(e) => setFeedback(e.target.value)} placeholder="Nhận xét: bắt buộc khi REDO (cần sửa gì) và FAIL (lý do)…" aria-label="Nhận xét" />
           <div className="tf-grade">
-            <button className="btn btn-sm tf-pass" disabled={busy} onClick={() => void act('pass', { feedback })}><Icon name="check" size={14} />PASS · Đạt</button>
-            <button className="btn btn-sm tf-redo" disabled={busy || !feedback.trim()} title={feedback.trim() ? undefined : 'Ghi nhận xét trước'} onClick={() => void act('redo', { feedback })}><Icon name="undo" size={14} />REDO · Làm lại</button>
-            <button className="btn btn-sm tf-fail" disabled={busy || !feedback.trim()} title={feedback.trim() ? undefined : 'Ghi lý do trước'} onClick={() => { if (confirm('Chấm FAIL sẽ đóng công việc là Từ chối. Tiếp tục?')) void act('fail', { feedback }); }}><Icon name="x" size={14} />FAIL · Không đạt</button>
+            <button className="btn btn-sm tf-pass" disabled={busy} onClick={() => void act('pass', { feedback })}><Icon name="check" size={14} />PASS</button>
+            <button className="btn btn-sm tf-redo" disabled={busy || !feedback.trim()} title={feedback.trim() ? undefined : 'Ghi nhận xét trước'} onClick={() => void act('redo', { feedback })}><Icon name="undo" size={14} />REDO</button>
+            <button className="btn btn-sm tf-fail" disabled={busy || !feedback.trim()} title={feedback.trim() ? undefined : 'Ghi lý do trước'} onClick={() => { if (confirm('Chấm FAIL sẽ đóng công việc (REJECTED). Tiếp tục?')) void act('fail', { feedback }); }}><Icon name="x" size={14} />FAIL</button>
           </div>
         </div>
       ) : <p className="note tf-wait">{`Đang chờ ${f.reviewer?.name || 'người duyệt'} duyệt.`}</p>)}
@@ -101,7 +95,7 @@ export function TaskFlow({ task, meta, onChanged }: { task: TaskDetail; meta: Ta
             {f.rounds.map((r) => {
               const o = outcome(r.outcome);
               return <li key={r.id}>
-                <header><b>{`Lần ${r.round}`}</b>{o ? <span className={'tf-out tf-' + o.key}>{`${o.code} · ${o.vi}`}</span> : <span className="tf-out">Chờ duyệt</span>}</header>
+                <header><b>{`Lần ${r.round}`}</b>{o ? <span className={'tf-out tf-' + o.key}>{o.code}</span> : <span className="tf-out tf-review">REVIEW</span>}</header>
                 <p className="tf-line">{`Nộp ${r.submittedBy ? `bởi ${r.submittedBy.name} ` : ''}lúc ${fullDate(r.submittedAt)}`}</p>
                 {r.note && <p className="tf-quote">{r.note}</p>}
                 {r.result ? <details className="tf-version"><summary>Bản đã nộp</summary><RichView text={r.result} /></details>

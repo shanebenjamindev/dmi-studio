@@ -3,13 +3,14 @@ import {TextLinks} from './TextLinks';
 import {BrandLoading} from './BrandLoading';
 import {useEffect,useRef,useState} from 'react';import {Icon,IconButton,Menu} from './ui';import type {CustomerRecord} from '../types';
 import {api} from '../api';
-import {toast} from '../store';
+import {openTask,toast} from '../store';
 import {GroupedList,byKey} from './GroupedList';
 import {useCustomerStatuses,type CustomerStatusOption} from './useCustomerStatuses';
+import {FlowOverview,type FlowRow} from './FlowOverview';
 
 // The Customers page's first screen, kept to one row of controls: add, search, filters (one button), how to group, and
 // three views: a list in groups, a Kanban (drag a card to change where the customer stands) and cards.
-export type CustomerView='list'|'kanban'|'grid';type View=CustomerView;type GroupBy='status'|'category'|'source'|'manager'|'none';
+export type CustomerView='list'|'kanban'|'overview';type View=CustomerView;type GroupBy='status'|'category'|'source'|'manager'|'none';
 const LS_VIEW='dms.customerView',LS_GROUP='dms.customerGroup';
 const read=<T extends string>(k:string,ok:readonly T[],d:T):T=>{try{const v=localStorage.getItem(k) as T;return ok.includes(v)?v:d;}catch{return d;}};
 const keep=(k:string,v:string)=>{try{localStorage.setItem(k,v);}catch{/* private mode */}};
@@ -24,7 +25,7 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
  const[q,setQ]=useState('');
  const[selectedIds,setSelectedIds]=useState<string[]>([]);
  const[busyId,setBusyId]=useState<string|null>(null);
- const[innerView,setViewState]=useState<View>(()=>read(LS_VIEW,['list','kanban','grid'] as const,'list'));
+ const[innerView,setViewState]=useState<View>(()=>read(LS_VIEW,['list','kanban','overview'] as const,'list'));
  const view=controlledView??innerView;
  const[groupBy,setGroupByState]=useState<GroupBy>(()=>read(LS_GROUP,['status','category','source','manager','none'] as const,'status'));
  const setView=(v:View)=>{setViewState(v);keep(LS_VIEW,v);onViewChange?.(v);};const setGroupBy=(g:GroupBy)=>{setGroupByState(g);keep(LS_GROUP,g);};
@@ -61,7 +62,7 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
   try{await api.saveCustomerRecord(c.id,category?{tags}:{status:value});onRefresh();}catch(e:any){setMoved(m=>{const{[c.id]:_,...rest}=m;return rest;});toast(e.message,true);}finally{saving.current.delete(c.id);}
  };
  const sel=(k:keyof typeof EMPTY,label:string,none:string,list:{id:string;name:string}[])=><label className="cd-filter"><span>{label}</span><select className="bk-in" value={f[k]} onChange={e=>setF({...f,[k]:e.target.value})}><option value="">Tất cả</option><option value="none">{none}</option>{list.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></label>;
- const totals=`${customers.length} khách hàng · ${customers.reduce((n,c)=>n+(c.projects||0),0)} dự án · ${customers.reduce((n,c)=>n+(c.completed||0),0)}/${customers.reduce((n,c)=>n+(c.tasks||0),0)} công việc xong (từ trước tới nay)`;
+ const totals=`${customers.length} khách hàng · ${customers.reduce((n,c)=>n+(c.projects||0),0)} dịch vụ · ${customers.reduce((n,c)=>n+(c.completed||0),0)}/${customers.reduce((n,c)=>n+(c.tasks||0),0)} công việc xong (từ trước tới nay)`;
  const ordered=groups.flatMap(g=>g.rows);
  const deletableRows=rows.filter(c=>!!c.canDelete);
  const allChecked=deletableRows.length>0&&deletableRows.every(c=>selectedIds.includes(c.id));
@@ -83,7 +84,7 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
     <span className="tk-head-ico"><Icon name="users" size={20}/></span>
     <div className="tk-head-main">
       <h1>Khách hàng</h1>
-      {!selected && <ReadingTabs label="Cách xem khách hàng" value={view} items={[{value:'list' as View,label:'Danh sách',icon:'list'},{value:'kanban' as View,label:'Kanban',icon:'boards'},{value:'grid' as View,label:'Thẻ',icon:'grid'}]} onChange={v=>setView(v)}/>}
+      {!selected && <ReadingTabs label="Cách xem khách hàng" value={view} items={[{value:'list' as View,label:'Danh sách',icon:'list'},{value:'kanban' as View,label:'Kanban',icon:'boards'},{value:'overview' as View,label:'Tổng quan',icon:'chart'}]} onChange={v=>setView(v)}/>}
     </div>
     {selected && onFold && (
       <button type="button" className="bd-icon tk-pane-fold" onClick={onFold} title="Thu gọn danh sách khách hàng" aria-label="Thu gọn danh sách">
@@ -98,7 +99,7 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
    {selectedIds.length>0&&!selected&&<><button className="btn btn-sm cm-danger" disabled={busyId==='bulk'} onClick={()=>void bulkDelete()}><Icon name="trash" size={14}/>Xoá đã chọn ({selectedIds.length})</button><button className="btn btn-gray btn-sm" onClick={()=>setSelectedIds([])}>Bỏ chọn</button></>}
    <label className="tk-find"><Icon name="search" size={14}/><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==='Escape'&&q){e.stopPropagation();setQ('');}}} placeholder={selected ? "Tìm khách..." : "Tìm tên, liên hệ, email, điện thoại, dịch vụ…"} aria-label="Tìm khách hàng"/>{q&&<button type="button" className="tk-find-x" onClick={()=>setQ('')} aria-label="Xoá tìm kiếm" title="Xoá tìm kiếm"><Icon name="x" size={12}/></button>}</label>
    {!selected&&<button className={'tk-pick cd-filter-btn'+(active?' on':'')} onClick={()=>setFilters(!filters)} aria-expanded={filters}><Icon name="filter" size={14}/><span>Lọc</span>{active?` (${active})`:''}</button>}
-   {!selected&&view!=='grid'&&<label className="tk-pick"><Icon name="layers" size={14}/><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={e=>setGroupBy(e.target.value as GroupBy)}><option value="status">Trạng thái</option><option value="category">Tag</option><option value="source">Nguồn</option><option value="manager">Người phụ trách</option>{view==='list'&&<option value="none">Không nhóm</option>}</select></label>}
+   {!selected&&view!=='overview'&&<label className="tk-pick"><Icon name="layers" size={14}/><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={e=>setGroupBy(e.target.value as GroupBy)}><option value="status">Trạng thái</option><option value="category">Tag</option><option value="source">Nguồn</option><option value="manager">Người phụ trách</option>{view==='list'&&<option value="none">Không nhóm</option>}</select></label>}
    {!selected&&<span className="cd-count">{active||q?`${rows.length}/${customers.length}`:''}</span>}
   </div>
   {filters&&!selected&&<div className="cd-filters">
@@ -109,7 +110,8 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
    {active>0&&<button className="btn btn-plain btn-sm" onClick={()=>setF({...EMPTY})}>Bỏ lọc</button>}
   </div>}
   {error?<p className="note err" role="alert">{error}</p>:loading?<BrandLoading label="Đang tải dữ liệu backend…"/>:!rows.length?<div className="crm-empty"><Icon name="users" size={36}/><h3>{q||active?'Không có khách phù hợp':'Chưa có khách hàng'}</h3><p>{q||active?'Thử từ khoá hoặc bộ lọc khác.':'Thêm khách hàng hoặc import Excel để bắt đầu.'}</p>{manage&&!q&&!active&&<button className="btn btn-primary" onClick={onAdd}>Thêm khách hàng</button>}</div>
-  :selected?<div className="tk-reading-list cd-reading-compact">{groups.filter(g=>g.rows.length).map(g=><section key={g.key}><h3>{g.label}<span>{g.rows.length}</span></h3>{g.rows.map(c=><button key={c.id} id={'customer-row-'+c.id} className={'reading-list-row tk-reading-row crm-customer-row cd-row-compact'+(selected===c.id?' selected':'')} aria-current={selected===c.id?'true':undefined} onClick={()=>onOpen(c.id)} onKeyDown={e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const i=ordered.findIndex(x=>x.id===c.id),next=ordered[i+(e.key==='ArrowDown'?1:-1)];if(next){onOpen(next.id);document.getElementById('customer-row-'+next.id)?.focus();}}}}><span className="tk-reading-title">{c.name}</span><span className="tk-reading-meta"><span>{CUSTOMER_STATUS[c.status||'']||c.status||'Chưa đặt'}</span><span>{c.projects||0} dự án</span></span></button>)}</section>)}</div>
+  :selected?<div className="tk-reading-list cd-reading-compact">{groups.filter(g=>g.rows.length).map(g=><section key={g.key}><h3>{g.label}<span>{g.rows.length}</span></h3>{g.rows.map(c=><button key={c.id} id={'customer-row-'+c.id} className={'reading-list-row tk-reading-row crm-customer-row cd-row-compact'+(selected===c.id?' selected':'')} aria-current={selected===c.id?'true':undefined} onClick={()=>onOpen(c.id)} onKeyDown={e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const i=ordered.findIndex(x=>x.id===c.id),next=ordered[i+(e.key==='ArrowDown'?1:-1)];if(next){onOpen(next.id);document.getElementById('customer-row-'+next.id)?.focus();}}}}><span className="tk-reading-title">{c.name}</span><span className="tk-reading-meta"><span>{CUSTOMER_STATUS[c.status||'']||c.status||'Chưa đặt'}</span><span>{c.projects||0} dịch vụ</span></span></button>)}</section>)}</div>
+  :view==='overview'?<CustomerFlow customers={rows} onOpen={onOpen}/>
   :view==='list'?<GroupedList foldKey={`dms.customerFold.${groupBy}`} groups={groups} nameLabel="Khách hàng" addLabel="Thêm khách hàng" onOpen={c=>onOpen(c.id)} selected={selected}
     check={deletableRows.length>0?{done:c=>selectedIds.includes(c.id),toggle:toggleOne,label:c=>`Chọn khách hàng “${c.name}”`,all:allChecked,toggleAll,canCheck:c=>!!c.canDelete}:undefined}
     name={c=><><b className="cd-name">{c.name}</b>{c.contact&&<small className="cd-contact">{c.contact}</small>}</>}
@@ -119,13 +121,12 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
      {key:'needs',label:'Dịch vụ',width:180,wide:true,render:c=>c.needs?.length?<span className="crm-need-chips">{c.needs.map(n=><span key={n.id} className="crm-need-chip plain">{n.name}</span>)}</span>:'—'},
      ...(groupBy==='status'?[]:[{key:'status',label:'Trạng thái',width:140,render:(c:CustomerRecord)=>c.status?<span className="crm-pill" style={{['--c' as any]:STATUS_COLOR[c.status]}}>{CUSTOMER_STATUS[c.status]||c.status}</span>:'—'}]),
      ...(groupBy==='manager'?[]:[{key:'manager',label:'Phụ trách',width:130,render:(c:CustomerRecord)=>(c.manager||c.owner)?.name||'—'}]),
-     {key:'tasks',label:'Công việc',width:130,render:c=><span className="cd-progress compact"><progress max={c.tasks||1} value={c.completed||0}/><small>{c.completed||0}/{c.tasks||0} · {c.projects||0} dự án</small></span>},
+     {key:'tasks',label:'Công việc',width:130,render:c=><span className="cd-progress compact"><progress max={c.tasks||1} value={c.completed||0}/><small>{c.completed||0}/{c.tasks||0} · {c.projects||0} dịch vụ</small></span>},
      {key:'drive',label:'Drive',width:90,render:c=>c.hasDrive?<span className="crm-pill ok">Đã liên kết</span>:<span className="crm-pill">Chưa</span>},
      // Kept at the right edge, so editing and deleting stay in reach however wide the other columns are.
      {key:'actions',label:'Thao tác',width:84,end:true,render:c=>(c.canManage||c.canDelete)?<span className="crm-row-actions" onClick={e=>e.stopPropagation()}>{c.canManage&&onEdit&&<IconButton icon="edit" label={`Sửa ${c.name}`} size={16} disabled={busyId===c.id} onClick={()=>onEdit(c.id)}/>}{c.canDelete&&<IconButton icon="trash" label={`Xoá ${c.name}`} size={16} danger disabled={busyId===c.id} onClick={()=>void removeCustomer(c)}/>}</span>:null},
     ]}/>
-  :view==='kanban'?<Kanban groups={groupBy==='category'?[...catalog.filter(c=>c.active||groups.some(g=>g.key===c.id)).map(c=>groups.find(g=>g.key===c.id)||{key:c.id,label:c.name,color:c.color,rows:[]}),...groups.filter(g=>g.key!=='_none'&&!catalog.some(c=>c.id===g.key)),groups.find(g=>g.key==='_none')||{key:'_none',label:'Chưa phân loại',rows:[]}]:groups} statuses={statuses} byStatus={groupBy==='status'} movable={groupBy==='status'||groupBy==='category'} onOpen={onOpen} onMove={setStatus}/>
-  :<div className="cd-cards">{rows.map(c=><div key={c.id} className="cd-customer" role="button" tabIndex={0} onClick={()=>onOpen(c.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onOpen(c.id);}}}><header><span className="cd-monogram">{(c.name||'').split(/\s+/).filter(Boolean).slice(0,2).map(s=>s[0]).join('').toUpperCase()||'?'}</span>{c.canDelete?<span onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(c.id)} onChange={()=>toggleOne(c)} aria-label={`Chọn ${c.name}`}/></span>:<Icon name="right" size={16}/>}</header><h3>{c.name}</h3><p>{c.contact||c.email||(c.manager||c.owner)?.name||'Chưa có thông tin liên hệ'}</p><div className="cd-card-stats"><span><b>{c.projects||0}</b>Dự án</span><span><b>{c.tasks||0}</b>Công việc</span></div><div className="cd-progress"><progress max={c.tasks||1} value={c.completed||0}/><small>{c.completed||0}/{c.tasks||0} hoàn thành</small></div><footer><span><Icon name="folder" size={12}/>{c.hasDrive?'Đã liên kết Drive':'Chưa liên kết Drive'}</span>{(c.canManage||c.canDelete)?<span className="crm-campaign-actions" onClick={e=>e.stopPropagation()}>{c.canManage&&onEdit&&<button type="button" className="btn btn-gray btn-sm" disabled={busyId===c.id} onClick={()=>onEdit(c.id)}>Sửa</button>}{c.canDelete&&<button type="button" className="btn btn-sm cm-danger" disabled={busyId===c.id} onClick={()=>void removeCustomer(c)}>Xoá</button>}</span>:<span>Xem chi tiết</span>}</footer></div>)}</div>}
+  :<Kanban groups={groupBy==='category'?[...catalog.filter(c=>c.active||groups.some(g=>g.key===c.id)).map(c=>groups.find(g=>g.key===c.id)||{key:c.id,label:c.name,color:c.color,rows:[]}),...groups.filter(g=>g.key!=='_none'&&!catalog.some(c=>c.id===g.key)),groups.find(g=>g.key==='_none')||{key:'_none',label:'Chưa phân loại',rows:[]}]:groups} statuses={statuses} byStatus={groupBy==='status'} movable={groupBy==='status'||groupBy==='category'} onOpen={onOpen} onMove={setStatus}/>}
  </section>;
 }
 
@@ -154,4 +155,14 @@ function Kanban({groups,statuses,byStatus,movable,onOpen,onMove}:{groups:{key:st
 function Tags({c}:{c:CustomerRecord}){
  const tags=c.tags?.length?c.tags:c.category?[c.category]:[];
  return tags.length?<span className="crm-tag-list">{tags.map(t=><span key={t.id} className="crm-pill" style={{['--c' as any]:t.color}}>{t.name}</span>)}</span>:<>—</>;
+}
+
+/** Tổng quan: the work of the customers listed (search and filters apply), where it stands in the review workflow. */
+function CustomerFlow({customers,onOpen}:{customers:CustomerRecord[];onOpen:(id:string)=>void}){
+ const[rows,setRows]=useState<FlowRow[]|null>(null),[error,setError]=useState('');
+ useEffect(()=>{api.customerFlow().then(setRows,e=>setError(e.message));},[]);
+ if(error)return <p className="note err" role="alert">{error}</p>;
+ if(!rows)return <BrandLoading label="Đang tải số liệu…"/>;
+ const shown=new Set(customers.map(c=>c.id));
+ return <FlowOverview byCustomer rows={rows.filter(r=>r.customer&&shown.has(r.customer.id))} onOpenTask={openTask} onOpenCustomer={onOpen}/>;
 }
