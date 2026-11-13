@@ -8128,3 +8128,43 @@ button.fo-tile { cursor: pointer; } button.fo-tile:hover { border-color: var(--a
 .cm-svc-status { flex: none; font-size: 11px; color: var(--label-2); }
 .cm-svc-add { display: flex; gap: 8px; }
 .cm-svc-add .bk-in { flex: 1; min-width: 0; }
+
+/* A service's page sits on the page's grey like the Tasks page: its head and its list are white cards, nothing round them. */
+.project-campaign-shell { background: transparent; border: 0; border-radius: 0; gap: 12px; }
+.project-campaign-detail .tk-embedded > .tk-list-pane { background: var(--surface); border: 1px solid var(--sep); border-radius: 16px; }
+/* The service of a customer's service page, in its head beside its buttons. */
+.project-services.inline { padding: 0; border: 0; gap: 8px; }
+.project-services.inline h3 { font-size: 12px; }
+/* The customer page's menu, as the Tasks page's: a white rounded card standing off the page's grey. */
+.crm-side { margin: 12px 6px 12px 12px; border: 1px solid var(--sep); border-radius: 16px; background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, .02); }
+.crm-side:not(.folded) { padding: 14px 10px; }
+.crm-side .reading-tabs.crm-vtabs button { padding: 8px 12px; font-size: 13.5px; }
+/* Filtering a list by when its rows were made or changed (DateFilter.tsx): the field, then the span of days. */
+.date-filter { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.date-filter-field { flex: none; min-width: 96px; height: 34px; padding: 0 8px; border: 1px solid var(--sep); border-radius: 8px; background: var(--fill-2); color: var(--label); font: inherit; font-size: 12.5px; }
+.date-filter .dr-field { min-height: 34px; padding: 3px 10px; border-radius: 8px; }
+.date-filter .dr-part small { display: none; }
+.ax-date-field { width: auto; min-width: 110px; }
+/* In a narrow list beside an open item, the date filter takes a row of its own. */
+.tk-toolbar .date-filter { flex-wrap: nowrap; max-width: 100%; }
+.tk-mailbox.has-selection .tk-toolbar .date-filter { flex: 1 1 100%; }
+.tk-mailbox.has-selection .tk-toolbar .date-filter .dr-field { flex: 1; min-width: 0; }
+.crm-split.side-folded { grid-template-columns: 74px 0 minmax(0, 1fr) !important; }
+.tk-mailbox.has-selection .tk-toolbar:has(.date-filter) { flex-wrap: wrap; }
+.tk-mailbox.has-selection .tk-toolbar .date-filter-field { width: auto; }
+/* That toolbar is a two-column grid there: the date filter spans both. */
+.tk-mailbox.has-selection>.tk-list-pane .tk-toolbar .date-filter { grid-column: 1 / -1; width: 100%; }
+.tk-mailbox.has-selection>.tk-list-pane .tk-toolbar .date-filter > .date-filter-field { width: auto !important; flex: none; }
+.tk-mailbox.has-selection>.tk-list-pane .tk-toolbar .date-filter > .dr-field { flex: 1 1 auto; min-width: 0; }
+/* The app's own questions (AskDialog.tsx), in place of the browser's: a window over a dimmed page. */
+.ask-modal { width: min(460px, calc(100vw - 32px)); padding: 0; border: 0; border-radius: 16px; background: var(--surface); color: var(--label); box-shadow: 0 24px 64px rgba(0, 0, 0, .28); }
+.ask-modal::backdrop { background: rgba(9, 15, 30, .55); }
+.ask-in { display: flex; flex-direction: column; gap: 12px; padding: 14px 20px 18px; }
+.ask-in > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-right: -6px; }
+.ask-in > header b { font-size: 15px; font-weight: 600; }
+.ask-msg { margin: 0; font-size: 14px; line-height: 1.5; color: var(--label-2); white-space: pre-line; }
+.ask-in .bk-in { width: 100%; box-sizing: border-box; }
+.ask-in textarea.bk-in { resize: vertical; min-height: 90px; font: inherit; font-size: 13.5px; line-height: 1.45; }
+.ask-in > footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+.ask-danger { background: var(--red, #d93025); color: #fff; border: 0; }
+.ask-danger:hover:not(:disabled) { filter: brightness(.94); }

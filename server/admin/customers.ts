@@ -99,7 +99,7 @@ export function registerCustomers(api: Router) {
     const c = await need(req, 'customers.export'), rows = (await filtered(await need(req, 'customers.view'), req.query)).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
     await logAction(c, 'Xuất danh sách khách hàng (CSV)', `${rows.length} khách hàng`, 'customer');
     const statuses=new Map((await customerStatuses()).map(s=>[s.id,s.name]));
-    sendCsv(res, 'khach-hang.csv', [['Tên', 'Người liên hệ', 'Điện thoại', 'Email', 'Dịch vụ', 'Phân loại', 'Nguồn', 'Trạng thái', 'Phụ trách', 'Người tạo', 'Dự án', 'Công việc', 'Ngày tạo', 'Lưu trữ'],
+    sendCsv(res, 'khach-hang.csv', [['Tên', 'Người liên hệ', 'Điện thoại', 'Email', 'Dịch vụ', 'Phân loại', 'Nguồn', 'Trạng thái', 'Phụ trách', 'Người tạo', 'Số dịch vụ', 'Công việc', 'Ngày tạo', 'Lưu trữ'],
       ...rows.map((x) => [x.name, x.contact, x.phone, x.email, x.needs.map((n) => n.name).join('; '), x.category?.name, x.source?.name, x.status ? statuses.get(x.status)||x.status : '', x.manager?.name, x.owner?.name, x.projects, x.tasks, csvDate(x.createdAt), x.archivedAt ? csvDate(x.archivedAt) : ''])]);
   });
   api.get('/api/admin/customers/:id', async (req, res) => {

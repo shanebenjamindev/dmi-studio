@@ -30,7 +30,7 @@ export function ServicePicker({ value, onChange, known = [], suggested = [], dis
   const name = (id: string) => catalog.find((s) => s.id === id)?.name || known.find((s) => s.id === id)?.name || 'Dịch vụ';
   const shown = catalog.filter((s) => !q.trim() || fold(s.name).includes(fold(q.trim())));
   const ofSuggested = shown.filter((s) => suggested.includes(s.id)), rest = shown.filter((s) => !suggested.includes(s.id));
-  const groups = [...(ofSuggested.length ? [{ name: 'Của dự án', list: ofSuggested }] : []), ...[...new Set(rest.map((s) => s.category || ''))].map((g) => ({ name: g, list: rest.filter((s) => (s.category || '') === g) }))];
+  const groups = [...(ofSuggested.length ? [{ name: 'Của dịch vụ', list: ofSuggested }] : []), ...[...new Set(rest.map((s) => s.category || ''))].map((g) => ({ name: g, list: rest.filter((s) => (s.category || '') === g) }))];
   const exact = catalog.some((s) => fold(s.name) === fold(q.trim()));
   const toggle = (id: string) => {
     if (single) { onChange(value.includes(id) ? [] : [id]); setOpen(false); return; }

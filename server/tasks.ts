@@ -15,7 +15,7 @@ import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
 import { isHold, projectStage } from '../shared/projects';
 import { oneService, projectServices, saveProjectServices, saveTaskServices, serviceIds, settleCustomerServices, taskServices } from './project-services';
 /** A project is one service of its customer (Khách → Dịch vụ → Công việc). */
-const ONE_SERVICE = 'Mỗi dự án là một dịch vụ của khách: chỉ chọn một dịch vụ';
+const ONE_SERVICE = 'Chỉ chọn một dịch vụ';
 /** A description or result as written (formatted text is never cut, which would break it): too long is refused. */
 const richIn = (x: unknown) => { const v = String(x ?? ''); if (v.length > RICH_MAX) throw new HttpError(413, RICH_TOO_LONG); return v; };
 import type { Req } from './http';
@@ -279,7 +279,7 @@ async function canDelete(req: Req, t: any) {
 async function writable(req: Req) {
   const t = await get<any>('SELECT * FROM tasks WHERE id=?', req.params.id);
   if (!t) throw new HttpError(404, 'Không tìm thấy công việc');
-  if (!await mine(req, t)) throw new HttpError(403, 'Chỉ người được giao, người tạo, thành viên dự án hoặc quản trị viên mới sửa được công việc này');
+  if (!await mine(req, t)) throw new HttpError(403, 'Chỉ người được giao, người tạo, thành viên dịch vụ hoặc quản trị viên mới sửa được công việc này');
   return t;
 }
 async function defaultCampaign(project: string) {
@@ -297,10 +297,10 @@ async function taskInput(b: any, old?: any,userId?:string) {
   const due = b.dueAt === undefined ? old?.due_at ?? null : date(b.dueAt);
   if (start !== null && due !== null && start > due) throw new HttpError(400, 'Thời hạn phải sau ngày bắt đầu');
   const project = b.projectId === undefined ? old?.project_id ?? null : b.projectId || null;
-  if (project && !await get('SELECT 1 FROM task_projects WHERE id=?', String(project))) throw new HttpError(400, 'Không tìm thấy dự án');
+  if (project && !await get('SELECT 1 FROM task_projects WHERE id=?', String(project))) throw new HttpError(400, 'Không tìm thấy dịch vụ');
   if(project&&userId&&project!==old?.project_id){await requireProject(userId,String(project),'normal');const p=await get<any>('SELECT customer_id FROM task_projects WHERE id=?',project);if(p?.customer_id)await requireCustomer(userId,p.customer_id,'normal');}
   let campaign = b.campaignId === undefined && project === old?.project_id ? old?.campaign_id || null : b.campaignId || null;
-  if (campaign && !await get('SELECT 1 FROM task_campaigns WHERE id=? AND project_id=?',String(campaign),project)) throw new HttpError(400,'Chiến dịch không thuộc dự án đã chọn');
+  if (campaign && !await get('SELECT 1 FROM task_campaigns WHERE id=? AND project_id=?',String(campaign),project)) throw new HttpError(400,'Chiến dịch không thuộc dịch vụ đã chọn');
   const parent = b.parentId === undefined ? old?.parent_id ?? null : b.parentId || null;
   if (parent) {
     let at: string | null = String(parent), count = 0;
@@ -396,13 +396,15 @@ export async function projectForService(user:{id:string;team_role?:string|null},
 async function canManageProject(user:any,id:string){return (await requireProject(user.id,id,'admin'))==='admin';}
 export function registerTasks(api: Router) {
   api.post('/api/task-projects',async(req,res)=>{
-    const user=await me(req),body=await readJson(req),name=String(body.name||'').trim();
-    if(!name||name.length>200)throw new HttpError(400,'Tên dự án cần từ 1 đến 200 ký tự');
+    const user=await me(req),body=await readJson(req);
+    // A project is one of its customer's services, called by the service's name (a name is only for one of no service).
+    const services=body.services!==undefined?await oneService(body.services,ONE_SERVICE):null;
+    const name=services?.length?(await get<any>('SELECT name FROM services WHERE id=?',services[0]))?.name||'':String(body.name||'').trim();
+    if(!name||name.length>200)throw new HttpError(400,'Hãy chọn dịch vụ');
     const customerId=body.customerId?String(body.customerId):null;
     if(customerId)await requireCustomer(user.id,customerId,'admin');
     const teamId=body.teamId!==undefined?(body.teamId?String(body.teamId):null):user.team_role||null;
     if(teamId&&!await get('SELECT id FROM team_roles WHERE id=?',teamId))throw new HttpError(400,'Phòng ban không tồn tại');
-    const services=body.services!==undefined?await oneService(body.services,ONE_SERVICE):null;
     const id=uid('tj_');
     await run('INSERT INTO task_projects(id,name,customer_id,created_by,team_id,created_at) VALUES(?,?,?,?,?,?)',id,name,customerId,user.id,teamId,now());
     // The services chosen for it (the form offers its customer's as defaults), or else those still set on the customer.
@@ -424,7 +426,7 @@ export function registerTasks(api: Router) {
     const body=await readJson(req);
     if(body.name!==undefined){
       const name=String(body.name||'').trim();
-      if(!name||name.length>200)throw new HttpError(400,'Tên dự án không hợp lệ (tối đa 200 ký tự)');
+      if(!name||name.length>200)throw new HttpError(400,'Tên dịch vụ không hợp lệ (tối đa 200 ký tự)');
       await run('UPDATE task_projects SET name=? WHERE id=?',name,id);
       await renameProjectBoard(id,name);
     }
@@ -440,7 +442,7 @@ export function registerTasks(api: Router) {
     if(body.services!==undefined)await saveProjectServices(id,await oneService(body.services,ONE_SERVICE),user.id);
     // Put on hold or cancelled by its managers, or (null) back to following its tasks.
     if(body.hold!==undefined){
-      if(body.hold!==null&&!isHold(body.hold))throw new HttpError(400,'Trạng thái dự án không hợp lệ');
+      if(body.hold!==null&&!isHold(body.hold))throw new HttpError(400,'Trạng thái dịch vụ không hợp lệ');
       await run('UPDATE task_projects SET hold=? WHERE id=?',body.hold,id);
     }
     if(body.teamId!==undefined){
@@ -462,7 +464,7 @@ export function registerTasks(api: Router) {
   api.post('/api/task-projects/bulk-delete',async(req,res)=>{
     const user=await me(req),b=await readJson(req);
     const ids=Array.isArray(b.ids)?[...new Set<string>(b.ids.filter((id:unknown)=>typeof id==='string'&&id))]:[];
-    if(!ids.length||ids.length>200)throw new HttpError(400,'Hãy chọn từ 1 đến 200 dự án để xoá');
+    if(!ids.length||ids.length>200)throw new HttpError(400,'Hãy chọn từ 1 đến 200 dịch vụ để xoá');
     const levels=await projectLevels(user.id);
     let deleted=0;
     for(const id of ids){
@@ -491,30 +493,30 @@ export function registerTasks(api: Router) {
     if(!['admin','normal','observer','viewer'].includes(want))throw new HttpError(400,'Quyền không hợp lệ');
     const role=want==='viewer'?'observer':want,follows=want==='observer'?1:0;
     if(!await get('SELECT id FROM users WHERE id=? AND disabled=0',req.params.userId))throw new HttpError(404,'Không tìm thấy nhân viên');
-    if(req.params.userId===p.created_by)throw new HttpError(400,'Không thể thay đổi quyền chủ dự án');
+    if(req.params.userId===p.created_by)throw new HttpError(400,'Không thể thay đổi quyền chủ dịch vụ');
     // A project of a customer is seen only by people of that customer: adding someone here opens the customer to them
     // (view for a follower or viewer, member otherwise).
     if(p.customer_id)await grantAccess(req.params.userId,user.id,{customerId:p.customer_id},role==='normal'||role==='admin'?'normal':'observer');
     const had=await get('SELECT 1 FROM task_project_members WHERE project_id=? AND user_id=?',id,req.params.userId);
     await run('INSERT INTO task_project_members(project_id,user_id,role,follows) VALUES(?,?,?,?) ON CONFLICT(project_id,user_id) DO UPDATE SET role=excluded.role,follows=excluded.follows',id,req.params.userId,role,follows);
-    if(!had)await notifyPeople([req.params.userId],user.id,{title:'Bạn được thêm vào dự án',body:p.name,link:`#projects/${id}`});
+    if(!had)await notifyPeople([req.params.userId],user.id,{title:'Bạn được thêm vào dịch vụ',body:p.name,link:`#projects/${id}`});
     await syncProjectBoardMembers(id);
     json(res,200,{ok:true});
   });
   api.delete('/api/task-projects/:project/members/:userId',async(req,res)=>{
     const user=await me(req),id=req.params.project;await requireProject(user.id,id,'admin');
-    const p=await get<any>('SELECT created_by FROM task_projects WHERE id=?',id);if(p.created_by===req.params.userId)throw new HttpError(400,'Không thể gỡ chủ dự án');
+    const p=await get<any>('SELECT created_by FROM task_projects WHERE id=?',id);if(p.created_by===req.params.userId)throw new HttpError(400,'Không thể gỡ chủ dịch vụ');
     await run('DELETE FROM task_project_members WHERE project_id=? AND user_id=?',id,req.params.userId);
     await syncProjectBoardMembers(id);
     json(res,200,{ok:true});
   });
   api.get('/api/task-projects/:project/campaigns',async(req,res)=>{
-    if(!await get('SELECT id FROM task_projects WHERE id=?',req.params.project))throw new HttpError(404,'Không tìm thấy dự án');
+    if(!await get('SELECT id FROM task_projects WHERE id=?',req.params.project))throw new HttpError(404,'Không tìm thấy dịch vụ');
     json(res,200,(await all<any>('SELECT c.*, (SELECT COUNT(*) FROM tasks t WHERE t.campaign_id=c.id AND t.stub=0) tasks FROM task_campaigns c WHERE project_id=? ORDER BY created_at',req.params.project)).map(c=>({id:c.id,name:c.name,projectId:c.project_id,tasks:c.tasks})));
   });
   api.post('/api/task-projects/:project/campaigns',async(req,res)=>{
     const u=await me(req);if(!await canManageProject(u,req.params.project))throw new HttpError(403,'Chỉ quản trị viên được tạo chiến dịch');
-    if(!await get('SELECT id FROM task_projects WHERE id=?',req.params.project))throw new HttpError(404,'Không tìm thấy dự án');
+    if(!await get('SELECT id FROM task_projects WHERE id=?',req.params.project))throw new HttpError(404,'Không tìm thấy dịch vụ');
     const b=await readJson(req),name=String(b.name||'').trim();if(!name||name.length>200)throw new HttpError(400,'Hãy nhập tên chiến dịch (tối đa 200 ký tự)');
     const id=uid('tc_');await run('INSERT INTO task_campaigns(id,project_id,name,created_at) VALUES(?,?,?,?)',id,req.params.project,name,now());json(res,201,{id,name,projectId:req.params.project,tasks:0});
   });
@@ -533,7 +535,7 @@ export function registerTasks(api: Router) {
     if (u.role !== 'admin') throw new HttpError(403, 'Chỉ quản trị viên được áp dụng luồng master');
     const b = await readJson(req);
     const projectId = String(b.projectId || '');
-    if (!await get('SELECT id FROM task_projects WHERE id=?', projectId)) throw new HttpError(404, 'Hãy chọn dự án/chiến dịch có sẵn');
+    if (!await get('SELECT id FROM task_projects WHERE id=?', projectId)) throw new HttpError(404, 'Hãy chọn dịch vụ/chiến dịch có sẵn');
     if (!Array.isArray(b.keys) || !b.keys.length || b.keys.length > TASK_MASTER.length || b.keys.some((key: unknown) => !TASK_MASTER.some((item) => item.key === key))) throw new HttpError(400, 'Nhóm công việc không hợp lệ');
     const input = await taskInput({ title: 'Master', projectId, campaignId:b.campaignId, assigneeIds: b.assigneeIds || [], assigneeUserIds: b.assigneeUserIds || [], startAt: b.startAt ?? null, dueAt: b.dueAt ?? null },undefined,u.id);
     const creator = await taskPersonForUser(u.id), at = now();
@@ -637,9 +639,9 @@ export function registerTasks(api: Router) {
     json(res, 200, {
       people: (await all<any>('SELECT p.*, u.name user_name, u.avatar_at FROM task_people p LEFT JOIN users u ON u.id = p.user_id ORDER BY p.name COLLATE NOCASE'))
         .map((p) => ({ id: p.id, name: p.name, userId: p.user_id || null, userName: p.user_name || null, avatarAt: p.avatar_at ?? null, tasks: counts.get(p.id) || 0 })),
-      projects: (await all<any>('SELECT j.*, c.name customer_name, (SELECT COUNT(*) FROM tasks t WHERE t.project_id = j.id) n FROM task_projects j LEFT JOIN customers c ON c.id = j.customer_id ORDER BY j.name COLLATE NOCASE')).filter(j=>projectIds.has(j.id)).map((j) => {
+      projects: (await all<any>('SELECT j.*, c.name customer_name, (SELECT COUNT(*) FROM tasks t WHERE t.project_id = j.id) n, (SELECT MAX(t.updated_at) FROM tasks t WHERE t.project_id = j.id) touched FROM task_projects j LEFT JOIN customers c ON c.id = j.customer_id ORDER BY j.name COLLATE NOCASE')).filter(j=>projectIds.has(j.id)).map((j) => {
         const st = projStats.get(j.id);
-        return { id: j.id, name: j.name, customerId: j.customer_id || null, customerName: j.customer_name || null, teamId:j.team_id||null,createdBy:j.created_by,level:allowedProjects.get(j.id), tasks: Number(j.n), completed: st?.completed || 0, overdue: st?.overdue || 0, hold: j.hold || null, services: services.get(j.id) || [], stage: projectStage({ tasks: st?.live || 0, started: st?.started || 0, done: st?.completed || 0 }, j.hold), assignees: projAssignees.get(j.id) || [] };
+        return { id: j.id, name: j.name, customerId: j.customer_id || null, customerName: j.customer_name || null, teamId:j.team_id||null,createdBy:j.created_by,createdAt:j.created_at??null,updatedAt:Math.max(j.created_at||0,j.touched||0)||null,level:allowedProjects.get(j.id), tasks: Number(j.n), completed: st?.completed || 0, overdue: st?.overdue || 0, hold: j.hold || null, services: services.get(j.id) || [], stage: projectStage({ tasks: st?.live || 0, started: st?.started || 0, done: st?.completed || 0 }, j.hold), assignees: projAssignees.get(j.id) || [] };
       }),
       campaigns: (await all<any>('SELECT c.*, (SELECT COUNT(*) FROM tasks t WHERE t.campaign_id=c.id) tasks FROM task_campaigns c ORDER BY c.name')).filter(c=>projectIds.has(c.project_id)).map(c=>({id:c.id,name:c.name,projectId:c.project_id,tasks:c.tasks})),
       teams:await all('SELECT id,name,color FROM team_roles ORDER BY pos'),

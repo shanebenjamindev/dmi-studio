@@ -13,6 +13,7 @@ import {
   useLoad, useListState, useDebounced, useCan, act, fmtAgo, fmtTime, fmtDate, fmtNum, fold, type Col,
 } from '../kit';
 
+import { askConfirm } from '../../components/AskDialog';
 const LEVEL: Record<string, string> = { admin: 'Quản lý phòng', normal: 'Thành viên', observer: 'Chỉ xem' };
 const STATE_LABEL: Record<string, string> = { todo: 'Chưa làm', doing: 'Đang làm', review: 'Đang đánh giá', paused: 'Tạm dừng', overdue: 'Quá hạn', done: 'Hoàn thành', done_late: 'Hoàn thành muộn', cancelled: 'Đã huỷ', other: 'Khác' };
 export const StatusBadge = ({ s }: { s: Pick<Staff, 'disabled' | 'lastLogin'> }) => (s.disabled ? <Badge tone="bad">Đã khoá</Badge> : s.lastLogin ? <Badge tone="ok">Hoạt động</Badge> : <Badge tone="muted">Chưa đăng nhập</Badge>);
@@ -71,9 +72,9 @@ function StaffDrawer({ id, onClose, onChanged }: { id: string; onClose: () => vo
   const [tab, setTab] = useState<'profile' | 'work' | 'access' | 'history'>('profile');
   const [editing, setEditing] = useState(false);
   const s = load.data, reload = () => { load.reload(); onChanged(); };
-  const lock = () => s && confirm(s.disabled ? `Mở khoá tài khoản của ${s.name}?` : `Khoá tài khoản của ${s.name}? Người này bị đăng xuất khỏi mọi thiết bị và không đăng nhập được cho tới khi mở khoá.`)
+  const lock = async () => s && await askConfirm(s.disabled ? `Mở khoá tài khoản của ${s.name}?` : `Khoá tài khoản của ${s.name}? Người này bị đăng xuất khỏi mọi thiết bị và không đăng nhập được cho tới khi mở khoá.`)
     && act(() => admin.lockStaff(s.id, !s.disabled), s.disabled ? 'Đã mở khoá tài khoản' : 'Đã khoá tài khoản', reload);
-  const signOut = () => s && confirm(`Đăng xuất ${s.name} khỏi mọi thiết bị (${s.sessions} phiên đang mở)?`) && act(() => admin.signOutStaff(s.id), 'Đã đăng xuất mọi thiết bị', reload);
+  const signOut = async () => s && await askConfirm(`Đăng xuất ${s.name} khỏi mọi thiết bị (${s.sessions} phiên đang mở)?`) && act(() => admin.signOutStaff(s.id), 'Đã đăng xuất mọi thiết bị', reload);
   if (editing && s) return <StaffForm staff={s} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reload(); }} />;
   return (
     <Drawer open title={s?.name || 'Nhân viên'} sub={s?.email} onClose={onClose} wide footer={s && <>
@@ -93,7 +94,7 @@ function StaffDrawer({ id, onClose, onChanged }: { id: string; onClose: () => vo
         </dl>}
         {tab === 'work' && <>
           <div className="ax-kpis small"><Mini label="Đang làm" v={s.work.open} /><Mini label="Quá hạn" v={s.work.overdue} bad /><Mini label="Hoàn thành" v={s.work.done} /><Mini label="Hoàn thành muộn" v={s.work.late} /></div>
-          {s.tasks ? s.tasks.length ? <ul className="ax-list">{s.tasks.map((t) => <li key={t.id}><span><b>{t.title}</b><small>{t.project || 'Không thuộc dự án'} · Hạn {fmtDate(t.dueAt)}</small></span><Badge tone={t.state === 'overdue' ? 'bad' : t.state.startsWith('done') ? 'ok' : undefined}>{STATE_LABEL[t.state] || t.status}</Badge></li>)}</ul>
+          {s.tasks ? s.tasks.length ? <ul className="ax-list">{s.tasks.map((t) => <li key={t.id}><span><b>{t.title}</b><small>{t.project || 'Không thuộc dịch vụ'} · Hạn {fmtDate(t.dueAt)}</small></span><Badge tone={t.state === 'overdue' ? 'bad' : t.state.startsWith('done') ? 'ok' : undefined}>{STATE_LABEL[t.state] || t.status}</Badge></li>)}</ul>
             : <p className="note">Chưa có công việc nào được giao.</p> : <p className="note">Bạn xem được số lượng; danh sách công việc cần quyền xem công việc trong phạm vi của người này.</p>}
         </>}
         {tab === 'access' && <>
@@ -203,9 +204,9 @@ export function AdminAccounts() {
   const history = useLoad(() => (can('logs.view') ? admin.logs({ kind: 'permission', size: 12 }) : Promise.resolve(null)), []);
   const [adding, setAdding] = useState(false), [edit, setEdit] = useState<Staff | null>(null);
   const adminRoles = (roles.data || []).filter((r) => r.rank >= ADMIN_RANK && r.canAssign);
-  const revoke = (s: Staff) => {
+  const revoke = async (s: Staff) => {
     const keep = s.roles.filter((r) => r.rank < ADMIN_RANK);
-    if (confirm(`Thu hồi quyền quản trị của ${s.name}? Người này giữ lại: ${keep.map((r) => r.name).join(', ') || 'Member'}.`))
+    if (await askConfirm(`Thu hồi quyền quản trị của ${s.name}? Người này giữ lại: ${keep.map((r) => r.name).join(', ') || 'Member'}.`))
       void act(() => admin.setRoles(s.id, keep.map((r) => ({ roleId: r.id, scope: r.scope }))), 'Đã thu hồi quyền Admin', () => { load.reload(); history.reload(); });
   };
   const cols: Col<Staff>[] = [
@@ -308,7 +309,7 @@ export function Positions() {
         { key: 'dept', label: 'Phòng ban', render: (p) => <Badge color={p.dept.color}>{p.dept.name}</Badge> },
         { key: 'level', label: 'Cấp', render: (p) => can('org.update') ? <select className="bk-in ax-cell-input" value={p.level} onChange={(e) => void act(() => api.updatePosition(p.id, { level: e.target.value as any }), 'Đã đổi cấp', reload)} aria-label="Cấp">{Object.entries(LEVEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select> : LEVEL[p.level] },
         { key: 'members', label: 'Người giữ', align: 'right', render: (p) => fmtNum(p.members) },
-        { key: 'x', label: '', align: 'right', render: (p) => can('org.delete') ? <button className="bd-icon danger" aria-label={`Xoá ${p.name}`} onClick={() => confirm(`Xoá chức vụ “${p.name}” của ${p.dept.name}?${p.members ? ` ${p.members} người đang giữ sẽ thành Thành viên của phòng.` : ''}`) && act(() => api.deletePosition(p.id), 'Đã xoá chức vụ', reload)}><Icon name="trash" size={14} /></button> : null },
+        { key: 'x', label: '', align: 'right', render: (p) => can('org.delete') ? <button className="bd-icon danger" aria-label={`Xoá ${p.name}`} onClick={async () => await askConfirm(`Xoá chức vụ “${p.name}” của ${p.dept.name}?${p.members ? ` ${p.members} người đang giữ sẽ thành Thành viên của phòng.` : ''}`) && act(() => api.deletePosition(p.id), 'Đã xoá chức vụ', reload)}><Icon name="trash" size={14} /></button> : null },
       ]} /></div>
     </>
   );
@@ -352,7 +353,7 @@ function TeamDrawer({ team, onClose, onSaved }: { team: Team | null; onClose: ()
   const list = (people.data?.items || []).filter((p) => !q.trim() || fold(`${p.name} ${p.email}`).includes(fold(q.trim())));
   return (
     <Drawer open title={team ? team.name : 'Thêm nhóm'} onClose={onClose} footer={<>
-      {team && can('org.delete') && <button className="btn btn-gray btn-sm" onClick={() => confirm(`Xoá nhóm “${team.name}”? Thành viên vẫn giữ tài khoản; nhóm không còn dùng cho phạm vi “Nhóm”.`) && act(() => admin.removeTeam(team.id), 'Đã xoá nhóm', onSaved)}><Icon name="trash" size={14} />Xoá</button>}
+      {team && can('org.delete') && <button className="btn btn-gray btn-sm" onClick={async () => await askConfirm(`Xoá nhóm “${team.name}”? Thành viên vẫn giữ tài khoản; nhóm không còn dùng cho phạm vi “Nhóm”.`) && act(() => admin.removeTeam(team.id), 'Đã xoá nhóm', onSaved)}><Icon name="trash" size={14} />Xoá</button>}
       <button className="btn btn-gray btn-sm" onClick={onClose}>Đóng</button>
       {editable && <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{busy ? 'Đang lưu…' : 'Lưu'}</button>}
     </>}>

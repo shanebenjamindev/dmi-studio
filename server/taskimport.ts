@@ -1,5 +1,5 @@
 // Reading a task list exported from the team's task app ("Tên công việc, Trạng thái, Thời gian bắt đầu, Thời hạn, Thời
-// gian hoàn thành, Dự án, Công việc cha, Danh sách nhãn, Tạo bởi, Giao cho, Mô tả, Kết quả công việc, Cập nhật gần nhất,
+// gian hoàn thành, Dự án (or Dịch vụ), Công việc cha, Danh sách nhãn, Tạo bởi, Giao cho, Mô tả, Kết quả công việc, Cập nhật gần nhất,
 // Mã công việc (ID)"), pasted or saved as TSV/CSV: quoted cells may hold line breaks, HTML entities (&#124; &#61; …)
 // are decoded, the rows that only group the list by assignee ("Bang Manh (9)") are skipped, and times
 // ("23:59 30/10/2026") are Vietnam time. No I/O here (see tasks.ts).
@@ -17,7 +17,7 @@ const COLUMNS: [Field, string[]][] = [
   ['startAt', ['thời gian bắt đầu', 'ngày bắt đầu', 'bắt đầu', 'start', 'start date']],
   ['dueAt', ['thời hạn', 'hạn', 'hạn chót', 'deadline', 'due', 'due date']],
   ['doneAt', ['thời gian hoàn thành', 'ngày hoàn thành', 'hoàn thành lúc', 'completed', 'completed at']],
-  ['project', ['dự án', 'project']],
+  ['project', ['dự án', 'dịch vụ', 'project', 'service']],
   ['parent', ['công việc cha', 'parent', 'parent task']],
   ['labels', ['danh sách nhãn', 'nhãn', 'labels', 'tags']],
   ['createdBy', ['tạo bởi', 'người tạo', 'created by']],

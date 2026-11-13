@@ -4,6 +4,7 @@
 import { all, get, run, uid, now } from '../db';
 import { HttpError, json, readJson, type Router } from '../http';
 import { need, text, amount, oneOf, exists, changed, registerDict, matcher, page } from './common';
+import { nameAfterService } from '../project-services';
 
 const STATUS = ['active', 'inactive', 'draft'] as const;
 const CURRENCIES = ['VND', 'USD'] as const;
@@ -80,6 +81,8 @@ export function registerServices(api: Router) {
     await run('UPDATE services SET name = ?, code = ?, category_id = ?, about = ?, image = ?, price = ?, currency = ?, unit = ?, status = ?, updated_by = ?, updated_at = ? WHERE id = ?',
       f.name, f.code, f.category, f.about, f.image, f.price, f.currency, f.unit, f.status, c.user.id, now(), old.id);
     const s = serviceOut(await mustService(old.id));
+    // The customers' services of it (projects) are called by its name.
+    if (s.name !== old.name) for (const r of await all<any>('SELECT project_id FROM project_services WHERE service_id = ?', s.id)) await nameAfterService(r.project_id);
     await changed(c, { action: 'Sửa dịch vụ', type: 'service', id: s.id, label: s.name, before: serviceSnap(old), after: serviceSnap(s) });
     json(res, 200, s);
   });

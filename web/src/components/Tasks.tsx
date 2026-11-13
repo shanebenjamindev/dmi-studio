@@ -29,8 +29,10 @@ import { ServicePicker } from './ServicePicker';
 import { FlowBadge, FlowPop, FlowSteps, TaskFlow } from './TaskFlow';
 import { SpanField, SpanPop, fromLocal, toLocal } from './DateRange';
 import { FlowOverview } from './FlowOverview';
+import { DateFilterBar, byRecent, filterByDate, useDateFilter } from './DateFilter';
 import { FLOW_FILTERS, FLOW_FILTER_LABEL } from '../../../shared/flow-filter';
 import type { FlowStage } from '../../../shared/task-flow';
+import { askConfirm } from './AskDialog';
 
 const initials = (n: string) => n.replace(/^@/, '').split(/[\s._-]+/).filter(Boolean).slice(-2).map((w) => w[0]).join('').toUpperCase() || '?';
 
@@ -55,6 +57,8 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deletingMany, setDeletingMany] = useState(false);
   const [taskListFolded, setTaskListFolded] = useState(false);
+  // The tasks made or changed within a span of days (Ngày tạo / Ngày sửa), filtered here from what is listed.
+  const [dates, setDates] = useDateFilter();
   // Danh sách or Tổng quan (FlowOverview), remembered per browser.
   const [overview, setOverviewState] = useState(() => { try { return localStorage.getItem('dms.taskOverview') === '1'; } catch { return false; } });
   const setOverview = (on: boolean) => { setOverviewState(on); try { localStorage.setItem('dms.taskOverview', on ? '1' : '0'); } catch { /* private mode */ } };
@@ -144,7 +148,7 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   const handleBulkDelete = async () => {
     if (!selectedIds.length || deletingMany) return;
     const count = selectedIds.length;
-    if (!confirm(`Xoá ${count} công việc đã chọn? Các thẻ liên kết trên Workspace sẽ được xoá, các công việc con sẽ được giữ lại.`)) return;
+    if (!await askConfirm(`Xoá ${count} công việc đã chọn? Các thẻ liên kết trên Workspace sẽ được xoá, các công việc con sẽ được giữ lại.`)) return;
     setDeletingMany(true);
     try {
       const res = await api.bulkDeleteTasks(selectedIds);
@@ -182,6 +186,7 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   };
 
   if (open && full) return <TaskPanel page id={open} meta={meta} statuses={meta?.statuses || []} onOpen={(id) => showTask(id, true)} onClose={() => showTask(null)} onChanged={refresh} />;
+  const listed_ = data ? filterByDate(data.tasks, dates) : [];
   return (
     <div className={'ad-page tk-page tk-mailbox' + (embedded ? ' tk-embedded' : '') + (open ? ' has-selection' : '') + (open && taskListFolded ? ' task-list-folded' : '')}>
       <section ref={listPane} className="tk-list-pane" aria-label="Danh sách công việc">
@@ -212,10 +217,11 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
             </div>
           </div>
         )}
-        <label className="tk-find"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm công việc, dự án, nhãn, mã" aria-label="Tìm công việc" /></label>
+        <label className="tk-find"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm công việc, dịch vụ, nhãn, mã" aria-label="Tìm công việc" /></label>
         <label className="tk-pick"><Icon name="filter" size={14} /><select aria-label="Quy trình" value={state} onChange={(e) => setState(e.target.value)}><FlowFilterOptions /></select></label>
-        {!initialProject && <label className="tk-pick"><Icon name="folder" size={14} /><EntitySelect kind="project" onCreated={async()=>setMeta(await api.taskMeta())} value={project} onChange={v=>{setProject(v);setCampaign('');}} aria-label="Dự án">
-          <option value="">Tất cả dự án</option>
+        <DateFilterBar value={dates} onChange={setDates} />
+        {!initialProject && <label className="tk-pick"><Icon name="folder" size={14} /><EntitySelect kind="project" onCreated={async()=>setMeta(await api.taskMeta())} value={project} onChange={v=>{setProject(v);setCampaign('');}} aria-label="Dịch vụ">
+          <option value="">Tất cả dịch vụ</option>
           {meta?.projects.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.tasks})</option>)}
         </EntitySelect></label>}
         {listed === 'team' && teams.length > 1 && <label className="tk-pick"><Icon name="users" size={14} /><select aria-label="Phòng ban" value={teamId} onChange={(e) => { setTeam(e.target.value); setPerson(''); }}>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>}
@@ -224,13 +230,13 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
           {meta?.users.filter((u) => !teamId || u.teamId === teamId || (u.workTeamIds || []).includes(teamId)).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
         </EntitySelect></label>}
         <div className="ax-seg fo-switch" role="radiogroup" aria-label="Cách xem công việc">{([[false, 'Danh sách'], [true, 'Tổng quan']] as const).map(([on, label]) => <button key={label} role="radio" aria-checked={overview === on} onClick={() => setOverview(on)}>{label}</button>)}</div>
-        {!overview && effectiveView !== 'table' && <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}><option value="due">Thời hạn</option><option value="status">Quy trình</option><option value="project">Dự án</option></select></label>}
+        {!overview && effectiveView !== 'table' && <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}><option value="due">Thời hạn</option><option value="status">Quy trình</option><option value="project">Dịch vụ</option><option value="created">Ngày tạo</option><option value="updated">Ngày sửa</option></select></label>}
       </div>}
       {error ? <p className="note err" role="alert">{error} <button className="btn btn-gray btn-sm" onClick={load}>Thử lại</button></p> : !data ? <BrandLoading label="Đang tải…"/> : !data.tasks.length ? (
         <p className="note">{meta && !meta.people.length ? (admin ? 'Chưa có dữ liệu công việc. Bấm “Thêm file sheet” và chọn file hoặc dán bảng.' : 'Chưa có dữ liệu công việc. Quản trị viên cần nhập dữ liệu trước.') : listed === 'mine' && !state && !q.trim() && !project && !campaign ? 'Chưa có công việc nào giao cho bạn, có tên bạn trên thẻ, hoặc bạn đang theo dõi.' : 'Không có công việc nào khớp.'}</p>
       ) : open ? (
         <TaskReadingList
-          tasks={data.tasks}
+          tasks={listed_}
           groupBy={groupBy}
           selected={open}
           onOpen={showTask}
@@ -249,10 +255,10 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
           onFold={() => setTaskListFolded(true)}
           onOverview={() => { showTask(null); setOverview(true); }}
         />
-      ) : overview ? <FlowOverview rows={data.tasks.map((t) => { const p = meta?.projects.find((x) => x.id === t.project?.id); return { ...t, customer: p?.customerId ? { id: p.customerId, name: p.customerName || '' } : null }; })}
+      ) : overview ? <FlowOverview rows={listed_.map((t) => { const p = meta?.projects.find((x) => x.id === t.project?.id); return { ...t, customer: p?.customerId ? { id: p.customerId, name: p.customerName || '' } : null }; })}
           onOpenTask={(id) => showTask(id)} onPick={(f) => { setData(null); setState(f); setOverview(false); }} />
-        : effectiveView === 'table' ? <TaskTable tasks={data.tasks} selected={open} onOpen={showTask} selection={selection} />
-        : <TaskGroups tasks={data.tasks} groupBy={groupBy} selected={open} onOpen={showTask} onNew={() => setCreating(true)} onChanged={load} selection={selection} />}
+        : effectiveView === 'table' ? <TaskTable tasks={listed_} selected={open} onOpen={showTask} selection={selection} />
+        : <TaskGroups tasks={listed_} groupBy={groupBy} selected={open} onOpen={showTask} onNew={() => setCreating(true)} onChanged={load} selection={selection} />}
       </section>
       {open && !taskListFolded && <ResizeHandle cssVar="--rd-list-w" storage={embedded ? 'tasks-embedded' : 'tasks'} min={220} max={640} label="Đổi độ rộng danh sách công việc" />}
       {open && <TaskPanel inline id={open} meta={meta} statuses={meta?.statuses || []} onOpen={(id) => showTask(id)} onClose={() => showTask(null)} onExpand={() => showTask(open, true)} onChanged={refresh} onUnfoldList={taskListFolded ? () => setTaskListFolded(false) : undefined} />}
@@ -370,11 +376,12 @@ function TaskReadingList({
 
   const groups = useMemo(() => {
     if (groupBy === 'project') {
-      return byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dự án');
+      return byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dịch vụ');
     }
     if (groupBy === 'status') {
       return byKey(tasks, stepGroup, 'Khác', STEP_ORDER);
     }
+    if (groupBy === 'created' || groupBy === 'updated') return byRecent(tasks, groupBy);
     return byWeek(tasks);
   }, [tasks, groupBy]);
 
@@ -533,8 +540,9 @@ function TaskGroups({ tasks, groupBy, selected, onOpen, onNew, onChanged, select
     try { await api.updateTask(t.id, { status: finished(t) ? 'Chưa thực hiện' : 'Hoàn thành' }); onChanged(); }
     catch (e: any) { toast(e.message, true); }
   };
-  const groups = groupBy === 'status' ? byKey(tasks, stepGroup, 'Khác', STEP_ORDER).map((g) => ({ ...g, onAdd: onNew }))
-    : groupBy === 'project' ? byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dự án').map((g) => ({ ...g, onAdd: onNew }))
+  const groups = groupBy === 'created' || groupBy === 'updated' ? byRecent(tasks, groupBy).map((g) => ({ ...g, onAdd: onNew }))
+    : groupBy === 'status' ? byKey(tasks, stepGroup, 'Khác', STEP_ORDER).map((g) => ({ ...g, onAdd: onNew }))
+    : groupBy === 'project' ? byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dịch vụ').map((g) => ({ ...g, onAdd: onNew }))
     : byDueDate(tasks, onNew);
   return <GroupedList foldKey={`dms.taskFold.${groupBy}`} groups={groups} nameLabel="Tên công việc" addLabel="Tạo công việc" onOpen={(t) => onOpen(t.id)} selected={selected}
     selection={selection}
@@ -547,7 +555,7 @@ function TaskGroups({ tasks, groupBy, selected, onOpen, onNew, onChanged, select
       { key: 'start', label: 'Bắt đầu', width: 120, render: (t) => when(t.startAt) },
       { key: 'due', label: 'Thời hạn', width: 120, render: (t) => <span className={t.state === 'overdue' ? 'tk-late' : ''}>{when(t.dueAt)}</span> },
       { key: 'done', label: 'Hoàn thành', width: 120, render: (t) => when(t.doneAt) },
-      { key: 'project', label: 'Dự án', width: 160, wide: true, render: (t) => t.project?.name || '—' },
+      { key: 'project', label: 'Dịch vụ', width: 160, wide: true, render: (t) => t.project?.name || '—' },
       { key: 'parent', label: 'Công việc cha', width: 160, wide: true, render: (t) => t.parent?.title || '—' },
     ]} />;
 }
@@ -565,7 +573,7 @@ function TaskTable({ tasks, selected, onOpen, selection }: { tasks: TaskItem[]; 
         <thead>
           <tr>
             {selection && <th style={{ width: 36, minWidth: 36, textAlign: 'center' }} scope="col">{selection.toggleAll && <input type="checkbox" checked={!!selection.all} onChange={(e) => selection.toggleAll!(e.target.checked)} aria-label="Chọn tất cả để thao tác" />}</th>}
-            {['Mã công việc', 'Tên công việc', 'Quy trình', 'Dự án', 'Dịch vụ', 'Board / thẻ', 'Giao cho', 'Ngày bắt đầu', 'Thời hạn', 'Hoàn thành', 'Công việc cha', 'Nhãn', 'Tạo bởi', 'Cập nhật'].map(label => <th key={label} scope="col">{label}</th>)}
+            {['Mã công việc', 'Tên công việc', 'Quy trình', 'Dịch vụ', 'Dịch vụ kèm', 'Board / thẻ', 'Giao cho', 'Ngày bắt đầu', 'Thời hạn', 'Hoàn thành', 'Công việc cha', 'Nhãn', 'Tạo bởi', 'Cập nhật'].map(label => <th key={label} scope="col">{label}</th>)}
           </tr>
         </thead>
         <tbody>{pageTasks.map(t => <tr key={t.id} className={(selected === t.id ? 'on' : '') + (selection?.selected.includes(t.id) ? ' checked' : '')}>
@@ -723,7 +731,7 @@ function WeworkTaskView({
   };
 
   const handleDeleteComment = async (commentId: string) => {
-    if (!confirm('Xoá bình luận này?')) return;
+    if (!await askConfirm('Xoá bình luận này?')) return;
     try {
       await api.deleteTaskComment(commentId);
       setComments((prev) => prev.filter((c) => c.id !== commentId && c.replyToId !== commentId));
@@ -1259,7 +1267,7 @@ function WeworkTaskView({
             {t.canDelete && (
               <button className="cm-danger" onClick={async () => {
                 closePop();
-                if (!confirm('Xoá công việc này? Việc con và thẻ liên kết sẽ được gỡ.')) return;
+                if (!await askConfirm('Xoá công việc này? Việc con và thẻ liên kết sẽ được gỡ.')) return;
                 try { await api.deleteTask(t.id); onChanged(); onClose(); }
                 catch (e: any) { toast(e.message, true); }
               }}>
@@ -1286,8 +1294,8 @@ function TaskFacts({ t, meta, isLinked, busy = false, onOpen, onChanged, onAddSu
       {t.canDelete && onDelete && <button className="btn btn-gray btn-sm" disabled={busy} onClick={onDelete}><Icon name="trash" size={14} />Xoá công việc</button>}</h3>}
     {t.path.length > 0 && <nav className="tk-path" aria-label="Công việc cha">{t.path.map((p) => <button key={p.id} onClick={() => onOpen(p.id)}>{p.title}</button>)}</nav>}
     <dl className="tk-facts tk-card-facts">
-      {!isLinked && <div><dt>Dự án</dt><dd><TaskInlineField task={t} field="projectId" label="Dự án" value={t.project?.id||''} meta={meta} onSaved={onChanged}>{t.project?.name||'—'}</TaskInlineField></dd></div>}
-      <div><dt>{isLinked ? 'Dịch vụ kèm' : 'Dịch vụ'}</dt><dd><TaskServices task={t} meta={meta} onSaved={onChanged}/></dd></div>
+      {!isLinked && <div><dt>Dịch vụ</dt><dd><TaskInlineField task={t} field="projectId" label="Dịch vụ" value={t.project?.id||''} meta={meta} onSaved={onChanged}>{t.project?.name||'—'}</TaskInlineField></dd></div>}
+      <div><dt>Dịch vụ kèm</dt><dd><TaskServices task={t} meta={meta} onSaved={onChanged}/></dd></div>
       {!isLinked && <div><dt>Giao cho</dt><dd>{t.canEdit&&meta?<TaskInlineMembers key={t.id+':'+t.updatedAt} task={t} meta={meta} onSaved={onChanged}/>:<EmployeeAvatars people={t.assignees}/>}</dd></div>}
       <div><dt>Người theo dõi</dt><dd>{t.canEdit&&meta?<TaskInlineFollowers key={t.id+':'+t.updatedAt} task={t} meta={meta} onSaved={onChanged}/>:<EmployeeAvatars people={t.followers}/>}</dd></div>
       <div><dt>Tạo bởi</dt><dd>{t.createdBy?.name || '—'}</dd></div>
@@ -1343,7 +1351,7 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
   // Unified task facts section displayed inside the card view (both linked and standalone tasks).
   const taskFacts = t && <TaskFacts t={t} meta={meta} isLinked={!!(t.boardLink && asCard)} busy={busy} onOpen={onOpen} onChanged={() => { void load(); onChanged(); }}
     onAddSubtask={(parentId, parentTask) => setSubtaskParent({ id: parentId, task: parentTask })}
-    onDelete={async () => { if (!confirm('Xoá công việc này? Việc con và thẻ Workspace được giữ lại, liên kết sẽ được gỡ.')) return; setBusy(true); try { await api.deleteTask(id); onChanged(); onClose(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); } }} />;
+    onDelete={async () => { if (!await askConfirm('Xoá công việc này? Việc con và thẻ Workspace được giữ lại, liên kết sẽ được gỡ.')) return; setBusy(true); try { await api.deleteTask(id); onChanged(); onClose(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); } }} />;
 
   // Inline beside the list: the card's own top row carries expand and close, so there is no separate header line.
   const topActions = inline ? <>
@@ -1676,7 +1684,7 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
             {t.canDelete && (
               <>
                 <hr />
-                <button className="bk-danger" onClick={async () => { if (!confirm('Xoá công việc này?')) return; closePop(); try { await api.deleteTask(t.id); onChanged(); onClose(); } catch (e: any) { toast(e.message, true); } }}><Icon name="trash" size={15} />Xoá công việc</button>
+                <button className="bk-danger" onClick={async () => { if (!await askConfirm('Xoá công việc này?')) return; closePop(); try { await api.deleteTask(t.id); onChanged(); onClose(); } catch (e: any) { toast(e.message, true); } }}><Icon name="trash" size={15} />Xoá công việc</button>
               </>
             )}
           </div>
@@ -1705,7 +1713,7 @@ function TaskInlineField({task,field,label,value,multiline=false,meta,children,o
  if(!editable)return <>{children}</>;
  const save=async(e:React.FormEvent)=>{e.preventDefault();if(busy)return;setBusy(true);setError('');try{const body:TaskWrite={};if(field==='startAt'||field==='dueAt')body[field]=draft?new Date(draft).getTime():null;else if(field==='projectId'){body.projectId=draft||null;body.campaignId=null;}else if(field==='campaignId')body.campaignId=draft||null;else if(field==='labels')body.labels=draft.split(',').map(s=>s.trim()).filter(Boolean);else body[field]=draft;await api.updateTask(task.id,body);setEditing(false);onSaved();}catch(e:any){setError(e.message);}finally{setBusy(false);}};
  return editing?<form className="tk-field-editor" onSubmit={save} onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();e.preventDefault();if(!busy)setEditing(false);}}}>
- <fieldset disabled={busy}>{field==='projectId'||field==='campaignId'?<select autoFocus aria-label={label} value={draft} onChange={e=>setDraft(e.target.value)}><option value="">{field==='projectId'?'Không có dự án':'Không thuộc chiến dịch'}</option>{field==='projectId'?meta?.projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>):meta?.campaigns.filter(c=>c.projectId===task.project?.id).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>:multiline?<RichEditor value={value} onChange={setDraft} placeholder={label} autoFocus onSubmit={()=>document.querySelector<HTMLFormElement>('.tk-field-editor')?.requestSubmit()}/>:<input autoFocus aria-label={label} type={field==='startAt'||field==='dueAt'?'datetime-local':'text'} required={field==='title'} maxLength={field==='title'?500:undefined} value={draft} onChange={e=>setDraft(e.target.value)}/>}
+ <fieldset disabled={busy}>{field==='projectId'||field==='campaignId'?<select autoFocus aria-label={label} value={draft} onChange={e=>setDraft(e.target.value)}><option value="">{field==='projectId'?'Không có dịch vụ':'Không thuộc chiến dịch'}</option>{field==='projectId'?meta?.projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>):meta?.campaigns.filter(c=>c.projectId===task.project?.id).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>:multiline?<RichEditor value={value} onChange={setDraft} placeholder={label} autoFocus onSubmit={()=>document.querySelector<HTMLFormElement>('.tk-field-editor')?.requestSubmit()}/>:<input autoFocus aria-label={label} type={field==='startAt'||field==='dueAt'?'datetime-local':'text'} required={field==='title'} maxLength={field==='title'?500:undefined} value={draft} onChange={e=>setDraft(e.target.value)}/>}
  <div className="tk-action-row"><button type="submit" className="btn btn-primary btn-sm">{busy?'Đang lưu…':'Lưu'}</button><button type="button" className="btn btn-gray btn-sm" onClick={()=>setEditing(false)}>Huỷ</button></div></fieldset>{error&&<p className="note err" role="alert">{error}</p>}</form>:<div className="tk-editable" role="button" tabIndex={0} aria-label={`Sửa ${label.toLocaleLowerCase('vi')}`} title="Bấm để sửa" onClick={e=>{if((e.target as HTMLElement).closest('a,button'))return;setDraft(value);setError('');setEditing(true);}} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setDraft(value);setError('');setEditing(true);}}}>{children}<Icon name="edit" size={13}/></div>;
 }
 function TaskInlineMembers({task,meta,onSaved}:{task:TaskDetail;meta:TaskMeta;onSaved:()=>void}){
@@ -1840,7 +1848,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       <label>Nhãn tuỳ chỉnh<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label>
       <div className="tk-staff-picker"><EmployeePicker users={meta.users} selected={users} onChange={setUsers} legacy={task?.assignees.filter(p=>people.includes(p.id)) || []} onLegacyChange={setPeople}/></div>
       <div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
-      {!task&&(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dự án'} được tự động thêm khi lưu.</p>}
+      {!task&&(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dịch vụ'} được tự động thêm khi lưu.</p>}
     </fieldset>):(<fieldset disabled={busy} className="tk-create-fields">
       {isSubtask && (
         <div className="tk-create-row tk-create-parent" style={{ background: 'var(--fill-2)', borderRadius: 8, padding: '7px 10px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1888,7 +1896,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       </div>
       <div className="tk-create-row tk-create-description"><Icon name="lines" size={18}/><div className="tk-create-compose"><RichEditor value={description} onChange={setDescription} placeholder="Mô tả"/></div></div>
       <details className="tk-create-more"><summary>Tuỳ chọn khác</summary><div className="tk-create-advanced">{!task&&<label>Người duyệt (REVIEW)<select value={reviewer} onChange={e=>setReviewer(e.target.value)}><option value="">Người tạo (mặc định)</option>{meta.users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label>}<label>Công việc cha<EntitySelect kind="task" context={{projectId:project}} value={parent} onCreated={async()=>setParents((await parentsOf(project)).tasks)} onChange={setParent}><option value="">Không có</option>{parents.filter(p=>!project||p.project?.id===project).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</EntitySelect></label><label>Nhãn tuỳ chỉnh khác<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label><div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
-      {(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dự án'} được tự động thêm khi lưu.</p>}
+      {(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dịch vụ'} được tự động thêm khi lưu.</p>}
       </div></details>
     </fieldset>)}
     {task?.hasBoardLink&&<p className="note">Tên, mô tả, ngày và hoàn thành sẽ cập nhật trên thẻ liên kết. Kết quả công việc được giữ ở đây.</p>}
@@ -2006,7 +2014,7 @@ function ImportDialog({ meta, onClose, onDone }: { meta: TaskMeta | null; onClos
               {res.parents > 0 && <li>{res.parents} việc được xếp dưới công việc cha{res.stubs ? ` (${res.stubs} công việc cha không có trong bảng nên được tạo sẵn)` : ''}.</li>}
               {res.people > 0 && <li>{`${res.people} tên mới trong dữ liệu.`}</li>}
               {res.linked > 0 && <li>{`${res.linked} tên được gắn với tài khoản nhân viên.`}</li>}
-              {res.projects > 0 && <li>{res.projects} dự án mới.</li>}
+              {res.projects > 0 && <li>{res.projects} dịch vụ mới.</li>}
               {res.labels > 0 && <li>{res.labels} nhãn mới.</li>}
             </ul>
             <p className="note">Nhập lại cùng bảng (hoặc bảng mới hơn) sẽ cập nhật theo “Mã công việc”, không tạo trùng.</p>

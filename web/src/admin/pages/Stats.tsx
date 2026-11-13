@@ -97,7 +97,7 @@ export const CustomerStats = () => <StatsPage view="customers" title="Thống k�
   </div>
 </>} />;
 
-export const TaskStats = () => <StatsPage view="tasks" taskFilter title="Thống kê công việc" sub="Công việc trong phạm vi theo tình trạng, mức ưu tiên, dự án và danh mục." render={(d, f) => <>
+export const TaskStats = () => <StatsPage view="tasks" taskFilter title="Thống kê công việc" sub="Công việc trong phạm vi theo tình trạng, mức ưu tiên, dịch vụ và danh mục." render={(d, f) => <>
   <div className="ax-kpis">
     <Kpi icon="checklist" label="Đến hạn trong kỳ" value={fmtNum(d.kpis.inPeriod)} /><Kpi icon="check" label="Hoàn thành trong kỳ" value={fmtNum(d.kpis.done)} />
     <Kpi icon="badge" label="Tỉ lệ đúng hạn" value={pct(d.kpis.onTimeRate)} /><Kpi icon="activity" label="Đang mở" value={fmtNum(d.kpis.open)} />
@@ -107,7 +107,7 @@ export const TaskStats = () => <StatsPage view="tasks" taskFilter title="Thống
     <ChartCard wide title="Đến hạn và hoàn thành" legend={d.trend.lines.map((l: any, i: number) => ({ label: l.name, color: SERIES(i) }))} table={trendTable(d.trend, f.period)}><LineChart trend={d.trend} period={f.period} /></ChartCard>
     <ChartCard title="Tình trạng" table={distTable(d.byState, 'Tình trạng')}><Donut dist={states(d.byState)} center="công việc" /></ChartCard>
     <ChartCard title="Mức ưu tiên" table={distTable(d.byPriority, 'Mức ưu tiên')}><Bars dist={d.byPriority} /></ChartCard>
-    <ChartCard title="Theo dự án" table={distTable(d.byProject, 'Dự án')}><Bars dist={d.byProject.map((x: any) => ({ ...x, color: SERIES(0) }))} /></ChartCard>
+    <ChartCard title="Theo dịch vụ" table={distTable(d.byProject, 'Dịch vụ')}><Bars dist={d.byProject.map((x: any) => ({ ...x, color: SERIES(0) }))} /></ChartCard>
     <ChartCard title="Theo danh mục" table={distTable(d.byLabel, 'Danh mục')}><Bars dist={d.byLabel.map((x: any) => ({ ...x, color: SERIES(0) }))} /></ChartCard>
   </div>
 </>} />;

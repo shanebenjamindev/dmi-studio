@@ -15,10 +15,12 @@ import { MentionPeople, RichEditor, RichView } from './RichText';
 import { addSubtask } from './Subtasks';
 import { LinkedTaskFacts } from './Tasks';
 import { FlowBadge, FlowPop, FlowSteps } from './TaskFlow';
+import { FLOW_STAGES } from '../../../shared/task-flow';
 import { SpanPop } from './DateRange';
 import { ClientServicePop } from './ClientServicePick';
 import { COLOR, COLOR_NAME, Avatar, Pop, activityText, ago, dueState, fullDate, fileThumb } from './boardkit';
 import type { Board, BoardLabel, CardDetail, DriveFile, TaskDetail, TaskMeta, User } from '../types';
+import { askConfirm } from './AskDialog';
 
 export type PopKind = 'add' | 'subtask' | 'members' | 'labels' | 'label' | 'checklist' | 'dates' | 'customer' | 'project' | 'files' | 'attach' | 'cover' | 'move' | 'copy' | 'actions';
 
@@ -75,10 +77,14 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
   const due = dueState(c.dueAt, c.done);
   const edit = board.level !== 'observer';
   const links = c.attachments.filter((a) => !a.key);
+  // The step a column named after one stands for (ACCOUNT…), for a card with no task of its own.
+  const listStage = FLOW_STAGES.find((x) => x.code === c.listName.trim().toUpperCase())?.key;
 
   const top = (
     <div className="cm-top">
       {task?.flow ? <FlowSteps stage={task.flow.stage} open={!!flowEl} onPick={(el) => setFlowEl(flowEl === el ? null : el)} />
+        // A card of no task (a service's) in a step's column shows the same row; a step moves it to another column.
+        : listStage ? <FlowSteps stage={listStage} onPick={edit ? (el) => setPop({ kind: 'move', el }) : undefined} />
         : edit ? <button className="cm-list-b" onClick={open('move')} title="Chuyển sang danh sách khác">{c.listName}<Icon name="chevron" size={12} /></button> : <span className="cm-list-b">{c.listName}</span>}
       <span className="cm-gap" />
       <button className="cm-top-b" onClick={()=>setCommentsOpen(v=>!v)} aria-label={commentsOpen?'Ẩn bình luận':'Hiện bình luận'} aria-expanded={commentsOpen} aria-controls="card-comments" title={commentsOpen?'Ẩn bình luận':'Hiện bình luận'}><Icon name="comment" size={16}/></button>
@@ -97,7 +103,7 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
           {c.archived && edit && (
             <div className="cm-archived"><Icon name="archive" size={16} />Thẻ này đã được lưu trữ.
               <button className="btn btn-gray btn-sm" onClick={() => act(() => api.updateCard(c.id, { archived: false }))}>Khôi phục</button>
-              {(me.role === 'admin' || (c.createdBy ? c.createdBy === me.id : board.level === 'admin')) && <button className="btn btn-sm cm-danger" onClick={async () => { if (!confirm('Xoá hẳn thẻ này? Không khôi phục được.')) return; try { await api.deleteCard(c.id); onChanged(); onClose(); } catch (e: any) { toast(e.message, true); } }}>Xoá</button>}
+              {(me.role === 'admin' || (c.createdBy ? c.createdBy === me.id : board.level === 'admin')) && <button className="btn btn-sm cm-danger" onClick={async () => { if (!await askConfirm('Xoá hẳn thẻ này? Không khôi phục được.')) return; try { await api.deleteCard(c.id); onChanged(); onClose(); } catch (e: any) { toast(e.message, true); } }}>Xoá</button>}
             </div>
           )}
 
@@ -386,7 +392,7 @@ function Checklist({ list, readOnly, act }: { list: CardDetail['checklists'][num
               onBlur={() => { const t = (title || '').trim(); setTitle(null); if (t && t !== list.title) act(() => api.renameChecklist(list.id, t)); }} />
           : <span className="cm-k-title" onClick={() => !readOnly && setTitle(list.title)}>{list.title}</span>}
         {done > 0 && <button className="btn btn-gray btn-sm" onClick={() => setHide(!hide)}>{hide ? `Hiện mục đã chọn (${done})` : 'Ẩn mục đã chọn'}</button>}
-        {!readOnly && <button className="btn btn-gray btn-sm" onClick={() => { if (confirm(`Xoá checklist “${list.title}”?`)) act(() => api.deleteChecklist(list.id)); }}>Xoá</button>}
+        {!readOnly && <button className="btn btn-gray btn-sm" onClick={async () => { if (await askConfirm(`Xoá checklist “${list.title}”?`)) act(() => api.deleteChecklist(list.id)); }}>Xoá</button>}
       </h3>
       <div className="cm-progress"><span>{pct}%</span><i><b className={pct === 100 ? 'full' : ''} style={{ width: `${pct}%` }} /></i></div>
       <ul className="cm-items">
@@ -441,7 +447,7 @@ function Comment({ x, me, who, canDelete, act, onReply, replies }: { x: CardDeta
           <span className="cm-comment-a">
             {onReply && <button type="button" className="bk-link" onClick={() => onReply(x.id, x.userName)}>Trả lời</button>}
             {x.userId === me.id && <button type="button" className="bk-link" onClick={() => setEdit(true)}>Sửa</button>}
-            {canDelete && <button type="button" className="bk-link" onClick={() => { if (confirm('Xoá bình luận này?')) act(() => api.deleteComment(x.id)); }}>Xoá</button>}
+            {canDelete && <button type="button" className="bk-link" onClick={async () => { if (await askConfirm('Xoá bình luận này?')) act(() => api.deleteComment(x.id)); }}>Xoá</button>}
           </span>
         )}
         {replies && replies.length > 0 && (
@@ -454,7 +460,7 @@ function Comment({ x, me, who, canDelete, act, onReply, replies }: { x: CardDeta
                   <div className="cm-comment-text"><RichView text={r.text} /></div>
                   <span className="cm-comment-a">
                     {onReply && <button type="button" className="bk-link" onClick={() => onReply(x.id, r.userName)}>Trả lời</button>}
-                    {(r.userId === me.id || canDelete) && <button type="button" className="bk-link" onClick={() => { if (confirm('Xoá câu trả lời này?')) act(() => api.deleteComment(r.id)); }}>Xoá</button>}
+                    {(r.userId === me.id || canDelete) && <button type="button" className="bk-link" onClick={async () => { if (await askConfirm('Xoá câu trả lời này?')) act(() => api.deleteComment(r.id)); }}>Xoá</button>}
                   </span>
                 </div>
               </li>
@@ -555,7 +561,7 @@ export function CardPop({ pop, card, board, me, edit, setPop, act, onGone }: {
               {card.archived
                 ? <button onClick={() => { close(); act(() => api.updateCard(card.id, { archived: false })); }}><Icon name="refresh" size={15} />Khôi phục</button>
                 : <button onClick={() => { close(); act(() => api.updateCard(card.id, { archived: true })); }}><Icon name="archive" size={15} />Lưu trữ</button>}
-              {card.archived && <button className="bk-danger" onClick={async () => { if (!confirm('Xoá hẳn thẻ này? Không khôi phục được.')) return; close(); try { await api.deleteCard(card.id); onGone(); } catch (e: any) { toast(e.message, true); } }}><Icon name="trash" size={15} />Xoá thẻ</button>}
+              {card.archived && <button className="bk-danger" onClick={async () => { if (!await askConfirm('Xoá hẳn thẻ này? Không khôi phục được.')) return; close(); try { await api.deleteCard(card.id); onGone(); } catch (e: any) { toast(e.message, true); } }}><Icon name="trash" size={15} />Xoá thẻ</button>}
             </>}
             {edit && !mine && <p className="note bk-menu-note">Chỉ người tạo thẻ hoặc quản trị viên mới lưu trữ hay xoá được thẻ này.</p>}
           </div>
@@ -598,7 +604,7 @@ function LabelEdit({ cardId, anchor, board, label, onBack, onClose, act }: { car
       <div className="bk-colors">{Object.keys(COLOR).map((k) => <button key={k} className={k === color ? 'on' : ''} style={{ background: COLOR[k] }} aria-label={`Màu ${COLOR_NAME[k]}`} onClick={() => setColor(k)} />)}</div>
       <div className="cm-row bk-split">
         <button className="btn btn-primary btn-sm" disabled={saving} onClick={()=>void save()}>{saving?'Đang lưu…':label?'Lưu':'Tạo và chọn'}</button>
-        {label && <button className="btn btn-sm cm-danger" onClick={async () => { if (!confirm('Xoá nhãn này khỏi board và mọi thẻ?')) return; await act(() => api.deleteLabel(label.id)); onBack(); }}>Xoá</button>}
+        {label && <button className="btn btn-sm cm-danger" onClick={async () => { if (!await askConfirm('Xoá nhãn này khỏi board và mọi thẻ?')) return; await act(() => api.deleteLabel(label.id)); onBack(); }}>Xoá</button>}
       </div>
     </Pop>
   );

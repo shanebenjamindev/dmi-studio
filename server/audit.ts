@@ -75,7 +75,7 @@ const LABELS: [string, RegExp, string][] = [
   ['POST', /^\/api\/customers\/[^/]+\/videos$/, 'Tải video lên Drive'], ['PUT', /^\/api\/customers\/[^/]+\/members\//, 'Thêm người vào khách hàng'], ['DELETE', /^\/api\/customers\/[^/]+\/members\//, 'Bỏ người khỏi khách hàng'],
   ['POST', /^\/api\/boards$/, 'Tạo board'], ['PUT', /^\/api\/boards\/[^/]+$/, 'Sửa board'], ['DELETE', /^\/api\/boards\/[^/]+$/, 'Xoá board'], ['PUT', /^\/api\/boards\/[^/]+\/members\//, 'Thêm người vào board'],
   ['POST', /^\/api\/lists\/[^/]+\/cards$/, 'Tạo thẻ'], ['PUT', /^\/api\/cards\/[^/]+$/, 'Sửa thẻ'], ['DELETE', /^\/api\/cards\/[^/]+$/, 'Xoá thẻ'], ['POST', /^\/api\/cards\/[^/]+\/comments$/, 'Bình luận thẻ'],
-  ['POST', /^\/api\/task-projects\/[^/]+\/campaigns$/, 'Thêm chiến dịch'], ['PUT', /^\/api\/task-projects\/[^/]+\/members\//, 'Thêm người vào dự án'], ['DELETE', /^\/api\/task-projects\/[^/]+\/members\//, 'Bỏ người khỏi dự án'],
+  ['POST', /^\/api\/task-projects\/[^/]+\/campaigns$/, 'Thêm chiến dịch'], ['PUT', /^\/api\/task-projects\/[^/]+\/members\//, 'Thêm người vào dịch vụ'], ['DELETE', /^\/api\/task-projects\/[^/]+\/members\//, 'Bỏ người khỏi dịch vụ'],
   ['POST', /^\/api\/projects$/, 'Tạo dự án dựng'], ['DELETE', /^\/api\/projects\/[^/]+$/, 'Xoá dự án dựng'], ['POST', /^\/api\/projects\/[^/]+\/renders$/, 'Xuất video'],
   ['POST', /^\/api\/reports$/, 'Tạo báo cáo'], ['PUT', /^\/api\/reports\/[^/]+$/, 'Sửa báo cáo'], ['DELETE', /^\/api\/reports\/[^/]+$/, 'Xoá báo cáo'],
   ['*', /^\/api\/(settings|google|workspace$|notifications\/mail)/, 'Đổi cấu hình hệ thống'],

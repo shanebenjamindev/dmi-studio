@@ -10,6 +10,7 @@ import { ReportEditor } from './Reports';
 import { Icon, Segmented } from './ui';
 import type { AdAccount, AdsConversion, AdsReport, AdsSettings } from '../types';
 import { DayRangeField } from './DateRange';
+import { askConfirm } from './AskDialog';
 
 const LS = 'dms.ads';
 type Preset = '7' | '14' | '30' | 'month' | 'lastMonth' | 'custom';
@@ -303,7 +304,7 @@ function AdsSettingsForm({ settings, onSaved }: { settings: AdsSettings | null; 
           <label className="ws-field ad-version"><span>Phiên bản Graph API</span><input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="v26.0" /></label>
           <div className="ad-actions">
             <button className="btn btn-primary" disabled={busy || !token.trim()}>{busy ? 'Đang kiểm tra với Meta…' : 'Lưu và kiểm tra'}</button>
-            {settings?.metaConnected && <button type="button" className="btn btn-gray" disabled={busy} onClick={() => { if (confirm('Ngắt kết nối Meta Ads? Trang Báo cáo Ads sẽ không đọc được số liệu cho tới khi dán token mới.')) submit({ metaToken: '' }); }}>Ngắt kết nối</button>}
+            {settings?.metaConnected && <button type="button" className="btn btn-gray" disabled={busy} onClick={async () => { if (await askConfirm('Ngắt kết nối Meta Ads? Trang Báo cáo Ads sẽ không đọc được số liệu cho tới khi dán token mới.')) submit({ metaToken: '' }); }}>Ngắt kết nối</button>}
             {settings?.metaConnected && <button type="button" className="btn btn-gray" disabled={busy || !version.trim() || version === settings.metaVersion} onClick={() => submit({ metaVersion: version.trim() })}>Lưu phiên bản</button>}
           </div>
           {msg && <p className={'note' + (msg.ok ? '' : ' err')}>{msg.text}</p>}

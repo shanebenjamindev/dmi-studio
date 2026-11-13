@@ -108,7 +108,7 @@ export interface ServiceRef { id: string; name: string; category?: string | null
 export interface CustomerStatusOption {id:string;name:string;color:string;pos:number;active:number|boolean}
 /** `tags`: its tags (the list is Quản trị › Khách hàng › Phân loại); `category` is the first of them. */
 export interface CustomerRecord { status?: string | null; category?: { id: string; name: string; color: string } | null; tags?: CustomerTag[]; source?: { id: string; name: string; color: string } | null; owner?: { id: string; name: string } | null; manager?: { id: string; name: string } | null;
-  drive?: { label: string; url: string | null } | null; needs?: ServiceRef[]; createdBy?:string|null;level?:Level;canManage?:boolean;canDelete?:boolean; projects?:number; campaigns?:number; tasks?:number; completed?:number; hasDrive?:boolean; id: string; name: string; contact: string; phone: string; email: string; notes: string }
+  drive?: { label: string; url: string | null } | null; needs?: ServiceRef[]; createdBy?:string|null; createdAt?: number | null; updatedAt?: number | null;level?:Level;canManage?:boolean;canDelete?:boolean; projects?:number; campaigns?:number; tasks?:number; completed?:number; hasDrive?:boolean; id: string; name: string; contact: string; phone: string; email: string; notes: string }
 export interface CustomerTag { id: string; name: string; color: string }
 export interface Customer {
   id: string; name: string; links: CustomerLink[]; notes: string; createdAt: number; updatedAt: number;
@@ -217,7 +217,7 @@ export interface TaskDetail extends TaskItem {
 export interface TaskMeta {
   campaigns:TaskCampaign[]; teams:{id:string;name:string;color:string}[];
   workTeams?:{id:string;name:string;color:string;departmentId:string|null;memberIds:string[];leaderIds:string[]}[];
-  people: (TaskPerson & { userName: string | null; tasks: number })[]; projects: { id: string; name: string; customerId: string | null; customerName?: string | null; teamId:string|null;createdBy:string|null;level:Level;tasks: number; completed?: number; overdue?: number; assignees?: TaskPerson[]; stage?: import('../../shared/projects').ProjectStage; hold?: import('../../shared/projects').ProjectHold | null; services?: ServiceRef[] }[];
+  people: (TaskPerson & { userName: string | null; tasks: number })[]; projects: { id: string; name: string; customerId: string | null; customerName?: string | null; teamId:string|null;createdBy:string|null;createdAt?:number|null;updatedAt?:number|null;level:Level;tasks: number; completed?: number; overdue?: number; assignees?: TaskPerson[]; stage?: import('../../shared/projects').ProjectStage; hold?: import('../../shared/projects').ProjectHold | null; services?: ServiceRef[] }[];
   mine: string[]; statuses: string[]; users: { id: string; name: string; email: string; teamId: string | null; workTeamIds?: string[] }[];
   labels?: { id: string; name: string; color: string }[];
   imports: { id: string; rows: number; created: number; updated: number; at: number; by: string; sourceName: string; hasSheet: boolean }[];

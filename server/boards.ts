@@ -902,7 +902,7 @@ export function registerBoards(api: Router) {
     }
     if (b.projectId && !workProjectId && kind === 'task') {
       const prj = await get<any>('SELECT * FROM task_projects WHERE id=?', String(b.projectId));
-      if (!prj) throw new HttpError(404, 'Không tìm thấy dự án');
+      if (!prj) throw new HttpError(404, 'Không tìm thấy dịch vụ');
       await requireProject(u.id, prj.id, 'normal');
       workProjectId = prj.id;
       if (!customerId) customerId = prj.customer_id || null;
@@ -1004,14 +1004,14 @@ export function registerBoards(api: Router) {
       const project = c.work_project_id || (await get<any>('SELECT t.project_id FROM task_board_links l JOIN tasks t ON t.id = l.task_id WHERE l.card_id = ?', c.id))?.project_id || null;
       set.push(['customer_id', k?.id || null]); await log(c.board_id, c.id, u.id, 'card.customer', { name: k?.name || '' });
       if (project) {
-        await requireProject(u.id, project, 'admin').catch((e) => { throw e instanceof HttpError && e.status === 403 ? new HttpError(403, 'Khách hàng của công việc là của dự án: chỉ quản lý dự án mới đổi được') : e; });
+        await requireProject(u.id, project, 'admin').catch((e) => { throw e instanceof HttpError && e.status === 403 ? new HttpError(403, 'Khách hàng của công việc là của dịch vụ: chỉ quản lý dịch vụ mới đổi được') : e; });
         await run('UPDATE task_projects SET customer_id = ? WHERE id = ?', k?.id || null, project);
         await projectCustomerChanged(project);
       }
     }
     if (b.projectId !== undefined && c.card_kind !== 'project') {
       const prj = b.projectId ? await get<any>('SELECT * FROM task_projects WHERE id = ?', String(b.projectId)) : null;
-      if (b.projectId && !prj) throw new HttpError(404, 'Không tìm thấy dự án');
+      if (b.projectId && !prj) throw new HttpError(404, 'Không tìm thấy dịch vụ');
       if (prj) await requireProject(u.id, prj.id, 'normal');
       const link = await get<any>('SELECT task_id FROM task_board_links WHERE card_id = ?', c.id);
       if (link) {

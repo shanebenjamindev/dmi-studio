@@ -306,7 +306,7 @@ export function CustomerContext({c,onTab,onChanged}:{c:CustomerRecord;onTab:(tab
           <dl className="crm-facts" style={c.canManage ? { cursor: 'pointer' } : undefined} title={c.canManage ? 'Bấm để chỉnh sửa trực tiếp' : undefined} onClick={(e) => { if (c.canManage && !(e.target as HTMLElement).closest('a,button')) startEditMeta(); }}>
             <dt>Tag</dt><dd>{tags.length ? <span className="crm-tag-list">{tags.map((t) => <span key={t.id} className="crm-pill" style={{ ['--c' as any]: t.color }}>{t.name}</span>)}</span> : '—'}</dd>
             <dt>Nguồn</dt><dd>{source ? <span className="crm-pill" style={{ ['--c' as any]: source.color }}>{source.name}</span> : '—'}</dd>
-            <dt title="Dịch vụ của các dự án của khách hàng">Dịch vụ</dt><dd>{needs?.length ? <span className="crm-need-chips">{needs.map((n) => <span key={n.id} className="crm-need-chip plain">{n.name}</span>)}</span> : <span className="ax-muted">Chọn ở từng dự án</span>}</dd>
+            <dt title="Các dịch vụ của khách hàng">Dịch vụ</dt><dd>{needs?.length ? <span className="crm-need-chips">{needs.map((n) => <span key={n.id} className="crm-need-chip plain">{n.name}</span>)}</span> : <span className="ax-muted">Chọn ở từng dịch vụ</span>}</dd>
           </dl>
         )}
       </section>
@@ -374,7 +374,7 @@ export function CustomerTasks({ id, view = 'list' }: { id: string; view?: Custom
     <section className="crm-tab-pane">
       {view !== 'kanban' && <ReadingTabs label="Trạng thái công việc" value={show} items={[{ value: 'open' as const, label: 'Đang làm', icon: 'play' }, { value: 'done' as const, label: 'Đã xong', icon: 'check' }, { value: 'all' as const, label: 'Tất cả', icon: 'checklist' }]} onChange={setShow} />}
       <div className="tk-toolbar">
-        <label className="tk-find"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm công việc, dự án, người làm…" aria-label="Tìm công việc" /></label>
+        <label className="tk-find"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm công việc, dịch vụ, người làm…" aria-label="Tìm công việc" /></label>
       </div>
       {!load.data && !load.error ? <BrandLoading compact /> : <State error={load.error} icon="checklist" empty={rows.length ? '' : show === 'open' && view !== 'kanban' ? 'Không có công việc đang làm.' : 'Chưa có công việc nào.'}>
         <CustomerTaskViews rows={rows} view={view} />

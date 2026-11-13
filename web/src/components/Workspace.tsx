@@ -9,6 +9,7 @@ import { FolderPicker } from './FolderPicker';
 import { Dashboard } from './Dashboard';
 import type { Loc, Customer, CustomerLink, CustomerTask, DriveFile, DriveFolder, FileKind, WorkspaceInfo } from '../types';
 import { setDriveView, useDriveView } from '../driveView';
+import { askConfirm, askText } from './AskDialog';
 
 const LS_SEL = 'dms.customer';
 const ls = {
@@ -81,7 +82,7 @@ export function WorkspacePage() {
   useEffect(() => { if (list.length && (!sel || !list.some((c) => c.id === sel))) setSel(list[0].id); }, [list]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const makeRoot = async () => {
-    if (!info || !confirm(`Đặt “${info.crumbs.at(-1)?.name}” làm thư mục gốc cho mọi người?`)) return;
+    if (!info || !await askConfirm(`Đặt “${info.crumbs.at(-1)?.name}” làm thư mục gốc cho mọi người?`)) return;
     try { await api.setWorkspace(info.view); toast('Đã đặt làm thư mục gốc'); await go(null); } catch (e: any) { toast(e.message, true); }
   };
   const create = async () => {
@@ -258,7 +259,7 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
     await Promise.all([worker(), worker(), worker()]);
   };
   const remove = async (v: DriveFile) => {
-    if (!confirm(`Xoá “${v.name}”?${c?.storage !== 'local' ? ' File sẽ vào Thùng rác của Google Drive (khôi phục được trong 30 ngày).' : ''}`)) return;
+    if (!await askConfirm(`Xoá “${v.name}”?${c?.storage !== 'local' ? ' File sẽ vào Thùng rác của Google Drive (khôi phục được trong 30 ngày).' : ''}`)) return;
     const k = files.findIndex((x) => x.key === v.key);
     try {
       await api.deleteCustomerFile(id, v.key);
@@ -277,7 +278,7 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
   };
   const download = (v: DriveFile) => { if (!v.url) return; const a = document.createElement('a'); a.href = v.url; a.download = v.name; a.click(); };
   const del = async () => {
-    if (!c || !confirm(`Ẩn “${c.name}” khỏi danh sách?\nThư mục và video trên Drive vẫn giữ nguyên. Muốn hiện lại: “Đổi thư mục” của một khách bất kỳ và chọn lại thư mục này.`)) return;
+    if (!c || !await askConfirm(`Ẩn “${c.name}” khỏi danh sách?\nThư mục và video trên Drive vẫn giữ nguyên. Muốn hiện lại: “Đổi thư mục” của một khách bất kỳ và chọn lại thư mục này.`)) return;
     try { await api.deleteCustomer(id); onDeleted(); } catch (e: any) { toast(e.message, true); }
   };
 
@@ -330,7 +331,7 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
     } catch (e: any) { toast(e.message, true); }
   };
   const removeFolder = async () => {
-    if (!cur?.key || !confirm(`Xoá thư mục “${cur.name}”?`)) return;
+    if (!cur?.key || !await askConfirm(`Xoá thư mục “${cur.name}”?`)) return;
     try { await api.deleteVideoFolder(id, cur.key); setTab(''); await load(); onChanged(); } catch (e: any) { toast(e.message, true); }
   };
 
@@ -352,7 +353,7 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
     catch (e: any) { toast(e.message, true); } finally { setLinkBusy(false); }
   };
   const unlink = async () => {
-    if (!c || !confirm(`Gỡ liên kết thư mục “${c.folderLabel.split(' › ').pop()}” khỏi ${c.name}?\nThư mục và file trên Drive vẫn giữ nguyên; liên kết lại được bất cứ lúc nào.`)) return;
+    if (!c || !await askConfirm(`Gỡ liên kết thư mục “${c.folderLabel.split(' › ').pop()}” khỏi ${c.name}?\nThư mục và file trên Drive vẫn giữ nguyên; liên kết lại được bất cứ lúc nào.`)) return;
     try { await api.unlinkCustomerDrive(id); await load(true); onChanged(); toast('Đã gỡ liên kết Drive'); } catch (e: any) { toast(e.message, true); }
   };
 
@@ -381,7 +382,7 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
           { label: 'Mở trên Google Drive', icon: 'share', href: c.driveFolderUrl || undefined, hidden: !c.driveFolderUrl },
           { label: 'Mở trong Finder', icon: 'folder', onClick: () => api.revealCustomer(id).catch((e) => toast(e.message, true)), hidden: c.storage === 'google' },
           { label: 'Liên kết thư mục khác…', icon: 'layers', onClick: () => setLinking(true), hidden: !admin },
-          { label: 'Liên kết bằng link Drive…', icon: 'share', onClick: () => { const link = prompt('Dán link thư mục Google Drive của khách hàng'); if (link) void linkByUrl(link); }, hidden: !admin },
+          { label: 'Liên kết bằng link Drive…', icon: 'share', onClick: async () => { const link = await askText('Dán link thư mục Google Drive của khách hàng'); if (link) void linkByUrl(link); }, hidden: !admin },
           { label: 'Gỡ liên kết Drive', icon: 'x', onClick: () => void unlink(), hidden: !admin },
           { label: 'Ẩn khỏi danh sách', icon: 'trash', onClick: del, danger: true, hidden: !canDelete },
         ]} />
@@ -578,7 +579,7 @@ function Links({ links, onSave, readOnly }: { links: CustomerLink[]; onSave: (l:
               <span className="ws-link-t"><b>{l.label || k.label}</b><em>{host(l.url)}</em></span>
             </a>
             {!readOnly && <Menu label="Tuỳ chọn link" size={15} items={[
-              { label: 'Đổi tên…', icon: 'text', onClick: () => { const n = prompt('Tên link', l.label || k.label); if (n !== null) onSave(links.map((x, j) => (j === i ? { ...x, label: n.trim() } : x))); } },
+              { label: 'Đổi tên…', icon: 'text', onClick: async () => { const n = await askText('Tên link', l.label || k.label); if (n !== null) onSave(links.map((x, j) => (j === i ? { ...x, label: n.trim() } : x))); } },
               { label: 'Sao chép link', icon: 'copy', onClick: () => copy(l.url) },
               { label: 'Xoá', icon: 'trash', danger: true, onClick: () => onSave(links.filter((_, j) => j !== i)) },
             ]} />}

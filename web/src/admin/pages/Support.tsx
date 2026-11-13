@@ -21,6 +21,7 @@ import {
   type Col,
 } from '../kit';
 
+import { askConfirm } from '../../components/AskDialog';
 export function SupportList() {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<'all' | 'pending' | 'resolved'>('all');
@@ -55,7 +56,7 @@ export function SupportList() {
 
   const removeTicket = async (item: SupportTicket, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (!confirm(`Xoá yêu cầu hỗ trợ từ "${item.userName}"?`)) return;
+    if (!await askConfirm(`Xoá yêu cầu hỗ trợ từ "${item.userName}"?`)) return;
     await act(
       () => admin.removeSupportTicket(item.id),
       'Đã xoá yêu cầu hỗ trợ',

@@ -4,6 +4,7 @@ import { useStore, setState, openProject, buildFromSheet, buildTabs, toast, fmt 
 import { Icon, IconButton } from './ui';
 import { ProjectDetail } from './ProjectDetail';
 import type { ProjectItem } from '../types';
+import { askConfirm } from './AskDialog';
 
 const SHEET = /docs\.google\.com\/spreadsheets\/d\//;
 const LS_VIEW = 'dms.homeView';
@@ -53,7 +54,7 @@ export function Home() {
   const flip = (n: string) => setTabs((t) => t && { ...t, pick: new Set(t.pick.has(n) ? [...t.pick].filter((x) => x !== n) : [...t.pick, n]) });
   const shown = (list || []).filter((p) => !q.trim() || `${p.title} ${p.sheet?.customer || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
   const dup = async (p: ProjectItem) => { await api.duplicateProject(p.id); load(); };
-  const del = async (p: ProjectItem) => { if (!confirm(`Xoá dự án “${p.title}”? Video gốc trên Drive không bị ảnh hưởng.`)) return; await api.deleteProject(p.id); load(); };
+  const del = async (p: ProjectItem) => { if (!await askConfirm(`Xoá dự án “${p.title}”? Video gốc trên Drive không bị ảnh hưởng.`)) return; await api.deleteProject(p.id); load(); };
 
   if (detail) return <div className="home"><ProjectDetail key={detail} id={detail} onBack={() => { setDetail(null); load(); }} /></div>;
 

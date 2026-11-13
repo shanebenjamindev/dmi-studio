@@ -2,6 +2,7 @@ import {beginLoading} from './loading';
 import type { AdsService, AdsSummary } from '../../shared/ads-summary';
 // Typed client for the DMI Workspace REST API.
 import type { QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardViewKind, ClientCard, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Outro, OutroOpts, Status, Project, ProjectItem, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, DriveFile, Source, Picked, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page, EditorLink } from './types';
+import { askText } from './components/AskDialog';
 
 /** Called when the session has ended (401) so the app can show the sign-in page. */
 export const auth = { onSignedOut: () => {}, onLocked: (_message: string) => {} };
@@ -125,9 +126,10 @@ export const api = {
   moveCard: async (id: string, to: { listId: string; index?: number }): Promise<CardDetail | null> => {
     try { return await api.updateCard(id, to); } catch (e: any) {
       if (!e.need) throw e;
-      const text = prompt(e.message);
+      // In the app's window: feedback (REDO, FAIL) must be written; a reason to reopen may be left empty.
+      const grade = e.need === 'feedback';
+      const text = await askText(e.message, '', { title: grade ? 'Chấm công việc' : 'Mở lại công việc', multiline: true, required: grade, confirmLabel: grade ? 'Chấm' : 'Mở lại', placeholder: grade ? 'Nhận xét cho người làm…' : 'Lý do (không bắt buộc)…' });
       if (text === null) return null;
-      if (e.need === 'feedback' && !text.trim()) throw new Error('Cần ghi nhận xét để chấm REDO hoặc FAIL.');
       return api.updateCard(id, { ...to, [e.need]: text });
     }
   },

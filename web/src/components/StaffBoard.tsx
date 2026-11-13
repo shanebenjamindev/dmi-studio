@@ -7,6 +7,7 @@ import {Avatar, Pop} from './boardkit';
 import {createPortal} from 'react-dom';
 import {Icon} from './ui';
 import type {TeamRole, User} from '../types';
+import { askConfirm } from './AskDialog';
 
 const normalize=(s:string)=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d');
 const DRAG_TYPE='application/x-dmi-employee';
@@ -48,7 +49,7 @@ export function StaffBoard({users,roles,meId,loading,error,onRetry,onEdit,onAdd,
     return patch(u,{teamRole:team,deptRole:position?.id||null},`Đã chuyển ${u.name} sang ${destination?.name||'Chưa có phòng ban'}`);
   };
   const remove=async(u:User)=>{
-    if(pending.current.has(u.id)||!confirm(`Xoá tài khoản ${u.email}? Người này sẽ không đăng nhập được nữa.`))return;
+    if(pending.current.has(u.id)||!await askConfirm(`Xoá tài khoản ${u.email}? Người này sẽ không đăng nhập được nữa.`))return;
     pending.current.add(u.id);setBusy([...pending.current]);
     try{await api.deleteUser(u.id);onReload();await syncRoles();toast('Đã xoá nhân viên');}
     catch(e:any){toast(e.message,true);}

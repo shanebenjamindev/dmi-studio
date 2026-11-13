@@ -1,4 +1,4 @@
-// Chỉnh sửa dự án: its name, the customer it is for, its services and whether its managers put it on hold. Only what was
+// Chỉnh sửa dịch vụ: its name, the customer it is for, its services and whether its managers put it on hold. Only what was
 // changed is sent, so a manager of the project need not also manage its customer to fix a name.
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -27,28 +27,26 @@ export function ProjectEditDialog({ project, onClose, onSaved }: { project: Proj
     if (busy || !name.trim()) return;
     const was = (project.services || []).map((s) => s.id);
     const change = {
-      ...(name.trim() !== project.name ? { name: name.trim() } : {}),
       ...(customer !== (project.customerId || '') ? { customerId: customer || null } : {}),
       ...(services.length !== was.length || services.some((id) => !was.includes(id)) ? { services } : {}),
       ...(hold !== (project.hold || '') ? { hold: (hold || null) as 'paused' | 'cancelled' | null } : {}),
     };
     if (!Object.keys(change).length) { onClose(); return; }
     setBusy(true); setError('');
-    try { await api.updateTaskProject(project.id, change); toast('Đã lưu dự án'); onSaved(); }
+    try { await api.updateTaskProject(project.id, change); toast('Đã lưu dịch vụ'); onSaved(); }
     catch (err: any) { setError(err.message); } finally { setBusy(false); }
   };
   return createPortal(
-    <dialog ref={dialog} className="qc-dialog" aria-label="Chỉnh sửa dự án" onCancel={(e) => { e.preventDefault(); if (!busy) onClose(); }} onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+    <dialog ref={dialog} className="qc-dialog" aria-label="Chỉnh sửa dịch vụ" onCancel={(e) => { e.preventDefault(); if (!busy) onClose(); }} onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <form onSubmit={save}>
-        <header><h2>Chỉnh sửa dự án</h2><button type="button" className="bd-icon" disabled={busy} onClick={onClose} aria-label="Đóng"><Icon name="x" size={16} /></button></header>
+        <header><h2>Chỉnh sửa dịch vụ</h2><button type="button" className="bd-icon" disabled={busy} onClick={onClose} aria-label="Đóng"><Icon name="x" size={16} /></button></header>
         <fieldset disabled={busy}>
-          <label>Tên dự án<input className="bk-in" autoFocus required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} /></label>
-          <label>Khách hàng<select className="bk-in" value={customer} onChange={(e) => setCustomer(e.target.value)}><option value="">Dự án nội bộ (không gắn khách hàng)</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+          <label>Khách hàng<select className="bk-in" value={customer} onChange={(e) => setCustomer(e.target.value)}><option value="">Dịch vụ nội bộ (không gắn khách hàng)</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
           <div className="qc-field"><span>Dịch vụ</span><ServicePicker single value={services} onChange={setServices} known={project.services} /></div>
-          <label>Trạng thái dự án<select className="bk-in" value={hold} onChange={(e) => setHold(e.target.value)}><option value="">Theo tiến độ công việc</option><option value="paused">Tạm dừng</option><option value="cancelled">Đã huỷ</option></select></label>
+          <label>Trạng thái dịch vụ<select className="bk-in" value={hold} onChange={(e) => setHold(e.target.value)}><option value="">Theo tiến độ công việc</option><option value="paused">Tạm dừng</option><option value="cancelled">Đã huỷ</option></select></label>
         </fieldset>
         {error && <p className="note err" role="alert">{error}</p>}
-        <footer><button type="button" className="btn btn-gray" disabled={busy} onClick={onClose}>Đóng</button><button className="btn btn-primary" disabled={busy || !name.trim()}>{busy ? 'Đang lưu…' : 'Lưu'}</button></footer>
+        <footer><button type="button" className="btn btn-gray" disabled={busy} onClick={onClose}>Đóng</button><button className="btn btn-primary" disabled={busy || services.length !== 1}>{busy ? 'Đang lưu…' : 'Lưu'}</button></footer>
       </form>
     </dialog>,
     document.body,

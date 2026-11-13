@@ -6,6 +6,7 @@ import { toast } from '../store';
 import { Sheet } from './Dialogs';
 import { Icon, IconButton } from './ui';
 import type { GoogleStatus } from '../types';
+import { askConfirm } from './AskDialog';
 
 export const googleLogin = () => { location.href = '/api/google/login'; };
 
@@ -22,7 +23,7 @@ export function GoogleConnect({ open, onClose, onChanged,mode='drive' }: { mode?
     catch (e: any) { toast(e.message, true); }
   };
   const remove = async (email: string) => {
-    if (!confirm(`Ngắt kết nối ${email}? Khách hàng đang lưu video trên tài khoản này sẽ tạm không xem được video cho tới khi đăng nhập lại.`)) return;
+    if (!await askConfirm(`Ngắt kết nối ${email}? Khách hàng đang lưu video trên tài khoản này sẽ tạm không xem được video cho tới khi đăng nhập lại.`)) return;
     try { await api.removeGoogleAccount(email); await load(); onChanged(); } catch (e: any) { toast(e.message, true); }
   };
   const copy = (t: string) => navigator.clipboard.writeText(t).then(() => toast('Đã sao chép'), () => {});

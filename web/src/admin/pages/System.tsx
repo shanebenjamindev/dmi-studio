@@ -10,10 +10,11 @@ import { SiteLockSettings } from '../../components/SiteLock';
 import { admin } from '../api';
 import { goAdmin } from '../nav';
 import { PageHead, Section, Field, Kpi, Async, Empty, Badge, Table, useLoad, useCan, act, fmtNum, fmtBytes, fmtTime, fmtDate } from '../kit';
+import { askConfirm } from '../../components/AskDialog';
 
 export function Info() {
   const load = useLoad(() => admin.system(), []);
-  const COUNT: [string, string][] = [['users', 'Tài khoản hoạt động'], ['locked', 'Tài khoản đã khoá'], ['departments', 'Phòng ban'], ['teams', 'Nhóm'], ['roles', 'Vai trò'], ['sessions', 'Phiên đăng nhập đang mở'], ['tasks', 'Công việc'], ['projects', 'Dự án'], ['customers', 'Khách hàng'], ['boards', 'Board'], ['cards', 'Thẻ'], ['services', 'Dịch vụ']];
+  const COUNT: [string, string][] = [['users', 'Tài khoản hoạt động'], ['locked', 'Tài khoản đã khoá'], ['departments', 'Phòng ban'], ['teams', 'Nhóm'], ['roles', 'Vai trò'], ['sessions', 'Phiên đăng nhập đang mở'], ['tasks', 'Công việc'], ['projects', 'Dịch vụ'], ['customers', 'Khách hàng'], ['boards', 'Board'], ['cards', 'Thẻ'], ['services', 'Dịch vụ']];
   return (
     <>
       <PageHead title="Thông tin hệ thống" sub="Phiên bản, nền tảng đang chạy, dữ liệu đang có và các kết nối." />
@@ -116,7 +117,7 @@ export function Storage() {
   const handleClean = async () => {
     if (!editable) return;
     const timeLabel = days === 0 ? 'toàn bộ thời gian' : `cũ hơn ${days} ngày`;
-    if (!confirm(`Bạn có chắc chắn muốn dọn dẹp các mục dữ liệu rác ${timeLabel} và tối ưu database?`)) return;
+    if (!await askConfirm(`Bạn có chắc chắn muốn dọn dẹp các mục dữ liệu rác ${timeLabel} và tối ưu database?`)) return;
 
     setCleanBusy(true);
     await act(async () => {
@@ -182,7 +183,7 @@ export function Storage() {
         const assetsPct = Number(((ov.workersAssetsBytes / totalBytes) * 100).toFixed(1));
 
         const allTables: any[] = d.tables || [];
-        const tableGroups = ['all', 'Board & Thẻ', 'Công việc & Dự án', 'Khách hàng (CRM)', 'Không gian làm việc', 'Tài khoản & Quyền', 'Tin nhắn Messenger', 'Nhật ký & Bảo mật', 'Bảng tính đã nhập', 'Thông báo & Email', 'Báo cáo & Ads', 'Hệ thống & Khác'];
+        const tableGroups = ['all', 'Board & Thẻ', 'Công việc & Dịch vụ', 'Khách hàng (CRM)', 'Không gian làm việc', 'Tài khoản & Quyền', 'Tin nhắn Messenger', 'Nhật ký & Bảo mật', 'Bảng tính đã nhập', 'Thông báo & Email', 'Báo cáo & Ads', 'Hệ thống & Khác'];
 
         const q = tableQuery.trim().toLowerCase();
         const filteredTables = allTables.filter((t: any) => {

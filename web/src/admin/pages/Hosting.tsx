@@ -6,6 +6,7 @@ import { Icon } from '../../components/ui';
 import { admin } from '../api';
 import { goAdmin, routeParam, setRouteParam } from '../nav';
 import { PageHead, Section, Async, Empty, Badge, Table, useLoad, fmtNum, fmtBytes, fmtTime, fmtDate } from '../kit';
+import { askConfirm } from '../../components/AskDialog';
 
 const pctOf = (used: number, limit: number) => (used / limit) * 100;
 const pctText = (p: number) => (p > 0 && p < 1 ? '<1%' : `${Math.round(p)}%`);
@@ -113,7 +114,7 @@ export function Sql() {
   const name = chosen?.name || hosting.data?.database.name || 'database';
   const runSql = async () => {
     if (!sql.trim() || busy) return;
-    if (allowWrite && !confirm(`Chạy trên ${name}? Câu lệnh sửa hoặc xoá dữ liệu chạy ngay và không hoàn tác được.`)) return;
+    if (allowWrite && !await askConfirm(`Chạy trên ${name}? Câu lệnh sửa hoặc xoá dữ liệu chạy ngay và không hoàn tác được.`)) return;
     setBusy(true);
     try {
       setOut(await admin.sql({ sql, database: chosen && !chosen.current ? chosen.id : undefined, allowWrite }));

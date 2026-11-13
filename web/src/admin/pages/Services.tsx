@@ -4,6 +4,7 @@ import { toast } from '../../store';
 import { Icon } from '../../components/ui';
 import { admin, type Service, type Package } from '../api';
 import { PageHead, Toolbar, Select, Table, Pager, Drawer, Field, Badge, Async, Empty, DictEditor, useLoad, useListState, useDebounced, useCan, act, fmtMoney, fmtTime, type Col } from '../kit';
+import { askConfirm } from '../../components/AskDialog';
 
 const STATUS: Record<string, [string, 'ok' | 'muted' | 'warn']> = { active: ['Đang cung cấp', 'ok'], draft: ['Nháp', 'warn'], inactive: ['Ngừng cung cấp', 'muted'] };
 const by = (who: string | null, at: number) => `${who || '—'} · ${fmtTime(at)}`;
@@ -26,7 +27,7 @@ export function ServiceList() {
   ];
   return (
     <>
-      <PageHead title="Danh sách dịch vụ" sub="Dịch vụ công ty cung cấp. Dịch vụ của mỗi dự án (và từ đó của khách hàng) được chọn từ danh sách này."
+      <PageHead title="Danh sách dịch vụ" sub="Dịch vụ công ty cung cấp. Mỗi dịch vụ của khách hàng chọn từ danh sách này."
         actions={can('services.create') && <button className="btn btn-primary btn-sm" onClick={() => setEdit('new')}><Icon name="plus" size={14} />Thêm dịch vụ</button>} />
       <Toolbar search={q} onSearch={setQ} placeholder="Tìm tên, mã, mô tả…">
         <Select value={category} onChange={setCategory} label="Danh mục"><option value="">Mọi danh mục</option><option value="none">Chưa có danh mục</option>{(cats.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
@@ -55,7 +56,7 @@ function ServiceForm({ service, onClose, onSaved }: { service: Service | null; o
     try { await admin.saveService(service?.id || null, { ...f, categoryId: f.categoryId || null, price: f.price === '' ? null : Number(f.price) }); toast(service ? 'Đã lưu dịch vụ' : 'Đã thêm dịch vụ'); onSaved(); }
     catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
-  const remove = () => service && confirm(`Xoá dịch vụ “${service.name}”?${service.packages ? ` Dịch vụ đang nằm trong ${service.packages} gói.` : ''}`) && act(() => admin.removeService(service.id), 'Đã xoá dịch vụ', onSaved);
+  const remove = async () => service && await askConfirm(`Xoá dịch vụ “${service.name}”?${service.packages ? ` Dịch vụ đang nằm trong ${service.packages} gói.` : ''}`) && act(() => admin.removeService(service.id), 'Đã xoá dịch vụ', onSaved);
   return (
     <Drawer open title={service ? service.name : 'Thêm dịch vụ'} sub={service ? `Tạo: ${by(service.createdBy, service.createdAt)} · Sửa: ${by(service.updatedBy, service.updatedAt)}` : undefined} onClose={onClose} footer={<>
       {service && can('services.delete') && <button className="btn btn-gray btn-sm" onClick={remove}><Icon name="trash" size={14} />Xoá</button>}
@@ -120,7 +121,7 @@ function PackageForm({ pkg, onClose, onSaved }: { pkg: Package | null; onClose: 
   };
   return (
     <Drawer open title={pkg ? pkg.name : 'Thêm gói dịch vụ'} sub={pkg ? `Sửa: ${by(pkg.updatedBy, pkg.updatedAt)}` : undefined} onClose={onClose} footer={<>
-      {pkg && can('services.delete') && <button className="btn btn-gray btn-sm" onClick={() => confirm(`Xoá gói “${pkg.name}”?`) && act(() => admin.removePackage(pkg.id), 'Đã xoá gói', onSaved)}><Icon name="trash" size={14} />Xoá</button>}
+      {pkg && can('services.delete') && <button className="btn btn-gray btn-sm" onClick={async () => await askConfirm(`Xoá gói “${pkg.name}”?`) && act(() => admin.removePackage(pkg.id), 'Đã xoá gói', onSaved)}><Icon name="trash" size={14} />Xoá</button>}
       <button className="btn btn-gray btn-sm" onClick={onClose}>Đóng</button>{editable && <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{busy ? 'Đang lưu…' : 'Lưu'}</button>}
     </>}>
       <fieldset className="ax-form" disabled={!editable}>

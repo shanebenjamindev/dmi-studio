@@ -20,7 +20,7 @@ export async function projectLevels(userId:string,customers?:Map<string,Customer
 }
 export async function requireProject(userId:string,id:string,need:CustomerLevel='observer'){
  const p=await get<any>('SELECT * FROM task_projects WHERE id=?',id);
- if(!p)throw new HttpError(404,'Không tìm thấy dự án');
+ if(!p)throw new HttpError(404,'Không tìm thấy dịch vụ');
  let level=p.created_by===userId?'admin':(await get<any>('SELECT role FROM task_project_members WHERE project_id=? AND user_id=?',id,userId))?.role;
  if(!level){
    const isTaskMember = await get(`
@@ -34,9 +34,9 @@ export async function requireProject(userId:string,id:string,need:CustomerLevel=
    `, id, userId, userId, id, userId);
    if (isTaskMember) level = 'normal';
  }
- if(!level)throw new HttpError(404,'Không tìm thấy dự án');
+ if(!level)throw new HttpError(404,'Không tìm thấy dịch vụ');
  if(p.customer_id)await requireCustomer(userId,p.customer_id,need==='observer'?'observer':'normal');
- if(need==='admin'&&level!=='admin'||need==='normal'&&level==='observer')throw new HttpError(403,'Bạn chưa được cấp quyền sửa dự án');
+ if(need==='admin'&&level!=='admin'||need==='normal'&&level==='observer')throw new HttpError(403,'Bạn chưa được cấp quyền sửa dịch vụ');
  return level as CustomerLevel;
 }
 

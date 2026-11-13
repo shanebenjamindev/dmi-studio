@@ -65,7 +65,8 @@ async function tasksFor(c: Ctx, q: URLSearchParams) {
     .filter((t) => !q.get('user') || t.assignees.some((a) => a.userId === q.get('user')) || t.cardMembers.includes(String(q.get('user'))))
     .filter((t) => !q.get('label') || t.labels.includes(String(q.get('label'))))
     .filter((t) => q.get('overdue') !== '1' || late(t))
-    .filter((t) => (!from || (t.dueAt ?? 0) >= from) && (!to || (t.dueAt ?? Infinity) < to));
+    // The span of days on its due date, or (`dateField`) when it was made or last changed.
+    .filter((t) => { const d = q.get('dateField') === 'created' ? t.createdAt : q.get('dateField') === 'updated' ? t.updatedAt : t.dueAt; return (!from || (d ?? 0) >= from) && (!to || (d ?? Infinity) < to); });
 }
 const strip = ({ people, cardMembers, ...t }: TaskRow) => t;
 
@@ -78,7 +79,7 @@ export function registerWork(api: Router) {
   api.get('/api/admin/tasks/export', async (req, res) => {
     const c = await need(req, 'tasks.export'), rows = (await tasksFor(await need(req, 'tasks.view'), req.query)).sort((a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity));
     await logAction(c, 'Xuất danh sách công việc (CSV)', `${rows.length} công việc`, 'task');
-    sendCsv(res, 'cong-viec.csv', [['Mã', 'Tên công việc', 'Trạng thái', 'Tình trạng', 'Ưu tiên', 'Dự án', 'Khách hàng', 'Chiến dịch', 'Người làm', 'Nhãn', 'Bắt đầu', 'Thời hạn', 'Hoàn thành', 'Cập nhật'],
+    sendCsv(res, 'cong-viec.csv', [['Mã', 'Tên công việc', 'Trạng thái', 'Tình trạng', 'Ưu tiên', 'Dịch vụ', 'Khách hàng', 'Chiến dịch', 'Người làm', 'Nhãn', 'Bắt đầu', 'Thời hạn', 'Hoàn thành', 'Cập nhật'],
       ...rows.map((t) => [t.externalId || t.id, t.title, t.status, STATE_LABEL[t.state] || t.state, t.priority?.name, t.project?.name, t.customer?.name, t.campaign?.name, t.assignees.map((a) => a.name).join('; '), t.labels.join('; '), csvDate(t.startAt), csvDate(t.dueAt), csvDate(t.doneAt), csvDate(t.updatedAt)])]);
   });
   api.get('/api/admin/tasks/:id', async (req, res) => {

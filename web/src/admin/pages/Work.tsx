@@ -11,6 +11,7 @@ import { routeParam, setRouteParam } from '../nav';
 import { PageHead, Toolbar, Select, Table, Pager, Drawer, Field, Section, Badge, ChangeList, Async, Empty, ErrorState, Loading, DictEditor, Kpi, useLoad, useListState, useDebounced, useCan, act, fmtDate, fmtNum, dayStart, dayValue, type Col } from '../kit';
 import type { TaskMeta } from '../../types';
 import { DayRangeField } from '../../components/DateRange';
+import { askConfirm } from '../../components/AskDialog';
 
 export const STATE: Record<string, [string, 'ok' | 'bad' | 'warn' | 'muted' | undefined]> = {
   todo: ['Chưa làm', 'muted'], doing: ['Đang làm', undefined], review: ['Đang đánh giá', undefined], paused: ['Tạm dừng', 'warn'], overdue: ['Quá hạn', 'bad'],
@@ -24,9 +25,9 @@ const late = (t: TaskRow) => (t.dueAt && t.state === 'overdue' ? Math.ceil((Date
 function TaskList({ overdue }: { overdue?: boolean }) {
   const can = useCan(), departments = useStore((s) => s.roles);
   const [q, setQ] = useState(''), [state, setState] = useState(''), [priority, setPriority] = useState(''), [dept, setDept] = useState(''), [team, setTeam] = useState(''), [user, setUser] = useState(''), [project, setProject] = useState('');
-  const [from, setFrom] = useState(''), [to, setTo] = useState('');
+  const [from, setFrom] = useState(''), [to, setTo] = useState(''), [dateField, setDateField] = useState<'due' | 'created' | 'updated'>('due');
   const L = useListState(overdue ? 'dueAt' : 'dueAt', overdue ? 'asc' : 'desc'), term = useDebounced(q);
-  const filter = { q: term, state, priority, dept, team, user, project, overdue: overdue ? 1 : '', from: dayStart(from), to: dayStart(to) ? dayStart(to)! + 86400e3 : null };
+  const filter = { q: term, state, priority, dept, team, user, project, overdue: overdue ? 1 : '', dateField, from: dayStart(from), to: dayStart(to) ? dayStart(to)! + 86400e3 : null };
   const load = useLoad(() => admin.tasks({ ...filter, sort: L.sort, dir: L.dir, page: L.page, size: 30 }), [JSON.stringify(filter), L.sort, L.dir, L.page]);
   const priorities = useLoad(() => admin.priorities.list(), []);
   const teams = useLoad(() => (can('org.view') ? admin.teams() : Promise.resolve([])), []);
@@ -36,7 +37,7 @@ function TaskList({ overdue }: { overdue?: boolean }) {
   useEffect(() => { L.setPage(1); }, [JSON.stringify(filter)]); // eslint-disable-line react-hooks/exhaustive-deps
   const show = (id: string | null) => { setOpen(id); setRouteParam('id', id); };
   const cols: Col<TaskRow>[] = [
-    { key: 'title', label: 'Công việc', sort: true, render: (t) => <span className="ax-stack"><b>{t.title}</b><small>{[t.project?.name, t.customer?.name].filter(Boolean).join(' · ') || 'Không thuộc dự án'}</small></span> },
+    { key: 'title', label: 'Công việc', sort: true, render: (t) => <span className="ax-stack"><b>{t.title}</b><small>{[t.project?.name, t.customer?.name].filter(Boolean).join(' · ') || 'Không thuộc dịch vụ'}</small></span> },
     { key: 'status', label: 'Trạng thái', sort: true, render: (t) => <StateBadge t={t} /> },
     { key: 'priority', label: 'Ưu tiên', sort: true, render: (t) => t.priority ? <Badge color={t.priority.color}>{t.priority.name}</Badge> : <span className="ax-muted">—</span>, hideSm: true },
     { key: 'people', label: 'Người làm', render: (t) => t.assignees.map((a) => a.name).join(', ') || <span className="ax-muted">Chưa giao</span>, hideSm: true },
@@ -50,14 +51,15 @@ function TaskList({ overdue }: { overdue?: boolean }) {
         <Kpi label="Kết quả lọc" value={fmtNum(load.data.counts.total)} /><Kpi label="Đang mở" value={fmtNum(load.data.counts.open)} />
         <Kpi label="Quá hạn" value={fmtNum(load.data.counts.overdue)} tone={load.data.counts.overdue ? 'bad' : undefined} /><Kpi label="Hoàn thành" value={fmtNum(load.data.counts.done)} />
       </div>}
-      <Toolbar search={q} onSearch={setQ} placeholder="Tìm tên, dự án, khách hàng, nhãn…">
+      <Toolbar search={q} onSearch={setQ} placeholder="Tìm tên, dịch vụ, khách hàng, nhãn…">
         {!overdue && <Select value={state} onChange={setState} label="Tình trạng"><option value="">Mọi tình trạng</option><option value="open">Đang mở</option><option value="done">Đã hoàn thành</option>{Object.entries(STATE).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}</Select>}
         <Select value={priority} onChange={setPriority} label="Ưu tiên"><option value="">Mọi mức ưu tiên</option><option value="none">Chưa đặt</option>{(priorities.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>
         <Select value={dept} onChange={setDept} label="Phòng ban"><option value="">Mọi phòng ban</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</Select>
         {!!teams.data?.length && <Select value={team} onChange={setTeam} label="Nhóm"><option value="">Mọi nhóm</option>{teams.data.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>}
         {!!people.data?.items.length && <Select value={user} onChange={setUser} label="Nhân viên"><option value="">Mọi nhân viên</option>{people.data.items.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>}
-        {!!meta.data?.projects.length && <Select value={project} onChange={setProject} label="Dự án"><option value="">Mọi dự án</option>{meta.data.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>}
-        <DayRangeField from={from} to={to} startLabel="Hạn từ" endLabel="Đến" placeholder="Lọc theo hạn" onChange={(f, t) => { setFrom(f); setTo(t); }} />
+        {!!meta.data?.projects.length && <Select value={project} onChange={setProject} label="Dịch vụ"><option value="">Mọi dịch vụ</option>{meta.data.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>}
+        <select className="bk-in ax-date-field" aria-label="Lọc theo ngày" value={dateField} onChange={(e) => setDateField(e.target.value as 'due' | 'created' | 'updated')}><option value="due">Hạn chót</option><option value="created">Ngày tạo</option><option value="updated">Ngày sửa</option></select>
+        <DayRangeField from={from} to={to} startLabel="Từ" endLabel="Đến" placeholder="Mọi ngày" onChange={(f, t) => { setFrom(f); setTo(t); }} />
       </Toolbar>
       <div className="ax-card flush"><Async load={load}>{(d) => <>
         <Table cols={cols} rows={d.items} sort={L.sort} dir={L.dir} onSort={L.onSort} onRow={(t) => show(t.id)} selected={open}
@@ -116,16 +118,16 @@ export function Statuses() {
       </form>}
       <Async load={load}>{(d) => <>
         <div className="ax-card flush"><Table rows={d.statuses} empty={<Empty title="Chưa có trạng thái" />} cols={[
-          { key: 'name', label: 'Trạng thái', render: (s) => editable && !s.locked ? <span className="ax-person"><input type="color" value={s.color} aria-label="Màu" onChange={(e) => void act(() => admin.updateStatus(s.id, { color: e.target.value }), undefined, load.reload)} /><input className="bk-in ax-cell-input" defaultValue={s.name} maxLength={60} aria-label="Tên trạng thái" onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== s.name) { if (!s.used || confirm(`Đổi tên “${s.name}” thành “${v}”? ${s.used} công việc đang ở trạng thái này sẽ đổi theo.`)) void act(() => admin.updateStatus(s.id, { name: v }), 'Đã đổi tên', load.reload); else e.target.value = s.name; } else e.target.value = s.name; }} /></span> : <Badge color={s.color}>{s.name}</Badge> },
+          { key: 'name', label: 'Trạng thái', render: (s) => editable && !s.locked ? <span className="ax-person"><input type="color" value={s.color} aria-label="Màu" onChange={(e) => void act(() => admin.updateStatus(s.id, { color: e.target.value }), undefined, load.reload)} /><input className="bk-in ax-cell-input" defaultValue={s.name} maxLength={60} aria-label="Tên trạng thái" onBlur={async (e) => { const v = e.target.value.trim(); if (v && v !== s.name) { if (!s.used || await askConfirm(`Đổi tên “${s.name}” thành “${v}”? ${s.used} công việc đang ở trạng thái này sẽ đổi theo.`)) void act(() => admin.updateStatus(s.id, { name: v }), 'Đã đổi tên', load.reload); else e.target.value = s.name; } else e.target.value = s.name; }} /></span> : <Badge color={s.color}>{s.name}</Badge> },
           { key: 'category', label: 'Hệ thống hiểu là', render: (s) => CATEGORY[s.category] || s.category },
           { key: 'used', label: 'Công việc', align: 'right', render: (s) => fmtNum(s.used) },
           { key: 'active', label: 'Trạng thái', render: (s) => s.locked ? <Badge tone="muted">Mặc định của việc mới</Badge> : s.active ? <Badge tone="ok">Đang dùng</Badge> : <Badge tone="muted">Đã tắt</Badge> },
           { key: 'x', label: '', align: 'right', render: (s) => editable && !s.locked ? <span className="ax-row-actions"><button className="btn btn-gray btn-sm" onClick={() => act(() => admin.updateStatus(s.id, { active: !s.active }), s.active ? 'Đã tắt' : 'Đã bật', load.reload)}>{s.active ? 'Tắt' : 'Bật'}</button>
-            <button className="bd-icon danger" title="Xoá" aria-label={`Xoá ${s.name}`} onClick={() => confirm(s.used ? `Xoá trạng thái “${s.name}”? ${s.used} công việc đang ở trạng thái này sẽ nhận trạng thái theo bước quy trình của chúng.` : `Xoá trạng thái “${s.name}”?`) && act(() => admin.removeStatus(s.id), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={14} /></button></span> : null },
+            <button className="bd-icon danger" title="Xoá" aria-label={`Xoá ${s.name}`} onClick={async () => await askConfirm(s.used ? `Xoá trạng thái “${s.name}”? ${s.used} công việc đang ở trạng thái này sẽ nhận trạng thái theo bước quy trình của chúng.` : `Xoá trạng thái “${s.name}”?`) && act(() => admin.removeStatus(s.id), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={14} /></button></span> : null },
         ]} /></div>
         {!!d.unlisted.length && <Section title="Trạng thái có trong dữ liệu nhưng chưa có trong danh sách">
           <p className="note">Công việc nhập từ file có thể mang trạng thái khác. Thêm vào danh sách để người dùng chọn được, hoặc xoá để các công việc đó nhận trạng thái theo bước quy trình.</p>
-          <ul className="ax-list">{d.unlisted.map((u) => <li key={u.name}><span><b>{u.name}</b><small>{fmtNum(u.used)} công việc · hệ thống hiểu là {CATEGORY[u.category] || u.category}</small></span>{editable && <span className="ax-row-actions"><button className="btn btn-gray btn-sm" onClick={() => void add(u.name, '#64748b')}><Icon name="plus" size={13} />Thêm vào danh sách</button><button className="bd-icon danger" title="Xoá" aria-label={`Xoá ${u.name}`} onClick={() => confirm(`Xoá trạng thái “${u.name}”? ${u.used} công việc đang ở trạng thái này sẽ được chuyển về “Chưa thực hiện”.`) && act(() => admin.clearUnlistedStatus(u.name), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={14} /></button></span>}</li>)}</ul>
+          <ul className="ax-list">{d.unlisted.map((u) => <li key={u.name}><span><b>{u.name}</b><small>{fmtNum(u.used)} công việc · hệ thống hiểu là {CATEGORY[u.category] || u.category}</small></span>{editable && <span className="ax-row-actions"><button className="btn btn-gray btn-sm" onClick={() => void add(u.name, '#64748b')}><Icon name="plus" size={13} />Thêm vào danh sách</button><button className="bd-icon danger" title="Xoá" aria-label={`Xoá ${u.name}`} onClick={async () => await askConfirm(`Xoá trạng thái “${u.name}”? ${u.used} công việc đang ở trạng thái này sẽ được chuyển về “Chưa thực hiện”.`) && act(() => admin.clearUnlistedStatus(u.name), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={14} /></button></span>}</li>)}</ul>
         </Section>}
       </>}</Async>
     </>
@@ -193,9 +195,9 @@ export function Workflow() {
               <p className="note">Những trạng thái này không thuộc bước nào. Xoá một trạng thái thì công việc đang mang nó nhận trạng thái theo bước quy trình của chúng.</p>
               <ul className="ax-list">
                 {outside.map((s) => <li key={s.id}><span><b>{s.name}</b><small>{fmtNum(s.used)} công việc{s.locked ? ' · trạng thái của việc mới, không xoá được' : ''}</small></span>
-                  {editable && !s.locked && <button className="btn btn-danger btn-sm" onClick={() => confirm(s.used ? `Xoá trạng thái “${s.name}”? ${s.used} công việc đang mang nó sẽ nhận trạng thái theo bước quy trình.` : `Xoá trạng thái “${s.name}”?`) && act(() => admin.removeStatus(s.id), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={13} />Xoá</button>}</li>)}
+                  {editable && !s.locked && <button className="btn btn-danger btn-sm" onClick={async () => await askConfirm(s.used ? `Xoá trạng thái “${s.name}”? ${s.used} công việc đang mang nó sẽ nhận trạng thái theo bước quy trình.` : `Xoá trạng thái “${s.name}”?`) && act(() => admin.removeStatus(s.id), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={13} />Xoá</button>}</li>)}
                 {st.unlisted.map((u) => <li key={'u:' + u.name}><span><b>{u.name}</b><small>{fmtNum(u.used)} công việc · có trong dữ liệu nhưng không có trong danh sách</small></span>
-                  {editable && <button className="btn btn-danger btn-sm" onClick={() => confirm(`Xoá trạng thái “${u.name}”? ${u.used} công việc đang mang nó sẽ nhận trạng thái theo bước quy trình.`) && act(() => admin.clearUnlistedStatus(u.name), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={13} />Xoá</button>}</li>)}
+                  {editable && <button className="btn btn-danger btn-sm" onClick={async () => await askConfirm(`Xoá trạng thái “${u.name}”? ${u.used} công việc đang mang nó sẽ nhận trạng thái theo bước quy trình.`) && act(() => admin.clearUnlistedStatus(u.name), 'Đã xoá trạng thái', load.reload)}><Icon name="trash" size={13} />Xoá</button>}</li>)}
               </ul>
             </div>}
           </Section>
@@ -236,7 +238,7 @@ export function Categories() {
       <div className="ax-card flush"><Async load={load}>{(rows) => <Table rows={rows} empty={<Empty icon="tag" title="Chưa có danh mục" />} cols={[
         { key: 'name', label: 'Danh mục / Nhãn', render: (l) => editable ? <span className="ax-person"><input type="color" value={l.color} aria-label="Màu" onChange={(e) => void act(() => admin.updateLabel(l.id, { color: e.target.value }), undefined, load.reload)} /><input className="bk-in ax-cell-input" defaultValue={l.name} maxLength={100} aria-label="Tên danh mục" onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== l.name) void act(() => admin.updateLabel(l.id, { name: v }), 'Đã đổi tên', load.reload); else e.target.value = l.name; }} /></span> : <Badge color={l.color}>{l.name}</Badge> },
         { key: 'used', label: 'Công việc', align: 'right', render: (l) => fmtNum(l.used) },
-        { key: 'x', label: '', align: 'right', render: (l) => editable ? <button className="bd-icon danger" aria-label={`Xoá ${l.name}`} onClick={() => confirm(`Xoá danh mục “${l.name}”?${l.used ? ` Nhãn sẽ được gỡ khỏi ${l.used} công việc.` : ''}`) && act(() => admin.removeLabel(l.id), 'Đã xoá danh mục', load.reload)}><Icon name="trash" size={14} /></button> : null },
+        { key: 'x', label: '', align: 'right', render: (l) => editable ? <button className="bd-icon danger" aria-label={`Xoá ${l.name}`} onClick={async () => await askConfirm(`Xoá danh mục “${l.name}”?${l.used ? ` Nhãn sẽ được gỡ khỏi ${l.used} công việc.` : ''}`) && act(() => admin.removeLabel(l.id), 'Đã xoá danh mục', load.reload)}><Icon name="trash" size={14} /></button> : null },
       ]} />}</Async></div>
     </>
   );
@@ -258,7 +260,7 @@ export function Templates() {
   const [edit, setEdit] = useState<TaskTemplate | 'new' | null>(null), [apply, setApply] = useState<TaskTemplate | null>(null);
   return (
     <>
-      <PageHead title="Mẫu công việc" sub="Mẫu gồm tên công việc, trạng thái, nhãn, thời hạn và checklist. Áp dụng mẫu tạo một công việc trong dự án bạn chọn, mỗi mục checklist thành một công việc con."
+      <PageHead title="Mẫu công việc" sub="Mẫu gồm tên công việc, trạng thái, nhãn, thời hạn và checklist. Áp dụng mẫu tạo một công việc trong dịch vụ bạn chọn, mỗi mục checklist thành một công việc con."
         actions={can('tasks.manage') && <button className="btn btn-primary btn-sm" onClick={() => setEdit('new')}><Icon name="plus" size={14} />Tạo mẫu</button>} />
       <Async load={load} empty={<Empty icon="checklist" title="Chưa có mẫu công việc" text={can('tasks.manage') ? 'Tạo mẫu cho những việc lặp lại.' : undefined} />}>{(rows) => (
         <div className="ax-role-grid">{rows.map((t) => (
@@ -290,7 +292,7 @@ function TemplateForm({ tpl, onClose, onSaved }: { tpl: TaskTemplate | null; onC
   };
   return (
     <Drawer open title={tpl ? `Sửa mẫu · ${tpl.name}` : 'Tạo mẫu công việc'} onClose={onClose} footer={<>
-      {tpl && <button className="btn btn-gray btn-sm" onClick={() => confirm(`Xoá mẫu “${tpl.name}”?`) && act(() => admin.removeTemplate(tpl.id), 'Đã xoá mẫu', onSaved)}><Icon name="trash" size={14} />Xoá</button>}
+      {tpl && <button className="btn btn-gray btn-sm" onClick={async () => await askConfirm(`Xoá mẫu “${tpl.name}”?`) && act(() => admin.removeTemplate(tpl.id), 'Đã xoá mẫu', onSaved)}><Icon name="trash" size={14} />Xoá</button>}
       <button className="btn btn-gray btn-sm" onClick={onClose}>Huỷ</button><button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{busy ? 'Đang lưu…' : 'Lưu'}</button>
     </>}>
       <div className="ax-form">
@@ -335,7 +337,7 @@ function ApplyTemplate({ tpl, onClose }: { tpl: TaskTemplate; onClose: () => voi
       <div className="ax-form">
         {error && <p className="note err" role="alert">{error}</p>}
         <Field label="Tên công việc"><input className="bk-in" value={title} maxLength={500} onChange={(e) => setTitle(e.target.value)} /></Field>
-        <Field label="Dự án" hint="Chỉ các dự án bạn được sửa."><select className="bk-in" value={project} onChange={(e) => setProject(e.target.value)}><option value="">Không thuộc dự án</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+        <Field label="Dịch vụ" hint="Chỉ các dịch vụ bạn được sửa."><select className="bk-in" value={project} onChange={(e) => setProject(e.target.value)}><option value="">Không thuộc dịch vụ</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
         <Field label="Thời hạn"><DayRangeField single from="" to={due} endLabel="Thời hạn" placeholder="Chọn thời hạn" onChange={(_, t) => setDue(t)} /></Field>
         {!!tpl.checklist.length && <Field label={`Công việc con (${tpl.checklist.length})`}><ul className="ax-list">{tpl.checklist.map((c, i) => <li key={i}><span>{c}</span></li>)}</ul></Field>}
       </div>

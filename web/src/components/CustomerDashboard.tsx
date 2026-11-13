@@ -7,10 +7,12 @@ import {openTask,toast} from '../store';
 import {GroupedList,byKey} from './GroupedList';
 import {useCustomerStatuses,type CustomerStatusOption} from './useCustomerStatuses';
 import {FlowOverview,type FlowRow} from './FlowOverview';
+import {DateFilterBar,byRecent,filterByDate,useDateFilter} from './DateFilter';
+import { askConfirm } from './AskDialog';
 
 // The Customers page's first screen, kept to one row of controls: add, search, filters (one button), how to group, and
 // three views: a list in groups, a Kanban (drag a card to change where the customer stands) and cards.
-export type CustomerView='list'|'kanban'|'overview';type View=CustomerView;type GroupBy='status'|'category'|'source'|'manager'|'none';
+export type CustomerView='list'|'kanban'|'overview';type View=CustomerView;type GroupBy='status'|'category'|'source'|'manager'|'created'|'updated'|'none';
 const LS_VIEW='dms.customerView',LS_GROUP='dms.customerGroup';
 const read=<T extends string>(k:string,ok:readonly T[],d:T):T=>{try{const v=localStorage.getItem(k) as T;return ok.includes(v)?v:d;}catch{return d;}};
 const keep=(k:string,v:string)=>{try{localStorage.setItem(k,v);}catch{/* private mode */}};
@@ -27,7 +29,8 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
  const[busyId,setBusyId]=useState<string|null>(null);
  const[innerView,setViewState]=useState<View>(()=>read(LS_VIEW,['list','kanban','overview'] as const,'list'));
  const view=controlledView??innerView;
- const[groupBy,setGroupByState]=useState<GroupBy>(()=>read(LS_GROUP,['status','category','source','manager','none'] as const,'status'));
+ const[dates,setDates]=useDateFilter();
+ const[groupBy,setGroupByState]=useState<GroupBy>(()=>read(LS_GROUP,['status','category','source','manager','created','updated','none'] as const,'status'));
  const setView=(v:View)=>{setViewState(v);keep(LS_VIEW,v);onViewChange?.(v);};const setGroupBy=(g:GroupBy)=>{setGroupByState(g);keep(LS_GROUP,g);};
  const[f,setF]=useState({...EMPTY}),[filters,setFilters]=useState(false);
  // A status changed on the Kanban shows at once, before the list comes back.
@@ -36,16 +39,17 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
  const all=customers.map(c=>c.id in moved?{...c,...moved[c.id]}:c);
  const options=<T extends {id:string;name:string}>(pick:(c:CustomerRecord)=>T[]|T|null|undefined)=>[...new Map(all.flatMap(c=>{const v=pick(c);return v?(Array.isArray(v)?v:[v]):[];}).map(v=>[v.id,v])).values()].sort((a,b)=>(a.name||'').localeCompare(b.name||'','vi'));
  const needs=options(c=>c.needs),categories=options(c=>c.tags?.length?c.tags:c.category),sources=options(c=>c.source),managers=options(c=>c.manager||c.owner);
- const words=fold(q).split(/\s+/).filter(Boolean),active=Object.values(f).filter(Boolean).length;
- const rows=all.filter(c=>{const text=fold(`${c.name} ${c.contact} ${c.email} ${c.phone} ${(c.needs||[]).map(n=>n.name).join(' ')} ${(c.manager||c.owner)?.name||''} ${(c.tags||[]).map(t=>t.name).join(' ')||c.category?.name||''} ${c.source?.name||''}`);return words.every(w=>text.includes(w));})
+ const words=fold(q).split(/\s+/).filter(Boolean),active=Object.values(f).filter(Boolean).length+(dates.from||dates.to?1:0);
+ const rows=filterByDate(all.filter(c=>{const text=fold(`${c.name} ${c.contact} ${c.email} ${c.phone} ${(c.needs||[]).map(n=>n.name).join(' ')} ${(c.manager||c.owner)?.name||''} ${(c.tags||[]).map(t=>t.name).join(' ')||c.category?.name||''} ${c.source?.name||''}`);return words.every(w=>text.includes(w));})
   .filter(c=>!f.need||(f.need==='none'?!c.needs?.length:c.needs?.some(n=>n.id===f.need)))
   .filter(c=>!f.status||(f.status==='none'?!c.status:c.status===f.status))
   .filter(c=>!f.category||(f.category==='none'?!c.category:(c.tags?.length?c.tags.some(t=>t.id===f.category):c.category?.id===f.category)))
   .filter(c=>!f.source||(f.source==='none'?!c.source:c.source?.id===f.source))
   .filter(c=>!f.manager||(f.manager==='none'?!(c.manager||c.owner):(c.manager||c.owner)?.id===f.manager))
   .filter(c=>!f.drive||(f.drive==='yes'?c.hasDrive:!c.hasDrive))
-  .sort((a,b)=>(a.name||'').localeCompare(b.name||'','vi'));
- const groups=(groupBy==='status'?byKey(rows,c=>c.status?{key:c.status,label:CUSTOMER_STATUS[c.status]||c.status,color:STATUS_COLOR[c.status]}:null,'Chưa đặt trạng thái',STATUS_ORDER)
+  .sort((a,b)=>(a.name||'').localeCompare(b.name||'','vi')),dates);
+ const groups=(groupBy==='created'||groupBy==='updated'?byRecent(rows,groupBy)
+  :groupBy==='status'?byKey(rows,c=>c.status?{key:c.status,label:CUSTOMER_STATUS[c.status]||c.status,color:STATUS_COLOR[c.status]}:null,'Chưa đặt trạng thái',STATUS_ORDER)
   :groupBy==='category'?byKey(rows,c=>c.category?{key:c.category.id,label:c.category.name,color:c.category.color}:null,'Chưa phân loại')
   :groupBy==='source'?byKey(rows,c=>c.source?{key:c.source.id,label:c.source.name,color:c.source.color}:null,'Chưa rõ nguồn')
   :groupBy==='manager'?byKey(rows,c=>{const m=c.manager||c.owner;return m?{key:m.id,label:m.name}:null;},'Chưa có người phụ trách')
@@ -69,13 +73,13 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
  const toggleAll=(checked:boolean)=>setSelectedIds(checked?Array.from(new Set([...selectedIds,...deletableRows.map(c=>c.id)])):selectedIds.filter(id=>!deletableRows.some(c=>c.id===id)));
  const toggleOne=(c:CustomerRecord)=>setSelectedIds(ids=>ids.includes(c.id)?ids.filter(x=>x!==c.id):[...ids,c.id]);
  const removeCustomer=async(c:CustomerRecord)=>{
-  if(!confirm(`Xoá khách hàng “${c.name}”? Giữ nguyên dự án, công việc, báo cáo và file Drive.`))return;
+  if(!await askConfirm(`Xoá khách hàng “${c.name}”? Giữ nguyên dịch vụ, công việc, báo cáo và file Drive.`))return;
   setBusyId(c.id);
   try{await api.deleteCustomer(c.id);if(selected===c.id)onOpen(null);setSelectedIds(ids=>ids.filter(x=>x!==c.id));onRefresh();toast(`Đã xoá khách hàng “${c.name}”.`);}catch(e:any){toast(e.message,true);}finally{setBusyId(null);}
  };
  const bulkDelete=async()=>{
   if(!selectedIds.length)return;
-  if(!confirm(`Xoá ${selectedIds.length} khách hàng đã chọn? Giữ nguyên dự án, công việc, báo cáo và file Drive.`))return;
+  if(!await askConfirm(`Xoá ${selectedIds.length} khách hàng đã chọn? Giữ nguyên dịch vụ, công việc, báo cáo và file Drive.`))return;
   setBusyId('bulk');
   try{const r=await api.bulkDeleteCustomers(selectedIds);if(selected&&selectedIds.includes(selected))onOpen(null);setSelectedIds([]);onRefresh();toast(`Đã xoá ${r.deleted} khách hàng.`);}catch(e:any){toast(e.message,true);}finally{setBusyId(null);}
  };
@@ -99,7 +103,7 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
    {selectedIds.length>0&&!selected&&<><button className="btn btn-sm cm-danger" disabled={busyId==='bulk'} onClick={()=>void bulkDelete()}><Icon name="trash" size={14}/>Xoá đã chọn ({selectedIds.length})</button><button className="btn btn-gray btn-sm" onClick={()=>setSelectedIds([])}>Bỏ chọn</button></>}
    <label className="tk-find"><Icon name="search" size={14}/><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==='Escape'&&q){e.stopPropagation();setQ('');}}} placeholder={selected ? "Tìm khách..." : "Tìm tên, liên hệ, email, điện thoại, dịch vụ…"} aria-label="Tìm khách hàng"/>{q&&<button type="button" className="tk-find-x" onClick={()=>setQ('')} aria-label="Xoá tìm kiếm" title="Xoá tìm kiếm"><Icon name="x" size={12}/></button>}</label>
    {!selected&&<button className={'tk-pick cd-filter-btn'+(active?' on':'')} onClick={()=>setFilters(!filters)} aria-expanded={filters}><Icon name="filter" size={14}/><span>Lọc</span>{active?` (${active})`:''}</button>}
-   {!selected&&view!=='overview'&&<label className="tk-pick"><Icon name="layers" size={14}/><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={e=>setGroupBy(e.target.value as GroupBy)}><option value="status">Trạng thái</option><option value="category">Tag</option><option value="source">Nguồn</option><option value="manager">Người phụ trách</option>{view==='list'&&<option value="none">Không nhóm</option>}</select></label>}
+   {!selected&&view!=='overview'&&<label className="tk-pick"><Icon name="layers" size={14}/><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={e=>setGroupBy(e.target.value as GroupBy)}><option value="status">Trạng thái</option><option value="category">Tag</option><option value="source">Nguồn</option><option value="manager">Người phụ trách</option><option value="created">Ngày tạo</option><option value="updated">Ngày sửa</option>{view==='list'&&<option value="none">Không nhóm</option>}</select></label>}
    {!selected&&<span className="cd-count">{active||q?`${rows.length}/${customers.length}`:''}</span>}
   </div>
   {filters&&!selected&&<div className="cd-filters">
@@ -107,7 +111,8 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
    <label className="cd-filter"><span>Trạng thái</span><select className="bk-in" value={f.status} onChange={e=>setF({...f,status:e.target.value})}><option value="">Tất cả</option><option value="none">Chưa đặt</option>{STATUS_ORDER.map(s=><option key={s} value={s}>{CUSTOMER_STATUS[s]}</option>)}</select></label>
    {sel('category','Tag','Chưa gắn tag',categories)}{sel('source','Nguồn','Chưa rõ nguồn',sources)}{sel('manager','Phụ trách','Chưa có người phụ trách',managers)}
    <label className="cd-filter"><span>Drive</span><select className="bk-in" value={f.drive} onChange={e=>setF({...f,drive:e.target.value})}><option value="">Tất cả</option><option value="yes">Đã liên kết</option><option value="no">Chưa liên kết</option></select></label>
-   {active>0&&<button className="btn btn-plain btn-sm" onClick={()=>setF({...EMPTY})}>Bỏ lọc</button>}
+   <div className="cd-filter"><span>Ngày</span><DateFilterBar value={dates} onChange={setDates}/></div>
+   {active>0&&<button className="btn btn-plain btn-sm" onClick={()=>{setF({...EMPTY});setDates({...dates,from:'',to:''});}}>Bỏ lọc</button>}
   </div>}
   {error?<p className="note err" role="alert">{error}</p>:loading?<BrandLoading label="Đang tải dữ liệu backend…"/>:!rows.length?<div className="crm-empty"><Icon name="users" size={36}/><h3>{q||active?'Không có khách phù hợp':'Chưa có khách hàng'}</h3><p>{q||active?'Thử từ khoá hoặc bộ lọc khác.':'Thêm khách hàng hoặc import Excel để bắt đầu.'}</p>{manage&&!q&&!active&&<button className="btn btn-primary" onClick={onAdd}>Thêm khách hàng</button>}</div>
   :selected?<div className="tk-reading-list cd-reading-compact">{groups.filter(g=>g.rows.length).map(g=><section key={g.key}><h3>{g.label}<span>{g.rows.length}</span></h3>{g.rows.map(c=><button key={c.id} id={'customer-row-'+c.id} className={'reading-list-row tk-reading-row crm-customer-row cd-row-compact'+(selected===c.id?' selected':'')} aria-current={selected===c.id?'true':undefined} onClick={()=>onOpen(c.id)} onKeyDown={e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const i=ordered.findIndex(x=>x.id===c.id),next=ordered[i+(e.key==='ArrowDown'?1:-1)];if(next){onOpen(next.id);document.getElementById('customer-row-'+next.id)?.focus();}}}}><span className="tk-reading-title">{c.name}</span><span className="tk-reading-meta"><span>{CUSTOMER_STATUS[c.status||'']||c.status||'Chưa đặt'}</span><span>{c.projects||0} dịch vụ</span></span></button>)}</section>)}</div>

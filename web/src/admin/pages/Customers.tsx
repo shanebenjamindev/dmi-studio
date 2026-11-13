@@ -10,6 +10,7 @@ import { routeParam, setRouteParam } from '../nav';
 import { PageHead, Toolbar, Select, Table, Pager, Drawer, Field, Section, Badge, ChangeList, Async, Empty, ErrorState, Loading, DictEditor, useLoad, useListState, useDebounced, useCan, act, fmtDate, fmtNum, type Col } from '../kit';
 
 import {useCustomerStatuses} from '../../components/useCustomerStatuses';
+import { askConfirm } from '../../components/AskDialog';
 
 const STATUS_TONE: Record<string, 'ok' | 'warn' | 'muted' | undefined> = { lead: undefined, caring: undefined, active: 'ok', paused: 'warn', ended: 'muted' };
 
@@ -30,7 +31,7 @@ export function CustomerList() {
   const allChecked = rows.length > 0 && rows.every((r) => selectedIds.includes(r.id));
   const toggleAll = (checked: boolean) => setSelectedIds(checked ? Array.from(new Set([...selectedIds, ...rows.map((r) => r.id)])) : selectedIds.filter((id) => !rows.some((r) => r.id === id)));
   const toggleOne = (id: string, checked: boolean) => setSelectedIds(checked ? [...selectedIds, id] : selectedIds.filter((x) => x !== id));
-  const bulkDelete = () => selectedIds.length && confirm(`Xoá vĩnh viễn ${selectedIds.length} khách hàng đã chọn? Các dự án và công việc liên kết sẽ được giữ lại (gỡ liên kết khách hàng).`)
+  const bulkDelete = async () => selectedIds.length && await askConfirm(`Xoá vĩnh viễn ${selectedIds.length} khách hàng đã chọn? Các dịch vụ và công việc liên kết sẽ được giữ lại (gỡ liên kết khách hàng).`)
     && act(() => admin.bulkRemoveCustomers(selectedIds), `Đã xoá ${selectedIds.length} khách hàng`, () => { setSelectedIds([]); load.reload(); });
   const cols: Col<CustomerRow>[] = [
     ...(canDelete ? [{
@@ -75,9 +76,9 @@ function CustomerDrawer({ id, onClose, onChanged }: { id: string; onClose: () =>
   const [tab, setTab] = useState<'info' | 'history'>('info'), [editing, setEditing] = useState(false);
   const c = load.data, reload = () => { load.reload(); onChanged(); };
   if (editing && c) return <CustomerForm customer={c} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reload(); }} />;
-  const archive = () => c && confirm(c.archivedAt ? `Khôi phục “${c.name}”?` : `Lưu trữ “${c.name}”? Khách hàng không còn hiện trong danh sách ở trang Khách hàng; dự án, công việc và Drive giữ nguyên. Khôi phục được bất cứ lúc nào.`)
+  const archive = async () => c && await askConfirm(c.archivedAt ? `Khôi phục “${c.name}”?` : `Lưu trữ “${c.name}”? Khách hàng không còn hiện trong danh sách ở trang Khách hàng; dịch vụ, công việc và Drive giữ nguyên. Khôi phục được bất cứ lúc nào.`)
     && act(() => admin.archiveCustomer(c.id, !c.archivedAt), c.archivedAt ? 'Đã khôi phục' : 'Đã lưu trữ', reload);
-  const remove = () => c && confirm(`Xoá vĩnh viễn khách hàng “${c.name}”?`) && act(() => admin.removeCustomer(c.id), 'Đã xoá khách hàng', () => { onClose(); onChanged(); });
+  const remove = async () => c && await askConfirm(`Xoá vĩnh viễn khách hàng “${c.name}”?`) && act(() => admin.removeCustomer(c.id), 'Đã xoá khách hàng', () => { onClose(); onChanged(); });
   return (
     <Drawer open wide title={c?.name || 'Khách hàng'} sub={c?.contact} onClose={onClose} footer={c && <>
       {can('customers.delete') && <button className="btn btn-sm cm-danger" onClick={remove}><Icon name="trash" size={14} />Xoá</button>}
@@ -94,7 +95,7 @@ function CustomerDrawer({ id, onClose, onChanged }: { id: string; onClose: () =>
           <dt>Người liên hệ</dt><dd>{c.contact || '—'}</dd><dt>Điện thoại</dt><dd>{c.phone || '—'}</dd><dt>Email</dt><dd>{c.email || '—'}</dd>
           <dt>Phụ trách</dt><dd>{c.manager?.name || '—'}</dd><dt>Người tạo</dt><dd>{c.owner?.name || '—'}</dd>
           <dt>Thành viên</dt><dd>{c.members.map((m) => m.name).join(', ') || '—'}</dd>
-          <dt>Dự án · Công việc</dt><dd>{fmtNum(c.projects)} · {fmtNum(c.tasks)}</dd><dt>Drive</dt><dd>{c.hasDrive ? 'Đã liên kết' : 'Chưa liên kết'}</dd>
+          <dt>Dịch vụ · Công việc</dt><dd>{fmtNum(c.projects)} · {fmtNum(c.tasks)}</dd><dt>Drive</dt><dd>{c.hasDrive ? 'Đã liên kết' : 'Chưa liên kết'}</dd>
           <dt>Khác</dt><dd className="ax-pre">{c.notes || '—'}</dd><dt>Ngày tạo</dt><dd>{fmtDate(c.createdAt)}</dd>
         </dl>}
         {tab === 'history' && <ChangeList changes={c.history} />}
@@ -137,7 +138,7 @@ function CustomerForm({ customer, onClose, onSaved }: { customer?: CustomerDetai
           <Field label="Nguồn"><select className="bk-in" value={f.sourceId} onChange={(e) => set('sourceId', e.target.value)}><option value="">Chưa rõ</option>{(srcs.data || []).filter((c) => c.active || c.id === f.sourceId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
         </div>
         <Field label="Khác"><textarea className="bk-in" rows={4} maxLength={20000} value={f.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Ghi chú, thông tin thêm" /></Field>
-        <p className="note">Dịch vụ của khách hàng là dịch vụ của các dự án (chọn ở từng dự án); thư mục Drive sửa ở form khách hàng trên trang Khách hàng.</p>
+        <p className="note">Dịch vụ của khách hàng thêm ở trang Dịch vụ hoặc tab Dịch vụ của khách; thư mục Drive sửa ở form khách hàng trên trang Khách hàng.</p>
       </form>
     </Drawer>
   );

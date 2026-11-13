@@ -13,9 +13,11 @@ import { ServicePicker } from './ServicePicker';
 import { ProjectEditDialog } from './ProjectEditDialog';
 import type { TaskMeta } from '../types';
 import { PROJECT_STAGES, type ProjectStage } from '../../../shared/projects';
+import { DateFilterBar, byRecent, filterByDate, useDateFilter } from './DateFilter';
+import { askConfirm } from './AskDialog';
 
 type View = 'list' | 'table';
-type GroupBy = 'customer' | 'stage' | 'none';
+type GroupBy = 'customer' | 'stage' | 'created' | 'updated' | 'none';
 const LS_VIEW = 'dms.projectView', LS_GROUP = 'dms.projectGroup';
 const read = <T extends string>(k: string, ok: readonly T[], d: T): T => { try { const v = localStorage.getItem(k) as T; return ok.includes(v) ? v : d; } catch { return d; } };
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
@@ -29,7 +31,7 @@ const STAGE_LOOK: Record<ProjectStage, [string, string]> = { not_started: ['idle
 function ProjectStateBadge({ p }: { p: ProjectRow }) {
   const stage = p.stage || 'not_started', [look, icon] = STAGE_LOOK[stage], late = (p.overdue || 0) > 0 && stage !== 'done' && stage !== 'cancelled';
   return <>
-    <span className={'tk-badge ' + look} title={p.hold ? 'Người quản lý dự án đặt' : 'Theo tiến độ công việc'}><Icon name={icon} size={11} />{STAGE_NAME[stage]}</span>
+    <span className={'tk-badge ' + look} title={p.hold ? 'Người quản lý dịch vụ đặt' : 'Theo tiến độ công việc'}><Icon name={icon} size={11} />{STAGE_NAME[stage]}</span>
     {late && <span className="tk-badge bad"><Icon name="clock" size={11} />{p.overdue} quá hạn</span>}
   </>;
 }
@@ -37,7 +39,7 @@ function ProjectStateBadge({ p }: { p: ProjectRow }) {
 function ProjectStageControl({ p, onChanged }: { p: ProjectRow; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const set = async (hold: 'paused' | 'cancelled' | null) => { setBusy(true); try { await api.updateTaskProject(p.id, { hold }); onChanged(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); } };
-  return <label className="tk-pick" title="Trạng thái dự án"><Icon name="activity" size={14} /><select aria-label="Trạng thái dự án" disabled={busy} value={p.hold || ''} onChange={(e) => void set((e.target.value || null) as 'paused' | 'cancelled' | null)}>
+  return <label className="tk-pick" title="Trạng thái dịch vụ"><Icon name="activity" size={14} /><select aria-label="Trạng thái dịch vụ" disabled={busy} value={p.hold || ''} onChange={(e) => void set((e.target.value || null) as 'paused' | 'cancelled' | null)}>
     <option value="">Theo tiến độ công việc</option><option value="paused">Tạm dừng</option><option value="cancelled">Đã huỷ</option>
   </select></label>;
 }
@@ -54,7 +56,7 @@ function ProjectServices({ p, canEdit, onChanged }: { p: ProjectRow; canEdit: bo
     try { await api.updateTaskProject(p.id, { services: next }); onChanged(); } catch (e: any) { setIds(before); toast(e.message, true); }
   };
   if (!canEdit && !ids.length) return null;
-  return <section className="project-services"><h3>Dịch vụ</h3><ServicePicker single value={ids} onChange={(next) => void save(next)} known={p.services} disabled={!canEdit} /></section>;
+  return <section className="project-services inline"><h3>Dịch vụ</h3><ServicePicker single value={ids} onChange={(next) => void save(next)} known={p.services} disabled={!canEdit} /></section>;
 }
 
 /** Work projects and their tasks. Video projects live in the editor under Tools. */
@@ -65,9 +67,11 @@ export function WorkProjects() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [view, setViewState] = useState<View>(() => read(LS_VIEW, ['list', 'table'] as const, 'list'));
-  const [groupBy, setGroupByState] = useState<GroupBy>(() => read(LS_GROUP, ['customer', 'stage', 'none'] as const, 'customer'));
+  const [groupBy, setGroupByState] = useState<GroupBy>(() => read(LS_GROUP, ['customer', 'stage', 'created', 'updated', 'none'] as const, 'customer'));
   const setView = (v: View) => { setViewState(v); keep(LS_VIEW, v); };
   const setGroupBy = (g: GroupBy) => { setGroupByState(g); keep(LS_GROUP, g); };
+  // Services made or changed within a span of days.
+  const [dates, setDates] = useDateFilter();
   const [selected, setSelected] = useState<string | null>(fromHash);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
@@ -103,7 +107,7 @@ export function WorkProjects() {
   };
   const canManage = (p: ProjectRow) => user?.role === 'admin' || p.level === 'admin';
   const deleteProject = async (p: ProjectRow) => {
-    if (!confirm(`Xoá dự án “${p.name}”? Các công việc được giữ lại và gỡ khỏi dự án.`)) return;
+    if (!await askConfirm(`Xoá dịch vụ “${p.name}”? Các công việc được giữ lại và gỡ khỏi dịch vụ.`)) return;
     setBusyId(p.id);
     try {
       await api.deleteTaskProject(p.id);
@@ -111,12 +115,12 @@ export function WorkProjects() {
       setSelectedIds((ids) => ids.filter((x) => x !== p.id));
       refresh();
       window.dispatchEvent(new Event('dms:entities-changed'));
-      toast(`Đã xoá dự án “${p.name}”.`);
+      toast(`Đã xoá dịch vụ “${p.name}”.`);
     } catch (e: any) { toast(e.message, true); } finally { setBusyId(null); }
   };
   const bulkDeleteProjects = async () => {
     if (!selectedIds.length) return;
-    if (!confirm(`Xoá ${selectedIds.length} dự án đã chọn? Các công việc được giữ lại và gỡ khỏi dự án.`)) return;
+    if (!await askConfirm(`Xoá ${selectedIds.length} dịch vụ đã chọn? Các công việc được giữ lại và gỡ khỏi dịch vụ.`)) return;
     setBusyId('bulk');
     try {
       const r = await api.bulkDeleteTaskProjects(selectedIds);
@@ -124,35 +128,36 @@ export function WorkProjects() {
       setSelectedIds([]);
       refresh();
       window.dispatchEvent(new Event('dms:entities-changed'));
-      toast(`Đã xoá ${r.deleted} dự án.`);
+      toast(`Đã xoá ${r.deleted} dịch vụ.`);
     } catch (e: any) { toast(e.message, true); } finally { setBusyId(null); }
   };
 
   const current = meta?.projects.find((p) => p.id === selected);
   const matches = (s: string) => s.toLocaleLowerCase('vi').includes(query.trim().toLocaleLowerCase('vi'));
-  const tasks = meta?.projects.filter((p) => matches(p.name) || (p.customerName && matches(p.customerName))) || [];
+  const tasks = filterByDate(meta?.projects.filter((p) => matches(p.name) || (p.customerName && matches(p.customerName))) || [], dates);
   const deletableRows = tasks.filter(canManage);
   const allChecked = deletableRows.length > 0 && deletableRows.every((p) => selectedIds.includes(p.id));
   const toggleAll = (checked: boolean) => setSelectedIds(checked ? Array.from(new Set([...selectedIds, ...deletableRows.map((p) => p.id)])) : selectedIds.filter((id) => !deletableRows.some((p) => p.id === id)));
   const toggleOne = (p: ProjectRow) => setSelectedIds((ids) => (ids.includes(p.id) ? ids.filter((x) => x !== p.id) : [...ids, p.id]));
-  const groups = (groupBy === 'customer'
+  const groups = (groupBy === 'created' || groupBy === 'updated' ? byRecent(tasks, groupBy)
+    : groupBy === 'customer'
     ? byKey(tasks, (p) => (p.customerId && p.customerName ? { key: p.customerId, label: p.customerName } : null), 'Chưa phân loại')
     : groupBy === 'stage'
     ? PROJECT_STAGES.map(([key, label]) => ({ key, label, rows: tasks.filter((p) => (p.stage || 'not_started') === key) })).filter((g) => g.rows.length)
-    : [{ key: 'all', label: 'Tất cả dự án', rows: tasks }]
+    : [{ key: 'all', label: 'Tất cả dịch vụ', rows: tasks }]
   ).map((g) => ({ ...g, onAdd: canCreate ? () => setCreating(true) : undefined }));
   const ordered = groups.flatMap((g) => g.rows);
-  const totals = `${tasks.length} dự án · ${tasks.reduce((n, p) => n + p.tasks, 0)} công việc`;
+  const totals = `${tasks.length} dịch vụ · ${tasks.reduce((n, p) => n + p.tasks, 0)} công việc`;
 
   return (
     <div className={'ad-page tk-page tk-mailbox project-page' + (selected ? ' has-selection' : '')}>
-      <section className="tk-list-pane" aria-label="Danh sách dự án">
+      <section className="tk-list-pane" aria-label="Danh sách dịch vụ">
         <header className="tk-head">
           <span className="tk-head-ico"><Icon name="folder" size={20} /></span>
           <div className="tk-head-main">
-            <h1>Dự án</h1>
+            <h1>Dịch vụ</h1>
             <ReadingTabs
-              label="Cách xem dự án"
+              label="Cách xem dịch vụ"
               value={view}
               items={[
                 { value: 'list' as View, label: 'Danh sách', icon: 'list' },
@@ -175,17 +180,18 @@ export function WorkProjects() {
               <button className="btn btn-gray btn-sm" onClick={() => setSelectedIds([])}>Bỏ chọn</button>
             </>
           )}
-          <label className="tk-find"><Icon name="search" size={14} /><input aria-label="Tìm dự án" placeholder="Tìm dự án, khách hàng…" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
-          <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}><option value="customer">Khách hàng</option><option value="stage">Trạng thái</option><option value="none">Không nhóm</option></select></label>
+          <label className="tk-find"><Icon name="search" size={14} /><input aria-label="Tìm dịch vụ" placeholder="Tìm dịch vụ, khách hàng…" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
+          <DateFilterBar value={dates} onChange={setDates} />
+          <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}><option value="customer">Khách hàng</option><option value="stage">Trạng thái</option><option value="created">Ngày tạo</option><option value="updated">Ngày sửa</option><option value="none">Không nhóm</option></select></label>
         </div>
         {error ? <p className="note err" role="alert">{error}</p>
-          : !meta ? <BrandLoading label="Đang tải dự án…" />
+          : !meta ? <BrandLoading label="Đang tải dịch vụ…" />
           : !tasks.length ? (
             <div className="crm-empty">
               <Icon name="folder" size={36} />
-              <h3>{query ? 'Không có dự án phù hợp' : 'Chưa có dự án công việc'}</h3>
-              <p>{query ? 'Thử từ khoá khác.' : 'Dự án sẽ xuất hiện khi tạo mới hoặc nhập dữ liệu công việc.'}</p>
-              {canCreate && !query && <button className="btn btn-primary" onClick={() => setCreating(true)}>Thêm dự án</button>}
+              <h3>{query ? 'Không có dịch vụ phù hợp' : 'Chưa có dịch vụ nào'}</h3>
+              <p>{query ? 'Thử từ khoá khác.' : 'Dịch vụ sẽ xuất hiện khi tạo mới hoặc nhập dữ liệu công việc.'}</p>
+              {canCreate && !query && <button className="btn btn-primary" onClick={() => setCreating(true)}>Thêm dịch vụ</button>}
             </div>
           ) : selected ? (
             <div className="tk-reading-list">
@@ -220,14 +226,14 @@ export function WorkProjects() {
             <GroupedList
               foldKey={`dms.projectFold.${groupBy}`}
               groups={groups}
-              nameLabel="Tên dự án"
-              addLabel="Thêm dự án"
+              nameLabel="Tên dịch vụ"
+              addLabel="Thêm dịch vụ"
               onOpen={(p) => select(p.id)}
               selected={selected}
               check={deletableRows.length > 0 ? {
                 done: (p) => selectedIds.includes(p.id),
                 toggle: toggleOne,
-                label: (p) => `Chọn dự án “${p.name}”`,
+                label: (p) => `Chọn dịch vụ “${p.name}”`,
                 all: allChecked,
                 toggleAll,
                 canCheck: canManage,
@@ -252,14 +258,13 @@ export function WorkProjects() {
           ) : (
             <div className="cd-table work-project-list">
               <table>
-                <thead><tr>{deletableRows.length > 0 && <th style={{ width: 36 }}><input type="checkbox" checked={allChecked} onChange={(e) => toggleAll(e.target.checked)} aria-label="Chọn tất cả dự án" /></th>}<th>Tên dự án</th><th>Trạng thái</th><th>Dịch vụ</th><th>Người làm</th><th>Khách hàng</th><th>Tiến độ</th><th>Thao tác</th></tr></thead>
+                <thead><tr>{deletableRows.length > 0 && <th style={{ width: 36 }}><input type="checkbox" checked={allChecked} onChange={(e) => toggleAll(e.target.checked)} aria-label="Chọn tất cả dịch vụ" /></th>}<th>Dịch vụ</th><th>Trạng thái</th><th>Người làm</th><th>Khách hàng</th><th>Tiến độ</th><th>Thao tác</th></tr></thead>
                 <tbody>
                   {tasks.map((p) => (
                     <tr key={p.id} className="crm-row" onClick={() => select(p.id)}>
-                      {deletableRows.length > 0 && <td onClick={(e) => e.stopPropagation()}>{canManage(p) && <input type="checkbox" checked={selectedIds.includes(p.id)} onChange={() => toggleOne(p)} aria-label={`Chọn dự án ${p.name}`} />}</td>}
+                      {deletableRows.length > 0 && <td onClick={(e) => e.stopPropagation()}>{canManage(p) && <input type="checkbox" checked={selectedIds.includes(p.id)} onChange={() => toggleOne(p)} aria-label={`Chọn dịch vụ ${p.name}`} />}</td>}
                       <td><button className="work-project-name" onClick={() => select(p.id)}><Icon name="folder" size={17} /><b>{p.name}</b></button></td>
                       <td><ProjectStateBadge p={p} /></td>
-                      <td><ServiceChips p={p} /></td>
                       <td><EmployeeAvatars people={p.assignees || []} /></td>
                       <td>{p.customerName || '—'}</td>
                       <td>{p.tasks > 0 ? `${p.completed || 0}/${p.tasks} công việc` : '0 công việc'}</td>
@@ -269,7 +274,7 @@ export function WorkProjects() {
                             <button type="button" className="btn btn-gray btn-sm" disabled={busyId === p.id} onClick={() => setEditing(p)}><Icon name="edit" size={13} />Sửa</button>
                             <button type="button" className="btn btn-sm cm-danger" disabled={busyId === p.id} onClick={() => void deleteProject(p)}>Xoá</button>
                           </span>
-                        ) : <button className="bd-icon" aria-label={`Mở dự án ${p.name}`} onClick={() => select(p.id)}><Icon name="right" size={15} /></button>}
+                        ) : <button className="bd-icon" aria-label={`Mở dịch vụ ${p.name}`} onClick={() => select(p.id)}><Icon name="right" size={15} /></button>}
                       </td>
                     </tr>
                   ))}
@@ -278,13 +283,13 @@ export function WorkProjects() {
             </div>
           )}
       </section>
-      {selected && meta && <ResizeHandle cssVar="--rd-list-w" storage="projects" min={220} max={640} label="Đổi độ rộng danh sách dự án" />}
+      {selected && meta && <ResizeHandle cssVar="--rd-list-w" storage="projects" min={220} max={640} label="Đổi độ rộng danh sách dịch vụ" />}
       {selected && meta && (
-        <article className="tk-reading-pane project-reading-pane" aria-label="Chi tiết dự án">
-          <ReadingHeader label="Chi tiết dự án" onClose={() => select(null)} actions={current && <>{current.stage && <ProjectStateBadge p={current} />}{current.level === 'admin' && <ProjectStageControl p={current} onChanged={refresh} />}</>} />
+        <article className="tk-reading-pane project-reading-pane" aria-label="Chi tiết dịch vụ">
+          <ReadingHeader label="Chi tiết dịch vụ" onClose={() => select(null)} actions={current && <>{current.stage && <ProjectStateBadge p={current} />}{current.level === 'admin' && <ProjectStageControl p={current} onChanged={refresh} />}</>} />
           {current ? (<>
-            <ProjectServices p={current} canEdit={canManage(current)} onChanged={refresh} />
             <ProjectCampaigns
+              headerExtra={<ProjectServices p={current} canEdit={canManage(current)} onChanged={refresh} />}
               key={current.id}
               id={current.id}
               name={current.name}
@@ -292,7 +297,7 @@ export function WorkProjects() {
               onEdited={refresh}
               onDeleted={() => { select(null); refresh(); }}
             />
-          </>) : <p className="note">Không tìm thấy dự án này.</p>}
+          </>) : <p className="note">Không tìm thấy dịch vụ này.</p>}
         </article>
       )}
       {editing && <ProjectEditDialog project={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); window.dispatchEvent(new Event('dms:entities-changed')); }} />}

@@ -53,7 +53,7 @@ export function AppHeader() {
     <header className="app-head">
       <div className="app-head-left"><img src="/brand/logo.png" alt="Detailers Movement" className="tb-logo" />{mock && <span className="tag-demo">Demo</span>}</div>
       <button className="app-search" onClick={() => window.dispatchEvent(new Event('dms:search'))} aria-label="Tìm kiếm">
-        <Icon name="search" size={16} /><span>Tìm mọi thứ: khách, việc, dự án…</span><kbd>{mac ? '⌘' : 'Ctrl'} K</kbd>
+        <Icon name="search" size={16} /><span>Tìm mọi thứ: khách, việc, dịch vụ…</span><kbd>{mac ? '⌘' : 'Ctrl'} K</kbd>
       </button>
       <div className="app-head-right">
         <MessengerTopButton /><QuickNotesButton /><NotificationBell /><ThemeSwitch />

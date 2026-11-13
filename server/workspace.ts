@@ -139,7 +139,7 @@ async function mustLoc(raw: any): Promise<Loc> {
 /** A customer's details; `drive`: the folder it is linked to (null: in the database only). Its code (from an import) is kept, not shown. */
 const customerRecord = (c: any) => {
   const g = c.gloc ? JSON.parse(c.gloc) : null;
-  return { id:c.id, name:c.name, contact:c.contact || '', phone:c.phone || '', email:c.email || '', notes:c.notes || '',createdBy:c.created_by||null,
+  return { id:c.id, name:c.name, contact:c.contact || '', phone:c.phone || '', email:c.email || '', notes:c.notes || '',createdBy:c.created_by||null,createdAt:c.created_at??null,updatedAt:c.updated_at??null,
     drive: g ? { label: String(g.label || c.folder || ''), url: `https://drive.google.com/drive/folders/${g.id}` } : c.folder ? { label: path.basename(String(c.folder)), url: null } : null };
 };
 /** A customer's services are those of its projects (server/project-services.ts). */
@@ -762,7 +762,7 @@ export function registerWorkspace(api: Router) {
       const key=normName(row.name); let id=existing.get(key);
       if(id)kept++;
       else {
-        id=uid('c_');const notes=[row.alias && `Tên khác / dự án: ${row.alias}`,row.notes].filter(Boolean).join('\n');
+        id=uid('c_');const notes=[row.alias && `Tên khác / dịch vụ: ${row.alias}`,row.notes].filter(Boolean).join('\n');
         await run('INSERT INTO customers(id,name,email,phone,notes,links,folder,code,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',id,row.name,row.email,row.phone,notes,'[]','',row.externalId||null,now(),now());
         await run('UPDATE customers SET created_by=?,manager_id=COALESCE(manager_id,?),status=? WHERE id=?',owner,owner,await defaultCustomerStatus(),id);
         existing.set(key,id);created++;
@@ -833,36 +833,38 @@ export function registerWorkspace(api: Router) {
     const b = await readJson(req), name = String(b.name || '').trim();
     if (b.projectId) {
       const p = await get<any>('SELECT * FROM task_projects WHERE id=?', String(b.projectId));
-      if (!p) throw new HttpError(404, 'Không tìm thấy dự án');
+      if (!p) throw new HttpError(404, 'Không tìm thấy dịch vụ');
       await requireProject((await currentUser(req))!.id,p.id,'admin');
-      if (p.customer_id && p.customer_id !== req.params.id) throw new HttpError(409, 'Dự án đã thuộc khách hàng khác');
+      if (p.customer_id && p.customer_id !== req.params.id) throw new HttpError(409, 'Dịch vụ đã thuộc khách hàng khác');
       await run('UPDATE task_projects SET customer_id=? WHERE id=?', req.params.id, p.id);
       await settleCustomerServices([req.params.id]);
       json(res, 200, { id: p.id, name: p.name }); return;
     }
-    if (!name || name.length > 200) throw new HttpError(400, 'Tên dự án cần từ 1 đến 200 ký tự');
-    const services = b.services !== undefined ? await oneService(b.services, 'Mỗi dự án là một dịch vụ của khách: chỉ chọn một dịch vụ') : null;
+    // One of the customer's services, called by the service's name (a name only for one of no service).
+    const services = b.services !== undefined ? await oneService(b.services, 'Chỉ chọn một dịch vụ') : null;
+    const title = services?.length ? (await get<any>('SELECT name FROM services WHERE id=?', services[0]))?.name || '' : name;
+    if (!title || title.length > 200) throw new HttpError(400, 'Hãy chọn dịch vụ');
     const id = uid('tj_');
-    await run('INSERT INTO task_projects(id,name,customer_id,created_at) VALUES(?,?,?,?)', id, name, req.params.id, now());
+    await run('INSERT INTO task_projects(id,name,customer_id,created_at) VALUES(?,?,?,?)', id, title, req.params.id, now());
     const creator=(await currentUser(req))!;await run('UPDATE task_projects SET created_by=?,team_id=? WHERE id=?',creator.id,creator.team_role||null,id);
     // The services chosen for it (the form offers the customer's as its defaults), or else those still set on the customer.
     if (services) { await saveProjectServices(id, services, creator.id); await run('DELETE FROM customer_needs WHERE customer_id=?', req.params.id); }
     else await settleCustomerServices([req.params.id]);
     if(await getSetting('task_workspace_auto',true))await projectHome(id);
-    json(res, 201, { id, name });
+    json(res, 201, { id, name: title });
   });
   api.put('/api/customers/:id/projects/:project', async (req, res) => {
     await requireProject((await currentUser(req))!.id,req.params.project,'admin');
     await requireCustomer((await currentUser(req))!.id,req.params.id,'admin');
     const p = await get<any>('SELECT * FROM task_projects WHERE id=? AND customer_id=?', req.params.project, req.params.id);
-    if (!p) throw new HttpError(404, 'Không tìm thấy dự án của khách hàng');
+    if (!p) throw new HttpError(404, 'Không tìm thấy dịch vụ của khách hàng');
     const b = await readJson(req);
     if (b.unlink === true) {
       await run('UPDATE task_projects SET customer_id=NULL WHERE id=?', p.id);
       await projectCustomerChanged(p.id);
     } else {
       const name = String(b.name || '').trim();
-      if (!name || name.length > 200) throw new HttpError(400, 'Tên dự án cần từ 1 đến 200 ký tự');
+      if (!name || name.length > 200) throw new HttpError(400, 'Tên dịch vụ cần từ 1 đến 200 ký tự');
       await run('UPDATE task_projects SET name=? WHERE id=?', name, p.id);
       await renameProjectBoard(p.id, name);
     }

@@ -7,6 +7,7 @@ import { admin, type NotifTemplate, type Sent as SentRow } from '../api';
 import { goAdmin } from '../nav';
 import { PageHead, Toolbar, Select, Table, Pager, Drawer, Field, Badge, Async, Empty, ErrorState, Loading, useLoad, useDebounced, useCan, useScope, act, fmtTime, fmtNum, fold, type Col } from '../kit';
 import { SCOPE_LABEL } from '../../../../shared/permissions';
+import { askConfirm } from '../../components/AskDialog';
 
 export function Sent() {
   const can = useCan();
@@ -61,7 +62,7 @@ export function Compose() {
     if (f.link && !/^#[A-Za-z0-9/_\-?=&.%]+$/.test(f.link)) e.link = 'Liên kết phải là địa chỉ trong ứng dụng, bắt đầu bằng # (vd. #tasks)';
     if (type !== 'all' && !ids.length) e.to = 'Hãy chọn người nhận';
     setErrors(e); if (Object.keys(e).length) return;
-    if (type === 'all' && !confirm('Gửi thông báo tới toàn bộ nhân viên đang hoạt động?')) return;
+    if (type === 'all' && !await askConfirm('Gửi thông báo tới toàn bộ nhân viên đang hoạt động?')) return;
     setBusy(true);
     try { const r = await admin.send({ ...f, audience: { type, ids } }); toast(`Đã gửi tới ${r.recipients} người${r.emailed ? `, ${r.emailed} email` : ''}`); setF({ title: '', body: '', link: '', templateId: '' }); setIds([]); goAdmin('notify', 'list'); }
     catch (x: any) { toast(x.message, true); } finally { setBusy(false); }
@@ -120,7 +121,7 @@ function TemplateForm({ tpl, onClose, onSaved }: { tpl: NotifTemplate | null; on
   };
   return (
     <Drawer open title={tpl ? tpl.name : 'Tạo mẫu thông báo'} onClose={onClose} footer={<>
-      {tpl && editable && <button className="btn btn-gray btn-sm" onClick={() => confirm(`Xoá mẫu “${tpl.name}”?`) && act(() => admin.removeNotifTemplate(tpl.id), 'Đã xoá mẫu', onSaved)}><Icon name="trash" size={14} />Xoá</button>}
+      {tpl && editable && <button className="btn btn-gray btn-sm" onClick={async () => await askConfirm(`Xoá mẫu “${tpl.name}”?`) && act(() => admin.removeNotifTemplate(tpl.id), 'Đã xoá mẫu', onSaved)}><Icon name="trash" size={14} />Xoá</button>}
       <button className="btn btn-gray btn-sm" onClick={onClose}>Đóng</button>{editable && <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{busy ? 'Đang lưu…' : 'Lưu'}</button>}
     </>}>
       <fieldset className="ax-form" disabled={!editable}>

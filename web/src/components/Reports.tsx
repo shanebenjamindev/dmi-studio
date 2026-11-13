@@ -13,6 +13,7 @@ import { Icon, Segmented } from './ui';
 import { setDriveView, useDriveView } from '../driveView';
 import type { AdAccount, Report, ReportData, ReportDriveFolder, ReportItem, ReportKV, ReportShot, ReportVideo } from '../types';
 import { DayRangeField } from './DateRange';
+import { askConfirm } from './AskDialog';
 
 const two = (n: number) => String(n).padStart(2, '0');
 const day = (ms: number) => { const d = new Date(ms); return `${two(d.getHours())}:${two(d.getMinutes())} · ${two(d.getDate())}/${two(d.getMonth() + 1)}`; };
@@ -37,7 +38,7 @@ export function ReportsPage() {
     setBusy(true);
     try { setOpen((await api.createReport({ customerId: customer || null })).id); load(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); }
   };
-  const del = async (r: ReportItem) => { if (confirm(`Xoá báo cáo “${r.title}”?`)) { await api.deleteReport(r.id).catch((e) => toast(e.message, true)); load(); } };
+  const del = async (r: ReportItem) => { if (await askConfirm(`Xoá báo cáo “${r.title}”?`)) { await api.deleteReport(r.id).catch((e) => toast(e.message, true)); load(); } };
   const shown = (list || []).filter((r) => `${r.title} ${r.customerName || ''} ${r.client || ''} ${r.meta?.account || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <div className="ad-page rp-all">
@@ -97,7 +98,7 @@ export function ReportList({ projectId, customerId, driveFolder }: { projectId: 
     setBusy(true);
     try { setOpen((await api.createReport({ projectId, customerId })).id); load(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); }
   };
-  const del = async (r: ReportItem) => { if (confirm(`Xoá báo cáo “${r.title}”?`)) { await api.deleteReport(r.id).catch((e) => toast(e.message, true)); load(); } };
+  const del = async (r: ReportItem) => { if (await askConfirm(`Xoá báo cáo “${r.title}”?`)) { await api.deleteReport(r.id).catch((e) => toast(e.message, true)); load(); } };
   return (
     <div className="pd-card rp-list">
       {list === null ? <BrandLoading label="Đang tải…"/> : !list.length ? <p className="note">Chưa có báo cáo. Bấm “Tạo báo cáo” để lập trang tóm tắt chiến dịch gửi khách (ngân sách, ad set, đối tượng, video kèm caption, headline).</p> : (

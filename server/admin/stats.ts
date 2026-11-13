@@ -96,7 +96,7 @@ async function compute(c: Ctx, req: Req) {
       const labels = new Map<string, number>(); for (const t of inPeriod) for (const l of t.labels) labels.set(l, (labels.get(l) || 0) + 1);
       return { ...base, kpis, trend: series(keys, ['Đến hạn', by(tasks, when)], ['Hoàn thành', by(tasks.filter(isDone), (t) => t.doneAt)]), byState,
         byPriority: dist(count(inPeriod, (t) => t.priority?.name || 'Chưa đặt'), undefined, (k) => inPeriod.find((t) => t.priority?.name === k)?.priority?.color),
-        byProject: dist(count(inPeriod, (t) => t.project?.name || 'Không thuộc dự án'), undefined, undefined, 10), byLabel: dist(labels, undefined, undefined, 10) };
+        byProject: dist(count(inPeriod, (t) => t.project?.name || 'Không thuộc dịch vụ'), undefined, undefined, 10), byLabel: dist(labels, undefined, undefined, 10) };
     }
     const staff = await staffRows(ids), customers = (await customerRows(ids)).filter((x) => !x.archivedAt);
     const logins = await all<any>(`SELECT COUNT(*) n FROM login_logs WHERE ok = 1 AND created_at >= ? AND created_at < ? AND ${inSet('user_id', ids)[0]}`, from, to, ...inSet('user_id', ids)[1]);

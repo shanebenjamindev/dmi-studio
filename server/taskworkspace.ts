@@ -71,8 +71,8 @@ export async function projectHome(projectId: string) {
 async function firstList(boardId: string) {
   const list = await get<any>('SELECT * FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos LIMIT 1', boardId);
   if (list) return list;
-  const id = listId(boardId, 'Dự án');
-  await run('INSERT OR IGNORE INTO board_lists(id,board_id,name,pos,created_at) VALUES(?,?,?,?,?)', id, boardId, 'Dự án', 1, now());
+  const id = listId(boardId, 'Dịch vụ');
+  await run('INSERT OR IGNORE INTO board_lists(id,board_id,name,pos,created_at) VALUES(?,?,?,?,?)', id, boardId, 'Dịch vụ', 1, now());
   await run('UPDATE board_lists SET archived=0 WHERE id=?', id);
   return get<any>('SELECT * FROM board_lists WHERE id=?', id);
 }

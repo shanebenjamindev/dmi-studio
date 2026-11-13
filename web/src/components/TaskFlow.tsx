@@ -9,6 +9,7 @@ import { fullDate } from './boardkit';
 import { RichView } from './RichText';
 import { FLOW_OUTCOMES, FLOW_STAGES, isClosedStage, type FlowAction, type FlowStage } from '../../../shared/task-flow';
 import type { TaskDetail, TaskMeta } from '../types';
+import { askConfirm, askText } from './AskDialog';
 
 const DONE: Record<string, string> = { start: 'Đã giao việc, chuyển sang EXECUTION', submit: 'Đã nộp duyệt', pass: 'Đã duyệt PASS: công việc hoàn thành', redo: 'Đã trả về REDO để làm lại', fail: 'Đã chấm FAIL: công việc bị từ chối', reopen: 'Đã mở lại công việc', reviewer: 'Đã đổi người duyệt' };
 
@@ -109,13 +110,13 @@ export function TaskFlow({ task, meta, onChanged, bare = false, steps = true }: 
           <div className="tf-grade">
             <button className="btn btn-sm tf-pass" disabled={busy} onClick={() => void act('pass', { feedback })}><Icon name="check" size={14} />PASS</button>
             <button className="btn btn-sm tf-redo" disabled={busy || !feedback.trim()} title={feedback.trim() ? undefined : 'Ghi nhận xét trước'} onClick={() => void act('redo', { feedback })}><Icon name="undo" size={14} />REDO</button>
-            <button className="btn btn-sm tf-fail" disabled={busy || !feedback.trim()} title={feedback.trim() ? undefined : 'Ghi lý do trước'} onClick={() => { if (confirm('Chấm FAIL sẽ đóng công việc (REJECTED). Tiếp tục?')) void act('fail', { feedback }); }}><Icon name="x" size={14} />FAIL</button>
+            <button className="btn btn-sm tf-fail" disabled={busy || !feedback.trim()} title={feedback.trim() ? undefined : 'Ghi lý do trước'} onClick={async () => { if (await askConfirm('Chấm FAIL sẽ đóng công việc (REJECTED). Tiếp tục?')) void act('fail', { feedback }); }}><Icon name="x" size={14} />FAIL</button>
           </div>
         </div>
       ) : <p className="note tf-wait">{`Đang chờ ${f.reviewer?.name || 'người duyệt'} duyệt.`}</p>)}
 
       {closed && (f.can.reopen
-        ? <div className="tf-act tf-row"><p className="note">Công việc đã đóng; không quay lại quy trình trừ khi mở lại.</p><button className="btn btn-gray btn-sm" disabled={busy} onClick={() => { const reason = prompt('Lý do mở lại (không bắt buộc):'); if (reason !== null) void act('reopen', { reason }); }}><Icon name="refresh" size={14} />Mở lại</button></div>
+        ? <div className="tf-act tf-row"><p className="note">Công việc đã đóng; không quay lại quy trình trừ khi mở lại.</p><button className="btn btn-gray btn-sm" disabled={busy} onClick={async () => { const reason = await askText('Lý do mở lại (không bắt buộc):'); if (reason !== null) void act('reopen', { reason }); }}><Icon name="refresh" size={14} />Mở lại</button></div>
         : <p className="note tf-wait">Công việc đã đóng. Chỉ người duyệt hoặc Admin mở lại được.</p>)}
 
       {f.rounds.length > 0 && (

@@ -1,14 +1,16 @@
 import { ProjectMembers } from './ProjectMembers';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { toast } from '../store';
 import { Icon } from './ui';
 import { TasksPage } from './Tasks';
 import { ProjectEditDialog } from './ProjectEditDialog';
 import type { TaskMeta } from '../types';
+import { askConfirm } from './AskDialog';
 
-/** `onEdited`: after Chỉnh sửa dự án saved (name, customer, services or status). */
-export function ProjectCampaigns({ id, name, displayView = 'list', onEdited, onDeleted, onBack }: { id: string; name: string; displayView?: 'list' | 'grid' | 'table'; onEdited?: () => void; onDeleted?: () => void; onBack?: () => void }) {
+/** `onEdited`: after Chỉnh sửa dịch vụ saved (name, customer, services or status). */
+/** `headerExtra`: shown first among the head's buttons (the service it is of, on the Dịch vụ page). */
+export function ProjectCampaigns({ id, name, displayView = 'list', onEdited, onDeleted, onBack, headerExtra }: { id: string; name: string; displayView?: 'list' | 'grid' | 'table'; onEdited?: () => void; onDeleted?: () => void; onBack?: () => void; headerExtra?: ReactNode }) {
   const [manage, setManage] = useState(false), [members, setMembers] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<TaskMeta['projects'][number] | null>(null);
@@ -36,9 +38,9 @@ export function ProjectCampaigns({ id, name, displayView = 'list', onEdited, onD
       <header className="project-compact-header">
         <div className="project-header-left">
           {onBack && (
-            <button type="button" className="btn btn-gray btn-sm project-back-btn" onClick={onBack} title="Quay lại danh sách dự án">
+            <button type="button" className="btn btn-gray btn-sm project-back-btn" onClick={onBack} title="Quay lại danh sách dịch vụ">
               <Icon name="left" size={14} />
-              <span>Tất cả dự án</span>
+              <span>Tất cả dịch vụ</span>
             </button>
           )}
           {onBack && <span className="project-header-sep">/</span>}
@@ -48,9 +50,10 @@ export function ProjectCampaigns({ id, name, displayView = 'list', onEdited, onD
           </div>
         </div>
         <div className="crm-section-actions">
+          {headerExtra}
           <button type="button" className="btn btn-gray btn-sm" onClick={() => setMembers(true)}>
             <Icon name="users" size={14} />
-            <span>Thành viên dự án</span>
+            <span>Thành viên dịch vụ</span>
           </button>
           {manage && (
             <>
@@ -60,7 +63,7 @@ export function ProjectCampaigns({ id, name, displayView = 'list', onEdited, onD
                 disabled={busy}
                 onClick={() => void act(async () => {
                   const project = (await api.taskMeta()).projects.find((p) => p.id === id);
-                  if (!project) throw new Error('Không tìm thấy dự án này');
+                  if (!project) throw new Error('Không tìm thấy dịch vụ này');
                   setEditing(project);
                 })}
               >
@@ -72,11 +75,11 @@ export function ProjectCampaigns({ id, name, displayView = 'list', onEdited, onD
                 className="btn btn-sm cm-danger"
                 disabled={busy}
                 onClick={async () => {
-                  if (!confirm(`Xoá dự án “${name}”? Các công việc được giữ lại và gỡ khỏi dự án.`)) return;
+                  if (!await askConfirm(`Xoá dịch vụ “${name}”? Các công việc được giữ lại và gỡ khỏi dịch vụ.`)) return;
                   setBusy(true);
                   try {
                     await api.deleteTaskProject(id);
-                    toast(`Đã xoá dự án “${name}”.`);
+                    toast(`Đã xoá dịch vụ “${name}”.`);
                     onDeleted?.();
                     window.dispatchEvent(new Event('dms:entities-changed'));
                   } catch (e: any) {
@@ -87,7 +90,7 @@ export function ProjectCampaigns({ id, name, displayView = 'list', onEdited, onD
                 }}
               >
                 <Icon name="trash" size={14} />
-                <span>Xoá dự án</span>
+                <span>Xoá dịch vụ</span>
               </button>
             </>
           )}

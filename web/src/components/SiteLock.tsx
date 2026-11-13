@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { setState, signOut, toast, useStore } from '../store';
 import { Icon } from './ui';
+import { askConfirm } from './AskDialog';
 
 export function SiteLocked({ message }: { message: string }) {
   useEffect(() => {
@@ -32,7 +33,7 @@ async function save(on: boolean, message?: string) {
 export function SiteLockPill() {
   const [busy, setBusy] = useState(false);
   const open = async () => {
-    if (busy || !confirm('Mở khoá website cho mọi người?')) return;
+    if (busy || !await askConfirm('Mở khoá website cho mọi người?')) return;
     setBusy(true);
     try { await save(false); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); }
   };
@@ -44,7 +45,7 @@ export function SiteLockSettings() {
   const [text, setText] = useState(locked || ''), [busy, setBusy] = useState(false);
   useEffect(() => { if (locked) setText(locked); }, [locked]);
   const run = async (on: boolean) => {
-    if (busy || (on && !confirm('Khoá website? Mọi người trừ Super Admin sẽ không vào được cho tới khi mở khoá.'))) return;
+    if (busy || (on && !await askConfirm('Khoá website? Mọi người trừ Super Admin sẽ không vào được cho tới khi mở khoá.'))) return;
     setBusy(true);
     try { await save(on, on ? text.trim() : undefined); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); }
   };

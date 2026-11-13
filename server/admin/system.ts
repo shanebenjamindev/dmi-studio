@@ -152,7 +152,7 @@ export function registerSystem(api: Router) {
         group = 'Board & Thẻ';
       } else if (name === 'tasks' || name.startsWith('task_')) {
         if (name.includes('sheet') || name === 'task_imports') group = 'Bảng tính đã nhập';
-        else group = 'Công việc & Dự án';
+        else group = 'Công việc & Dịch vụ';
       } else if (name.startsWith('customer_') || name === 'customers') {
         group = 'Khách hàng (CRM)';
       } else if (name.startsWith('workspace_') || name === 'workspaces') {
@@ -419,7 +419,7 @@ export function registerSystem(api: Router) {
         { key: 'login_logs', label: 'Lịch sử đăng nhập', files: await safeCount('SELECT COUNT(*) n FROM login_logs'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(COALESCE(email, '')) + LENGTH(COALESCE(ip, '')) + 160), 0) n FROM login_logs") },
         { key: 'messages', label: 'Tin nhắn & Tệp Messenger', files: await safeCount('SELECT COUNT(*) n FROM chat_messages'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(COALESCE(message, '')) + 180), 0) n FROM chat_messages") },
         { key: 'task_import_sheet_parts', label: 'Bảng công việc đã nhập', files: await safeCount('SELECT COUNT(DISTINCT import_id) n FROM task_import_sheet_parts'), bytes: await safeBytes('SELECT COALESCE(SUM(LENGTH(data)), 0) n FROM task_import_sheet_parts') },
-        { key: 'customers', label: 'Khách hàng & Chiến dịch dự án', files: await safeCount('SELECT (SELECT COUNT(*) FROM customers) + (SELECT COUNT(*) FROM task_projects) n'), bytes: await safeBytes("SELECT (SELECT COALESCE(SUM(LENGTH(name) + LENGTH(COALESCE(notes, '')) + 300), 0) FROM customers) + (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM task_projects) n") },
+        { key: 'customers', label: 'Khách hàng & Chiến dịch dịch vụ', files: await safeCount('SELECT (SELECT COUNT(*) FROM customers) + (SELECT COUNT(*) FROM task_projects) n'), bytes: await safeBytes("SELECT (SELECT COALESCE(SUM(LENGTH(name) + LENGTH(COALESCE(notes, '')) + 300), 0) FROM customers) + (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM task_projects) n") },
         { key: 'workspaces', label: 'Không gian làm việc & Board', files: await safeCount('SELECT (SELECT COUNT(*) FROM workspaces) + (SELECT COUNT(*) FROM boards) n'), bytes: await safeBytes("SELECT (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM workspaces) + (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM boards) n") },
         { key: 'users', label: 'Tài khoản nhân viên & Thành viên', files: await safeCount('SELECT COUNT(*) n FROM users'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(name) + LENGTH(email) + 250), 0) n FROM users") },
         { key: 'sessions', label: 'Phiên đăng nhập đang hoạt động', files: await safeCount('SELECT COUNT(*) n FROM sessions'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(token) + 120), 0) n FROM sessions") },

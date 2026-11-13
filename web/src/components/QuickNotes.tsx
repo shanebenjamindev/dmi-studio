@@ -7,6 +7,7 @@ import { api } from '../api';
 import { toast } from '../store';
 import { Icon } from './ui';
 import type { NoteColor, QuickNote } from '../types';
+import { askConfirm } from './AskDialog';
 
 export const NOTE_COLORS: [NoteColor, string][] = [['yellow', 'Vàng'], ['green', 'Xanh lá'], ['pink', 'Hồng'], ['purple', 'Tím'], ['blue', 'Xanh dương'], ['dark', 'Tối']];
 
@@ -96,7 +97,7 @@ function NotesPanel({ version, onNew, onChanged }: { version: number; onNew: () 
   useEffect(() => { if (!menuFor) return; const off = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('.qn-card-menu, .qn-card-more')) setMenuFor(null); }; document.addEventListener('mousedown', off); return () => document.removeEventListener('mousedown', off); }, [menuFor]);
   const removeOne = async (n: QuickNote) => {
     setMenuFor(null);
-    if (!confirm('Xoá ghi chú này? Không khôi phục được.')) return;
+    if (!await askConfirm('Xoá ghi chú này? Không khôi phục được.')) return;
     try { await api.removeQuickNote(n.id); closeNote(n.id); onChanged(); } catch (e: any) { toast(e.message, true); }
   };
   const load = useCallback(() => api.quickNotes(q.trim()).then((l) => { if (!drag.current) setList(l); setError(''); }, (e) => setError(e.message)), [q]);
@@ -124,7 +125,7 @@ function NotesPanel({ version, onNew, onChanged }: { version: number; onNew: () 
   useEffect(() => { const t = setTimeout(() => void load(), q ? 250 : 0); return () => clearTimeout(t); }, [load, version]);
   useEffect(() => { const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.qn-win:focus-within')) toggleNotesPanel(false); }; document.addEventListener('keydown', esc); return () => document.removeEventListener('keydown', esc); }, []);
   const remove = async () => {
-    if (!picked.length || !confirm(`Xoá ${picked.length} ghi chú? Không khôi phục được.`)) return;
+    if (!picked.length || !await askConfirm(`Xoá ${picked.length} ghi chú? Không khôi phục được.`)) return;
     try { await api.removeQuickNotes(picked); picked.forEach(closeNote); setPicked([]); setSelecting(false); onChanged(); toast('Đã xoá ghi chú'); }
     catch (e: any) { toast(e.message, true); }
   };
@@ -198,7 +199,7 @@ function NoteWindow({ id, z, onNew, onChanged }: { id: string; z: number; onNew:
     await api.saveQuickNote(id, { open: false, ...(html !== last.current ? { body: html } : {}) }).then(onChanged, (e) => toast(e.message, true));
   };
   const remove = async () => {
-    if (!confirm('Xoá ghi chú này? Không khôi phục được.')) return;
+    if (!await askConfirm('Xoá ghi chú này? Không khôi phục được.')) return;
     clearTimeout(timer.current); closeNote(id);
     try { await api.removeQuickNote(id); onChanged(); } catch (e: any) { toast(e.message, true); }
   };

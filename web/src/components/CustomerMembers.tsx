@@ -1,14 +1,15 @@
 import {useEffect,useState} from 'react';
 import {api} from '../api';import {useStore,toast} from '../store';import {Sheet} from './Dialogs';import {Avatar} from './boardkit';import {Icon} from './ui';import {BrandLoading} from './BrandLoading';
 import type {CustomerMembersData,Level} from '../types';
+import { askConfirm } from './AskDialog';
 export function CustomerMembers({id,onClose,onChanged}:{id:string;onClose:()=>void;onChanged:()=>void}){
  const me=useStore(s=>s.user)!;
  const[data,setData]=useState<CustomerMembersData|null>(null),[q,setQ]=useState(''),[role,setRole]=useState<Level>('normal'),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const load=()=>api.customerMembers(id).then(setData).catch(e=>setError(e.message));useEffect(()=>{void load();},[id]);
  const act=async(fn:()=>Promise<unknown>)=>{if(busy)return;setBusy(true);setError('');try{await fn();await load();onChanged();}catch(e:any){setError(e.message);}finally{setBusy(false);}};
  const level=(userId:string,value:Level)=>void act(()=>api.setCustomerMember(id,userId,value));
- const transfer=(userId:string,name:string)=>{
-  if(!confirm(`Chuyển quyền chủ khách hàng cho “${name}”? Bạn vẫn sẽ giữ quyền Quản lý.`))return;
+ const transfer=async (userId:string,name:string)=>{
+  if(!await askConfirm(`Chuyển quyền chủ khách hàng cho “${name}”? Bạn vẫn sẽ giữ quyền Quản lý.`))return;
   void act(()=>api.transferCustomerOwner(id,userId));
  };
  const canTransfer=me.role==='admin'||(data?.ownerId&&data.ownerId===me.id);

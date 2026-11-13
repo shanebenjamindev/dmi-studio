@@ -9,6 +9,7 @@ import { Icon } from './ui';
 import { Avatar } from './boardkit';
 import type { ChatMessage, ChatMember } from '../types';
 import { WEEKDAYS } from '../i18n';
+import { askConfirm } from './AskDialog';
 
 export interface OpenWindow {
   id: string; // 'general' | memberId
@@ -423,7 +424,7 @@ function ChatWindowView({
   const clearHistory = async () => {
     setShowMenu(false);
     const label = isGeneral ? 'Kênh chung' : `cuộc trò chuyện với ${recipient?.name || 'thành viên'}`;
-    if (!confirm(`Xoá toàn bộ lịch sử ${label}? Hành động này không thể hoàn tác.`)) return;
+    if (!await askConfirm(`Xoá toàn bộ lịch sử ${label}? Hành động này không thể hoàn tác.`)) return;
     try {
       await api.clearChatMessages(
         isGeneral ? 'general' : 'dm',
@@ -438,7 +439,7 @@ function ChatWindowView({
 
   // Delete single message
   const deleteMsg = async (msgId: string) => {
-    if (!confirm('Xoá tin nhắn này?')) return;
+    if (!await askConfirm('Xoá tin nhắn này?')) return;
     try {
       await api.deleteChatMessage(msgId);
       setMessages((prev) => prev.filter((m) => m.id !== msgId));

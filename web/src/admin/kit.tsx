@@ -8,6 +8,7 @@ import { BrandLoading } from '../components/BrandLoading';
 import { toast, useStore } from '../store';
 import type { DictApi, DictItem } from './api';
 import { SCOPE_LABEL, type Scope } from '../../../shared/permissions';
+import { askConfirm } from '../components/AskDialog';
 
 // ---------------------------------------------------------------- formats (Vietnam time)
 const TZ = { timeZone: 'Asia/Ho_Chi_Minh' } as const;
@@ -205,7 +206,7 @@ export function DictEditor({ api: d, noun, canEdit, usedLabel = 'Đang dùng' }:
       <Async load={load} empty={<Empty title={`Chưa có ${noun} nào`} text={canEdit ? `Thêm ${noun} đầu tiên ở ô bên trên.` : undefined} />}>{(items) => (
         <ul className="ax-dict">{items.map((it, i) => <DictRow key={it.id} it={it} canEdit={canEdit} usedLabel={usedLabel} first={i === 0} last={i === items.length - 1}
           onMove={(by) => move(items, i, by)} onSave={(b) => act(() => d.update(it.id, b), 'Đã lưu', load.reload)}
-          onDelete={() => { if (confirm(`Xoá ${noun} “${it.name}”?`)) void act(() => d.remove(it.id), `Đã xoá ${noun}`, load.reload); }} />)}</ul>
+          onDelete={async () => { if (await askConfirm(`Xoá ${noun} “${it.name}”?`)) void act(() => d.remove(it.id), `Đã xoá ${noun}`, load.reload); }} />)}</ul>
       )}</Async>
     </div>
   );

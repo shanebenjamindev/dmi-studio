@@ -11,7 +11,7 @@ import { toggleMessenger } from './Messenger';
 // for Công việc the projects by team, found by name. It folds away (« or the section's rail item again), remembered.
 // Existing board, Drive and editor addresses stay valid.
 const SECTIONS: Record<string, { title: string; sub: string; pages: Partial<Record<View, [string, string]>> }> = {
-  work: { title: 'Công việc', sub: 'Công việc & dự án', pages: { tasks: ['Công việc của tôi', 'checklist'], projects: ['Dự án', 'folder'] } },
+  work: { title: 'Công việc', sub: 'Công việc & dịch vụ', pages: { tasks: ['Công việc của tôi', 'checklist'], projects: ['Dịch vụ', 'folder'] } },
   reports: { title: 'Báo cáo', sub: 'Báo cáo khách hàng & quảng cáo', pages: { reports: ['Tất cả báo cáo', 'file'], ads: ['Meta Ads', 'activity'] } },
   tools: { title: 'Tools', sub: 'Công cụ', pages: { tools: ['Chuyển đổi định dạng', 'wand'], editor: ['Trình dựng', 'film'] } },
 };
@@ -77,7 +77,7 @@ export function WorkArea({ children }: { children: ReactNode }) {
                   onClick={() => openSub('projects')}
                 >
                   <Icon name="folder" size={16} />
-                  <span>Dự án & phòng ban</span>
+                  <span>Dịch vụ & phòng ban</span>
                 </button>
               )}
             </nav>
@@ -187,7 +187,7 @@ function ProjectList({ isWework = false, query = '' }: { isWework?: boolean; que
   }
 
   return <>
-    <label className="sec-find"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm nhanh dự án" aria-label="Tìm nhanh dự án" /></label>
+    <label className="sec-find"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm nhanh dịch vụ" aria-label="Tìm nhanh dịch vụ" /></label>
     {groups.map((g) => (
       <div key={g.id || 'none'} className="sec-group"><h3>{g.name}</h3><nav>{g.projects.map((p) => (
         <button key={p.id} aria-current={current === p.id ? 'page' : undefined} onClick={() => openLink(`#projects/${p.id}`)} title={p.name}>
@@ -195,6 +195,6 @@ function ProjectList({ isWework = false, query = '' }: { isWework?: boolean; que
         </button>
       ))}</nav></div>
     ))}
-    {q && !projects.length && <p className="sec-none">Không có dự án nào khớp</p>}
+    {q && !projects.length && <p className="sec-none">Không có dịch vụ nào khớp</p>}
   </>;
 }

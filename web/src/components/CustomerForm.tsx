@@ -7,6 +7,7 @@ import {toast,useStore} from '../store';
 import type {CustomerRecord,CustomerTag,Loc} from '../types';
 import {Icon} from './ui';
 import {FolderPicker} from './FolderPicker';
+import { askConfirm, askText } from './AskDialog';
 
 // A customer's details: contact, tags (typed: one in the list, or a new one that joins it), where it came from (a new
 // source can be added here), its Drive folder (a pasted link or one picked; unlinking keeps the folder on Drive) and Khác
@@ -68,7 +69,7 @@ export function CustomerForm({id,onClose,onSaved,onChanged}:{id:string|null;onCl
   setTags([...tags,known?{id:known.id,name:known.name,color:(known as any).color||'#64748b'}:{name}]);
  };
  const addSource=async()=>{
-  const name=prompt('Tên nguồn khách hàng mới (vd. TikTok, Hội chợ…)')?.trim();
+  const name=(await askText('Tên nguồn khách hàng mới (vd. TikTok, Hội chợ…)'))?.trim();
   if(!name)return;
   try{const s=await api.addCustomerSource(name);setSources(list=>[...list.filter(x=>x.id!==s.id),s]);setSourceId(s.id);}catch(e:any){toast(e.message,true);}
  };
@@ -83,7 +84,7 @@ export function CustomerForm({id,onClose,onSaved,onChanged}:{id:string|null;onCl
  // Drive changes on an existing customer apply at once (they are not part of Lưu thay đổi).
  const driveAct=async(fn:()=>Promise<unknown>,done:string)=>{if(!id)return;setDriveBusy(true);try{await fn();const r=await api.customerRecord(id);setDrive(r.drive||null);setLink('');onChanged?.();toast(done);}catch(e:any){toast(e.message,true);}finally{setDriveBusy(false);}};
  const linkByUrl=()=>{if(!link.trim())return;if(id)void driveAct(()=>api.linkCustomerDrive(id,link.trim()),'Đã liên kết thư mục Drive');};
- const unlink=()=>{if(drive&&confirm(`Gỡ liên kết thư mục “${drive.label}” khỏi khách hàng?\nThư mục và file trên Drive vẫn giữ nguyên. Tab Drive của khách hàng sẽ trống cho tới khi liên kết lại.`))void driveAct(()=>api.unlinkCustomerDrive(id!),'Đã gỡ liên kết Drive');};
+ const unlink=async ()=>{if(drive&&await askConfirm(`Gỡ liên kết thư mục “${drive.label}” khỏi khách hàng?\nThư mục và file trên Drive vẫn giữ nguyên. Tab Drive của khách hàng sẽ trống cho tới khi liên kết lại.`))void driveAct(()=>api.unlinkCustomerDrive(id!),'Đã gỡ liên kết Drive');};
  const pending=picked?(picked.kind==='gdrive'?picked.label||picked.id:picked.dir):'';
  return <div className="cm-back" onMouseDown={e=>{if(e.target===e.currentTarget&&!pendingUpdate)onClose();}}><form className="crm-new crm-new-wide" onSubmit={save} role="dialog" aria-modal="true" aria-label={id?'Sửa khách hàng':'Thêm khách hàng'}><header className="crm-form-head"><h2>{id?'Sửa khách hàng':'Thêm khách hàng'}</h2><button type="button" className="bd-icon" disabled={pendingUpdate} onClick={onClose} aria-label="Đóng"><Icon name="x" size={16}/></button></header>{error&&<p className="note err" role="alert">{error}</p>}<fieldset disabled={pendingUpdate||loading||!loaded}>{loading?<BrandLoading label="Đang tải…"/>:<>
   <CustomerStages status={status} onChange={setStatus}/>

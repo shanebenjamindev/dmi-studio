@@ -25,6 +25,7 @@ import { PlannerPanel, Dock, SwitchBoards, dragged, changed, useChanged, type Pa
 import { toggleMessenger, openConversation } from './Messenger';
 import type { Board, BoardActivity, BoardCard, BoardItem, BoardLabel, BoardMember, Level, Person, TeamRole, User, Workspace, WorkspaceMember } from '../types';
 import { SpanField, fromLocal, toLocal } from './DateRange';
+import { askConfirm } from './AskDialog';
 
 /** Board backgrounds, by the names the server keeps. */
 export const BG: Record<string, string> = {
@@ -571,12 +572,12 @@ export function BoardsPage() {
   const removeWorkspace = async (w: Workspace) => {
     setWsAct(null); setWsMenu(null);
     const n = (boards || []).filter((b) => b.workspaceId === w.id).length;
-    if (!confirm(`Xoá vĩnh viễn workspace “${w.name}”${n ? ` cùng ${n} board trong đó` : ''}? Không khôi phục được.`)) return;
+    if (!await askConfirm(`Xoá vĩnh viễn workspace “${w.name}”${n ? ` cùng ${n} board trong đó` : ''}? Không khôi phục được.`)) return;
     try { await api.deleteWorkspace(w.id); toast(`Đã xoá workspace “${w.name}”`); setWsId('company'); go(null); } catch (e: any) { toast(e.message, true); }
   };
   const removeBoard = async (b: BoardItem) => {
     setBoardMenu(null);
-    if (!confirm(`Xoá vĩnh viễn board “${b.name}” cùng mọi danh sách và thẻ trong đó? Không khôi phục được.`)) return;
+    if (!await askConfirm(`Xoá vĩnh viễn board “${b.name}” cùng mọi danh sách và thẻ trong đó? Không khôi phục được.`)) return;
     try { await api.deleteBoard(b.id); toast(`Đã xoá board “${b.name}”`); if (open.board === b.id) go(null); else load(); } catch (e: any) { toast(e.message, true); }
   };
   // Workspaces ticked to delete together: only personal ones this account may delete (their owner, or an admin).
@@ -586,7 +587,7 @@ export function BoardsPage() {
   const removeWorkspaces = async () => {
     const chosen = spaces.filter((w) => pickedWs.includes(w.id) && canRemoveWs(w));
     const n = (boards || []).filter((b) => chosen.some((w) => w.id === b.workspaceId)).length;
-    if (!chosen.length || !confirm(`Xoá vĩnh viễn ${chosen.length} workspace${n ? ` cùng ${n} board trong đó` : ''}? Không khôi phục được.`)) return;
+    if (!chosen.length || !await askConfirm(`Xoá vĩnh viễn ${chosen.length} workspace${n ? ` cùng ${n} board trong đó` : ''}? Không khôi phục được.`)) return;
     const failed: string[] = [];
     for (const w of chosen) await api.deleteWorkspace(w.id).catch(() => failed.push(w.name));
     setPickedWs([]);
@@ -1108,7 +1109,7 @@ function CreateWorkspace({ onClose, onCreated }: { onClose: () => void; onCreate
         <header><b>Tạo workspace</b><button type="button" className="bd-icon" onClick={onClose} aria-label="Đóng"><Icon name="x" size={15} /></button></header>
         <p className="bd-create-note">Workspace là nơi gom các board của bạn. Mặc định riêng tư: chỉ bạn thấy cho tới khi bạn mời người khác, mỗi người một quyền (Quản trị, Thành viên hoặc Chỉ xem).</p>
         <label className="bd-label" htmlFor="ws-name">Tên workspace <em>*</em></label>
-        <input id="ws-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Ví dụ: Việc riêng của Giang, Dự án Tết 2027" />
+        <input id="ws-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Ví dụ: Việc riêng của Giang, Dịch vụ Tết 2027" />
         <label className="bd-label" htmlFor="ws-about">Mô tả (không bắt buộc)</label>
         <textarea id="ws-about" rows={3} value={about} onChange={(e) => setAbout(e.target.value)} placeholder="Workspace này dùng để làm gì" />
         <label className="bd-label" htmlFor="ws-vis">Quyền xem</label>
@@ -1168,7 +1169,7 @@ function WorkspacePeople({ ws, me, boards, onChanged, onGone, onOpenBoard, onCre
   const toggleSel = (id: string) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const bulkDelete = async () => {
     if (!picked.length || bulkBusy) return;
-    if (!confirm(`Xoá vĩnh viễn ${picked.length} board đã chọn cùng mọi danh sách và thẻ trong đó? Không khôi phục được.`)) return;
+    if (!await askConfirm(`Xoá vĩnh viễn ${picked.length} board đã chọn cùng mọi danh sách và thẻ trong đó? Không khôi phục được.`)) return;
     setBulkBusy(true);
     let ok = 0, firstErr = '';
     for (const b of picked) { try { await api.deleteBoard(b.id); ok++; } catch (e: any) { if (!firstErr) firstErr = `${b.name}: ${e.message}`; } }
@@ -1187,7 +1188,7 @@ function WorkspacePeople({ ws, me, boards, onChanged, onGone, onOpenBoard, onCre
   const admin = ws.level === 'admin', company = ws.kind === 'company';
   const canTransfer = !company && (ws.ownerId === me.id || me.role === 'admin');
   const transfer = async (m: WorkspaceMember) => {
-    if (!confirm(`Chuyển quyền chủ sở hữu workspace “${ws.name}” cho “${m.name}”? Bạn vẫn sẽ giữ quyền Quản trị.`)) return;
+    if (!await askConfirm(`Chuyển quyền chủ sở hữu workspace “${ws.name}” cho “${m.name}”? Bạn vẫn sẽ giữ quyền Quản trị.`)) return;
     try {
       const r = await api.transferWorkspaceOwner(ws.id, m.id);
       setData((d) => d && { ...d, members: r.members });
@@ -1210,12 +1211,12 @@ function WorkspacePeople({ ws, me, boards, onChanged, onGone, onOpenBoard, onCre
   const set = (userId: string, level: Level) => api.setWorkspaceMember(ws.id, userId, level).then(done, (e) => toast(e.message, true));
   const remove = async (m: WorkspaceMember) => {
     const self = m.id === me.id;
-    if (!confirm(self ? `Rời workspace “${ws.name}”? Bạn sẽ không còn thấy các board trong đó.` : `Gỡ ${m.name} khỏi workspace “${ws.name}”?`)) return;
+    if (!await askConfirm(self ? `Rời workspace “${ws.name}”? Bạn sẽ không còn thấy các board trong đó.` : `Gỡ ${m.name} khỏi workspace “${ws.name}”?`)) return;
     try { const r = await api.removeWorkspaceMember(ws.id, m.id); if (self) { onChanged(); onGone(); } else done(r); } catch (e: any) { toast(e.message, true); }
   };
   const save = (b: Partial<{ name: string; about: string; visibility: 'private' | 'company'; customerId: string | null }>) => api.updateWorkspace(ws.id, b).then(onChanged, (e) => toast(e.message, true));
   const del = async () => {
-    if (!confirm(`Xoá vĩnh viễn workspace “${ws.name}” cùng mọi board trong đó?`)) return;
+    if (!await askConfirm(`Xoá vĩnh viễn workspace “${ws.name}” cùng mọi board trong đó?`)) return;
     try { await api.deleteWorkspace(ws.id); onChanged(); onGone(); } catch (e: any) { toast(e.message, true); }
   };
   return (
@@ -1359,7 +1360,7 @@ function ShareBoard({ board, ws, role, me, onClose, onChanged }: { board: Board;
   const admin = board.level === 'admin';
   const canTransfer = board.createdBy === me.id || me.role === 'admin';
   const transfer = async (m: BoardMember) => {
-    if (!confirm(`Chuyển quyền chủ board “${board.name}” cho “${m.name}”? Bạn vẫn sẽ giữ quyền Quản trị.`)) return;
+    if (!await askConfirm(`Chuyển quyền chủ board “${board.name}” cho “${m.name}”? Bạn vẫn sẽ giữ quyền Quản trị.`)) return;
     try {
       const r = await api.transferBoardOwner(board.id, m.id);
       setData((d) => d && { ...d, members: r.members });
@@ -1373,7 +1374,7 @@ function ShareBoard({ board, ws, role, me, onClose, onChanged }: { board: Board;
   const set = (userId: string, level: Level) => api.setBoardMember(board.id, userId, level).then(done, (e) => toast(e.message, true));
   const remove = async (m: BoardMember) => {
     const self = m.id === me.id;
-    if (self && !confirm(`Rời board “${board.name}”?`)) return;
+    if (self && !await askConfirm(`Rời board “${board.name}”?`)) return;
     try { const r = await api.removeBoardMember(board.id, m.id); if (self) { onClose(); onChanged(); } else done(r); } catch (e: any) { toast(e.message, true); }
   };
   const added = data?.members.filter((m) => m.added) || [], others = data?.members.filter((m) => !m.added) || [];
@@ -1775,9 +1776,9 @@ function ListColumn(p: ListProps) {
   // A new card is a task; it can go into one of the projects that have a home on this board.
   const composerPicker = projects.length ? (
     <div className="bd-card-type-picker">
-      <label>Thuộc dự án
-        <select aria-label="Thuộc dự án" value={projectCardId} onChange={e => setProjectCardId(e.target.value)}>
-          <option value="">Không thuộc dự án</option>
+      <label>Thuộc dịch vụ
+        <select aria-label="Thuộc dịch vụ" value={projectCardId} onChange={e => setProjectCardId(e.target.value)}>
+          <option value="">Không thuộc dịch vụ</option>
           {projects.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
         </select>
       </label>
@@ -1836,7 +1837,7 @@ function ListMenu({ anchor, board, list, canShape, onClose, onAdd, onFold, mut, 
           <hr />
         </>}
         <button disabled={!mine.length} title={!mine.length ? 'Danh sách này không có thẻ nào do bạn tạo' : undefined}
-          onClick={() => { if (confirm(`Lưu trữ ${mine.length} thẻ do bạn tạo trong “${list.name}”?${mine.length < list.cards.length ? ' Thẻ của người khác giữ nguyên.' : ''}`)) done(async () => { mut((x) => { const l = x.lists.find((y) => y.id === list.id)!; l.cards = l.cards.filter((c) => !mine.includes(c)); }); await api.archiveListCards(list.id); }); }}>Lưu trữ mọi thẻ của bạn trong danh sách này</button>
+          onClick={async () => { if (await askConfirm(`Lưu trữ ${mine.length} thẻ do bạn tạo trong “${list.name}”?${mine.length < list.cards.length ? ' Thẻ của người khác giữ nguyên.' : ''}`)) done(async () => { mut((x) => { const l = x.lists.find((y) => y.id === list.id)!; l.cards = l.cards.filter((c) => !mine.includes(c)); }); await api.archiveListCards(list.id); }); }}>Lưu trữ mọi thẻ của bạn trong danh sách này</button>
         {canShape && <>
           <hr />
           <button onClick={() => done(async () => { mut((x) => { x.lists = x.lists.filter((y) => y.id !== list.id); }); await api.updateList(list.id, { archived: true }); })}>Lưu trữ danh sách này</button>
@@ -1891,9 +1892,9 @@ function CardFront({ card, board, canEdit, hidden, labelText, onLabels, onDragSt
         {badges || card.kind ? (
           <div className="bd-badges">
             {card.kind === 'customer' && <span className="bd-badge-kind bd-badge-kind-cust"><Icon name="users" size={12} />Khách hàng</span>}
-            {card.kind === 'project' && <span className="bd-badge-kind bd-badge-kind-prj"><Icon name="folder" size={12} />Dự án</span>}
+            {card.kind === 'project' && <span className="bd-badge-kind bd-badge-kind-prj"><Icon name="folder" size={12} />Dịch vụ</span>}
             {card.customerName && card.kind !== 'customer' && <span className="bd-badge-cust" title="Khách hàng"><Icon name="users" size={13} />{card.customerName}</span>}
-            {card.projectName && card.kind !== 'project' && <span className="bd-badge-cust" title="Dự án"><Icon name="folder" size={13} />{card.projectName}</span>}
+            {card.projectName && card.kind !== 'project' && <span className="bd-badge-cust" title="Dịch vụ"><Icon name="folder" size={13} />{card.projectName}</span>}
             {(card.dueAt || card.startAt) && <span className={'bd-badge-due ' + due} title={due === 'over' ? 'Quá hạn' : due === 'soon' ? 'Sắp hết hạn' : due === 'done' ? 'Đã hoàn thành' : 'Ngày'}><Icon name="clock" size={13} />{card.startAt && card.dueAt ? `${shortDate(card.startAt)} – ${shortDate(card.dueAt)}` : shortDate((card.dueAt || card.startAt)!)}</span>}
             {card.desc && <span title="Thẻ có mô tả"><Icon name="lines" size={13} /></span>}
             {card.comments > 0 && <span title="Bình luận"><Icon name="comment" size={13} />{card.comments}</span>}
@@ -1969,8 +1970,8 @@ function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { 
           {canShape && <button onClick={() => setView('labels')}><Icon name="tag" size={16} />Nhãn</button>}
           {canShape && <button onClick={() => act(async () => { mut((x) => { x.labelText = !x.labelText; }); await api.updateBoard(board.id, { labelText: !board.labelText }); })}><Icon name="tag" size={16} />{board.labelText ? 'Ẩn tên nhãn trên thẻ' : 'Hiện tên nhãn trên thẻ'}</button>}
           {canDelete && <button onClick={() => setView('rights')}><Icon name="lock" size={16} />Quyền sửa board</button>}
-          {board.members.some((m) => m.id === me.id && m.added) && board.level !== 'admin' && <><hr /><button onClick={async () => { if (!confirm(`Rời board “${board.name}”?`)) return; try { await api.removeBoardMember(board.id, me.id); onGone(); } catch (e: any) { toast(e.message, true); } }}><Icon name="user" size={16} />Rời board</button></>}
-          {canDelete && <><hr /><button className="bk-danger" onClick={async () => { if (!confirm(`Xoá vĩnh viễn board “${board.name}” cùng mọi danh sách và thẻ?`)) return; try { await api.deleteBoard(board.id); onGone(); } catch (e: any) { toast(e.message, true); } }}><Icon name="trash" size={16} />Xoá board</button></>}
+          {board.members.some((m) => m.id === me.id && m.added) && board.level !== 'admin' && <><hr /><button onClick={async () => { if (!await askConfirm(`Rời board “${board.name}”?`)) return; try { await api.removeBoardMember(board.id, me.id); onGone(); } catch (e: any) { toast(e.message, true); } }}><Icon name="user" size={16} />Rời board</button></>}
+          {canDelete && <><hr /><button className="bk-danger" onClick={async () => { if (!await askConfirm(`Xoá vĩnh viễn board “${board.name}” cùng mọi danh sách và thẻ?`)) return; try { await api.deleteBoard(board.id); onGone(); } catch (e: any) { toast(e.message, true); } }}><Icon name="trash" size={16} />Xoá board</button></>}
         </div>}
         {view === 'about' && <>
           <h5>Loại board (dịch vụ)</h5>
@@ -2002,11 +2003,11 @@ function BoardMenu({ board, me, onShare, onClose, onGone, onOpen, act, mut }: { 
             <div key={c.id} className="bd-arch">
               <button className="bd-arch-card" onClick={() => onOpen(c.id)}><b>{c.title}</b><small>trong {c.listName}</small></button>
               {canEdit && <div className="cm-row"><button className="bk-link" onClick={async () => { await act(() => api.updateCard(c.id, { archived: false })); reloadArch(); }}>Khôi phục</button>
-                {(me.role === 'admin' || (c.createdBy ? c.createdBy === me.id : canDelete)) && <>·<button className="bk-link bk-danger" onClick={async () => { if (!confirm('Xoá hẳn thẻ này?')) return; await act(() => api.deleteCard(c.id)); reloadArch(); }}>Xoá</button></>}</div>}
+                {(me.role === 'admin' || (c.createdBy ? c.createdBy === me.id : canDelete)) && <>·<button className="bk-link bk-danger" onClick={async () => { if (!await askConfirm('Xoá hẳn thẻ này?')) return; await act(() => api.deleteCard(c.id)); reloadArch(); }}>Xoá</button></>}</div>}
             </div>
           )) : <p className="note">Không có thẻ nào được lưu trữ.</p>) : (arch.lists.length ? arch.lists.map((l) => (
             <div key={l.id} className="bd-arch"><b>{l.name}</b>{canShape && <div className="cm-row"><button className="bk-link" onClick={async () => { await act(() => api.updateList(l.id, { archived: false })); reloadArch(); }}>Khôi phục</button>
-              {canDelete && <>·<button className="bk-link bk-danger" onClick={async () => { if (!confirm('Xoá hẳn danh sách và các thẻ trong đó?')) return; await act(() => api.deleteList(l.id)); reloadArch(); }}>Xoá</button></>}</div>}</div>
+              {canDelete && <>·<button className="bk-link bk-danger" onClick={async () => { if (!await askConfirm('Xoá hẳn danh sách và các thẻ trong đó?')) return; await act(() => api.deleteList(l.id)); reloadArch(); }}>Xoá</button></>}</div>}</div>
           )) : <p className="note">Không có danh sách nào được lưu trữ.</p>)}
         </>}
         {view === 'bg' && <>
@@ -2046,7 +2047,7 @@ function LabelForm({ board, label, onClose, act }: { board: Board; label: BoardL
       <div className="cm-row bk-split">
         <button className="btn btn-primary btn-sm" onClick={async () => { await act(() => (label ? api.updateLabel(label.id, { name, color }) : api.createLabel(board.id, { name, color }))); onClose(); }}>{label ? 'Lưu' : 'Tạo mới'}</button>
         <button className="btn btn-gray btn-sm" onClick={onClose}>Huỷ</button>
-        {label && <button className="btn btn-sm cm-danger" onClick={async () => { if (!confirm('Xoá nhãn này khỏi board và mọi thẻ?')) return; await act(() => api.deleteLabel(label.id)); onClose(); }}>Xoá</button>}
+        {label && <button className="btn btn-sm cm-danger" onClick={async () => { if (!await askConfirm('Xoá nhãn này khỏi board và mọi thẻ?')) return; await act(() => api.deleteLabel(label.id)); onClose(); }}>Xoá</button>}
       </div>
     </div>
   );

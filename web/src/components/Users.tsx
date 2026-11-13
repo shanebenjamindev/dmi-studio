@@ -10,6 +10,7 @@ import { StaffBoard } from './StaffBoard';
 import { FolderPicker } from './FolderPicker';
 import { GoogleConnect, googleLogin } from './GoogleConnect';
 import type { Role, User, WorkspaceInfo, GoogleStatus, Page, TeamRole, DeptRole, Level } from '../types';
+import { askConfirm, askText } from './AskDialog';
 
 const ROLE: Record<Role, string> = { admin: 'Quản trị', member: 'Nhân viên' };
 /** The levels a department role gives (what its people may do in the department). */
@@ -126,7 +127,7 @@ function UserSheet({ user, initialTeam, google, onClose, onSaved }: { initialTea
       <form className="users-form" onSubmit={(e) => { e.preventDefault(); save(); }}>
         <label className="ws-field"><span>Họ tên</span><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Nguyễn Văn A" autoFocus /></label>
         <label className="ws-field"><span>Email đăng nhập</span><input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="ten@congty.vn" autoComplete="off" /></label>
-        <label className="ws-field"><span>Email nhận thông báo</span><input type="email" value={f.notifyEmail} onChange={(e) => setF({ ...f, notifyEmail: e.target.value })} placeholder="Để trống nếu không gửi email" autoComplete="off" /><small className="note">Mọi thao tác liên quan tới nhân viên này (giao việc, thêm vào thẻ, board, dự án, khách hàng, bình luận, đổi hạn…) được gửi tới email này.</small></label>
+        <label className="ws-field"><span>Email nhận thông báo</span><input type="email" value={f.notifyEmail} onChange={(e) => setF({ ...f, notifyEmail: e.target.value })} placeholder="Để trống nếu không gửi email" autoComplete="off" /><small className="note">Mọi thao tác liên quan tới nhân viên này (giao việc, thêm vào thẻ, board, dịch vụ, khách hàng, bình luận, đổi hạn…) được gửi tới email này.</small></label>
         <label className="ws-field"><span>{isNew ? 'Mật khẩu' : 'Mật khẩu mới'}</span><input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} placeholder={passHint} autoComplete="new-password" /></label>
         {isNew && (
           <>
@@ -179,18 +180,18 @@ export function DepartmentsCard({onChanged}:{onChanged:()=>void}) {
   const run = async (fn: () => Promise<unknown>, msg?: string) => { try { await fn(); await reload(); onChanged(); if (msg) toast(msg); } catch (e: any) { toast(e.message, true); } };
   const update = (r: TeamRole, p: Partial<{ name: string; color: string; pages: Page[] }>) => run(() => api.updateRole(r.id, p));
   const add = async () => {
-    const name = prompt('Tên phòng ban mới (vd. Design)')?.trim();
+    const name = (await askText('Tên phòng ban mới (vd. Design)'))?.trim();
     if (name) run(() => api.createRole({ name, color: '#64748b', pages: [] }), `Đã thêm phòng ${name}, board riêng và các role mặc định của phòng`);
   };
-  const remove = (r: TeamRole) => {
-    if (confirm(`Xoá phòng ban “${r.name}”? ${r.members} người sẽ thành chưa có phòng ban; board của phòng chỉ quản trị viên (và người được thêm) còn xem được.`)) run(() => api.deleteRole(r.id));
+  const remove = async (r: TeamRole) => {
+    if (await askConfirm(`Xoá phòng ban “${r.name}”? ${r.members} người sẽ thành chưa có phòng ban; board của phòng chỉ quản trị viên (và người được thêm) còn xem được.`)) run(() => api.deleteRole(r.id));
   };
-  const addPosition = (r: TeamRole) => {
-    const name = prompt(`Tên role mới trong ${r.name} (vd. Editor, Cộng tác viên)`)?.trim();
+  const addPosition = async (r: TeamRole) => {
+    const name = (await askText(`Tên role mới trong ${r.name} (vd. Editor, Cộng tác viên)`))?.trim();
     if (name) run(() => api.createPosition(r.id, { name, level: 'normal' }), `Đã thêm role ${name}`);
   };
-  const removePosition = (r: TeamRole, p: DeptRole) => {
-    if (confirm(`Xoá role “${p.name}” của ${r.name}?${p.members ? ` ${p.members} người đang giữ role này sẽ thành Thành viên của phòng.` : ''}`)) run(() => api.deletePosition(p.id));
+  const removePosition = async (r: TeamRole, p: DeptRole) => {
+    if (await askConfirm(`Xoá role “${p.name}” của ${r.name}?${p.members ? ` ${p.members} người đang giữ role này sẽ thành Thành viên của phòng.` : ''}`)) run(() => api.deletePosition(p.id));
   };
   const rename = (key: string, current: string, save: (n: string) => void) => ({
     value: names[key] ?? current,

@@ -9,6 +9,7 @@ import { routeParam, setRouteParam } from '../nav';
 import { PageHead, Toolbar, Select, Table, Pager, Drawer, Field, Badge, Async, Empty, useLoad, useListState, useDebounced, useCan, act, fmtNum, fmtAgo, type Col } from '../kit';
 import { RoleBadges, StatusBadge } from './Staff';
 import { Person } from '../kit';
+import { askConfirm } from '../../components/AskDialog';
 
 const SHORT: Record<Scope, string> = { personal: 'CN', team: 'Nhóm', department: 'PB', organization: 'Tất cả' };
 
@@ -52,7 +53,7 @@ function RoleEditor({ role, onClose, onSaved }: { role: Role | null; onClose: ()
   const all = role?.perms === 'all';
   return (
     <Drawer open wide title={role ? role.name : 'Tạo vai trò'} sub={role?.system ? 'Vai trò mặc định' : undefined} onClose={onClose} footer={<>
-      {role?.canDelete && <button className="btn btn-gray btn-sm" onClick={() => confirm(`Xoá vai trò “${role.name}”? ${role.holders} người đang giữ vai trò này sẽ mất các quyền của nó.`) && act(() => admin.removeRole(role.id), 'Đã xoá vai trò', onSaved)}><Icon name="trash" size={14} />Xoá vai trò</button>}
+      {role?.canDelete && <button className="btn btn-gray btn-sm" onClick={async () => await askConfirm(`Xoá vai trò “${role.name}”? ${role.holders} người đang giữ vai trò này sẽ mất các quyền của nó.`) && act(() => admin.removeRole(role.id), 'Đã xoá vai trò', onSaved)}><Icon name="trash" size={14} />Xoá vai trò</button>}
       <button className="btn btn-gray btn-sm" onClick={onClose}>Đóng</button>
       {editable && <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{busy ? 'Đang lưu…' : 'Lưu'}</button>}
     </>}>
@@ -178,7 +179,7 @@ function RolePicker({ staff, roles, canManage, onClose, onSaved }: { staff: Staf
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const save = async () => {
     const removedAdmin = staff.roles.some((r) => r.rank >= 80 && !(r.id in held));
-    if (removedAdmin && !confirm(`Thu hồi vai trò quản trị của ${staff.name}?`)) return;
+    if (removedAdmin && !await askConfirm(`Thu hồi vai trò quản trị của ${staff.name}?`)) return;
     setBusy(true); setError('');
     try { await admin.setRoles(staff.id, Object.entries(held).map(([roleId, scope]) => ({ roleId, scope: scope || null }))); onSaved(); }
     catch (e: any) { setError(e.message); } finally { setBusy(false); }

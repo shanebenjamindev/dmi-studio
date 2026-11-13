@@ -10,7 +10,7 @@ import { openNote } from './QuickNotes';
 import { stepCode } from './taskkit';
 
 type Tab = 'all' | 'members' | 'tasks' | 'customers' | 'projects' | 'boards' | 'notes';
-const TABS: [Tab, string][] = [['all', 'Tất cả'], ['members', 'Thành viên'], ['tasks', 'Công việc'], ['customers', 'Khách hàng'], ['projects', 'Dự án'], ['boards', 'Board & thẻ'], ['notes', 'Ghi chú']];
+const TABS: [Tab, string][] = [['all', 'Tất cả'], ['members', 'Thành viên'], ['tasks', 'Công việc'], ['customers', 'Khách hàng'], ['projects', 'Dịch vụ'], ['boards', 'Board & thẻ'], ['notes', 'Ghi chú']];
 const TONE: Record<string, string> = { done: 'ok', done_late: 'late', overdue: 'bad', doing: 'doing', review: 'doing' };
 const day = (t: number | null) => (t ? new Date(t).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' }) : '');
 const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
@@ -72,7 +72,7 @@ export function GlobalSearch() {
   for (const g of groups) for (const it of data![g].items) {
     if (g === 'members') hits.push({ key: `m${it.id}`, group: g, open: go(() => openProfile(it.id)), node: <><span className="gs-av">{it.avatarAt ? <img src={`/api/avatars/${it.id}?v=${it.avatarAt}`} alt="" /> : it.name.charAt(0).toUpperCase()}</span><span className="gs-main"><b><Mark text={it.name} words={words} /></b><small><Mark text={[it.email, it.position, it.department].filter(Boolean).join(' · ')} words={words} /></small></span></> });
     if (g === 'tasks') hits.push({ key: `t${it.id}`, group: g, open: go(() => openTask(it.id)), node: <><span className="gs-ico"><Icon name="checklist" size={16} /></span><span className="gs-main"><b><Mark text={it.title} words={words} /></b>
-      <small><Facts list={[it.project && ['Dự án:', it.project.name], it.assignees.length > 0 && ['Người thực hiện:', it.assignees.join(', ')], !!it.dueAt && ['Thời hạn:', day(it.dueAt)]]} /></small>
+      <small><Facts list={[it.project && ['Dịch vụ:', it.project.name], it.assignees.length > 0 && ['Người thực hiện:', it.assignees.join(', ')], !!it.dueAt && ['Thời hạn:', day(it.dueAt)]]} /></small>
       {it.snippet && <small className="gs-snip">Mô tả: <Mark text={it.snippet} words={words} /></small>}</span><span className={'tk-badge ' + (TONE[it.state] || 'idle')}>{it.state === 'overdue' ? 'Quá hạn' : it.stage ? stepCode(it.stage) : it.status}</span></> });
     if (g === 'customers') hits.push({ key: `c${it.id}`, group: g, open: go(() => openLink(`#customers/${it.id}`)), node: <><span className="gs-ico"><Icon name="users" size={16} /></span><span className="gs-main"><b><Mark text={it.name} words={words} /></b><small><Mark text={[it.contact, it.phone, it.email].filter(Boolean).join(' · ')} words={words} /></small></span></> });
     if (g === 'projects') hits.push({ key: `p${it.id}`, group: g, open: go(() => openLink(`#projects/${it.id}`)), node: <><span className="gs-ico"><Icon name="folder" size={16} /></span><span className="gs-main"><b><Mark text={it.name} words={words} /></b><small>{it.customer && <Facts list={[['Khách hàng:', it.customer]]} />}{it.customer && ' · '}{`${it.tasks} công việc`}</small></span></> });
@@ -90,7 +90,7 @@ export function GlobalSearch() {
   return createPortal(
     <div className="gs-back" onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
       <div className="gs" role="dialog" aria-modal="true" aria-label="Tìm kiếm" onKeyDown={keys}>
-        <label className="gs-input"><Icon name="search" size={22} /><input ref={input} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm thành viên, công việc, khách hàng, dự án, board, ghi chú…" aria-label="Tìm kiếm" />
+        <label className="gs-input"><Icon name="search" size={22} /><input ref={input} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm thành viên, công việc, khách hàng, dịch vụ, board, ghi chú…" aria-label="Tìm kiếm" />
           {q && <button className="gs-clear" onClick={() => { setQ(''); input.current?.focus(); }} aria-label="Xoá"><Icon name="x" size={14} /></button>}</label>
         <nav className="gs-tabs" role="tablist">{TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}{tab === 'all' && k !== 'all' && data?.[k]?.total ? <small>{data[k].total}</small> : null}</button>)}</nav>
         <div className="gs-body">

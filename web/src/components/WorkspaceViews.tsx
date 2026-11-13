@@ -104,7 +104,7 @@ export function BoardTree({ id, stamp, onCard }: { id: string; stamp: number; on
   const takes = (c: TreeCard) => !!drag && (drag.kind || 'task') === 'task' && c.kind === 'project' && !!c.projectId && drag.projectCardId !== c.id;
   const move = async (card: TreeCard, project: string | null) => {
     setDrag(null); setOver(null);
-    try { await api.updateCard(card.id, { projectId: project }); toast(project ? 'Đã chuyển vào dự án' : 'Đã bỏ khỏi dự án'); }
+    try { await api.updateCard(card.id, { projectId: project }); toast(project ? 'Đã chuyển vào dịch vụ' : 'Đã bỏ khỏi dịch vụ'); }
     catch (e: any) { toast(e.message, true); }
     void load();
   };
@@ -113,7 +113,7 @@ export function BoardTree({ id, stamp, onCard }: { id: string; stamp: number; on
     <TreeLevel list={sorted(under.get('') || [])} depth={0} under={(c) => sorted(under.get(c.id) || [])} board={board} onCard={onCard} dnd={dnd} />
     {drag?.projectCardId && <div className={'cw-drop-root ws-drop-root' + (over === 'root' ? ' drop-in' : '')}
       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (over !== 'root') setOver('root'); }} onDragLeave={() => setOver(null)}
-      onDrop={(e) => { e.preventDefault(); void move(drag, null); }}>Thả vào đây để bỏ khỏi dự án</div>}
+      onDrop={(e) => { e.preventDefault(); void move(drag, null); }}>Thả vào đây để bỏ khỏi dịch vụ</div>}
   </>;
 }
 const KIND_ICON = { customer: 'users', project: 'folder', task: 'checklist' } as const;
@@ -130,7 +130,7 @@ function TreeNode({ c, depth, under, board, onCard, dnd }: { c: TreeCard; depth:
   const task = kind === 'task' && board.level !== 'observer';
   return <li>
     <div className={'cw-row' + (task ? ' movable' : '') + (dnd.over === c.id ? ' drop-in' : '')} draggable={task}
-      title={task ? 'Kéo thả vào một dự án để chuyển công việc vào dự án đó' : undefined}
+      title={task ? 'Kéo thả vào một dịch vụ để chuyển công việc vào dịch vụ đó' : undefined}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.title); dnd.start(c); }} onDragEnd={dnd.end}
       onDragOver={(e) => { if (!dnd.takes(c)) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; if (dnd.over !== c.id) dnd.enter(c.id); }}
       onDragLeave={() => { if (dnd.over === c.id) dnd.enter(null); }}

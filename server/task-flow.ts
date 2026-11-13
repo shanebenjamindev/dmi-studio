@@ -88,7 +88,7 @@ export async function applyFlow(t: any, actor: { id: string; role: string }, can
   const need = (ok: boolean, message: string, code = 403) => { if (!ok) throw new HttpError(code, message); };
   switch (action) {
     case 'reviewer': {
-      need(canEdit || admin, 'Chỉ người tạo, người được giao, thành viên dự án hoặc Admin đổi được người duyệt');
+      need(canEdit || admin, 'Chỉ người tạo, người được giao, thành viên dịch vụ hoặc Admin đổi được người duyệt');
       need(!isClosedStage(stage), 'Công việc đã đóng; mở lại trước khi đổi người duyệt', 409);
       const id = b.reviewerId ? String(b.reviewerId) : null;
       if (id && !await get('SELECT 1 FROM users WHERE id=? AND disabled=0', id)) throw new HttpError(400, 'Người duyệt phải là tài khoản đang hoạt động');
@@ -101,7 +101,7 @@ export async function applyFlow(t: any, actor: { id: string; role: string }, can
       return;
     }
     case 'start':
-      need(canEdit, 'Chỉ người tạo, thành viên dự án hoặc Admin giao được việc');
+      need(canEdit, 'Chỉ người tạo, thành viên dịch vụ hoặc Admin giao được việc');
       need(stage === 'account', 'Công việc đã được giao', 409);
       need(hasPeople, 'Hãy giao việc cho ít nhất một người trước', 400);
       await move('execution');
@@ -109,7 +109,7 @@ export async function applyFlow(t: any, actor: { id: string; role: string }, can
       await notifyPeople(assigned, actor.id, { title: 'Bạn được giao công việc', body: t.title, link: link(t.id) });
       return;
     case 'submit': {
-      need(canEdit, 'Chỉ người được giao, người tạo, thành viên dự án hoặc Admin nộp được công việc');
+      need(canEdit, 'Chỉ người được giao, người tạo, thành viên dịch vụ hoặc Admin nộp được công việc');
       need(stage === 'execution', stage === 'account' ? 'Hãy giao việc trước khi nộp duyệt' : stage === 'review' ? 'Công việc đang chờ duyệt' : 'Công việc đã đóng; mở lại trước khi nộp', 409);
       const note = text(b.note, 2000, 'Ghi chú khi nộp');
       const round = Number((await get<any>('SELECT MAX(round) n FROM task_reviews WHERE task_id=?', t.id))?.n || 0) + 1;
@@ -136,7 +136,7 @@ export async function applyFlow(t: any, actor: { id: string; role: string }, can
       return;
     }
     case 'back':
-      need(canEdit, 'Chỉ người tạo, người được giao, thành viên dự án hoặc Admin đổi được bước của công việc');
+      need(canEdit, 'Chỉ người tạo, người được giao, thành viên dịch vụ hoặc Admin đổi được bước của công việc');
       need(stage === 'execution', 'Chỉ việc đang ở EXECUTION mới trả về ACCOUNT được', 409);
       await move('account');
       await log(t.id, actor.id, 'back', {});

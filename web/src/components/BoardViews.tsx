@@ -8,6 +8,7 @@ import { CardPop, type PopKind } from './CardModal';
 import { COLOR } from './boardkit';
 import type { Board, BoardCard, BoardViewKind, CardDetail, User } from '../types';
 import { DayRangeField } from './DateRange';
+import { askConfirm } from './AskDialog';
 
 
 export function QuickCard({ id, rect, board, me, onClose, onOpen, onChanged }: { id: string; rect: DOMRect; board: Board; me: User; onClose: () => void; onOpen: () => void; onChanged: () => void }) {
@@ -39,7 +40,7 @@ export function QuickCard({ id, rect, board, me, onClose, onOpen, onChanged }: {
         <button onClick={async () => { try { await navigator.clipboard.writeText(`${location.href.split('#')[0]}#boards/${board.id}/c/${id}`); toast('Đã sao chép liên kết'); } catch { toast('Không sao chép được liên kết', true); } }}><Icon name="share" size={16} />Sao chép liên kết</button>
         {canDelete && <button disabled={pending} onClick={async () => { if (await act(() => api.updateCard(id, { archived: true }))) onClose(); }}><Icon name="archive" size={16} />Lưu trữ</button>}
         {canDelete && <button className="bq-delete" disabled={pending} onClick={async () => {
-          if (!confirm('Xoá hẳn thẻ này? Không khôi phục được.')) return;
+          if (!await askConfirm('Xoá hẳn thẻ này? Không khôi phục được.')) return;
           setPending(true);
           try { await api.deleteCard(id); onChanged(); onClose(); }
           catch (e: any) { toast(e.message, true); }

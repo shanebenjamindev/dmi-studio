@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useStore, setState, getState, openProject, newProject, startExport, cancelExport, toast } from '../store';
 import { Icon, IconButton, Segmented } from './ui';
 import type { ProjectItem } from '../types';
+import { askConfirm } from './AskDialog';
 
 export function Sheet({ open, onClose, title, children, wide, footer }: { open: boolean; onClose: () => void; title: string; children: any; wide?: boolean; footer?: any }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -47,7 +48,7 @@ export function ProjectsDialog() {
             <div className="pactions">
               <IconButton icon="copy" label="Nhân bản" size={15} onClick={async () => { await api.duplicateProject(p.id); load(); }} />
               <IconButton icon="trash" label="Xoá dự án" size={15} danger onClick={async () => {
-                if (!confirm(`Xoá “${p.title}” cùng mọi file đã tạo?`)) return;
+                if (!await askConfirm(`Xoá “${p.title}” cùng mọi file đã tạo?`)) return;
                 await api.deleteProject(p.id);
                 if (p.id === getState().project?.id) setState({ project: null });
                 load();

@@ -7,6 +7,7 @@ import { ADS_SUMMARY_COLUMNS, type AdsService, type AdsSummary as SummaryData, t
 import { shiftDay, summaryUntil } from '../../../server/ads-summary-math';
 import type { AdAccount } from '../types';
 import { DayRangeField } from './DateRange';
+import { askConfirm } from './AskDialog';
 
 const TYPES:SummaryConversion[]=['LeadForm','Messages','Traffic','Engagement'];
 const KPIS:SummaryKpi[]=['Auto','CPL','CPA','CPMe','CPLC','CPC','CTR','Primary Results'];
@@ -77,6 +78,6 @@ function ServiceEditor({service,accounts,accountError,onClose,onSaved}:{service?
     <div className="as-campaigns"><b>Chiến dịch của dịch vụ</b><label><input type="checkbox" checked={!draft.campaignIds.length} onChange={()=>update('campaignIds',[])}/>Toàn bộ tài khoản</label>{loading&&<p className="note">Đang tải chiến dịch có số liệu 30D…</p>}{choices.map(c=><label key={c.id}><input type="checkbox" checked={draft.campaignIds.includes(c.id)} onChange={e=>update('campaignIds',e.target.checked?[...draft.campaignIds,c.id]:draft.campaignIds.filter(id=>id!==c.id))}/>{c.name}</label>)}{campaignError&&<p className="note err">{campaignError}</p>}</div>
     {field('reportingKey','Reporting Key (để trống để tự tạo)')}<label>Notes<textarea rows={3} maxLength={5000} value={draft.notes} onChange={e=>update('notes',e.target.value)}/></label></fieldset>
     {accountError&&<p className="note err">{accountError}</p>}{error&&<p className="note err" role="alert">{error}</p>}
-    <div className="tk-action-row"><button className="btn btn-primary btn-sm" disabled={busy}>{busy?'Đang lưu…':'Lưu cấu hình'}</button><button type="button" className="btn btn-gray btn-sm" disabled={busy} onClick={onClose}>Huỷ</button>{service&&<button type="button" className="btn btn-gray btn-sm" disabled={busy} onClick={async()=>{if(!confirm('Xoá dòng cấu hình báo cáo này? Dữ liệu quảng cáo trên Meta được giữ nguyên.'))return;setBusy(true);setError('');try{await api.deleteAdsService(service.id);onSaved();}catch(e:any){setError(e.message);}finally{setBusy(false);}}}><Icon name="trash" size={13}/>Xoá dòng</button>}</div>
+    <div className="tk-action-row"><button className="btn btn-primary btn-sm" disabled={busy}>{busy?'Đang lưu…':'Lưu cấu hình'}</button><button type="button" className="btn btn-gray btn-sm" disabled={busy} onClick={onClose}>Huỷ</button>{service&&<button type="button" className="btn btn-gray btn-sm" disabled={busy} onClick={async()=>{if(!await askConfirm('Xoá dòng cấu hình báo cáo này? Dữ liệu quảng cáo trên Meta được giữ nguyên.'))return;setBusy(true);setError('');try{await api.deleteAdsService(service.id);onSaved();}catch(e:any){setError(e.message);}finally{setBusy(false);}}}><Icon name="trash" size={13}/>Xoá dòng</button>}</div>
   </form></div>,document.body);
 }
