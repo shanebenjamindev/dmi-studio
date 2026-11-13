@@ -4847,10 +4847,12 @@ a.rail-item { text-decoration: none; }
 .crm-missing h3 { margin:0; font-size:16px; color:var(--label); }
 .crm-missing .note { margin:0; max-width:420px; }
 .crm-missing-actions { display:flex; gap:8px; margin-top:6px; flex-wrap:wrap; justify-content:center; }
-.crm-side-title { display:flex; align-items:flex-start; gap:8px; padding:0 8px; }
-/* The customer's name (and status) beside the button that folds the menu, which keeps to the top right corner. */
-.crm-side-title > div { display:flex; flex-direction:column; gap:4px; flex:1; min-width:0; }
-.crm-side-title > .crm-side-fold-btn { flex:none; margin:-4px -4px 0 0; }
+.crm-side-title { display:flex; flex-direction:column; gap:6px; padding:0 8px; }
+/* As the Tasks page's menu: the small heading and the fold button on one row, the customer's name and status under it. */
+.crm-side-top { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:32px; }
+.crm-side-top > span { font-size:11px; font-weight:600; color:var(--label-3); text-transform:uppercase; letter-spacing:.05em; }
+.crm-side-top > .crm-side-fold-btn { flex:none; margin-right:-6px; }
+.crm-side-name { display:flex; flex-direction:column; align-items:flex-start; gap:6px; min-width:0; }
 .crm-side-title span { color:var(--bd-muted); font-size:11px; }
 .crm-side-title h2 { margin:0; font-size:17px; line-height:1.35; letter-spacing:-.3px; overflow-wrap:anywhere; }
 .crm-side-status { align-self:flex-start; display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:999px; background:color-mix(in srgb, var(--stage-color) 14%, transparent); color:var(--bd-text); font-style:normal; font-size:11.5px; font-weight:500; }
@@ -8101,3 +8103,16 @@ button.fo-tile { cursor: pointer; } button.fo-tile:hover { border-color: var(--a
 .reading-tabs:not([aria-orientation="vertical"])::-webkit-scrollbar { display: none; }
 .tk-mailbox.has-selection .tk-head .reading-tabs button:not([aria-selected="true"]):has(> svg) > span { display: none; }
 .tk-mailbox.has-selection .tk-head .reading-tabs button:not([aria-selected="true"]):has(> svg) { padding-inline: 10px; }
+/* Tổng quan inside a list pane that does not scroll itself (a project's tasks): it scrolls on its own. */
+.tk-list-pane > .fo { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* Replying on the task page: who is answered on one line with a small ×, a full-width box, the buttons at the right. */
+.wework-reply-input-wrap { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.wework-replying-to { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--label-2); }
+.wework-replying-to > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wework-replying-to > button { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--label-3); cursor: pointer; }
+.wework-replying-to > button:hover { background: var(--fill); color: var(--label); }
+.wework-reply-input-wrap textarea { box-sizing: border-box; width: 100%; min-height: 64px; padding: 8px 10px; border: 1px solid var(--sep); border-radius: 8px; background: var(--surface); color: var(--label); font: inherit; font-size: 13px; line-height: 1.45; resize: vertical; }
+.wework-reply-input-wrap textarea:focus { outline: none; border-color: var(--tint); box-shadow: 0 0 0 3px var(--tint-soft, rgba(11, 125, 242, .15)); }
+.wework-reply-btns { display: flex; justify-content: flex-end; gap: 8px; }
+.crm-side-fold-btn { color: var(--label-2); }
+.crm-side-fold-btn:hover { color: var(--label); background: var(--fill-2); }

@@ -13,7 +13,9 @@ import { assigneeUsers, placeTaskCard, projectCustomerChanged, projectHome, rena
 import { TASK_MASTER } from '../shared/task-master';
 import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
 import { isHold, projectStage } from '../shared/projects';
-import { projectServices, saveProjectServices, saveTaskServices, serviceIds, settleCustomerServices, taskServices } from './project-services';
+import { oneService, projectServices, saveProjectServices, saveTaskServices, serviceIds, settleCustomerServices, taskServices } from './project-services';
+/** A project is one service of its customer (Khách → Dịch vụ → Công việc). */
+const ONE_SERVICE = 'Mỗi dự án là một dịch vụ của khách: chỉ chọn một dịch vụ';
 /** A description or result as written (formatted text is never cut, which would break it): too long is refused. */
 const richIn = (x: unknown) => { const v = String(x ?? ''); if (v.length > RICH_MAX) throw new HttpError(413, RICH_TOO_LONG); return v; };
 import type { Req } from './http';
@@ -400,7 +402,7 @@ export function registerTasks(api: Router) {
     if(customerId)await requireCustomer(user.id,customerId,'admin');
     const teamId=body.teamId!==undefined?(body.teamId?String(body.teamId):null):user.team_role||null;
     if(teamId&&!await get('SELECT id FROM team_roles WHERE id=?',teamId))throw new HttpError(400,'Phòng ban không tồn tại');
-    const services=body.services!==undefined?await serviceIds(body.services):null;
+    const services=body.services!==undefined?await oneService(body.services,ONE_SERVICE):null;
     const id=uid('tj_');
     await run('INSERT INTO task_projects(id,name,customer_id,created_by,team_id,created_at) VALUES(?,?,?,?,?,?)',id,name,customerId,user.id,teamId,now());
     // The services chosen for it (the form offers its customer's as defaults), or else those still set on the customer.
@@ -435,7 +437,7 @@ export function registerTasks(api: Router) {
       if(cid)await settleCustomerServices([cid]);
     }
     // What the project is for: services of the catalogue (its customer's services are those of its projects).
-    if(body.services!==undefined)await saveProjectServices(id,await serviceIds(body.services),user.id);
+    if(body.services!==undefined)await saveProjectServices(id,await oneService(body.services,ONE_SERVICE),user.id);
     // Put on hold or cancelled by its managers, or (null) back to following its tasks.
     if(body.hold!==undefined){
       if(body.hold!==null&&!isHold(body.hold))throw new HttpError(400,'Trạng thái dự án không hợp lệ');

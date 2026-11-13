@@ -1367,6 +1367,8 @@ test('a customer\'s services are its projects\'; services once set on a customer
   assert.deepEqual((await listed(old.id)).find(p=>p.id===first.id).services.map(n=>n.name),['Meta Ads','Website']);
   // From then on they are the project's: dropping one there drops it from the customer.
   assert.equal((await server.call('PUT',`/api/task-projects/${first.id}`,{services:[web.id]},ac)).status,200);
+  // A project is one service of its customer: two are refused.
+  assert.equal((await server.call('PUT',`/api/task-projects/${first.id}`,{services:[web.id,ads.id]},ac)).status,400);
   assert.deepEqual(await names(old.id),['Website']);
   // A new project gets the services it is created with (the form offers the customer's); the customer has them all.
   const second=(await server.call('POST','/api/task-projects',{name:'Dự án quảng cáo',customerId:old.id,services:[ads.id]},ac)).data;

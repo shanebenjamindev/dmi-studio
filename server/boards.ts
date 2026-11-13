@@ -24,9 +24,9 @@ import type { Req } from './http';
 import { all, get, run, uid, now } from './db';
 import { assertCardFlow, assertLinkedTaskEditable, syncCardToTask, cardDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
 import { statusKey } from './taskimport';
-import { boardServices, saveBoardServices, serviceIds } from './project-services';
+import { boardServices, oneService, saveBoardServices } from './project-services';
 /** A board is of one service (its kind): none or one of the catalogue. */
-const boardService = async (v: unknown) => { const ids = await serviceIds(v); if (ids.length > 1) throw new HttpError(400, 'Mỗi board chỉ có một dịch vụ'); return ids; };
+const boardService = (v: unknown) => oneService(v, 'Mỗi board chỉ có một dịch vụ');
 import { notifyPeople } from './notifications';
 import { currentUser, PAGES, pagesOf, deptLevel, USER_SQL, type Level } from './auth';
 import { customerFile, clientCustomers } from './workspace';

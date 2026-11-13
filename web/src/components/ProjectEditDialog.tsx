@@ -44,7 +44,7 @@ export function ProjectEditDialog({ project, onClose, onSaved }: { project: Proj
         <fieldset disabled={busy}>
           <label>Tên dự án<input className="bk-in" autoFocus required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} /></label>
           <label>Khách hàng<select className="bk-in" value={customer} onChange={(e) => setCustomer(e.target.value)}><option value="">Dự án nội bộ (không gắn khách hàng)</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-          <div className="qc-field"><span>Dịch vụ</span><ServicePicker value={services} onChange={setServices} known={project.services} /></div>
+          <div className="qc-field"><span>Dịch vụ</span><ServicePicker single value={services} onChange={setServices} known={project.services} /></div>
           <label>Trạng thái dự án<select className="bk-in" value={hold} onChange={(e) => setHold(e.target.value)}><option value="">Theo tiến độ công việc</option><option value="paused">Tạm dừng</option><option value="cancelled">Đã huỷ</option></select></label>
         </fieldset>
         {error && <p className="note err" role="alert">{error}</p>}

@@ -24,7 +24,7 @@ import { driveId, locate } from './sources';
 import {customerStatuses,customerStatus,defaultCustomerStatus} from './customer-statuses';
 import { renameProjectBoard, projectHome, projectCustomerChanged } from './taskworkspace';
 import { syncProjectCards } from './work-sync';
-import { customerServices, projectServices, saveProjectServices, serviceIds, settleCustomerServices } from './project-services';
+import { customerServices, oneService, projectServices, saveProjectServices, settleCustomerServices } from './project-services';
 import { customerBoardId, syncBoardPeople } from './board-people';
 
 const pexec = promisify(execFile);
@@ -841,7 +841,7 @@ export function registerWorkspace(api: Router) {
       json(res, 200, { id: p.id, name: p.name }); return;
     }
     if (!name || name.length > 200) throw new HttpError(400, 'Tên dự án cần từ 1 đến 200 ký tự');
-    const services = b.services !== undefined ? await serviceIds(b.services) : null;
+    const services = b.services !== undefined ? await oneService(b.services, 'Mỗi dự án là một dịch vụ của khách: chỉ chọn một dịch vụ') : null;
     const id = uid('tj_');
     await run('INSERT INTO task_projects(id,name,customer_id,created_at) VALUES(?,?,?,?)', id, name, req.params.id, now());
     const creator=(await currentUser(req))!;await run('UPDATE task_projects SET created_by=?,team_id=? WHERE id=?',creator.id,creator.team_role||null,id);

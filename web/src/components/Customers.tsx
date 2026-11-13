@@ -112,8 +112,9 @@ export function CustomersPage() {
         <div className="crm-side-title">
           {!sideFolded ? (
             <>
-              <div><span>Khách hàng</span><h2>{current?.name || 'Khách hàng'}</h2>{status&&<em className="crm-side-status" style={{'--stage-color':status.color} as CSSProperties}>{status.name}</em>}</div>
-              <button type="button" className="bd-icon crm-side-fold-btn" onClick={() => foldSide(true)} title="Thu gọn menu" aria-label="Thu gọn menu"><Icon name="left" size={14} /></button>
+              {/* As the Tasks page's menu: a small heading with the fold button on its right, the customer under it. */}
+              <div className="crm-side-top"><span>Khách hàng</span><button type="button" className="bd-icon crm-side-fold-btn" onClick={() => foldSide(true)} title="Thu gọn menu" aria-label="Thu gọn menu"><Icon name="left" size={16} /></button></div>
+              <div className="crm-side-name"><h2>{current?.name || 'Khách hàng'}</h2>{status&&<em className="crm-side-status" style={{'--stage-color':status.color} as CSSProperties}>{status.name}</em>}</div>
             </>
           ) : (
             <button type="button" className="bd-icon crm-side-fold-btn" onClick={() => foldSide(false)} title="Mở rộng menu" aria-label="Mở rộng menu"><Icon name="right" size={14} /></button>

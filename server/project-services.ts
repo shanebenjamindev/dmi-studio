@@ -32,6 +32,12 @@ export async function serviceIds(v: unknown) {
   for (const id of ids) if (!(await get('SELECT 1 FROM services WHERE id = ? AND deleted_at IS NULL', id))) throw new HttpError(400, 'Không tìm thấy dịch vụ trong danh mục');
   return ids;
 }
+/** The service of a project (a customer's service) or of a board (its kind): none or one, `refused` said otherwise. */
+export async function oneService(v: unknown, refused: string) {
+  const ids = await serviceIds(v);
+  if (ids.length > 1) throw new HttpError(400, refused);
+  return ids;
+}
 /** Makes these the project's services. */
 export async function saveProjectServices(projectId: string, ids: string[], by: string) {
   await run('DELETE FROM project_services WHERE project_id = ? AND service_id NOT IN (SELECT value FROM json_each(?))', projectId, JSON.stringify(ids));

@@ -54,7 +54,7 @@ function ProjectServices({ p, canEdit, onChanged }: { p: ProjectRow; canEdit: bo
     try { await api.updateTaskProject(p.id, { services: next }); onChanged(); } catch (e: any) { setIds(before); toast(e.message, true); }
   };
   if (!canEdit && !ids.length) return null;
-  return <section className="project-services"><h3>Dịch vụ</h3><ServicePicker value={ids} onChange={(next) => void save(next)} known={p.services} disabled={!canEdit} /></section>;
+  return <section className="project-services"><h3>Dịch vụ</h3><ServicePicker single value={ids} onChange={(next) => void save(next)} known={p.services} disabled={!canEdit} /></section>;
 }
 
 /** Work projects and their tasks. Video projects live in the editor under Tools. */
