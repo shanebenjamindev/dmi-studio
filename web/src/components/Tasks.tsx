@@ -618,6 +618,9 @@ function WeworkTaskView({
   const [titleDraft, setTitleDraft] = useState(t.title);
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState(t.description || '');
+  // The work's result (a link to what was posted, logins handed over…): read and written by those who may (null: not them).
+  const [editingResult, setEditingResult] = useState(false);
+  const [resultDraft, setResultDraft] = useState(t.result || '');
   const [foldAssignor, setFoldAssignor] = useState(false);
   const [foldFollowers, setFoldFollowers] = useState(false);
   // The review workflow opens from its step's badge (one button), shut until then.
@@ -758,8 +761,10 @@ function WeworkTaskView({
   const selectedUserIds = t.assignees.flatMap((p) => (p.userId && meta?.users.some((u) => u.id === p.userId) ? [p.userId] : []));
   const legacyIds = t.assignees.filter((p) => !p.userId || !meta?.users.some((u) => u.id === p.userId)).map((p) => p.id);
   const toggleMember = (userId: string) => {
-    const nextUsers = selectedUserIds.includes(userId) ? selectedUserIds.filter((x) => x !== userId) : [...selectedUserIds, userId];
-    void act(() => api.updateTask(t.id, { assigneeUserIds: nextUsers, assigneeIds: legacyIds }));
+    // One person does a task: picking someone replaces who did it.
+    const picked = !selectedUserIds.includes(userId);
+    if (picked) setPop(null);
+    void act(() => api.updateTask(t.id, { assigneeUserIds: picked ? [userId] : [], assigneeIds: picked ? [] : legacyIds }));
   };
 
   return (
@@ -858,6 +863,34 @@ function WeworkTaskView({
             </div>
           )}
         </section>
+
+        {/* Kết quả công việc: kept with each submission for review (TaskFlow). */}
+        {t.result !== null ? (
+          <section className="wework-bento-card wework-desc-card wework-result-card">
+            <div className="wework-bento-title">
+              <Icon name="check" size={14} />
+              <span>KẾT QUẢ CÔNG VIỆC</span>
+            </div>
+            {editingResult ? (
+              <div className="wework-desc-edit">
+                <RichEditor value={resultDraft} onChange={setResultDraft} placeholder="Link bài đăng, tài khoản bàn giao, file kết quả…" autoFocus onSubmit={() => void act(async () => { await api.updateTask(t.id, { result: resultDraft }); setEditingResult(false); })} />
+                <div className="cm-row" style={{ marginTop: 10 }}>
+                  <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void act(async () => { await api.updateTask(t.id, { result: resultDraft }); setEditingResult(false); })}>{busy ? 'Đang lưu…' : 'Lưu'}</button>
+                  <button className="btn btn-gray btn-sm" disabled={busy} onClick={() => setEditingResult(false)}>Huỷ</button>
+                </div>
+              </div>
+            ) : (
+              <div className="wework-desc-body" onClick={(e) => { if (edit && !(e.target as HTMLElement).closest('a')) { setResultDraft(t.result || ''); setEditingResult(true); } }} title={edit ? 'Bấm để ghi kết quả công việc' : undefined}>
+                {t.result ? <RichView text={t.result} /> : <p className="note" style={{ margin: 0, padding: '8px 0' }}>{edit ? 'Chưa có kết quả. Bấm để ghi link bài đăng, tài khoản bàn giao…' : 'Chưa có kết quả.'}</p>}
+              </div>
+            )}
+          </section>
+        ) : t.resultHidden && (
+          <section className="wework-bento-card wework-desc-card">
+            <div className="wework-bento-title"><Icon name="check" size={14} /><span>KẾT QUẢ CÔNG VIỆC</span></div>
+            <p className="note" style={{ margin: 0 }}>Chỉ người làm, người tạo và quản lý công việc xem được kết quả.</p>
+          </section>
+        )}
 
         {/* Bento Box 4: Subtasks */}
         {(t.childTasks.length > 0 || edit) && (
@@ -1246,7 +1279,7 @@ function WeworkTaskView({
 
       {pop?.kind === 'members' && meta && (
         <Pop anchor={pop.el} title="Thành viên" onClose={closePop}>
-          <MemberChoices people={meta.users} selected={selectedUserIds} onToggle={toggleMember} />
+          <MemberChoices people={meta.users} exclude={[me.id]} chosenLabel="Người thực hiện" selected={selectedUserIds} onToggle={toggleMember} />
         </Pop>
       )}
 
@@ -1464,8 +1497,10 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
   const selectedUserIds = t.assignees.flatMap((p) => (p.userId && meta?.users.some((u) => u.id === p.userId) ? [p.userId] : []));
   const legacyIds = t.assignees.filter((p) => !p.userId || !meta?.users.some((u) => u.id === p.userId)).map((p) => p.id);
   const toggleMember = (userId: string) => {
-    const nextUsers = selectedUserIds.includes(userId) ? selectedUserIds.filter((x) => x !== userId) : [...selectedUserIds, userId];
-    void act(() => api.updateTask(t.id, { assigneeUserIds: nextUsers, assigneeIds: legacyIds }));
+    // One person does a task: picking someone replaces who did it.
+    const picked = !selectedUserIds.includes(userId);
+    if (picked) setPop(null);
+    void act(() => api.updateTask(t.id, { assigneeUserIds: picked ? [userId] : [], assigneeIds: picked ? [] : legacyIds }));
   };
 
   const top = (
@@ -1673,7 +1708,7 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
       )}
       {pop?.kind === 'members' && meta && (
         <Pop anchor={pop.el} title="Thành viên" onClose={closePop}>
-          <MemberChoices people={meta.users} selected={selectedUserIds} onToggle={toggleMember} />
+          <MemberChoices people={meta.users} exclude={[me.id]} chosenLabel="Người thực hiện" selected={selectedUserIds} onToggle={toggleMember} />
         </Pop>
       )}
       {pop?.kind === 'actions' && (
@@ -1717,9 +1752,10 @@ function TaskInlineField({task,field,label,value,multiline=false,meta,children,o
  <div className="tk-action-row"><button type="submit" className="btn btn-primary btn-sm">{busy?'Đang lưu…':'Lưu'}</button><button type="button" className="btn btn-gray btn-sm" onClick={()=>setEditing(false)}>Huỷ</button></div></fieldset>{error&&<p className="note err" role="alert">{error}</p>}</form>:<div className="tk-editable" role="button" tabIndex={0} aria-label={`Sửa ${label.toLocaleLowerCase('vi')}`} title="Bấm để sửa" onClick={e=>{if((e.target as HTMLElement).closest('a,button'))return;setDraft(value);setError('');setEditing(true);}} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setDraft(value);setError('');setEditing(true);}}}>{children}<Icon name="edit" size={13}/></div>;
 }
 function TaskInlineMembers({task,meta,onSaved}:{task:TaskDetail;meta:TaskMeta;onSaved:()=>void}){
+ const me=useStore((s)=>s.user);
  const[users,setUsers]=useState(task.assignees.flatMap(p=>p.userId&&meta.users.some(u=>u.id===p.userId)?[p.userId]:[])),[legacy,setLegacy]=useState(task.assignees.filter(p=>!p.userId||!meta.users.some(u=>u.id===p.userId)).map(p=>p.id)),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const save=async(nextUsers:string[],nextLegacy:string[])=>{if(busy)return;setBusy(true);setError('');try{await api.updateTask(task.id,{assigneeUserIds:nextUsers,assigneeIds:nextLegacy});setUsers(nextUsers);setLegacy(nextLegacy);onSaved();}catch(e:any){setError(e.message);}finally{setBusy(false);}};
- return <div className="tk-inline-members" aria-busy={busy}><fieldset disabled={busy}><EmployeePicker users={meta.users} selected={users} onChange={ids=>void save(ids,legacy)} legacy={task.assignees.filter(p=>legacy.includes(p.id))} onLegacyChange={ids=>void save(users,ids)}/></fieldset>{busy&&<small>Đang lưu…</small>}{error&&<p className="note err" role="alert">{error}</p>}</div>;
+ return <div className="tk-inline-members" aria-busy={busy}><fieldset disabled={busy}><EmployeePicker single exclude={me ? [me.id] : []} label="Người thực hiện" users={meta.users} selected={users} onChange={ids=>void save(ids,ids.length?[]:legacy)} legacy={task.assignees.filter(p=>legacy.includes(p.id))} onLegacyChange={ids=>void save(users,ids)}/></fieldset>{busy&&<small>Đang lưu…</small>}{error&&<p className="note err" role="alert">{error}</p>}</div>;
 }
 
 function TaskInlineFollowers({task,meta,onSaved}:{task:TaskDetail;meta:TaskMeta;onSaved:()=>void}){
@@ -1730,6 +1766,8 @@ function TaskInlineFollowers({task,meta,onSaved}:{task:TaskDetail;meta:TaskMeta;
 
 export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, campaignId, parentId, parentTask, onClose, onSaved }: { inline?:boolean; task?: TaskDetail; meta?: TaskMeta; projectId?: string; campaignId?:string; parentId?: string; parentTask?: TaskDetail | TaskItem; onClose: () => void; onSaved: (id: string) => void }) {
   const[meta,setMeta]=useState<TaskMeta | null>(initialMeta || null);
+  // Whoever gives a task out is not offered to do it.
+  const me=useStore((s)=>s.user);
   const reloadMeta=()=>api.taskMeta().then(setMeta);
   useEffect(()=>{ if(!meta) void reloadMeta().catch(()=>{}); },[meta]);
   useEntityRefresh(()=>{void reloadMeta().catch(()=>{});});
@@ -1850,7 +1888,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
         </div>
       </div>
       <label>Nhãn tuỳ chỉnh<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label>
-      <div className="tk-staff-picker"><EmployeePicker users={meta.users} selected={users} onChange={setUsers} legacy={task?.assignees.filter(p=>people.includes(p.id)) || []} onLegacyChange={setPeople}/></div>
+      <div className="tk-staff-picker"><EmployeePicker single exclude={me ? [me.id] : []} label="Người thực hiện" users={meta.users} selected={users} onChange={setUsers} legacy={task?.assignees.filter(p=>people.includes(p.id)) || []} onLegacyChange={setPeople}/></div>
       <div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
       {!task&&(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dịch vụ'} được tự động thêm khi lưu.</p>}
     </fieldset>):(<fieldset disabled={busy} className="tk-create-fields tk-cc">
@@ -1893,7 +1931,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       {pick?.kind === 'place' && <ClientServicePop anchor={pick.el} customerId={place.customerId} serviceId={place.service?.id || null} onClose={() => setPick(null)}
         onPick={async (projectId) => { await reloadMeta(); setProject(projectId); setCampaign(''); setParent(''); setPick(null); }}
         onClear={project ? () => { setProject(''); setPick(null); } : undefined} />}
-      {pick?.kind === 'members' && <Pop anchor={pick.el} title="Người thực hiện" onClose={() => setPick(null)}><MemberChoices people={meta.users} selected={users} onToggle={(id) => setUsers(users.includes(id) ? users.filter((x) => x !== id) : [...users, id])} /></Pop>}
+      {pick?.kind === 'members' && <Pop anchor={pick.el} title="Người thực hiện" onClose={() => setPick(null)}><MemberChoices people={meta.users} exclude={me ? [me.id] : []} chosenLabel="Người thực hiện" selected={users} onToggle={(id) => { setUsers(users.includes(id) ? [] : [id]); setPick(null); }} /></Pop>}
       {pick?.kind === 'labels' && <Pop anchor={pick.el} title="Nhãn" onClose={() => setPick(null)}>
         <div className="tk-tag-chips">{availableLabels.map((lbl) => { const active = currentLabelList.some((l) => l.toLowerCase() === lbl.name.toLowerCase()); return <button key={lbl.id || lbl.name} type="button" className={'tk-tag-chip' + (active ? ' active' : '') + (/khẩn|gấp/i.test(lbl.name) ? ' urgent' : '')} onClick={() => toggleTag(lbl.name)}>{lbl.name}{active && <span className="tk-tag-check">✔</span>}</button>; })}</div>
         <h5>Nhãn khác (cách nhau bằng dấu phẩy)</h5><input className="bk-in" value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="Vd: Paid Ads, Khẩn cấp…" />

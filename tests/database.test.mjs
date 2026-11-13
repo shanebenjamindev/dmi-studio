@@ -677,7 +677,8 @@ test('imported tasks support CRUD and permission-checked two-way Workspace card 
     assert.equal(created.status,201);
     const child=await server.call('POST','/api/tasks',{title:'Local child',parentId:created.data.id},ed.cookie);
     assert.equal(child.status,201);
-    assert.equal((await server.call('GET','/api/tasks',undefined,ed.cookie)).data.tasks.some(t=>t.id===created.data.id),true);
+    // Given to no one (its maker never gets it by default), it is the maker's under "Tôi giao đi".
+    assert.equal((await server.call('GET','/api/tasks?rel=created',undefined,ed.cookie)).data.tasks.some(t=>t.id===created.data.id),true);
     assert.equal((await server.call('DELETE',`/api/tasks/${created.data.id}`,undefined,ed.cookie)).status,200);
     assert.equal((await server.call('GET',`/api/tasks/${child.data.id}`,undefined,ed.cookie)).data.parent,null);
     assert.equal((await server.call('DELETE',`/api/tasks/${id}`,undefined,ac)).status,200);
@@ -929,10 +930,12 @@ test('customer directory links existing folders, multiple campaigns and multi-pe
     assert.equal(c1.status,201); assert.equal(c2.status,201);
     const people = [];
     for (const name of ['Staff A','Staff B']) people.push((await server.call('POST','/api/task-people',{name},cookie)).data.id);
-    const task = await server.call('POST','/api/tasks',{title:'Campaign work',projectId:c1.data.id,assigneeIds:people},cookie);
+    // One person does a task: two are refused.
+    assert.equal((await server.call('POST','/api/tasks',{title:'Two people',projectId:c1.data.id,assigneeIds:people},cookie)).status,400);
+    const task = await server.call('POST','/api/tasks',{title:'Campaign work',projectId:c1.data.id,assigneeIds:[people[0]]},cookie);
     assert.equal(task.status,201,JSON.stringify(task.data));
     const taskDetail = await server.call('GET',`/api/tasks/${task.data.id}`,undefined,cookie);
-    assert.equal(taskDetail.data.assignees.length,2);
+    assert.equal(taskDetail.data.assignees.length,1);
     const campaigns = await server.call('GET',`/api/customers/${id}/projects`,undefined,cookie);
     assert.equal(campaigns.data.length,2);
     assert.equal(campaigns.data.find(c => c.id === c1.data.id).tasks,1);
@@ -941,13 +944,13 @@ test('customer directory links existing folders, multiple campaigns and multi-pe
     assert.equal((await server.call('POST',`/api/customers/${id}/projects`,{name:'Forbidden'},staff.cookie)).status,404);
     assert.equal((await server.call('PUT',`/api/customers/${id}/projects/${c1.data.id}`,{unlink:true},staff.cookie)).status,404);
     assert.equal((await server.call('POST','/api/tasks/master',{projectId:c1.data.id,keys:['email_sms'],assigneeIds:people},staff.cookie)).status,403);
-    const master = await server.call('POST','/api/tasks/master',{projectId:c1.data.id,keys:['email_sms','ads_onboarding'],assigneeIds:people},cookie);
+    const master = await server.call('POST','/api/tasks/master',{projectId:c1.data.id,keys:['email_sms','ads_onboarding'],assigneeIds:[people[0]]},cookie);
     assert.equal(master.status,200,JSON.stringify(master.data));
     assert.equal(master.data.created,2);
     const seeded = await server.call('GET',`/api/tasks/${master.data.ids[0]}`,undefined,cookie);
-    assert.equal(seeded.data.assignees.length,2);
+    assert.equal(seeded.data.assignees.length,1);
     await server.call('PUT',`/api/tasks/${master.data.ids[0]}`,{title:'Customized master task',assigneeIds:[people[0]]},cookie);
-    const repeated = await server.call('POST','/api/tasks/master',{projectId:c1.data.id,keys:['email_sms','ads_onboarding','crm'],assigneeIds:people},cookie);
+    const repeated = await server.call('POST','/api/tasks/master',{projectId:c1.data.id,keys:['email_sms','ads_onboarding','crm'],assigneeIds:[people[0]]},cookie);
     assert.equal(repeated.data.created,1);assert.equal(repeated.data.kept,2);
     const preserved = await server.call('GET',`/api/tasks/${master.data.ids[0]}`,undefined,cookie);
     assert.equal(preserved.data.title,'Customized master task');assert.equal(preserved.data.assignees.length,1);
@@ -958,7 +961,7 @@ test('customer directory links existing folders, multiple campaigns and multi-pe
     assert.equal((await server.call('POST',`/api/customers/${second.data.id}/projects`,{projectId:c1.data.id},cookie)).status,409);
     assert.equal((await server.call('PUT',`/api/customers/${id}/projects/${c1.data.id}`,{unlink:true},cookie)).status,200);
     const kept = await server.call('GET',`/api/tasks/${task.data.id}`,undefined,cookie);
-    assert.equal(kept.status,200); assert.equal(kept.data.assignees.length,2);
+    assert.equal(kept.status,200); assert.equal(kept.data.assignees.length,1);
     assert.equal((await server.call('POST',`/api/customers/${second.data.id}/projects`,{projectId:c1.data.id},cookie)).status,200);
   } finally { if (server) await server.close(); await rm(dir,{recursive:true,force:true}); }
 });

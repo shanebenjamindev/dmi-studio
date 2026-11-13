@@ -131,12 +131,14 @@ test('Workers: accounts, cookies, cross-isolate Google state, permissions and or
     // Someone else follows it: whoever makes a change is not mailed about it, the follower is.
     const mate = await call(a, 'POST', '/api/users', { name: 'Mail Mate', email: 'mate@example.test', password: 'test-password', role: 'member', notifyEmail: 'mate.personal@example.test' }, setup.cookie);
     assert.equal(mate.status, 201, JSON.stringify(mate.data));
-    const task = await call(a, 'POST', '/api/tasks', { title: 'D1 task', description: 'Shared working text', result: 'private', assigneeUserIds: [setup.data.user.id], followerUserIds: [mate.data.id] }, setup.cookie);
+    // Nobody gives a task to themselves; it goes to someone else.
+    assert.equal((await call(a, 'POST', '/api/tasks', { title: 'Self', assigneeUserIds: [setup.data.user.id] }, setup.cookie)).status, 400);
+    const task = await call(a, 'POST', '/api/tasks', { title: 'D1 task', description: 'Shared working text', result: 'private', assigneeUserIds: [mate.data.id], followerUserIds: [mate.data.id] }, setup.cookie);
     assert.equal(task.status, 201, JSON.stringify(task.data));
     const taskId = task.data.id;
     const staff = await call(a, 'POST', '/api/task-people', { userId: setup.data.user.id }, setup.cookie);
     assert.equal(staff.status, 201);
-    assert.equal((await call(b, 'GET', `/api/tasks/${taskId}`, undefined, setup.cookie)).data.assignees[0].userId, setup.data.user.id);
+    assert.equal((await call(b, 'GET', `/api/tasks/${taskId}`, undefined, setup.cookie)).data.assignees[0].userId, mate.data.id);
     const boardItems = await call(a, 'GET', '/api/boards', undefined, setup.cookie);
     const board = await call(a, 'GET', `/api/boards/${boardItems.data[0].id}`, undefined, setup.cookie);
     const linked = await call(a, 'POST', `/api/tasks/${taskId}/card`, { listId: board.data.lists[0].id }, setup.cookie);

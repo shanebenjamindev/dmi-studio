@@ -325,6 +325,16 @@ async function taskInput(b: any, old?: any,userId?:string) {
     for (const id of userIds) if (!await get('SELECT 1 FROM users WHERE id=? AND disabled=0',id)) throw new HttpError(400,'Người được giao phải là tài khoản đang hoạt động');
     if ((people?.length||0)+userIds.length>20) throw new HttpError(400,'Mỗi công việc tối đa 20 người được giao');
   }
+  // One person does a task, and whoever gives it out does not give it to themselves (a choice already made stays).
+  if (people !== undefined || userIds !== undefined) {
+    const before = old ? await all<any>('SELECT p.id, p.user_id FROM task_assignees a JOIN task_people p ON p.id=a.person_id WHERE a.task_id=?', old.id) : [];
+    const nextPeople = people ?? before.filter((r) => !r.user_id).map((r) => r.id), nextUsers = userIds ?? before.filter((r) => r.user_id).map((r) => r.user_id);
+    const same = nextPeople.every((id) => before.some((r) => r.id === id)) && nextUsers.every((id) => before.some((r) => r.user_id === id));
+    if (nextPeople.length + nextUsers.length > 1 && !same) throw new HttpError(400, 'Mỗi công việc chỉ giao cho một người');
+    const selfPeople = userId ? (await all<any>('SELECT id FROM task_people WHERE user_id=?', userId)).map((r) => r.id) : [];
+    const selfNew = !!userId && (nextUsers.includes(userId) && !before.some((r) => r.user_id === userId) || nextPeople.some((id) => selfPeople.includes(id) && !before.some((r) => r.id === id)));
+    if (selfNew) throw new HttpError(400, 'Không tự giao việc cho mình: hãy chọn người khác');
+  }
   let followers: string[] | undefined;
   if (b.followerUserIds !== undefined) {
     if (!Array.isArray(b.followerUserIds) || b.followerUserIds.length > 50 || b.followerUserIds.some((x:any)=>typeof x!=='string')) throw new HttpError(400,'Danh sách người theo dõi không hợp lệ');
@@ -737,7 +747,7 @@ export function registerTasks(api: Router) {
     if (!creator) { creator = { id: uid('tp_') }; await run('INSERT INTO task_people(id,name,user_id,created_at) VALUES(?,?,?,?)', creator.id, u.name, u.id, now()); }
     // Given to someone when made, it starts in Execution; otherwise its Account gives it out first.
     const handedOut = !!(input.people?.length || input.userIds?.length);
-    if (input.people === undefined && input.userIds === undefined) input.people = [creator.id];
+    // Given to no one, it waits in ACCOUNT to be given out (never to its maker by default).
     const reviewer = b.reviewerUserId ? String(b.reviewerUserId) : null;
     if (reviewer && !await get('SELECT 1 FROM users WHERE id=? AND disabled=0', reviewer)) throw new HttpError(400, 'Người duyệt phải là tài khoản đang hoạt động');
     const id = uid('tk_'), at = now();

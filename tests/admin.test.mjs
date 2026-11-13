@@ -318,7 +318,9 @@ test('quick notes belong to their writer alone, stay out of the logs; task tabs 
     // "Giao cho tôi", "Tôi giao đi", "Đang theo dõi".
     const given = ok(await s.call('POST', '/api/tasks', { title: 'Given to ann', assigneeUserIds: [ann.id] }, bob.cookie));
     const made = ok(await s.call('POST', '/api/tasks', { title: 'Made by ann', assigneeUserIds: [bob.id] }, ann.cookie));
-    const followed = ok(await s.call('POST', '/api/tasks', { title: 'Followed by ann', assigneeUserIds: [bob.id], followerUserIds: [ann.id] }, bob.cookie));
+    // Nobody gives a task to themselves: one given out by bob goes to someone else, or waits in ACCOUNT.
+    assert.equal((await s.call('POST', '/api/tasks', { title: 'Self', assigneeUserIds: [bob.id] }, bob.cookie)).status, 400);
+    const followed = ok(await s.call('POST', '/api/tasks', { title: 'Followed by ann', followerUserIds: [ann.id] }, bob.cookie));
     const titles = async (rel) => ok(await s.call('GET', `/api/tasks?scope=mine&rel=${rel}`, undefined, ann.cookie)).tasks.map((t) => t.id);
     assert.deepEqual(await titles('assigned'), [given.id]);
     assert.deepEqual(await titles('created'), [made.id]);

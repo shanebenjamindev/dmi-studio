@@ -125,11 +125,11 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
                 <button className="cm-chip cm-add-chip" onClick={open('add')} aria-haspopup="dialog" aria-expanded={pop?.kind === 'add'}><Icon name="plus" size={14} />Thêm</button>
                 {!c.customerId && <button className="cm-chip" onClick={open('customer')}><Icon name="folder" size={14} />Khách hàng</button>}
                 {!c.projectId && <button className="cm-chip" onClick={open('project')}><Icon name="layers" size={14} />Dịch vụ</button>}
-                {!c.members.includes(me.id) && <button className="cm-chip" onClick={() => act(() => api.cardMember(c.id, me.id, true))}><Icon name="user" size={14} />Tham gia</button>}
+                {!c.linkedTask && !c.members.includes(me.id) && <button className="cm-chip" onClick={() => act(() => api.cardMember(c.id, me.id, true))}><Icon name="user" size={14} />Tham gia</button>}
                 {labels.length === 0 && <button className="cm-chip" onClick={open('labels')}><Icon name="tag" size={14} />Nhãn</button>}
                 {!c.dueAt && !c.startAt && <button className="cm-chip" onClick={open('dates')}><Icon name="clock" size={14} />Ngày</button>}
                 <button className="cm-chip" onClick={open('checklist')}><Icon name="checklist" size={14} />Việc cần làm</button>
-                {members.length === 0 && <button className="cm-chip" onClick={open('members')}><Icon name="user" size={14} />Thành viên</button>}
+                {members.length === 0 && <button className="cm-chip" onClick={open('members')}><Icon name="user" size={14} />{c.linkedTask ? 'Người thực hiện' : 'Thành viên'}</button>}
               </div>
             ) : <p className="cm-readonly"><Icon name="info" size={15} />Bạn chỉ có quyền xem board này: đọc và bình luận được, không sửa được thẻ.</p>}
             {(members.length > 0 || labels.length > 0 || c.dueAt || c.startAt || c.customerId || c.projectId) && (
@@ -503,7 +503,7 @@ export function CardPop({ pop, card, board, me, edit, setPop, act, onGone }: {
       return <Pop anchor={pop.el} title="Thêm vào thẻ" onClose={close}><div className="cm-add-menu">{items.map((item) => <button key={item.kind} onClick={() => (item.kind === 'subtask' ? void addChild() : setPop({ kind: item.kind, el: pop.el }))}><span className="cm-add-icon"><Icon name={item.icon} size={19} /></span><span><b>{item.title}</b><small>{item.desc}</small></span></button>)}{drive && card.customerId && <button onClick={() => setPop({ kind: 'files', el: pop.el })}><span className="cm-add-icon"><Icon name="check" size={19} /></span><span><b>Kết quả công việc</b><small>Chọn file từ thư mục khách hàng</small></span></button>}</div></Pop>;
     }
     case 'members': {
-      return <Pop anchor={pop.el} title="Thành viên" onClose={close}><CardMemberChoices board={board} card={card} onToggle={id=>act(()=>api.cardMember(card.id,id,!card.members.includes(id)))}/><QuickCreateButton kind="employee" label="Tạo nhân viên và thêm vào board / thẻ" onCreated={async r=>{if(!await act(async()=>{await api.setBoardMember(board.id,r.id,'normal');await api.cardMember(card.id,r.id,true);}))throw new Error('Chưa thêm được nhân viên vào thẻ');}}/></Pop>;
+      return <Pop anchor={pop.el} title={card.linkedTask ? 'Người thực hiện' : 'Thành viên'} onClose={close}><CardMemberChoices board={board} card={card} me={me} onToggle={id=>{ if (card.linkedTask && !card.members.includes(id)) close(); act(()=>api.cardMember(card.id,id,!card.members.includes(id))); }}/><QuickCreateButton kind="employee" label="Tạo nhân viên và thêm vào board / thẻ" onCreated={async r=>{if(!await act(async()=>{await api.setBoardMember(board.id,r.id,'normal');await api.cardMember(card.id,r.id,true);}))throw new Error('Chưa thêm được nhân viên vào thẻ');}}/></Pop>;
     }
     case 'labels': {
       const list = board.labels.filter((l) => !q.trim() || l.name.toLowerCase().includes(q.trim().toLowerCase()) || COLOR_NAME[l.color]?.includes(q.trim().toLowerCase()));
@@ -572,10 +572,12 @@ export function CardPop({ pop, card, board, me, edit, setPop, act, onGone }: {
 }
 
 /** The board's people first, then everyone else in the company (picking one adds them to the board). */
-function CardMemberChoices({ board, card, onToggle }: { board: Board; card: CardDetail; onToggle: (id: string) => void }) {
+/** A card's people; one that is a task has one person doing it, never its giver (`me`): them only, the chooser left out. */
+function CardMemberChoices({ board, card, me, onToggle }: { board: Board; card: CardDetail; me: User; onToggle: (id: string) => void }) {
   const [people, setPeople] = useState<{ id: string; name: string; email: string }[]>([]);
   useEffect(() => { let on = true; api.boardMembers(board.id).then((r) => { if (on) setPeople(r.people); }, () => {}); return () => { on = false; }; }, [board.id, board.members.length]);
-  return <MemberChoices people={board.members} others={people} selected={card.members} onToggle={onToggle} />;
+  const task = !!card.linkedTask;
+  return <MemberChoices people={board.members} others={people} selected={card.members} onToggle={onToggle} exclude={task ? [me.id] : []} chosenLabel={task ? 'Người thực hiện' : 'Thành viên của thẻ'} />;
 }
 
 function LabelEdit({ cardId, anchor, board, label, onBack, onClose, act }: { cardId:string; anchor: HTMLElement; board: Board; label: BoardLabel | null; onBack: () => void; onClose: () => void; act: (fn: () => Promise<unknown>) => Promise<boolean> }) {

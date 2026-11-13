@@ -4966,5 +4966,15 @@ const EN: Record<string, string> = {
   "Cửa sổ Tạo công việc mới có cùng giao diện với cửa sổ thẻ: tên công việc và hàng nút nhanh (Khách hàng, Dịch vụ, Thành viên, Nhãn, Ngày, Người duyệt), phần đã chọn hiện như mục thông tin của thẻ, Mô tả và Tuỳ chọn khác trong các khối riêng. Esc trong một cửa sổ chọn chỉ đóng cửa sổ đó; bong bóng chat ẩn khi đang mở cửa sổ.": "The New task window looks like a card's: the title and quick buttons (Customer, Service, Members, Labels, Dates, Reviewer), what is chosen shown as a card's facts, Description and More options in their own sections. Esc in a picker closes only it; the chat bubble hides while a window is open.",
   "Nhãn khác (cách nhau bằng dấu phẩy)": "Other labels (comma separated)",
   "Thêm người thực hiện": "Add an assignee",
+  "Mỗi công việc chỉ giao cho một người": "A task goes to one person only",
+  "Không tự giao việc cho mình: hãy chọn người khác": "You don't give work to yourself: pick someone else",
+  "KẾT QUẢ CÔNG VIỆC": "WORK RESULT",
+  "Link bài đăng, tài khoản bàn giao, file kết quả…": "Post links, handed-over accounts, result files…",
+  "Chưa có kết quả. Bấm để ghi link bài đăng, tài khoản bàn giao…": "No result yet. Click to note post links, handed-over accounts…",
+  "Chưa có kết quả.": "No result yet.",
+  "Chỉ người làm, người tạo và quản lý công việc xem được kết quả.": "Only the assignee, the creator and the task's managers see the result.",
+  "Bấm để ghi kết quả công việc": "Click to note the work result",
+  "Mỗi công việc chỉ giao cho một người: chọn người khác thì thay người cũ; danh sách chọn không có chính bạn (không tự giao việc cho mình). Công việc tạo mới hoặc thẻ mới không còn tự gán cho người tạo, chờ ở ACCOUNT để giao. Thẻ là công việc không còn nút Tham gia.": "A task goes to one person: picking another replaces them; the list leaves you out (you don't give work to yourself). New tasks and cards are no longer given to their maker; they wait in ACCOUNT to be given out. Task cards drop the Join button.",
+  "Trang chi tiết công việc có khối Kết quả công việc (bấm để ghi link bài đăng, tài khoản bàn giao…).": "The task page has a Work result section (click to note links, handed-over accounts…).",
 };
 export default EN;

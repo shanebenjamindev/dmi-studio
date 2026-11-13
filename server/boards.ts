@@ -25,6 +25,11 @@ import { all, get, run, uid, now } from './db';
 import { assertCardFlow, assertLinkedTaskEditable, syncCardToTask, cardDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
 import { statusKey } from './taskimport';
 import { boardServices, oneService, saveBoardServices } from './project-services';
+/** A task made from a card starts at the step of its column, with that step's status (a column of no step keeps its name). */
+async function atColumnStep(taskId: string, column: string, dueAt: number | null, doneAt: number | null) {
+  const step = columnStage(column);
+  if (step) await run('UPDATE tasks SET stage=?, status=? WHERE id=?', step, await statusFor(step, { id: taskId, due_at: dueAt }, doneAt, await flowSettings()), taskId);
+}
 /** A board is of one service (its kind): none or one of the catalogue. */
 const boardService = (v: unknown) => oneService(v, 'Mỗi board chỉ có một dịch vụ');
 import { notifyPeople } from './notifications';
@@ -953,7 +958,8 @@ export function registerBoards(api: Router) {
       if (isDone) await run('UPDATE board_cards SET done=1 WHERE id=?',id);
       await run('INSERT INTO tasks(id,title,status,start_at,due_at,done_at,project_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
         taskId, title, l.name, null, null, doneAt, workProjectId, null, '', null, creator.id, t, t);
-      await run('INSERT OR IGNORE INTO task_assignees(task_id, person_id) VALUES(?,?)', taskId, creator.id);
+      // Given to no one yet (its maker gives it out), at the step of its column.
+      await atColumnStep(taskId, l.name, null, doneAt);
       await run('INSERT OR IGNORE INTO task_board_links(task_id, card_id) VALUES(?,?)', taskId, id);
     }
 
@@ -1027,7 +1033,7 @@ export function registerBoards(api: Router) {
         const isDone = ['done', 'done_late'].includes(statusKey(list?.name || ''));
         await run('INSERT INTO tasks(id,title,status,start_at,due_at,done_at,project_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
           taskId, c.title, list?.name || '', c.start_at, c.due_at, isDone ? t : null, prj.id, null, c.description || '', null, creator.id, t, t);
-        await run('INSERT OR IGNORE INTO task_assignees(task_id, person_id) VALUES(?,?)', taskId, creator.id);
+        await atColumnStep(taskId, list?.name || '', c.due_at, isDone ? t : null);
         await run('INSERT OR IGNORE INTO task_board_links(task_id, card_id) VALUES(?,?)', taskId, c.id);
       }
       const parentCard = prj ? await get<any>('SELECT id FROM board_cards WHERE board_id=? AND work_project_id=?', c.board_id, prj.id) : null;
@@ -1053,7 +1059,6 @@ export function registerBoards(api: Router) {
         const project = c.work_project_id || (c.project_card_id ? (await get<any>('SELECT work_project_id FROM board_cards WHERE id=?', c.project_card_id))?.work_project_id : null) || null;
         await run('INSERT INTO tasks(id,title,status,stage,start_at,due_at,done_at,project_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
           taskId, c.title, status, step, c.start_at, c.due_at, doneAt, project, null, c.description || '', null, creator.id, t, t);
-        await run('INSERT OR IGNORE INTO task_assignees(task_id, person_id) VALUES(?,?)', taskId, creator.id);
         await run('INSERT OR IGNORE INTO task_board_links(task_id, card_id) VALUES(?,?)', taskId, c.id);
       }
     }
@@ -1140,6 +1145,9 @@ export function registerBoards(api: Router) {
     const c = await mustCard(req, req.params.id), b = await readJson(req), u = await me(req);
     const board = await get<any>('SELECT * FROM boards WHERE id = ?', c.board_id);
     let who = (await membersOf(board)).find((m) => m.id === String(b.userId));
+    // A card that is a task has one person doing it, never put there by themselves: putting someone on replaces who was.
+    const taskLink = await get<any>('SELECT task_id FROM task_board_links WHERE card_id=?', c.id);
+    if (b.on && taskLink && String(b.userId) === u.id) throw new HttpError(400, 'Không tự giao việc cho mình: hãy chọn người khác');
     if (b.on) {
       // Anyone on the team can be put on a card: someone not on the board yet joins it, and the card's customer and
       // project open to them as a member (their level can be changed afterwards in those members dialogs).
@@ -1155,6 +1163,10 @@ export function registerBoards(api: Router) {
       }
     }
     if (!who) throw new HttpError(404, 'Người này không xem được board');
+    if (b.on && taskLink) {
+      await run('DELETE FROM card_members WHERE card_id=? AND user_id<>?', c.id, who.id);
+      await run('DELETE FROM task_assignees WHERE task_id=? AND person_id NOT IN (SELECT id FROM task_people WHERE user_id=?)', taskLink.task_id, who.id);
+    }
     if (b.on && (await run('INSERT OR IGNORE INTO card_members(card_id, user_id) VALUES(?,?)', c.id, who.id)).changes)
       await notifyPeople([who.id], u.id, { title: 'Bạn được thêm vào thẻ', body: `${c.title} · ${board.name}`, link: `#boards/${board.id}/c/${c.id}`, cardId: c.id });
     else await run('DELETE FROM card_members WHERE card_id = ? AND user_id = ?', c.id, who.id);
