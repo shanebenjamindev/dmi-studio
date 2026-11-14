@@ -13,7 +13,14 @@ interface Conv { id: string; title: string; updatedAt: number; waiting: number }
 
 const OPEN = 'dms:assistant';
 export const openAssistant = () => window.dispatchEvent(new Event(OPEN));
+// The assistant runs on the paid Claude API: without a key on the server it does not show at all (Claude works on DMI
+// through the MCP connector in the person's own Claude app instead).
+let ready: Promise<boolean> | null = null;
+const available = () => (ready ||= fetch('/api/assistant').then((r) => (r.ok ? r.json() : null)).then((j) => !!j?.enabled, () => false));
 export function AssistantButton() {
+  const [on, setOn] = useState(false);
+  useEffect(() => { void available().then(setOn); }, []);
+  if (!on) return null;
   return <button className="tb-theme-btn" onClick={openAssistant} title="Trợ lý AI (⌘J)" aria-label="Mở Trợ lý AI"><Icon name="sparkle" size={18} /></button>;
 }
 
@@ -73,7 +80,7 @@ export function Assistant() {
   const boxRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    const toggle = () => setOpen((v) => !v);
+    const toggle = () => void available().then((on) => { if (on) setOpen((v) => !v); });
     const key = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') { e.preventDefault(); toggle(); } };
     window.addEventListener(OPEN, toggle); window.addEventListener('keydown', key);
     return () => { window.removeEventListener(OPEN, toggle); window.removeEventListener('keydown', key); };

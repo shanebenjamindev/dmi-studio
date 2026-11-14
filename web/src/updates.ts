@@ -9,13 +9,6 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
-    id: '2026-11-14-3',
-    date: '14/11/2026',
-    items: [
-      { kind: 'new', vi: 'Trợ lý AI ngay trong DMI: bấm nút ✦ trên thanh trên cùng (hoặc ⌘J / Ctrl+J), hỏi hay nhờ Claude làm việc với công việc, khách hàng, dịch vụ. Claude dùng đúng quyền của bạn; mọi thay đổi hiện thẻ để bạn bấm Duyệt hoặc Từ chối trước khi chạy. Các cuộc trò chuyện được lưu, có hạn mức token mỗi tháng.', en: 'AI assistant right in DMI: click ✦ in the top bar (or ⌘J / Ctrl+J) and ask Claude, or have it work on tasks, customers and services. Claude has exactly your rights; every change shows a card to Approve or Decline before it runs. Conversations are kept, with a monthly token allowance.' },
-    ],
-  },
-  {
     id: '2026-11-14-2',
     date: '14/11/2026',
     items: [
