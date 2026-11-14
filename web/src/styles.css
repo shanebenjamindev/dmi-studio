@@ -7935,3 +7935,14 @@ body:has(.bd-modal, .cm-back, .bk-pop, dialog[open]) .fmsg-bubble { display: non
 
 .as .spinner.sm { width: 12px; height: 12px; border-width: 2px; border-color: var(--fill-2); border-top-color: var(--tint); }
 body.as-open .fmsg-heads-stack { display: none; }
+/* Hồ sơ › Kết nối Claude (ClaudeConnect.tsx) */
+.claude-connect > header .ico { color: var(--tint); }
+.claude-connect ol { margin: 0 0 16px; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; font-size: 13px; line-height: 1.6; }
+.cc-copy { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.cc-copy code { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 8px; background: var(--fill-2); font-size: 12px; overflow-wrap: anywhere; }
+.cc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cc-list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--bd-line); border-radius: 10px; }
+.cc-list li span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.cc-list small { color: var(--label-3); font-size: 12px; }
+.cc-list .danger { color: #dc2626; }
+

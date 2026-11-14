@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { Readable } from 'node:stream';
 import { HttpError, json, readBody, publicOrigin, type Req, type Res, type Router } from './http';
-import { get, run, now } from './db';
+import { all, get, run, now } from './db';
 import { ACTING, USER_SQL, currentUser, type User } from './auth';
 import { CLOUD_STORAGE_ONLY } from './config';
 import { brief, need, read, seg, str, vn, when, write, type Call, type Tool } from './mcp-kit';
@@ -157,6 +157,21 @@ export function registerMcp(api: Router) {
       return json(res, 200, await issueTokens(client.id, t.user_id));
     }
     oauthError(res, 400, 'unsupported_grant_type', 'Chỉ hỗ trợ authorization_code và refresh_token');
+  });
+
+  // The Claude apps a person has connected (Hồ sơ › Kết nối Claude), and taking one back: its tokens go at once.
+  api.get('/api/mcp/connections', async (req, res) => {
+    const user = await currentUser(req);
+    if (!user) throw new HttpError(401, 'Hãy đăng nhập');
+    json(res, 200, await all<any>(`SELECT c.id, c.name, MIN(t.created_at) since, MAX(t.created_at) lastSeen FROM mcp_tokens t JOIN mcp_clients c ON c.id = t.client_id
+      WHERE t.user_id = ? AND t.expires_at > ? GROUP BY c.id, c.name ORDER BY lastSeen DESC`, user.id, now()));
+  });
+  api.delete('/api/mcp/connections/:clientId', async (req, res) => {
+    const user = await currentUser(req);
+    if (!user) throw new HttpError(401, 'Hãy đăng nhập');
+    await run('DELETE FROM mcp_tokens WHERE user_id = ? AND client_id = ?', user.id, req.params.clientId);
+    await run('DELETE FROM mcp_codes WHERE user_id = ? AND client_id = ?', user.id, req.params.clientId);
+    json(res, 200, { ok: true });
   });
 
   // ---------------------------------------------------------------- MCP

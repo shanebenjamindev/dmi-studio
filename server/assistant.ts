@@ -149,7 +149,12 @@ function sse(req: Req, res: Res, work: (emit: Emit, signal: { aborted: boolean; 
   req.on('close', () => { if (!res.writableEnded) { signal.aborted = true; signal.stream?.abort(); } });
   const emit: Emit = (event, data) => { if (!signal.aborted) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
   return work(emit, signal)
-    .catch((e: any) => emit('error', { message: e instanceof HttpError ? e.message : e instanceof Anthropic.RateLimitError ? 'Claude đang quá tải, thử lại sau ít phút.' : e instanceof Anthropic.APIError ? `Claude API lỗi ${e.status}` : 'Trợ lý gặp lỗi, hãy thử lại.' }))
+    .catch((e: any) => {
+      // The API's own reason (no credit, a model the key cannot use…) is what the person needs to fix it.
+      const reason = e instanceof Anthropic.APIError ? String(e.error?.error?.message || e.message || '').slice(0, 300) : '';
+      if (e instanceof Anthropic.APIError) console.error('Claude API', e.status, reason);
+      emit('error', { message: e instanceof HttpError ? e.message : e instanceof Anthropic.RateLimitError ? 'Claude đang quá tải, thử lại sau ít phút.' : e instanceof Anthropic.APIError ? `Claude API lỗi ${e.status}${reason ? `: ${reason}` : ''}` : 'Trợ lý gặp lỗi, hãy thử lại.' });
+    })
     .finally(() => { emit('done', {}); res.end(); });
 }
 

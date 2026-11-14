@@ -164,6 +164,15 @@ test('Claude connector: OAuth, tools, rights and safety', async () => {
     assert.equal((await call(A, 'get_video_project', { project_id: 'p_t1' })).v.renders.length, 1);
     db.close();
 
+    // M3: a person sees the Claude apps connected to their account and takes one back; nobody else can.
+    const listed = await (await json('GET', '/api/mcp/connections', undefined, { cookie: admin })).json();
+    assert.deepEqual(listed.map((c) => c.name), ['Test']);
+    assert.equal((await json('DELETE', `/api/mcp/connections/${client.client_id}`, undefined, { cookie: admin })).status, 200);
+    assert.equal((await json('POST', '/api/mcp', { jsonrpc: '2.0', id: 8, method: 'tools/list' }, { authorization: 'Bearer ' + A })).status, 401);
+    assert.equal((await call(M, 'whoami')).v.email, 'mia@example.test', 'revoking touches only the revoker\'s own tokens');
+    assert.deepEqual(await (await json('GET', '/api/mcp/connections', undefined, { cookie: admin })).json(), []);
+    assert.equal((await json('GET', '/api/mcp/connections')).status, 401);
+
     // O10: a locked account's token stops working
     const miaId = (await (await json('GET', '/api/auth/me', undefined, { cookie: mia })).json()).user.id;
     assert.equal((await json('PUT', `/api/users/${miaId}`, { disabled: true }, { cookie: admin })).status, 200);

@@ -9,6 +9,13 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-14-4',
+    date: '14/11/2026',
+    items: [
+      { kind: 'new', vi: 'Hồ sơ › Kết nối Claude: hướng dẫn dùng Claude của chính bạn (gói Pro hoặc Team, app Claude, Claude Code) để làm việc trong DMI, cùng danh sách app Claude đang kết nối với tài khoản của bạn và nút Thu hồi.', en: 'Profile › Connect Claude: how to use your own Claude (Pro or Team plan, the Claude apps, Claude Code) to work in DMI, with the Claude apps connected to your account and a Revoke button.' },
+    ],
+  },
+  {
     id: '2026-11-14-2',
     date: '14/11/2026',
     items: [
