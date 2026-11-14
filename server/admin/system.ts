@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { all, get, run, now, getSetting, setSetting, cloudDatabase } from '../db';
 import { HttpError, json, readJson, sendFile, type Router } from '../http';
-import { DATA_DIR, IS_CLOUDFLARE, CLOUD_STORAGE_ONLY, FFMPEG, CLAUDE_CLI, MOCK } from '../config';
+import { DATA_DIR, IS_CLOUDFLARE, CLOUD_STORAGE_ONLY, FFMPEG } from '../config';
 import { RETENTION_DEFAULT, RETENTION_MIN } from '../audit';
 import * as G from '../google';
 import { need, changed, logAction } from './common';
@@ -23,7 +23,7 @@ export function registerSystem(api: Router) {
     const mail = await getSetting<{ email?: string } | null>('notification_mail', null), root = await getSetting<{ label?: string } | null>('workspace_root', null);
     json(res, 200, {
       app: { name: 'DMI Workspace', version: '2.0.0', runtime: IS_CLOUDFLARE ? 'Cloudflare Workers' : `Node.js ${process.version}`, database: cloudDatabase ? 'Cloudflare D1' : 'SQLite (data/studio.db)',
-        storage: CLOUD_STORAGE_ONLY ? 'Google Drive' : 'Ổ đĩa máy chủ và Google Drive', editor: !CLOUD_STORAGE_ONLY && !!FFMPEG && !!CLAUDE_CLI, ffmpeg: !!FFMPEG, demo: MOCK, serverTime: now() },
+        storage: CLOUD_STORAGE_ONLY ? 'Google Drive' : 'Ổ đĩa máy chủ và Google Drive', editor: !CLOUD_STORAGE_ONLY && !!FFMPEG, ffmpeg: !!FFMPEG, serverTime: now() },
       counts: {
         users: await n('SELECT COUNT(*) n FROM users WHERE disabled = 0'), locked: await n('SELECT COUNT(*) n FROM users WHERE disabled = 1'), departments: await n('SELECT COUNT(*) n FROM team_roles'),
         teams: await n('SELECT COUNT(*) n FROM teams WHERE deleted_at IS NULL'), roles: await n('SELECT COUNT(*) n FROM roles'), tasks: await n('SELECT COUNT(*) n FROM tasks WHERE stub = 0'),

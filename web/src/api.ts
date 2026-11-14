@@ -1,7 +1,7 @@
 import {beginLoading} from './loading';
 import type { AdsService, AdsSummary } from '../../shared/ads-summary';
 // Typed client for the DMI Workspace REST API.
-import type { QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardViewKind, ClientCard, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Outro, OutroOpts, Status, Project, ProjectItem, Provider, Defaults, Job, Render, Storyboard, Aspect, ChatMsg, Customer, DriveFile, Source, Picked, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page, EditorLink } from './types';
+import type { QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardViewKind, ClientCard, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Outro, Status, Project, ProjectItem, Render, Hyperframes, Storyboard, Aspect, ChatMsg, Customer, DriveFile, Source, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page, EditorLink } from './types';
 import { askText } from './components/AskDialog';
 
 /** Called when the session has ended (401) so the app can show the sign-in page. */
@@ -221,14 +221,9 @@ export const api = {
   saveAdsSettings: (s: { metaToken?: string; metaVersion?: string }) => req<AdsSettings>('PUT', '/api/settings/ads', s),
   deleteUser: (id: string) => req('DELETE', `/api/users/${id}`),
   setSiteLock: (b: { on: boolean; message?: string }) => req<{ on: boolean; message: string }>('PUT', '/api/admin/site-lock', b),
-  health: () => req<{ ok: boolean; mock: boolean; ffmpeg: boolean; editor: boolean }>('GET', '/api/health'),
+  health: () => req<{ ok: boolean; ffmpeg: boolean; editor: boolean }>('GET', '/api/health'),
   editorLink: () => req<EditorLink>('GET', '/api/editor-link'),
   setEditorLink: (url: string) => req<EditorLink>('PUT', '/api/settings/editor-link', { url }),
-  providers: () => req<{ providers: Provider[]; defaults: Defaults }>('GET', '/api/providers'),
-  settings: () => req<{ keys: { env: string; source: 'saved' | 'env' | 'none'; masked: string }[]; defaults: Defaults; ffmpeg: boolean }>('GET', '/api/settings'),
-  setKey: (env: string, value: string) => req('PUT', '/api/settings/keys', { env, value }),
-  setDefaults: (d: Defaults) => req<Defaults>('PUT', '/api/settings/defaults', d),
-  addCustomModel: (provider: string, model: string, remove = false) => req('POST', '/api/settings/custom-models', { provider, model, remove }),
 
   listProjects: () => req<ProjectItem[]>('GET', '/api/projects'),
   createProject: (p: Partial<Project>) => req<Project>('POST', '/api/projects', p),
@@ -236,35 +231,19 @@ export const api = {
   saveProject: (id: string, p: { title?: string; aspect?: Aspect; storyboard?: Storyboard | null; chat?: ChatMsg[]; sources?: Source[]; sheet?: Sheet | null; outro?: Outro | null; status?: Status; note?: string; customerId?: string | null }) => req<Project>('PUT', `/api/projects/${id}`, p),
   projectDrive: (id: string, link: string) => req<Project>('POST', `/api/projects/${id}/drive`, { link }),
   projectAutoCustomer: (id: string) => req<Project>('POST', `/api/projects/${id}/customer/auto`),
-  outroLogo: (projectId: string, file: File, opts: OutroOpts) => req<{ outro: Outro }>('POST', `/api/projects/${projectId}/outro/logo?opts=${encodeURIComponent(JSON.stringify(opts))}`, file, { 'content-type': file.type }),
-  outroRender: (projectId: string, opts: OutroOpts) => req<{ outro: Outro }>('POST', `/api/projects/${projectId}/outro`, { opts }),
   duplicateProject: (id: string) => req<Project>('POST', `/api/projects/${id}/duplicate`),
   deleteProject: (id: string) => req('DELETE', `/api/projects/${id}`),
 
-  storyboard: (b: { provider: string; model: string; prompt: string; seconds: number; aspect: Aspect; style: string; brand: boolean; projectId?: string; sources?: Source[]; sheet?: Sheet | null }) =>
-    req<{ storyboard: Storyboard; picked: Picked[] | null }>('POST', '/api/ai/storyboard', b),
-  refine: (b: { provider: string; model: string; storyboard: Storyboard; instruction: string; brand: boolean; projectId?: string; sources?: Source[]; sheet?: Sheet | null }) =>
-    req<{ storyboard: Storyboard; picked: Picked[] | null }>('POST', '/api/ai/refine', b),
-  capcutStart: (projectId: string, to: 'capcut' | 'zip') => req<{ job: string }>('POST', `/api/projects/${projectId}/capcut`, { to }),
-  capcutStatus: (job: string) => req<{ phase: 'media' | 'pack' | 'done' | 'error'; to: 'capcut' | 'zip'; name: string; done: number; total: number; error: string | null; bytes: number }>('GET', `/api/capcut/${job}`),
-  capcutLocal: () => req<{ drafts: string }>('GET', '/api/capcut/local'),
-  capcutOpen: () => req<{ ok: true }>('POST', '/api/capcut/open'),
   sheetProgress: (token: string) => req<{ text: string }>('GET', `/api/sheets/progress/${token}`),
   sheetTabs: (link: string) => req<{ title: string; tabs: { name: string; cells: number }[] }>('POST', '/api/sheets/tabs', { link }),
   readSheet: (link: string, token?: string, tab?: string) => req<{ sheet: Sheet; sources: Source[]; missing: string[]; links: number; storyboard: Storyboard | null }>('POST', '/api/sheets/read', { link, token, tab }),
-  scanSources: (link: string) => req<{ folder: string; account: string; total: number; sources: Source[] }>('POST', '/api/sources/scan', { link }),
 
-  createJobs: (jobs: any[]) => req<Job[]>('POST', '/api/jobs', { jobs }),
-  jobs: (projectId: string) => req<Job[]>('GET', `/api/jobs?projectId=${encodeURIComponent(projectId)}`),
-  cancelJob: (id: string) => req<Job>('POST', `/api/jobs/${id}/cancel`),
-  templatePreviews: () => req<Job[]>('GET', '/api/templates/previews'),
-  uploadTemplateClip: (id: string, file: File, prompt: string, source: string) =>
-    req<Job>('POST', `/api/templates/${encodeURIComponent(id)}/preview?${new URLSearchParams({ prompt, source })}`, file, { 'content-type': file.type || 'video/mp4' }),
 
-  uploadRender: (projectId: string, blob: Blob, mp4: boolean) =>
-    req<{ id: string; transcodeJob: string | null }>('POST', `/api/projects/${projectId}/renders${mp4 ? '?mp4=1' : ''}`, blob, { 'content-type': blob.type || 'video/webm' }),
   renders: (projectId: string) => req<Render[]>('GET', `/api/projects/${projectId}/renders`),
   deleteRender: (id: string) => req('DELETE', `/api/renders/${id}`),
+  hyperframes: (projectId: string) => req<Hyperframes>('GET', `/api/projects/${projectId}/hyperframes`),
+  hyperframesPrepare: (projectId: string) => req<Hyperframes & { downloaded: string[]; failed: string[] }>('POST', `/api/projects/${projectId}/hyperframes/prepare`, {}),
+  hyperframesPreview: (projectId: string) => req<{ running: boolean; url: string | null }>('POST', `/api/projects/${projectId}/hyperframes/preview`, {}),
 
   /** `at` = the folder this person is browsing (null = the shared root). */
   workspace: (at: Loc | null = null) => req<WorkspaceInfo>('GET', `/api/workspace${atQ(at, '?')}`),

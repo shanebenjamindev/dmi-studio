@@ -3,7 +3,9 @@ import {gmailIssue} from '../shared/gmail-errors';
 // Several accounts can be connected; refresh tokens live in the settings table like the other API keys.
 import https from 'node:https';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type http from 'node:http';
 import { HttpError, untrustedHeaders } from './http';
 import { get, run, getSetting, setSetting } from './db';
@@ -290,6 +292,14 @@ export async function streamFile(email: string, id: string, req: http.IncomingMe
   // instead of letting the unhandled stream error take the whole server down.
   s.on('error', () => res.destroy());
   s.pipe(res);
+}
+/** Saves a whole file to disk (footage for a HyperFrames project on the Mac), through a .part file so a broken
+ *  download never looks finished. */
+export async function downloadFile(email: string, id: string, dest: string) {
+  const r = await gfetch(email, `${DRIVE}/files/${q(id)}?alt=media&supportsAllDrives=true`);
+  if (!r.ok || !r.body) throw new HttpError(r.status === 404 ? 404 : 502, `Google Drive: không tải được file (${r.status})`);
+  await pipeline(Readable.fromWeb(r.body as any), fs.createWriteStream(dest + '.part'));
+  await fs.promises.rename(dest + '.part', dest);
 }
 // Thumbnails: the link comes from the folder listing (no extra API call) and the image bytes are kept in memory.
 const thumbLinks = new Map<string, string>();

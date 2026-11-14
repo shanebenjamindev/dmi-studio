@@ -68,7 +68,11 @@ export function currentUser(req: http.IncomingMessage): Promise<User | null> {
   if (!u) asked.set(req, u = readUser(req));
   return u;
 }
+/** Set (in process only) on a request the Claude connector makes for the person who connected it (server/mcp.ts). */
+export const ACTING = Symbol('acting');
 async function readUser(req: http.IncomingMessage): Promise<User | null> {
+  const acting = (req as any)[ACTING] as User | undefined;
+  if (acting) return acting;
   const t = cookieToken(req);
   if (!t) return null;
   const u = await get<User>('SELECT u.*, d.level dept_level, d.name dept_role_name FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN dept_roles d ON d.id = u.dept_role AND d.team_role_id = u.team_role WHERE s.id = ? AND s.expires_at > ? AND u.disabled = 0', tokenId(t), now());
@@ -76,7 +80,8 @@ async function readUser(req: http.IncomingMessage): Promise<User | null> {
 }
 
 // ---------------------------------------------------------------- access rules
-const PUBLIC = [/^\/api\/auth\//, /^\/api\/health$/, /^\/api\/google\/callback$/];
+// The Claude connector checks its own tokens (server/mcp.ts).
+const PUBLIC = [/^\/api\/auth\//, /^\/api\/health$/, /^\/api\/google\/callback$/, /^\/api\/oauth\//, /^\/api\/mcp$/, /^\/\.well-known\/(oauth-|openid-configuration)/];
 /** What someone already signed in can still reach while the site is locked: enough to see the notice and sign out. */
 const LOCK_OPEN = /^\/api\/(auth\/(me|config|login|logout|google|setup|forgot|reset)|health|google\/callback)$/;
 // Settings that affect everyone (company admins only): who can sign in, departments and their roles, which Google
@@ -119,7 +124,7 @@ export async function pagesOf(u: User): Promise<Page[]> {
 const PAGE_OF: [RegExp, Page[]][] = [
   [/^\/api\/(customers|workspace|customer-tasks)(\/|$)/, ['workspace']],
   [/^\/api\/reports(\/|$)/, ['editor', 'ads']],
-  [/^\/api\/(projects|sheets|sources|proxies|capcut|outro|ai|jobs|renders|templates|editor-link)(\/|$)/, ['editor']],
+  [/^\/api\/(projects|sheets|sources|renders|editor-link)(\/|$)/, ['editor']],
   [/^\/api\/ads\//, ['ads']],
 ];
 /** The Khách hàng page's own records (list, record, members, projects, tasks, history) need no page: everyone sees the

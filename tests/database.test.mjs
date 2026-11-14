@@ -90,8 +90,8 @@ test('two backend instances share accounts, sessions, settings and customer note
     assert.equal((await a.call('GET','/api/profiles/missing',undefined,login.cookie)).status,404);
 
 
-    assert.equal((await a.call('PUT', '/api/settings/defaults', { language: 'vi' }, admin.cookie)).status, 200);
-    assert.equal((await b.call('GET', '/api/providers', undefined, login.cookie)).data.defaults.language, 'vi');
+    assert.equal((await a.call('PUT', '/api/settings/editor-link', { url: 'http://localhost:1' }, admin.cookie)).status, 200);
+    assert.equal((await b.call('GET', '/api/editor-link', undefined, admin.cookie)).data.url, 'http://localhost:1');
     const customer = await a.call('POST', '/api/customers', { name: 'Shared customer', notes: 'initial' }, admin.cookie);
     assert.equal(customer.status, 201);
     const cid = customer.data.id;

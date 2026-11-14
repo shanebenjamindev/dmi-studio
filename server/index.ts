@@ -7,14 +7,13 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { PORT, HOST, ASSET_DIR, WEB_DIST, MOCK, FFMPEG, PUBLIC_URL } from './config';
+import { PORT, HOST, ASSET_DIR, WEB_DIST, FFMPEG, PUBLIC_URL } from './config';
 import { HttpError, IMMUTABLE, json, sendFile, type Req } from './http';
-import { api, ProviderError } from './routes';
-import { startWorker } from './jobs';
-import { publicCatalog } from './providers/registry';
+import { api } from './routes';
 import { guard, type User } from './auth';
 import { withTrail, logError } from './audit';
 import { cloudDatabase, repairData } from './db';
+import './app'; // hands the API entry to the Claude connector (server/mcp.ts), as on the Worker
 
 // Hostnames this server answers to. Checking Host blocks DNS rebinding; checking Origin on writes
 // blocks other websites from driving the API (and spending API credit) through the user's browser.
@@ -32,6 +31,7 @@ function trustedRequest(req: http.IncomingMessage) {
   if (req.method === 'GET' || req.method === 'HEAD') return true;
   const origin = req.headers.origin;
   if (!origin) return true; // non-browser clients (curl, scripts)
+  if (/^\/api\/(mcp|oauth\/(token|register))$/.test(new URL(req.url || '/', 'http://local').pathname)) return true; // the Claude connector's token endpoints (server/mcp.ts)
   try { return new URL(origin).host.toLowerCase() === String(req.headers.host).toLowerCase(); } catch { return false; }
 }
 
@@ -46,8 +46,9 @@ const server = http.createServer(async (req0, res) => {
 
   let user: User | null = null;
   try {
-    if (req.path.startsWith('/api/') || req.path.startsWith('/assets/')) user = await guard(req);
-    if (req.path.startsWith('/api/')) {
+    const isApi = req.path.startsWith('/api/') || /^\/\.well-known\/(oauth-|openid-configuration)/.test(req.path);
+    if (isApi || req.path.startsWith('/assets/')) user = await guard(req);
+    if (isApi) {
       const m = api.match(req.method || 'GET', req.path);
       if (!m) throw new HttpError(404, 'Không có API này');
       req.params = m.params;
@@ -67,7 +68,7 @@ const server = http.createServer(async (req0, res) => {
     if (ui(req.path === '/' ? 'index.html' : req.path)) return;
     ui('index.html');
   } catch (e: any) {
-    const status = e instanceof HttpError ? e.status : e instanceof ProviderError ? (e.status >= 400 && e.status < 600 ? e.status : 502) : 500;
+    const status = e instanceof HttpError ? e.status : 500;
     if (status >= 500) { console.error('✖', req.method, req.path, e); if (req.path.startsWith('/api/')) await logError(req, user, e, status); }
     if (!res.headersSent) json(res, status, { error: e.message || 'Lỗi máy chủ', ...(e instanceof HttpError && e.need ? { need: e.need } : {}) });
     else res.end();
@@ -80,13 +81,10 @@ process.on('unhandledRejection', (e: any) => console.error('✖ Promise lỗi (s
 
 // Large video uploads can take longer than Node's default 5-minute request timeout.
 server.requestTimeout = 0;
-await startWorker();
-const ready = (await publicCatalog()).filter((p) => p.configured && !p.mock).map((p) => p.name);
 server.listen(PORT, HOST, () => {
   console.log(`\n  ▶ DMI Workspace  ${PUBLIC_URL || `http://localhost:${PORT}`}`);
   console.log(`    Database: ${cloudDatabase ? 'Cloudflare D1 (dùng chung)' : 'SQLite local'}`);
-  console.log(`    Nền tảng đã có key: ${ready.length ? [...new Set(ready)].join(', ') : 'chưa có — thêm trong ⚙︎ Cài đặt hoặc file .env'}`);
-  console.log(`    ffmpeg: ${FFMPEG ? 'có (xuất MP4)' : 'không có (xuất WebM/MP4 tuỳ trình duyệt)'}${MOCK ? '   · CHẾ ĐỘ DEMO' : ''}\n`);
+  console.log(`    ffmpeg: ${FFMPEG ? 'có (trình dựng HyperFrames dùng được)' : 'không có (trình dựng cần ffmpeg)'}\n`);
 });
 
 const mailTimer=setInterval(()=>{void drainNotifications().catch(()=>console.error('Chưa xử lý được hàng đợi email'));},60000);

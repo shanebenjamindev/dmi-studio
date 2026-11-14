@@ -110,14 +110,14 @@ export function Home() {
           : !shown.length ? <p className="home-empty">{q ? 'Không có dự án nào khớp.' : 'Chưa có dự án nào. Bấm “Tạo dự án” và dán link sheet để bắt đầu.'}</p>
           : view === 'list' ? (
             <div className="home-table" role="table">
-              <div className="home-tr head" role="row"><span /><span>Tên</span><span>Sheet</span><span>Clip</span><span>Độ dài</span><span>Sửa lần cuối</span><span /></div>
+              <div className="home-tr head" role="row"><span /><span>Tên</span><span>Sheet</span><span>Footage</span><span>Khung hình</span><span>Sửa lần cuối</span><span /></div>
               {shown.map((p) => (
                 <div key={p.id} className="home-tr" role="row" onClick={() => openProject(p.id)}>
                   <Thumb p={p} />
                   <span className="home-name">{p.title}</span>
                   <span className="home-sheet">{p.sheet ? <a href={p.sheet.link} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title={p.sheet.title}>📄 {p.sheet.customer || p.sheet.title}</a> : <em>—</em>}</span>
-                  <span className="mono">{p.clips}</span>
-                  <span className="mono">{fmt(p.duration)}</span>
+                  <span className="mono">{p.footage}</span>
+                  <span className="mono">{p.aspect}</span>
                   <span>{when(p.updatedAt)}</span>
                   <span className="home-actions" onClick={(e) => e.stopPropagation()}>
                     <IconButton icon="info" label="Chi tiết & báo cáo" size={15} onClick={() => setDetail(p.id)} />
@@ -134,7 +134,7 @@ export function Home() {
                   <Thumb p={p} big />
                   <div className="home-card-meta">
                     <b title={p.title}>{p.title}</b>
-                    <span>{p.sheet?.customer || '—'} · {p.clips} clip · {fmt(p.duration)} · {when(p.updatedAt)}</span>
+                    <span>{p.sheet?.customer || '—'} · {p.footage} footage · {p.aspect} · {when(p.updatedAt)}</span>
                   </div>
                   <span className="home-actions" onClick={(e) => e.stopPropagation()}>
                     <IconButton icon="info" label="Chi tiết & báo cáo" size={15} onClick={() => setDetail(p.id)} />

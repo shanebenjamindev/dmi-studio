@@ -28,7 +28,7 @@ export function useChanged(what: Topic, f: () => void) {
 }
 
 export type Panels = { inbox: boolean; planner: boolean; board: boolean };
-export const PANEL_NAME: Record<keyof Panels, string> = { inbox: 'Tin nhắn', planner: 'Planner', board: 'Board' };
+export const PANEL_NAME: Record<keyof Panels, string> = { inbox: 'Inbox', planner: 'Planner', board: 'Board' };
 
 // ---------------------------------------------------------------- planner
 const DAY = 864e5;
@@ -124,7 +124,7 @@ export function Dock({ panels, onToggle, onSwitch, switching }: { panels: Panels
         return (
           <button key={k} className={active ? 'on' : ''} aria-pressed={active} onClick={() => onToggle(k)}>
             <Icon name={icon[k]} size={16} />
-            {k === 'inbox' ? 'Messenger' : PANEL_NAME[k]}
+            {PANEL_NAME[k]}
             {k === 'inbox' && totalUnread > 0 && <span className="bd-dock-badge">{totalUnread > 9 ? '9+' : totalUnread}</span>}
           </button>
         );

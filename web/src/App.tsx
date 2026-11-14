@@ -5,7 +5,6 @@ import { WorkArea } from './components/WorkArea';
 import { TopBar, AppHeader } from './components/TopBar';
 import { LoginPage } from './components/Login';
 import { SiteLocked, SiteLockPill } from './components/SiteLock';
-import { ProjectsDialog, ExportDialog } from './components/Dialogs';
 import { pageFor, prefetchPages } from './pages';
 import { QuickNotes } from './components/QuickNotes';
 import { WhatsNew } from './components/WhatsNew';
@@ -29,6 +28,11 @@ class PageGuard extends Component<{ page: string; children: ReactNode }, { error
   }
 }
 
+// Connecting Claude (server/mcp.ts) while signed out lands on #oauth?…: kept for this tab through the sign-in (Google's
+// too), then back to the page that asks to allow it.
+const OAUTH = 'dms.oauth';
+if (location.hash.startsWith('#oauth?')) { try { sessionStorage.setItem(OAUTH, location.hash.slice(7)); } catch { /* private mode */ } history.replaceState(null, '', location.pathname); }
+
 export function App() {
   const ready = useStore((s) => s.ready);
   const busy=useStore(s=>s.busy);
@@ -42,6 +46,12 @@ export function App() {
   const Page = pageFor(view, can);
 
   useEffect(() => { init(); }, []);
+  useEffect(() => {
+    if (!user) return;
+    let q: string | null = null;
+    try { q = sessionStorage.getItem(OAUTH); sessionStorage.removeItem(OAUTH); } catch { /* private mode */ }
+    if (q) location.replace('/api/oauth/authorize?' + q);
+  }, [user?.id]);
   useEffect(() => { if (ready && user) prefetchPages(openPages(), can); }, [ready, user?.id, editorHere, can.admin]);
 
   return (
@@ -62,7 +72,7 @@ export function App() {
               </div>
             </div>
           </div>
-          <ProjectsDialog /><ExportDialog /><QuickNotes key={user.id} /><GlobalSearch key={'s' + user.id} /><Messenger key={'msg' + user.id} /><WhatsNew key={'wn' + user.id} />
+          <QuickNotes key={user.id} /><GlobalSearch key={'s' + user.id} /><Messenger key={'msg' + user.id} /><WhatsNew key={'wn' + user.id} />
         </>
       ) : <LoginPage />)}
       {ready&&<NetworkLoading busy={busy}/>}

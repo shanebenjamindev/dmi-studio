@@ -82,8 +82,8 @@ const LABELS: [string, RegExp, string][] = [
 ];
 // Saves that happen on their own while people work (the editor's autosave, page preferences, reading notifications,
 // upload sessions, browsing folders) would bury the changes people make. Quick notes are private: never logged.
-const QUIET = [/^\/api\/quick-notes(\/|$)/, /^\/api\/auth\/(prefs|login|setup)$/, /^\/api\/notifications\/read$/, /^\/api\/projects\/[^/]+$/, /^\/api\/proxies(\/|$)/, /^\/api\/sheets\//,
-  /^\/api\/customers\/[^/]+\/videos\/session/, /^\/api\/workspace\/browse$/, /^\/api\/sources\/scan$/, /^\/api\/jobs$/];
+const QUIET = [/^\/api\/quick-notes(\/|$)/, /^\/api\/auth\/(prefs|login|setup)$/, /^\/api\/notifications\/read$/, /^\/api\/projects\/[^/]+$/, /^\/api\/sheets\//,
+  /^\/api\/customers\/[^/]+\/videos\/session/, /^\/api\/workspace\/browse$/, /^\/api\/sources\/scan$/];
 
 async function snapshot(e: Entity, id: string) {
   const row = await get<any>(`SELECT * FROM ${e.table} WHERE id = ?`, id);

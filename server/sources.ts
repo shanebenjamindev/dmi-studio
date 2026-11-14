@@ -1,12 +1,10 @@
-// Source footage from Google Drive: paste a folder link, Claude looks at every thumbnail and keeps only
-// the clips/photos that fit the brief (or a chat edit), placing each one behind the scene it suits.
-// Files are streamed from Drive on demand; every URL is signed so the API can't be used to read arbitrary Drive files.
+// Source footage from Google Drive: the clips and photos a request sheet (or a pasted folder link) points at, for Claude
+// Code to look at and build with (server/video-mcp.ts). Files are streamed from Drive on demand; every URL is signed so
+// the API can't be used to read arbitrary Drive files.
 import crypto from 'node:crypto';
 import { Router, HttpError, json, readJson } from './http';
 import { getSetting, setSetting } from './db';
 import * as G from './google';
-import { STORYBOARD_SCHEMA } from './storyboard';
-import type { PromptImage } from './providers/llm';
 
 const MAX_SOURCES = 150;
 const MAX_FOLDERS = 60;
@@ -57,6 +55,9 @@ export async function sourceOut(account: string, f: Pick<G.GFile, 'id' | 'name' 
     url: `/api/sources/${encodeURIComponent(f.id)}?${q}`, thumb: `/api/sources/${encodeURIComponent(f.id)}/thumb?${q}`,
   };
 }
+
+/** Copies of one clip (the same file uploaded twice has two Drive ids): same name, same length. */
+export const copyKey = (f: Pick<G.GFile, 'name' | 'videoMediaMetadata'>) => `${f.name.trim().toLowerCase()}|${Math.round(Number(f.videoMediaMetadata?.durationMillis || 0) / 100)}`;
 
 // ---------------------------------------------------------------- scanning a Drive link
 /** Folder or file id from any Drive URL shape (…/folders/ID, …/file/d/ID/view, ?id=ID) or a bare id. */
@@ -109,127 +110,15 @@ export async function scan(link: string) {
     }
     level = next;
   }
-  const files = (await G.listMediaIn(account, [...paths.keys()])).filter((f) => f.mimeType.startsWith('video/')); // video only
+  // Video only, each clip once (a copy of one already listed is left out).
+  const seen = new Set<string>();
+  const files = (await G.listMediaIn(account, [...paths.keys()])).filter((f) => f.mimeType.startsWith('video/') && !seen.has(copyKey(f)) && !!seen.add(copyKey(f)));
   const sources: Source[] = [];
   for (const f of files.slice(0, MAX_SOURCES)) {
     G.rememberThumb(f.id, f.thumbnailLink);
     sources.push(await sourceOut(account, f, paths.get(f.parents?.[0] || '') || ''));
   }
   return { folder: file.name, account, total: files.length, sources };
-}
-
-// ---------------------------------------------------------------- prompting
-const label = (i: number) => `s${i + 1}`;
-
-export const SOURCE_SCHEMA = {
-  ...STORYBOARD_SCHEMA,
-  properties: {
-    ...STORYBOARD_SCHEMA.properties,
-    scenes: {
-      ...STORYBOARD_SCHEMA.properties.scenes,
-      items: {
-        ...STORYBOARD_SCHEMA.properties.scenes.items,
-        properties: { ...STORYBOARD_SCHEMA.properties.scenes.items.properties, source: { type: 'string', description: 'Label of the source shown behind this scene (e.g. "s3"), or "" for none.' } },
-        required: [...STORYBOARD_SCHEMA.properties.scenes.items.required, 'source'],
-      },
-    },
-    picked: {
-      type: 'array', description: 'Every source used, with a short reason in the language of the brief.',
-      items: { type: 'object', properties: { source: { type: 'string' }, reason: { type: 'string' } }, required: ['source', 'reason'] },
-    },
-  },
-  required: [...STORYBOARD_SCHEMA.required, 'picked'],
-};
-
-const RULES = `SOURCE FOOTAGE: the client's own clips and photos from Google Drive are shown above, one thumbnail per label (s1…sN; for videos the thumbnail is a single frame).
-1. Filter: use only sources that clearly fit the brief / edit request. Skip unrelated, blurry, near-duplicate or off-topic ones.
-2. For every scene set "source" to the label of the best matching source (prefer videos for motion), or "" when nothing fits (the animated background is used then). Use each source at most once unless there are fewer good sources than scenes.
-3. A scene that shows a video should not be longer than that clip.
-4. "visual_prompt": describe in English what the chosen source shows.
-5. In "picked", list every source you used with a short reason.`;
-
-export const FOOTAGE = 'CLIENT FOOTAGE: the clips and photos shown above, one thumbnail per label (s1…sN; a video shows one frame, its length is listed).';
-export async function sourcePrompt(sources: Source[], userContent: string, rules = RULES) {
-  const lines = sources.map((s, i) => `${label(i)} · ${s.kind === 'video' ? `video ${s.duration ? s.duration + 's' : ''}` : 'ảnh'} · "${s.name}"${s.folder ? ` · thư mục ${s.folder}` : ''}`);
-  const images: PromptImage[] = [];
-  let next = 0;
-  const work = async () => {
-    for (let i = next++; i < sources.length; i = next++) {
-      const s = sources[i];
-      try {
-        const t = await G.thumbBuffer(s.account, s.id);
-        images[i] = { label: `${lines[i]}:`, mime: t.type.split(';')[0], data: t.body };
-      } catch { /* no thumbnail yet (e.g. a clip Drive is still processing): the model gets its name only */ }
-    }
-  };
-  await Promise.all(Array.from({ length: 8 }, work));
-  const blind = sources.map((_, i) => i).filter((i) => !images[i]);
-  const text = [
-    blind.length ? `Sources without a thumbnail (judge by name):\n${blind.map((i) => lines[i]).join('\n')}\n` : '',
-    rules, '', userContent,
-  ].join('\n');
-  return { text, images: images.filter(Boolean) };
-}
-
-/** Current scene → source label, so a chat edit knows what each scene already shows. */
-export function withSourceLabels(sb: any, sources: Source[]) {
-  const at = new Map(sources.map((s, i) => [s.id, label(i)]));
-  const lab = (m: any) => (m?.provider === 'drive' ? at.get(m.assetId) || '' : '');
-  if (sb.mode === 'edit') { // an edit: shots and logo as labels, the shape the model answers in
-    return {
-      title: sb.title,
-      scenes: (sb.scenes || []).map((s: any) => ({
-        caption: s.caption, note: s.visual_prompt || '',
-        shots: (s.shots || []).map((x: any) => ({ source: lab(x.media), from: x.from || 0, dur: x.dur, why: '' })),
-      })),
-    };
-  }
-  return { ...sb, scenes: (sb.scenes || []).map((s: any) => ({ ...s, source: lab(s.media) })) };
-}
-
-export const refOf = (s: Source) => ({ type: s.kind, assetId: s.id, url: s.url, mime: s.mime, provider: 'drive', prompt: s.name, ...(s.duration ? { duration: s.duration } : {}) });
-const WPS = 2.6; // spoken words per second
-
-/**
- * The model's assembly → a storyboard in edit mode: shot labels become clips with in-points kept inside the clip,
- * scene length = its shots. No text, logo or music: the editor adds those. Returns what was used and why.
- */
-export function applyEdit(raw: any, sources: Source[]) {
-  const by = new Map(sources.map((s, i) => [label(i), s]));
-  const used = new Map<string, string>();
-  const scenes = (raw.scenes || []).map((sc: any) => {
-    const shots = (sc.shots || []).map((x: any) => {
-      const s = by.get(String(x.source || '').trim());
-      if (!s) return null;
-      const dur = Math.min(10, Math.max(0.3, Number(x.dur) || 1.5));
-      const room = s.kind === 'video' && s.duration ? Math.max(0, s.duration - dur) : 0;
-      if (!used.has(s.name)) used.set(s.name, String(x.why || ''));
-      return { media: refOf(s), from: Math.min(room, Math.max(0, Number(x.from) || 0)), dur, move: 'none' };
-    }).filter(Boolean);
-    const words = String(sc.caption || '').split(/\s+/).filter(Boolean).length;
-    const duration = Math.round((shots.reduce((a: number, x: any) => a + x.dur, 0) || Math.max(2, words / WPS)) * 100) / 100;
-    const note = String(sc.note || '');
-    return {
-      layout: 'title', animation: 'fade', background: 'solid', icon: '',
-      headline: note.slice(0, 60), subtext: '', caption: String(sc.caption || ''), visual_prompt: note,
-      duration, shots, texts: [], media: shots[0]?.media || null,
-    };
-  });
-  const sb = { title: raw.title, font: 'sans', music: { mood: 'none', bpm: 96 }, mode: 'edit', logo: null, scenes };
-  return { storyboard: sb, picked: [...used].map(([name, reason]) => ({ name, reason })) };
-}
-
-/** Turn the model's source labels into scene media and a readable list of what was picked. */
-export function applySources(raw: any, sources: Source[]) {
-  const by = new Map(sources.map((s, i) => [label(i), s]));
-  for (const scene of raw.scenes || []) {
-    const s = by.get(String(scene.source || '').trim());
-    scene.media = s ? { type: s.kind, assetId: s.id, url: s.url, mime: s.mime, provider: 'drive', prompt: s.name, ...(s.duration ? { duration: s.duration } : {}) } : null;
-    delete scene.source;
-  }
-  const picked = (raw.picked || []).map((p: any) => ({ name: by.get(String(p.source).trim())?.name, reason: String(p.reason || '') })).filter((p: any) => p.name);
-  delete raw.picked;
-  return picked as { name: string; reason: string }[];
 }
 
 // ---------------------------------------------------------------- routes

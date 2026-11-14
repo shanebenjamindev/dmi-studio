@@ -9,6 +9,7 @@ import { handleApi } from './app';
 import { initDatabase, repairData, type D1Binding } from './db';
 
 createServer(handleApi).listen(8787);
+const TOKEN_AUTH = /^\/api\/(mcp|oauth\/(token|register))$/;
 const nodeHandler = httpServerHandler({ port: 8787 });
 type WorkerRequest = Parameters<NonNullable<typeof nodeHandler.fetch>>[0];
 
@@ -25,8 +26,9 @@ export default {
       return Response.redirect(url.toString(), 301);
     }
     if (url.pathname.startsWith('/assets/')) return Response.json({ error: 'Video được lưu trên Google Drive.' }, { status: 404 });
-    if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
-    if (!['GET', 'HEAD'].includes(request.method)) {
+    if (!url.pathname.startsWith('/api/') && !/^\/\.well-known\/(oauth-|openid-configuration)/.test(url.pathname)) return env.ASSETS.fetch(request);
+    // The Claude connector's own endpoints answer apps, not this site's pages, and need no cookie (server/mcp.ts).
+    if (!['GET', 'HEAD'].includes(request.method) && !TOKEN_AUTH.test(url.pathname)) {
       const origin = request.headers.get('origin');
       if (origin && origin !== url.origin) return Response.json({ error: 'Origin không hợp lệ' }, { status: 403 });
     }

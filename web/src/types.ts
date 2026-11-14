@@ -72,7 +72,7 @@ export interface ProjectCustomer { id: string; name: string; label: string; driv
 export interface ChatMsg { who: 'user' | 'ai' | 'err'; text: string; at: number }
 export interface Project { id: string; title: string; aspect: Aspect; customerId?: string | null; storyboard: Storyboard | null; chat: ChatMsg[]; sources?: Source[]; sheet?: Sheet | null; outro?: Outro | null; status?: Status; note?: string; exports?: ExportRecord[]; customer?: ProjectCustomer | null; drive?: DriveLink | null; updatedAt: number; createdAt: number; scenes?: number; duration?: number; palette?: Palette }
 /** A row of the project list (no storyboard). */
-export interface ProjectItem { id: string; title: string; aspect: Aspect; updatedAt: number; createdAt: number; duration: number; clips: number; thumb: string | null; sheet: { title: string; link: string; customer: string; tab?: string; deadline?: string; urgent?: boolean; missing?: number; scenes?: number } | null; palette?: Palette; status: Status; outro: boolean; exported: number | null; customerId: string | null; customerName: string | null }
+export interface ProjectItem { id: string; title: string; aspect: Aspect; updatedAt: number; createdAt: number; footage: number; thumb: string | null; sheet: { title: string; link: string; customer: string; tab?: string; deadline?: string; urgent?: boolean; missing?: number; scenes?: number } | null; palette?: Palette; status: Status; outro: boolean; exported: number | null; customerId: string | null; customerName: string | null }
 export type Aspect = '16:9' | '9:16' | '1:1';
 
 export interface ProviderModel { id: string; label: string; note?: string; custom?: boolean }
@@ -88,6 +88,8 @@ export interface Job {
   status: 'queued' | 'running' | 'succeeded' | 'failed'; error?: string; result?: MediaRef | null; prompt: string; createdAt: number; updatedAt: number;
 }
 export interface Render { id: string; status: string; url: string; download: string; mime: string; bytes: number; createdAt: number }
+/** A project's HyperFrames folder on the Mac (server/hyperframes.ts): what it holds and its preview (HyperFrames Studio). */
+export interface Hyperframes { dir: string; exists: boolean; assets: string[]; brief: boolean; preview: { running: boolean; url: string | null } }
 
 export type Loc = { kind: 'fs'; dir: string } | { kind: 'gdrive'; account: string; id: string; label?: string; owned?: boolean };
 export type Storage = 'google' | 'desktop' | 'local';

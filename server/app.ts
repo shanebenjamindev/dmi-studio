@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError, json, type Req } from './http';
-import { api, ProviderError } from './routes';
+import { api } from './routes';
 import { guard, type User } from './auth';
 import { withTrail, logError } from './audit';
+import { useApiEntry } from './mcp';
 
 export async function handleApi(req0: IncomingMessage, res: ServerResponse) {
   const req = req0 as Req;
@@ -22,9 +23,10 @@ export async function handleApi(req0: IncomingMessage, res: ServerResponse) {
     req.params = route.params;
     await withTrail(req, res, user, () => route.h(req, res));
   } catch (e: any) {
-    const status = e instanceof HttpError ? e.status : e instanceof ProviderError ? (e.status >= 400 && e.status < 600 ? e.status : 502) : 500;
+    const status = e instanceof HttpError ? e.status : 500;
     if (status >= 500) { console.error('API error:', req.method, req.path); await logError(req, user, e, status); }
     if (!res.headersSent) json(res, status, { error: status >= 500 ? 'Không xử lý được yêu cầu, hãy thử lại.' : e.message, ...(e instanceof HttpError && e.need ? { need: e.need } : {}) });
     else res.end();
   }
 }
+useApiEntry(handleApi);

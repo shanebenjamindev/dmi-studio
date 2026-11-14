@@ -299,4 +299,15 @@ CREATE TABLE IF NOT EXISTS chat_reads (
   read_at INTEGER NOT NULL,
   PRIMARY KEY(user_id, conversation)
 );
+-- Claude connector (server/mcp.ts): the apps that registered, one-time sign-in codes and tokens, each kept as its hash.
+CREATE TABLE IF NOT EXISTS mcp_clients (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, redirect_uris TEXT NOT NULL, secret_hash TEXT, created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mcp_codes (
+  id TEXT PRIMARY KEY, client_id TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, redirect_uri TEXT NOT NULL, challenge TEXT NOT NULL, expires_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mcp_tokens (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, client_id TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS mcp_tokens_user ON mcp_tokens(user_id);
 `;

@@ -12,7 +12,7 @@ import { toggleMessenger } from './Messenger';
 // Existing board, Drive and editor addresses stay valid.
 const SECTIONS: Record<string, { title: string; sub: string; pages: Partial<Record<View, [string, string]>> }> = {
   work: { title: 'Công việc', sub: 'Công việc & dịch vụ', pages: { tasks: ['Công việc của tôi', 'checklist'], projects: ['Dịch vụ', 'folder'] } },
-  reports: { title: 'Báo cáo', sub: 'Báo cáo khách hàng & quảng cáo', pages: { reports: ['Tất cả báo cáo', 'file'], ads: ['Meta Ads', 'activity'] } },
+  reports: { title: 'Báo cáo', sub: 'Báo cáo khách hàng & quảng cáo', pages: { reports: ['Tất cả báo cáo', 'file'], ads: ['Meta Ads', 'chart'] } },
   tools: { title: 'Tools', sub: 'Công cụ', pages: { tools: ['Chuyển đổi định dạng', 'wand'], editor: ['Trình dựng', 'film'] } },
 };
 const LS_FOLD = 'dms.sectionFolded';
@@ -22,11 +22,14 @@ export function WorkArea({ children }: { children: ReactNode }) {
   const user = useStore((s) => s.user);
   useStore((s) => s.pages);
   const section = sectionOf(view), def = SECTIONS[section], pages = def ? sectionPages(section, openPages()) : [];
+  // A project open in the editor takes the whole width for HyperFrames Studio; its own bar leads back to the list.
+  const inProject = useStore((s) => s.view === 'editor' && !!s.project);
   const [folded, setFolded] = useState(() => { try { return localStorage.getItem(LS_FOLD) === '1'; } catch { return false; } });
   const [searchQuery, setSearchQuery] = useState('');
   const fold = (v: boolean) => { setFolded(v); try { localStorage.setItem(LS_FOLD, v ? '1' : '0'); } catch { /* private mode */ } };
   useEffect(() => { const toggle = () => setFolded((f) => { const v = !f; try { localStorage.setItem(LS_FOLD, v ? '1' : '0'); } catch { /* private mode */ } return v; }); window.addEventListener('dms:section-fold', toggle); return () => window.removeEventListener('dms:section-fold', toggle); }, []);
   if (!def || !pages.length) return <>{children}</>;
+  if (inProject) return <section className="sec-area" aria-label={def.title}><div className="sec-content">{children}</div></section>;
 
   const isWork = section === 'work';
 
@@ -96,8 +99,8 @@ export function WorkArea({ children }: { children: ReactNode }) {
           </div>
         </aside>
       ) : (
-        <aside className={'sec-nav' + (folded ? ' folded' : '')} aria-label={`Mục ${def.title}`} aria-hidden={folded}>
-          <header>
+        <aside className={'sec-nav wework-nav' + (folded ? ' folded' : '')} aria-label={`Mục ${def.title}`} aria-hidden={folded}>
+          <div className="wework-nav-top">
             <div
               className="sec-nav-title"
               role="button"
@@ -109,10 +112,12 @@ export function WorkArea({ children }: { children: ReactNode }) {
               <h2>{def.title}</h2>
               <p>{def.sub}</p>
             </div>
-            <button className="bd-icon" onClick={() => fold(true)} aria-label="Thu gọn" title="Thu gọn"><Icon name="left" size={16} /></button>
-          </header>
-          <h3>Tổng hợp</h3>
-          <nav>{pages.map((v) => { const [label, icon] = def.pages[v]!; return <button key={v} aria-current={view === v ? 'page' : undefined} onClick={() => openSub(v)}><Icon name={icon} size={16} />{label}</button>; })}</nav>
+            <button className="bd-icon wework-nav-fold" onClick={() => fold(true)} aria-label="Thu gọn" title="Thu gọn"><Icon name="left" size={16} /></button>
+          </div>
+          <div className="wework-nav-sec">
+            <h4>Tổng hợp</h4>
+            <nav>{pages.map((v) => { const [label, icon] = def.pages[v]!; return <button key={v} className={'wework-nav-btn' + (view === v ? ' active' : '')} aria-current={view === v ? 'page' : undefined} onClick={() => openSub(v)}><Icon name={icon} size={16} /><span>{label}</span></button>; })}</nav>
+          </div>
         </aside>
       )}
       {folded && <button className="sec-unfold" onClick={() => fold(false)} aria-label={`Mở mục ${def.title}`} title={`Mở mục ${def.title}`}><Icon name="lines" size={16} /></button>}

@@ -9,6 +9,23 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-14-2',
+    date: '14/11/2026',
+    items: [
+      { kind: 'new', vi: 'Trình dựng (trên máy Mac) dựng video bằng Claude Code và HyperFrames: bấm “Chép lời nhắc cho Claude” rồi dán vào Claude Code; Claude đọc sheet, xem footage (nhãn s1, s2…), dựng và render trên máy. HyperFrames Studio mở to ngay trong trang (xem trước, timeline); cột Footage, Sheet, Kịch bản, Claude gập được; bản MP4 Claude gửi về nằm ở nút Bản render. Footage trùng (cùng tên, cùng độ dài) chỉ hiện một lần.', en: 'The editor (on the Mac) builds videos with Claude Code and HyperFrames: click “Copy the prompt for Claude” and paste it into Claude Code; Claude reads the sheet, looks at the footage (labels s1, s2…), builds and renders on the Mac. HyperFrames Studio opens large right in the page (preview, timeline); the Footage, Sheet, Script and Claude column folds away; the MP4s Claude sends back are under Renders. Duplicate footage (same name, same length) shows once.' },
+      { kind: 'fix', vi: 'Trình dựng không còn tự gọi Claude: đọc sheet theo mẫu form, bỏ timeline cắt ghép cũ, xuất CapCut, outro logo và khung chat cũ.', en: 'The editor no longer calls Claude itself: sheets are read by the form template; the old cut timeline, CapCut export, logo outro and old chat are gone.' },
+    ],
+  },
+  {
+    id: '2026-11-14-1',
+    date: '14/11/2026',
+    items: [
+      { kind: 'new', vi: 'Kết nối Claude với DMI Workspace: trong Claude (claude.ai, app Claude, Claude Code) thêm connector https://dmi-workspace.detailersmovement.workers.dev/api/mcp, đăng nhập DMI và bấm Cho phép. Claude xem, tìm, tạo, sửa, bình luận và chuyển bước công việc, xem dịch vụ và khách hàng, đúng với quyền của tài khoản bạn.', en: 'Connect Claude to DMI Workspace: in Claude (claude.ai, the Claude app, Claude Code) add the connector https://dmi-workspace.detailersmovement.workers.dev/api/mcp, sign in to DMI and click Allow. Claude views, finds, creates, edits, comments on and moves tasks through the workflow, and reads services and customers, with exactly your account\'s rights.' },
+      { kind: 'fix', vi: 'Khung bên trái trang Báo cáo, Tools và Quản trị thành thẻ trắng bo tròn như trang Công việc; Meta Ads có icon biểu đồ. Trên điện thoại, Công việc, Báo cáo và Tools hiện dải tab phía trên nội dung thay vì khung chiếm hết màn hình.', en: 'The Reports, Tools and Admin menus are a rounded white card like the Tasks page\'s; Meta Ads has a chart icon. On phones, Tasks, Reports and Tools show a strip of tabs above the content instead of a menu filling the screen.' },
+      { kind: 'fix', vi: 'Nút Messenger trên thanh dưới của board đổi tên thành Inbox.', en: 'The Messenger button in a board\'s bottom bar is now called Inbox.' },
+    ],
+  },
+  {
     id: '2026-11-13-1',
     date: '13/11/2026',
     items: [

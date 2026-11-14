@@ -36,7 +36,6 @@ export function openSub(v: View) {
 }
 /** The bar along the top: the logo, the search (opens Tìm kiếm toàn bộ), and the account's own tools at the right. */
 export function AppHeader() {
-  const mock = useStore((s) => s.mock);
   const user = useStore((s) => s.user)!;
   const [menu, setMenu] = useState(false);
   const [pw, setPw] = useState(false);
@@ -51,7 +50,7 @@ export function AppHeader() {
   const mac = /Mac|iPhone|iPad/.test(navigator.platform);
   return (
     <header className="app-head">
-      <div className="app-head-left"><img src="/brand/logo.png" alt="Detailers Movement" className="tb-logo" />{mock && <span className="tag-demo">Demo</span>}</div>
+      <div className="app-head-left"><img src="/brand/logo.png" alt="Detailers Movement" className="tb-logo" /></div>
       <button className="app-search" onClick={() => window.dispatchEvent(new Event('dms:search'))} aria-label="Tìm kiếm">
         <Icon name="search" size={16} /><span>Tìm mọi thứ: khách, việc, dịch vụ…</span><kbd>{mac ? '⌘' : 'Ctrl'} K</kbd>
       </button>

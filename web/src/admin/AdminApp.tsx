@@ -57,7 +57,7 @@ export function AdminApp() {
   return (
     <main className="ax">
       <aside className={'ax-side' + (menu ? ' open' : '')} aria-label="Menu quản trị">
-        <div className="ax-side-head"><span className="ax-brand">ADMIN</span><button className="bd-icon ax-side-close" onClick={() => setMenu(false)} aria-label="Đóng menu"><Icon name="x" size={16} /></button></div>
+        <div className="ax-side-head"><h2>Quản trị</h2><button className="bd-icon ax-side-close" onClick={() => setMenu(false)} aria-label="Đóng menu"><Icon name="x" size={16} /></button></div>
         <label className="ax-search ax-side-search"><Icon name="search" size={14} /><input value={find} onChange={(e) => setFind(e.target.value)} placeholder="Tìm trang quản trị…" aria-label="Tìm trang quản trị" /></label>
         <nav>{shown.map((g) => {
           const expanded = words.length > 0 || g.key === group.key || !!open[g.key];

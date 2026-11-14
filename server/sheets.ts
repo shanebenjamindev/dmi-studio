@@ -6,11 +6,7 @@
 import zlib from 'node:zlib';
 import { Router, HttpError, json, readJson } from './http';
 import * as G from './google';
-import { askClaude } from './providers/llm';
-import { driveId, locate, sourceOut, refOf, type Source } from './sources';
-import { normalizeStoryboard, STORYBOARD_SCHEMA, SYSTEM as MOTION_SYSTEM, BRAND_GUIDE, BRAND_PALETTES } from './storyboard';
-import { writeStoryboard, type PromptImage } from './providers/llm';
-import { contactSheets, frameTimes } from './frames';
+import { copyKey, driveId, locate, sourceOut, type Source } from './sources';
 
 const SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
 const MAX_CSV = 60_000;
@@ -20,50 +16,6 @@ const PER_FOLDER = 120; // every video of a linked folder goes on the timeline (
 export interface ScriptRow { row: string; meaning: string; voice_over: string; visual: string; on_screen: string; source: string; duration: string; note: string }
 export interface SheetForm { customer: string; aspect: string; seconds: number; sequence: { row: string; ref: string }[]; ignored_rows: string; script?: ScriptRow[]; deadline?: string; urgent?: boolean }
 export interface Sheet { title: string; link: string; csv: string; form: SheetForm; missing?: string[]; /** The tab this project was built from, for multi-tab sheets. */ tab?: string; /** Set when Claude couldn't be used and the form was read by its template. */ warning?: string }
-
-const FORM_SYSTEM = 'You read video request forms (CSV exported from Google Sheets) for a video editing team. Extract facts exactly as written; never invent.';
-const FORM_SCHEMA = {
-  type: 'object',
-  properties: {
-    customer: { type: 'string', description: 'Client / brand the video is for.' },
-    deadline: { type: 'string', description: 'When the final cut is due ("Ngày cần bản final" or similar) as dd/mm/yyyy, or "" if the form has none.' },
-    urgent: { type: 'boolean', description: 'True when the form marks the request as urgent ("Gấp").' },
-    aspect: { type: 'string', enum: ['16:9', '9:16', '1:1'] },
-    seconds: { type: 'number', description: 'Target total length in seconds (middle of a range like 30s-60s).' },
-    script: {
-      type: 'array',
-      description: 'Every script row of the client\'s video, in order (skip rows of another client). Copy each cell word for word; "" when empty.',
-      items: {
-        type: 'object',
-        properties: {
-          row: { type: 'string', description: 'Row label "<scene number> · <meaning>", e.g. "1 · HOOK + OFFER FIRST" — the same label used in "sequence".' },
-          meaning: { type: 'string', description: 'The row\'s purpose column (Ý nghĩa).' },
-          voice_over: { type: 'string' },
-          visual: { type: 'string', description: 'The visual / content description column (Nội dung).' },
-          on_screen: { type: 'string', description: 'Text on visual.' },
-          source: { type: 'string', description: 'The source column as written (without the [link → …] notes).' },
-          duration: { type: 'string', description: 'The duration column as written, e.g. "17-23S".' },
-          note: { type: 'string', description: 'Notes column (Ghi chú).' },
-        },
-        required: ['row', 'meaning', 'voice_over', 'visual', 'on_screen', 'source', 'duration', 'note'],
-      },
-    },
-    sequence: {
-      type: 'array',
-      description: 'The footage to lay on the timeline, in the exact order the sheet lists it: script rows top to bottom, and inside a row\'s source cell in the order written. One item per file or folder mentioned. Use the overview\'s source list only for footage no script row names. Exclude voice-over / reference videos, logos, stock sites (Pexels, Adobe Stock, Storyblocks) and rows of another client.',
-      items: {
-        type: 'object',
-        properties: {
-          row: { type: 'string', description: 'The script row it belongs to, labelled exactly as in "script", e.g. "1 · HOOK + OFFER FIRST".' },
-          ref: { type: 'string', description: 'The label from a cell note when the item is a link (e.g. "s66" or "s5–s24"), otherwise the file or folder name exactly as written (e.g. "Tesla Ceramic Coat.mov", "Porsche 911").' },
-        },
-        required: ['row', 'ref'],
-      },
-    },
-    ignored_rows: { type: 'string', description: 'Short note on script rows that clearly belong to another client or offer (different brand, price or narrator than the overview) and must be ignored; "" if none.' },
-  },
-  required: ['customer', 'deadline', 'urgent', 'aspect', 'seconds', 'script', 'sequence', 'ignored_rows'],
-};
 
 /** Spreadsheet id and tab (gid) from a docs.google.com/spreadsheets link. */
 export function sheetRef(link: string) {
@@ -199,15 +151,17 @@ function driveRefs(rows: string[][], links: Map<string, string>) {
 // ---------------------------------------------------------------- footage
 type Pool = { out: Map<string, Source>; add: (f: G.GFile, folder: string) => Promise<number | null> };
 function pool(account: string): Pool {
-  const out = new Map<string, Source>();
+  const out = new Map<string, Source>(), copies = new Map<string, string>();
   return {
     out,
-    /** Adds a clip/photo; returns its 1-based label number (s1, s2…), also when it was already there. */
+    /** Adds a clip/photo; returns its 1-based label number (s1, s2…), also when it (or a copy of it) was already there. */
     async add(f, folder) {
-      if (out.has(f.id)) return [...out.keys()].indexOf(f.id) + 1;
+      const first = copies.get(copyKey(f));
+      if (first) return [...out.keys()].indexOf(first) + 1;
       if (out.size >= MAX_SOURCES || !f.mimeType.startsWith('video/')) return null; // sources are video only
       G.rememberThumb(f.id, f.thumbnailLink);
       out.set(f.id, await sourceOut(account, f, folder));
+      copies.set(copyKey(f), f.id);
       return out.size;
     },
   };
@@ -331,129 +285,7 @@ export function readFormLayout(title: string, rows: string[][]): SheetForm {
   return form;
 }
 
-/** Seconds a row should last: its duration cell ("4-8s" → 4, "5s" → 5), else the voice-over read at ~2.6 words/s. */
-export function rowTarget(r: Partial<ScriptRow> | undefined) {
-  const d = String(r?.duration || '').toLowerCase().replace(',', '.');
-  const range = d.match(/(\d+(?:\.\d+)?)\s*s?\s*[-–]\s*(\d+(?:\.\d+)?)/);
-  if (range && +range[2] > +range[1]) return Math.min(60, +range[2] - +range[1]);
-  const one = d.match(/^\s*(\d+(?:\.\d+)?)\s*(s|giây|sec)/);
-  if (one) return Math.min(60, +one[1]);
-  const words = String(r?.voice_over || '').split(/\s+/).filter(Boolean).length;
-  return words ? Math.max(2.5, Math.round((words / 2.6) * 2) / 2) : 3;
-}
-
-const ASSEMBLE_SYSTEM = `You lay out a rough cut for a video editor from the client's own footage. You only choose clips, the moment inside each clip and how long it stays on screen; no text, effects, music or transitions.
-- Go through the script rows in order. A row's shots must show what its visual description ("Nội dung") says, in the order it says it: each "→", step, line or "then" is the next shot. When the description is vague, follow the voice-over.
-- Pick each shot from the footage listed for that row first; use other footage only when the row's own footage can't show a step. Never use footage that belongs to another client.
-- Judge clips by their frames (taken at the seconds shown), not by their file names.
-- "from" is the second inside the clip where the shot starts: choose the moment that matches (around the frame that shows it), and keep from + dur within the clip.
-- The row's shots must add up to the row's target length (given in seconds). Fast cuts / teaser / "cắt nhanh" → 0.7–1.5 s shots; cinematic, reveal, beauty → 2–4 s; process steps → 1.5–2.5 s. Hold a single strong shot longer rather than padding with unrelated clips.
-- Prefer different clips for consecutive shots and avoid reusing a moment already used elsewhere.
-- A row with no usable footage gets no shots.`;
-
-const ASSEMBLE_SCHEMA = {
-  type: 'object',
-  properties: {
-    rows: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          row: { type: 'string', description: 'The row label exactly as given.' },
-          shots: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                source: { type: 'string', description: 'Footage label, e.g. "s7".' },
-                from: { type: 'number' }, dur: { type: 'number' },
-                why: { type: 'string', description: 'Which step of the description this shows (short, in the sheet\'s language).' },
-              },
-              required: ['source', 'from', 'dur', 'why'],
-            },
-          },
-        },
-        required: ['row', 'shots'],
-      },
-    },
-  },
-  required: ['rows'],
-};
-
-/**
- * Lay out the cut by the sheet's content: Claude sees a few frames from inside every clip, each row's description and
- * target length, and picks clips, in-points and lengths in the order the row describes.
- */
-async function cutByContent(script: ScriptRow[], rows: Map<string, Source[]>, pool: Source[], step: (t: string) => void) {
-  const footage = pool.filter((s) => s.kind === 'video').slice(0, 140);
-  const label = new Map(footage.map((s, i) => [s.id, `s${i + 1}`]));
-  step(`Đang xem nội dung ${footage.length} clip…`);
-  const sheets = await contactSheets(footage.map((s) => ({ account: s.account, id: s.id, duration: s.duration })), 6,
-    (d, n) => step(`Đang xem nội dung clip ${d}/${n}…`));
-  const images: PromptImage[] = [];
-  const blind: string[] = [];
-  footage.forEach((s) => {
-    const head = `${label.get(s.id)} · ${s.duration ? `${s.duration}s` : 'video'} · "${s.name}"${(s as any).row ? ` · listed for row "${(s as any).row}"` : ''}`;
-    const img = sheets.get(s.id);
-    if (img) images.push({ label: `${head} · frames at ${frameTimes(s.duration).map((t) => `${t}s`).join(', ')}:`, mime: 'image/jpeg', data: img });
-    else blind.push(head);
-  });
-  const targets = new Map(script.map((r) => [r.row, rowTarget(r)]));
-  const text = [
-    blind.length ? `Footage without frames (judge by name):\n${blind.join('\n')}\n` : '',
-    'SCRIPT ROWS:',
-    ...script.map((r) => {
-      const own = (rows.get(r.row) || []).map((s) => label.get(s.id)).filter(Boolean);
-      return [`\nROW "${r.row}" — target ${targets.get(r.row)} s${r.duration ? ` (sheet: ${r.duration})` : ' (from the voice-over length)'}`,
-        r.voice_over && `Voice over: ${r.voice_over}`, r.visual && `Nội dung (show this, in this order): ${r.visual}`,
-        r.source && `Source column: ${r.source}`, `Footage listed for this row: ${own.length ? own.join(', ') : 'none — use the closest footage, or no shots'}`].filter(Boolean).join('\n');
-    }),
-  ].join('\n');
-  step('Claude đang xếp clip theo nội dung từng cảnh…');
-  const raw = await writeStoryboard('claude-cli', 'sonnet', text, { images, schema: ASSEMBLE_SCHEMA, system: ASSEMBLE_SYSTEM });
-  const by = new Map(footage.map((s) => [label.get(s.id)!, s]));
-  const norm = (x: string) => x.toLowerCase().replace(/\s+/g, ' ').trim();
-  const scenes: any[] = [];
-  for (const r of script) {
-    const got = (raw.rows || []).find((x: any) => norm(String(x.row)) === norm(r.row));
-    let shots = (got?.shots || []).map((x: any) => {
-      const src = by.get(String(x.source || '').trim()); if (!src) return null;
-      const len = src.duration || 0;
-      const dur = Math.max(0.4, Number(x.dur) || 1.5);
-      const from = Math.max(0, Math.min(Number(x.from) || 0, Math.max(0, len - 0.4)));
-      return { src, from, dur: len ? Math.min(dur, len - from) : dur, why: String(x.why || '') };
-    }).filter(Boolean) as { src: Source; from: number; dur: number; why: string }[];
-    if (!shots.length) continue;
-    // Make the row last its target: stretch or shrink every shot alike, within each clip's length.
-    const target = targets.get(r.row) || 3, sum = shots.reduce((a, x) => a + x.dur, 0);
-    if (Math.abs(sum - target) > 0.15) {
-      const k = target / sum;
-      shots = shots.map((x) => ({ ...x, dur: Math.max(0.4, x.src.duration ? Math.min(x.dur * k, x.src.duration - x.from) : x.dur * k) }));
-    }
-    const round = (n: number) => Math.round(n * 100) / 100;
-    const out = shots.map((x) => ({ media: refOf(x.src), from: round(x.from), dur: round(x.dur), move: 'none' }));
-    scenes.push({
-      layout: 'title', animation: 'fade', background: 'solid', icon: '', headline: r.row, subtext: '', caption: r.voice_over || '',
-      visual_prompt: shots.map((x) => x.why).filter(Boolean).join(' → '), shots: out, texts: [], media: out[0].media,
-      duration: round(out.reduce((a, x) => a + x.dur, 0)),
-    });
-  }
-  return scenes;
-}
-
-/** Fallback when Claude can't be reached: each row's listed clips in order, sharing the row's target length. */
-function evenCut(script: ScriptRow[], rows: Map<string, Source[]>) {
-  return script.flatMap((r) => {
-    const list = (rows.get(r.row) || []).filter((s) => s.kind === 'video').slice(0, 8);
-    if (!list.length) return [];
-    const each = Math.max(0.8, rowTarget(r) / list.length);
-    const shots = list.map((s) => ({ media: refOf(s), from: 0, dur: Math.round((s.duration ? Math.min(each, s.duration) : each) * 100) / 100, move: 'none' }));
-    return [{ layout: 'title', animation: 'fade', background: 'solid', icon: '', headline: r.row, subtext: '', caption: r.voice_over || '', visual_prompt: r.visual || '',
-      shots, texts: [], media: shots[0].media, duration: Math.round(shots.reduce((a, x) => a + x.dur, 0) * 100) / 100 }];
-  });
-}
-
-/** Read one tab (`tab` by name; otherwise the tab in the link, or the first) and lay out its cut. */
+/** Read one tab (`tab` by name; otherwise the tab in the link, or the first): its script and the footage it links. */
 export async function readSheet(link: string, step: (text: string) => void = () => {}, tab?: string) {
   const { id, gid } = sheetRef(link);
   if (!id) throw new HttpError(400, 'Link Google Sheet không hợp lệ');
@@ -480,128 +312,19 @@ export async function readSheet(link: string, step: (text: string) => void = () 
   }
   const csv = toCsv(rows).slice(0, MAX_CSV);
   step('Đang đọc kịch bản từng cảnh…');
-  // Claude reads any layout; when it can't be reached (quota spent, no CLI) the form is read by its fixed template.
-  let warning = '';
-  let form: SheetForm;
-  try { form = await askClaude('haiku', FORM_SYSTEM, `Form "${file.name}":\n${csv}`, FORM_SCHEMA); }
-  catch (e: any) {
-    form = readFormLayout(file.name, rows);
-    if (!form.script?.length) throw e;
-    warning = `Claude chưa dùng được (${String(e?.message || e).replace(/^Claude CLI:\s*/, '').slice(0, 120)}): kịch bản đọc theo mẫu form, clip xếp theo thứ tự trong sheet.`;
-    step('Claude chưa dùng được, đang đọc theo mẫu form…');
-  }
-  // A row without a purpose comes back as "3 · ": call it "Cảnh 3" everywhere (script and timeline rows match on it).
+  // Read by the form's template. A sheet laid out otherwise keeps its whole text (csv): Claude Code reads it when it
+  // builds the video (server/video-mcp.ts).
+  const form = readFormLayout(file.name, rows);
+  const warning = form.script?.length ? '' : 'Sheet không theo mẫu form nên chưa tách được kịch bản: Claude đọc sheet gốc khi dựng.';
+  // A row without a purpose comes back as "3 · ": call it "Cảnh 3" everywhere (script and footage rows match on it).
   const label = (r: string) => { const t = String(r || '').trim().replace(/\s*·\s*$/, ''); return /^\d+$/.test(t) ? `Cảnh ${t}` : t; };
   form.script = (form.script || []).map((r) => ({ ...r, row: label(r.row) }));
   form.sequence = (form.sequence || []).map((x) => ({ ...x, row: label(x.row) }));
   step('Đang tìm source trên Drive…');
-  const { rows: byRow, missing: notFound } = await candidates(account, form.sequence || [], p);
+  const { missing: notFound } = await candidates(account, form.sequence || [], p);
   const missing = [...new Set(notFound)];
-  // Rows the sequence names but the script doesn't list still get their footage laid out.
-  const script = [...(form.script || [])];
-  for (const row of byRow.keys()) if (!script.some((r) => r.row === row)) script.push({ row, meaning: '', voice_over: '', visual: '', on_screen: '', source: '', duration: '', note: '' });
-  let scenes: any[] = [];
-  if (!warning) {
-    try { scenes = await cutByContent(script, byRow, [...p.out.values()], step); }
-    catch (e: any) {
-      console.error('✖ Xếp clip theo nội dung thất bại, dùng thứ tự trong sheet:', e?.message || e);
-      warning = `Claude chưa xếp được clip (${String(e?.message || e).replace(/^Claude CLI:\s*/, '').slice(0, 120)}): clip xếp theo thứ tự trong sheet, chia đều thời lượng mỗi cảnh.`;
-    }
-  }
-  if (!scenes.length) scenes = evenCut(script, byRow);
   const sheet: Sheet = { title: tab ? `${pick.name}` : file.name, link, csv, form, missing, ...(tab ? { tab } : {}), ...(warning ? { warning } : {}) };
-  let storyboard = scenes.length ? normalizeStoryboard({ title: file.name, mode: 'edit', font: 'sans', music: { mood: 'none', bpm: 96 }, logo: null, scenes }) : null;
-  // A form with no footage at all (a script of voice-over and on-screen text): the video is made from the script itself.
-  if (!storyboard && !p.out.size && script.some((r) => r.on_screen || r.voice_over)) {
-    step('Sheet không có video, Claude đang tự tạo video từ kịch bản…');
-    storyboard = await motionVideo(sheet, script, !!warning);
-  }
-  return { sheet, sources: [...p.out.values()], missing, links: notes.size, storyboard, warning };
-}
-
-// ---------------------------------------------------------------- a video made from the script (no footage)
-/** Forms for Detailers Movement itself get its brand kit and logo; a client's form gets neither. */
-export const ownBrand = (sheet: Sheet) => /detailers\s*movement|\bDMI\b/i.test(`${sheet.form.customer} ${sheet.title}`);
-
-const MOTION_BRIEF = `This form lists no footage: make the video yourself as motion graphics (text layouts and animated backgrounds, no clips).
-- One scene per script row, in order; skip rows the form says to ignore.
-- On-screen text exactly as the row writes it (same language, wording, numbers, capitals). One line → headline; two lines → headline + subtext; three or more → layout "bullets" (headline = the first line when it reads as a title, otherwise a 2–4 word heading from the row); a price or total as the main point → layout "stat" (stat_value like "$2,900", stat_label the rest).
-- caption: the row's voice-over, word for word.
-- duration: the row's time range ("12–21s" → 9) or duration column; otherwise its voice-over read at about 2.6 words per second. The total matches the target length.
-- The closing call-to-action row is layout "outro": headline = its main line, subtext = a 2–3 word button label taken from its text, bullets = its other lines (a deadline, a web address), so no line of the row is lost.
-- Pick animation, background and palette from the visual direction and editor notes; visual_prompt describes the row's visual direction in English.`;
-
-/** The storyboard for a form without footage: written by Claude, or laid out row by row when Claude can't be reached. */
-async function motionVideo(sheet: Sheet, script: ScriptRow[], offline: boolean) {
-  const brand = ownBrand(sheet);
-  let sb: any = null;
-  if (!offline) {
-    try { sb = await askClaude('sonnet', MOTION_SYSTEM, `${sheetPrompt(sheet)}\n\n${MOTION_BRIEF}${brand ? '\n\n' + BRAND_GUIDE : ''}`, STORYBOARD_SCHEMA); }
-    catch (e: any) { console.error('✖ Tự tạo video từ kịch bản thất bại, dựng theo từng hàng:', e?.message || e); }
-  }
-  sb ||= { title: sheet.title, music: { mood: 'upbeat', bpm: 110 }, scenes: textScenes(script) };
-  if (brand) { sb.font = 'brand'; if (!Object.values(BRAND_PALETTES).some((c) => c.bg1 === String(sb.palette?.bg1).toLowerCase())) sb.palette = BRAND_PALETTES.blue; }
-  else { if (sb.font === 'brand') sb.font = 'sans'; sb.brandLogo = false; }
-  return normalizeStoryboard(sb);
-}
-
-/** Scenes straight from the script rows: on-screen text as the layout, voice-over as caption, the row's length. */
-function textScenes(script: ScriptRow[]) {
-  const anims = ['pop', 'slide-up', 'zoom', 'fade'], bgs = ['blobs', 'particles', 'waves', 'grid'];
-  const rows = script.filter((r) => r.on_screen || r.voice_over);
-  return rows.map((r, i) => {
-    const lines = String(r.on_screen || r.voice_over).split(/\n+/).map((l) => l.trim()).filter(Boolean);
-    const last = i === rows.length - 1;
-    const scene: any = { layout: last ? 'outro' : 'title', headline: lines[0] || '', subtext: lines.slice(1).join(' · '), caption: r.voice_over, visual_prompt: r.visual,
-      duration: rowTarget(r), animation: anims[i % anims.length], background: bgs[i % bgs.length], icon: '' };
-    if (last && lines.length >= 3) Object.assign(scene, { subtext: lines[lines.length - 1], bullets: lines.slice(1, -1) });
-    else if (lines.length >= 3) Object.assign(scene, { layout: 'bullets', subtext: '', bullets: lines.slice(1) });
-    return scene;
-  });
-}
-
-// ---------------------------------------------------------------- the assembly (sources in script order; editing is left to the editor)
-export const EDIT_SYSTEM = `You assemble a rough cut for a video editor: you pick the client's own clips and photos and put them in the order the request form's script asks for. You do not edit: no on-screen text, no logo, no effects, no music. Every choice comes from this brief.
-- Beats: one per scripted row of the form, in order. A beat lasts as long as its shots; fit its voice-over (about 2.6 spoken words per second) or the row's duration column.
-- Shots: follow the row's visual description literally. Each "→", comma-listed step or "then" is its own shot, in that order. Use the sources the row links (cell notes like "[link → … s4–s13]") or names; otherwise the closest thumbnail. "from" = seconds into the clip where the useful moment starts (stay inside the clip). Shot length follows the brief's pace (fast cuts 0.6–1.2 s, cinematic 2–4 s, demo steps 1.5–2.5 s). Do not reuse one clip in back-to-back shots.
-- Ignore rows that belong to another client or offer.`;
-
-const SHOT = {
-  type: 'object',
-  properties: {
-    source: { type: 'string', description: 'Source label, e.g. "s7".' },
-    from: { type: 'number', description: 'Seconds into the clip where this shot starts (0 for photos).' },
-    dur: { type: 'number', description: 'Seconds on screen.' },
-    why: { type: 'string', description: 'Which part of the brief this shot shows (short, in the form\'s language).' },
-  },
-  required: ['source', 'from', 'dur', 'why'],
-};
-export const EDIT_SCHEMA = {
-  type: 'object',
-  properties: {
-    title: { type: 'string' },
-    scenes: {
-      type: 'array', minItems: 1,
-      items: {
-        type: 'object',
-        properties: {
-          caption: { type: 'string', description: 'This beat\'s voice-over from the form, word for word (reference for the editor).' },
-          note: { type: 'string', description: 'What this beat shows, in English.' },
-          shots: { type: 'array', minItems: 1, items: SHOT },
-        },
-        required: ['caption', 'note', 'shots'],
-      },
-    },
-  },
-  required: ['title', 'scenes'],
-};
-
-/** The form itself, added to the prompt of every build or chat edit of a project started from a sheet. */
-export function sheetPrompt(sheet: Sheet) {
-  return `VIDEO REQUEST FORM "${sheet.title}" for ${sheet.form.customer} (CSV exported from Google Sheets; cell links are written in [brackets]):
-${sheet.csv}
-${sheet.form.ignored_rows ? `\nRows to ignore: ${sheet.form.ignored_rows}\n` : ''}
-Target: ${sheet.form.aspect}, about ${sheet.form.seconds} s.`;
+  return { sheet, sources: [...p.out.values()], missing, links: notes.size, storyboard: null, warning };
 }
 
 /** A sheet sent back by the browser: plain fields only, size-capped. */
