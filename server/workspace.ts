@@ -20,7 +20,7 @@ import { currentUser, finishGoogleSignin, deptLevel, pagesOf, type User } from '
 
 import { readCustomerImport } from '../shared/customer-import';
 import { normName } from './taskimport';
-import { driveId, locate } from './sources';
+import { driveId, locate } from './drive-links';
 import {customerStatuses,customerStatus,defaultCustomerStatus} from './customer-statuses';
 import { renameProjectBoard, projectHome, projectCustomerChanged } from './taskworkspace';
 import { syncProjectCards } from './work-sync';
@@ -479,13 +479,7 @@ async function customerOut(c: any, full = false, fresh = false) {
     createdAt: c.created_at, updatedAt: c.updated_at,
   };
   if (full) {
-    await syncUnlinkedCustomers();
     try { Object.assign(out, await library(c, l, fresh)); } catch (e: any) { Object.assign(out, { files: [], folders: [], error: e.message }); }
-    out.projects = (await all<any>('SELECT id, title, aspect, updated_at, data FROM projects WHERE customer_id = ? ORDER BY updated_at DESC', c.id)).map((p) => {
-      const d = JSON.parse(p.data);
-      return { id: p.id, title: p.title, aspect: p.aspect, updatedAt: p.updated_at, status: d.status || '', deadline: d.sheet?.form?.deadline || '', urgent: !!d.sheet?.form?.urgent,
-        clips: (d.storyboard?.scenes || []).reduce((a: number, s: any) => a + (s.shots?.length || 0), 0) };
-    });
     if (l.kind === 'gdrive') out.driveFolderUrl = `https://drive.google.com/drive/folders/${l.id}`;
     else {
       let st: fs.Stats | null = null;
@@ -494,7 +488,6 @@ async function customerOut(c: any, full = false, fresh = false) {
       out.driveFolderUrl = fid ? `https://drive.google.com/drive/folders/${fid}` : null;
     }
   } else {
-    out.projectCount = (await get<any>('SELECT COUNT(*) n FROM projects WHERE customer_id = ?', c.id))?.n || 0;
     const n = await counts(c, l, fresh);
     out.videoCount = n.videos; out.fileCount = n.files; out.folderCount = n.folders;
   }
@@ -503,67 +496,6 @@ async function customerOut(c: any, full = false, fresh = false) {
 
 // ---------------------------------------------------------------- projects ↔ customers
 // A project belongs to one customer (projects.customer_id): the customer page lists it and the work overview counts it.
-const fold = (x: string) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]+/g, ' ').trim();
-/** Drive item and its current ancestors; do not cache paths because files can move on Drive. */
-async function ancestors(account: string, id: string) {
-  const ids: string[] = [];
-  for (let cur: string | undefined = id; cur && ids.length < 100 && !ids.includes(cur);) {
-    ids.push(cur);
-    cur = (await G.meta(account, cur, 'id,parents')).parents?.[0];
-  }
-  return ids;
-}
-/** The customer whose Drive folder holds Drive item `id` (or is it), the nearest one; null if none does. */
-export async function customerOfDrive(account: string, id: string) {
-  const folders = new Map<string, any>(); // Drive folder id → customer (Google Drive folders, or Drive for desktop ones)
-  for (const c of await clientCustomers()) {
-    if (c.gloc) { folders.set(JSON.parse(c.gloc).id, c); continue; }
-    try {
-      const l = await custLoc(c);
-      const fid = l.kind === 'fs' && onDesktopDrive(l.dir) ? await desktopDriveId(l.dir, fs.statSync(l.dir).mtimeMs) : null;
-      if (fid) folders.set(fid, c);
-    } catch { /* folder gone */ }
-  }
-  for (const x of await ancestors(account, id)) if (folders.has(x)) return folders.get(x);
-  return null;
-}
-/** The one customer named like `name` (accents and case ignored; equal, else one name containing the other). */
-function customerNamed(name: string, customers: any[]) {
-  const n = fold(name);
-  if (n.length < 3) return null;
-  const hits = customers.filter((c) => { const m = fold(c.name); return m.length >= 3 && (m === n || m.includes(n) || n.includes(m)); });
-  const same = hits.filter((c) => fold(c.name) === n);
-  return same.length === 1 ? same[0] : hits.length === 1 ? hits[0] : null;
-}
-const looked = new Map<string, number>(); // project → when its Drive places last matched no customer
-/**
- * Give a project that has no customer the one it belongs to: the customer whose Drive folder holds the project's Drive
- * link or its footage, else the one named like the sheet's customer. `drive: false` only compares names (no Drive
- * calls); `force` looks on Drive again even if it found nothing a moment ago.
- */
-export async function autoLinkCustomer(projectId: string, o: { drive?: boolean; force?: boolean } = {}) {
-  const p = await get<any>('SELECT id, customer_id, data FROM projects WHERE id = ?', projectId);
-  if (!p || p.customer_id) return;
-  const data = JSON.parse(p.data);
-  if (data.customerManual && !o.force) return;
-  let c: any = null;
-  if (o.drive !== false && (o.force || Date.now() - (looked.get(p.id) || 0) > 10 * 60e3)) {
-    for (const x of [data.drive, ...(data.sources || []).slice(0, 2)]) {
-      if (x?.account && x?.id && (c = await customerOfDrive(x.account, x.id).catch(() => null))) break;
-    }
-    if (!c) looked.set(p.id, Date.now());
-  }
-  c ??= customerNamed(data.sheet?.form?.customer || '', await clientCustomers());
-  if (c) await run('UPDATE projects SET customer_id = ? WHERE id = ? AND customer_id IS NULL', c.id, p.id);
-}
-
-/** Keep customer pages and project lists consistent, regardless of which page opens first. */
-export async function syncUnlinkedCustomers() {
-  for (const p of await all<any>('SELECT id FROM projects WHERE customer_id IS NULL')) {
-    await autoLinkCustomer(p.id, { drive: false });
-  }
-}
-
 const redirectUri = (req: Req) => `${publicOrigin(req)}/api/google/callback`;
 const redirect = (res: Res, to: string) => { res.writeHead(302, { location: to }); res.end(); };
 
@@ -663,7 +595,6 @@ export function registerWorkspace(api: Router) {
     // Only the folders inside the folder being viewed; customers elsewhere stay saved for when that folder is opened again.
     const v = await viewOf(req);
     const inside = await syncFolder(v.loc, v.label);
-    await syncUnlinkedCustomers();
     const user=(await currentUser(req))!;
     const candidates=await all<any>(`SELECT * FROM customers c WHERE ${customerAccessSql()} ORDER BY name COLLATE NOCASE`,user.id,user.id,user.id);
     const rows: any[] = [];

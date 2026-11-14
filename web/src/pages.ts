@@ -42,24 +42,21 @@ const PAGES = {
   tools: lazyPage(() => import('./components/Tools'), 'ToolsPage'),
   reports: lazyPage(() => import('./components/Reports'), 'ReportsPage'),
   ads: lazyPage(() => import('./components/AdsPage'), 'AdsPage'),
-  editor: lazyPage(() => import('./components/Studio'), 'Studio'),
-  editorOnMac: lazyPage(() => import('./components/EditorOnMac'), 'EditorOnMac'),
 };
 type PageKey = keyof typeof PAGES;
-export type Can = { admin: boolean; editor: boolean };
+export type Can = { admin: boolean };
 
-/** The page a view shows. Quản trị is for whoever holds a permission of it (shared/permissions.ts); the editor runs only where the server can run it (elsewhere its page
- * says where it does); views without a page of their own (Template and Phân tích, hidden for now) show Drive. */
+/** The page a view shows. Quản trị is for whoever holds a permission of it (shared/permissions.ts); a view without a
+ * page of its own shows Drive. */
 function pageOf(view: View, can: Can): PageKey {
   if (view === 'admin') return can.admin ? 'admin' : 'workspace';
-  if (view === 'editor') return can.editor ? 'editor' : 'editorOnMac';
   return view in PAGES ? (view as PageKey) : 'workspace';
 }
 export const pageFor = (view: View, can: Can) => PAGES[pageOf(view, can)].Page;
 
 /** Starts fetching the page the address opens, alongside the first API calls (before it is known who is signed in). */
 export function preloadView(view: View) {
-  PAGES[pageOf(view, { admin: true, editor: true })].preload().catch(() => {});
+  PAGES[pageOf(view, { admin: true })].preload().catch(() => {});
 }
 
 // Safari has no requestIdleCallback.

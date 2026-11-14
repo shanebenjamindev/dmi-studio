@@ -8,9 +8,7 @@ import { Readable } from 'node:stream';
 import { HttpError, json, readBody, publicOrigin, type Req, type Res, type Router } from './http';
 import { all, get, run, now } from './db';
 import { ACTING, USER_SQL, currentUser, type User } from './auth';
-import { CLOUD_STORAGE_ONLY } from './config';
 import { brief, need, read, seg, str, vn, when, write, type Call, type Tool } from './mcp-kit';
-import { VIDEO_TOOLS } from './video-mcp';
 
 const CODE_TTL = 10 * 60e3, ACCESS_TTL = 60 * 60e3, REFRESH_TTL = 60 * 24 * 60 * 60e3;
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
@@ -399,5 +397,4 @@ export const WORK_TOOLS: Tool[] = [
     },
   },
 ];
-// The video editor's tools need the Mac's disk, ffmpeg and HyperFrames: not on the cloud Worker.
-const TOOLS = CLOUD_STORAGE_ONLY ? WORK_TOOLS : [...WORK_TOOLS, ...VIDEO_TOOLS];
+const TOOLS = WORK_TOOLS;

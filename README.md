@@ -1,12 +1,12 @@
 # DMI Workspace — Detailers Movement
 
-Ứng dụng làm việc của Detailers Movement: board, công việc theo quy trình, khách hàng, báo cáo và trình dựng video. Bản cloud chạy trên Cloudflare Workers, dùng Cloudflare D1 và lưu video khách hàng trên Google Drive; xem [DEPLOY.md](DEPLOY.md). Chạy local thì dùng SQLite.
+Ứng dụng làm việc của Detailers Movement: board, công việc theo quy trình, khách hàng, báo cáo và công cụ chuyển đổi file. Bản cloud chạy trên Cloudflare Workers, dùng Cloudflare D1 và lưu video khách hàng trên Google Drive; xem [DEPLOY.md](DEPLOY.md). Chạy local thì dùng SQLite.
 
 App không tự gọi model AI nào và không dùng API trả phí. Claude làm việc **trên** DMI qua connector MCP, bằng gói Claude của từng người.
 
 ## Chạy trên máy (macOS)
 
-Yêu cầu **Node.js 22.13+** (`brew install node`) và **ffmpeg** (`brew install ffmpeg`, trình dựng cần).
+Yêu cầu **Node.js 22.13+** (`brew install node`).
 
 ```bash
 cd ~/DMIStudio
@@ -23,20 +23,11 @@ npm start                   # build giao diện + chạy server → http://local
 - **claude.ai / app Claude:** Settings → Connectors → Add custom connector → `https://dmi-workspace.detailersmovement.workers.dev/api/mcp`. Gói Team: Owner thêm một lần cho tổ chức.
 - **Claude Code:** `claude mcp add --transport http dmi https://dmi-workspace.detailersmovement.workers.dev/api/mcp`, rồi `/mcp` để đăng nhập.
 
-Công cụ: tìm kiếm, công việc (xem, tạo, sửa, bình luận, chuyển bước quy trình), dịch vụ, nhân sự, khách hàng. Trên máy Mac có thêm công cụ của trình dựng (bên dưới).
+Công cụ: tìm kiếm, công việc (xem, tạo, sửa, bình luận, chuyển bước quy trình), dịch vụ, nhân sự, khách hàng. Mỗi người kết nối từ **Hồ sơ → Kết nối Claude** và thu hồi được ở đó.
 
 ## Trợ lý AI trong DMI
 
 Nút ✦ trên thanh trên cùng (⌘J): chat với Claude, dùng chung bộ công cụ với connector MCP và đúng quyền của người đang chat; thay đổi nào cũng chờ người dùng Duyệt. Gọi Claude API (tính phí theo token, cần `ANTHROPIC_API_KEY`, xem [DEPLOY.md](DEPLOY.md)). Code: `server/assistant.ts`, `web/src/components/Assistant.tsx`.
-
-## Trình dựng video: Claude Code + HyperFrames (chỉ trên Mac)
-
-1. **Tools → Trình dựng → Tạo dự án** từ link sheet yêu cầu. Server đọc kịch bản theo mẫu form và tìm footage trên Drive (nhãn s1, s2…). Không gọi AI.
-2. Kết nối Claude Code với DMI trên Mac (một lần): `claude mcp add --transport http --scope user dmi http://localhost:5173/api/mcp`.
-3. Tab **Làm với Claude** có lời nhắc để chép vào Claude Code. Claude dùng `get_video_project`, `view_footage`, `prepare_hyperframes` (tạo thư mục `~/DMI-HyperFrames/<dự án>/`, tải footage vào `assets/`, ghi `BRIEF.md`), dựng bằng [HyperFrames](https://hyperframes.heygen.com) và mở bản xem trước (hiện ngay trong trang).
-4. Khi duyệt, Claude render trên máy (`npx hyperframes render`, miễn phí) rồi `publish_render`: bản MP4 hiện ở tab Bản render.
-
-Đổi thư mục dự án bằng `HYPERFRAMES_DIR`. Code: `server/hyperframes.ts`, `server/video-mcp.ts`, `web/src/components/Editor.tsx`.
 
 ## Kiến trúc
 
@@ -44,11 +35,9 @@ Nút ✦ trên thanh trên cùng (⌘J): chat với Claude, dùng chung bộ cô
 server/                 Node + TypeScript (chạy bằng tsx), không framework
   index.ts              HTTP server local: REST API, /assets (hỗ trợ Range), phục vụ giao diện
   worker.ts             Cloudflare Workers: static assets + API, dùng D1 và Google Drive
-  app.ts / routes.ts    API: dự án video, bản render, đăng ký các module
-  mcp.ts, mcp-kit.ts    Connector Claude: OAuth (đăng ký app, cho phép, token) và công cụ MCP
-  video-mcp.ts          Công cụ MCP của trình dựng
-  hyperframes.ts        Thư mục HyperFrames của dự án: chuẩn bị, xem trước, gửi bản render
-  sheets.ts, sources.ts Đọc sheet yêu cầu và footage trên Google Drive
+  app.ts / routes.ts    Pipeline API (guard, nhật ký) và đăng ký các module
+  mcp.ts, mcp-kit.ts    Connector Claude: OAuth (đăng ký app, cho phép, token, thu hồi) và công cụ MCP
+  drive-links.ts        Link Google Drive dán vào DMI: id và tài khoản Google mở được
   tasks.ts, boards.ts…  Công việc, board, khách hàng, báo cáo, thông báo, quản trị
 web/                    React 19, đóng gói bằng esbuild → web/dist
 data/                   studio.db + assets/ (tự tạo, đã nằm trong .gitignore)

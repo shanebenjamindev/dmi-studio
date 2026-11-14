@@ -7,7 +7,7 @@ import {customerLevels,customerAccessSql,requireCustomer,visibleCardIds} from '.
 // mark, a cover colour, a description, checklists, link attachments, comments and an activity history; cards and lists
 // can be archived and restored. Each company role (Media Execute, Account / Sale, Content / Script, Ads / Performance,
 // or one an admin adds) has its own board with columns made for its work, besides the boards everyone shares; a role
-// also sets which tool pages its people open (Media Execute: Drive and Trình dựng).
+// also sets which tool pages its people open (Media Execute: Drive and Báo cáo).
 //
 // Who may do what, like Trello. Boards live in a workspace: the company's or one a person makes for themselves,
 // private until they share it with others. In the company's, admins see every board and each department (company

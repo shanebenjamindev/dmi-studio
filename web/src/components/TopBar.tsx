@@ -20,7 +20,7 @@ import { langPref, setLang, type Lang } from '../i18n';
 // sections are a bar along the bottom.
 const WORK: View[] = ['tasks', 'projects', 'workspace'];
 const REPORTS: View[] = ['reports', 'ads'];
-const TOOLS: View[] = ['tools', 'editor'];
+const TOOLS: View[] = ['tools'];
 const NAV_ICON: Record<string, string> = { boards: 'boards', customers: 'users', work: 'checklist', reports: 'file', tools: 'wand', admin: 'gear' };
 const KEY: Record<string, string> = { work: 'dms.workView', reports: 'dms.reportsView', tools: 'dms.toolsView' };
 /** The section a page belongs to. */
@@ -83,7 +83,7 @@ const SECTION_HASH: Record<string, string> = { boards: '#boards', customers: '#c
 /** The sections, down the left side. */
 export function TopBar() {
   const view = useStore((s) => s.view);
-  useStore((s) => s.pages); useStore((s) => s.editorAvailable); useStore((s) => s.admin); // re-render when access changes
+  useStore((s) => s.pages); useStore((s) => s.admin); // re-render when access changes
   const open = openPages();
   const items: [string, string][] = [['boards', 'Workspace'], ...(open.includes('customers') ? [['customers', 'Khách hàng'] as [string, string]] : []), ['work', 'Công việc'],
     ...(sectionPages('reports', open).length ? [['reports', 'Báo cáo'] as [string, string]] : []), ['tools', 'Tools'], ...(open.includes('admin') ? [['admin', 'Quản trị'] as [string, string]] : [])];

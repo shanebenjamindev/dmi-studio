@@ -1,7 +1,7 @@
 import {beginLoading} from './loading';
 import type { AdsService, AdsSummary } from '../../shared/ads-summary';
 // Typed client for the DMI Workspace REST API.
-import type { QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardViewKind, ClientCard, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Outro, Status, Project, ProjectItem, Render, Hyperframes, Storyboard, Aspect, ChatMsg, Customer, DriveFile, Source, Sheet, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page, EditorLink } from './types';
+import type { QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardViewKind, ClientCard, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Customer, DriveFile, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page } from './types';
 import { askText } from './components/AskDialog';
 
 /** Called when the session has ended (401) so the app can show the sign-in page. */
@@ -222,28 +222,10 @@ export const api = {
   deleteUser: (id: string) => req('DELETE', `/api/users/${id}`),
   setSiteLock: (b: { on: boolean; message?: string }) => req<{ on: boolean; message: string }>('PUT', '/api/admin/site-lock', b),
   health: () => req<{ ok: boolean; ffmpeg: boolean; editor: boolean }>('GET', '/api/health'),
-  editorLink: () => req<EditorLink>('GET', '/api/editor-link'),
-  setEditorLink: (url: string) => req<EditorLink>('PUT', '/api/settings/editor-link', { url }),
-
-  listProjects: () => req<ProjectItem[]>('GET', '/api/projects'),
-  createProject: (p: Partial<Project>) => req<Project>('POST', '/api/projects', p),
-  getProject: (id: string) => req<Project>('GET', `/api/projects/${id}`),
-  saveProject: (id: string, p: { title?: string; aspect?: Aspect; storyboard?: Storyboard | null; chat?: ChatMsg[]; sources?: Source[]; sheet?: Sheet | null; outro?: Outro | null; status?: Status; note?: string; customerId?: string | null }) => req<Project>('PUT', `/api/projects/${id}`, p),
-  projectDrive: (id: string, link: string) => req<Project>('POST', `/api/projects/${id}/drive`, { link }),
-  projectAutoCustomer: (id: string) => req<Project>('POST', `/api/projects/${id}/customer/auto`),
-  duplicateProject: (id: string) => req<Project>('POST', `/api/projects/${id}/duplicate`),
-  deleteProject: (id: string) => req('DELETE', `/api/projects/${id}`),
-
-  sheetProgress: (token: string) => req<{ text: string }>('GET', `/api/sheets/progress/${token}`),
-  sheetTabs: (link: string) => req<{ title: string; tabs: { name: string; cells: number }[] }>('POST', '/api/sheets/tabs', { link }),
-  readSheet: (link: string, token?: string, tab?: string) => req<{ sheet: Sheet; sources: Source[]; missing: string[]; links: number; storyboard: Storyboard | null }>('POST', '/api/sheets/read', { link, token, tab }),
 
 
-  renders: (projectId: string) => req<Render[]>('GET', `/api/projects/${projectId}/renders`),
-  deleteRender: (id: string) => req('DELETE', `/api/renders/${id}`),
-  hyperframes: (projectId: string) => req<Hyperframes>('GET', `/api/projects/${projectId}/hyperframes`),
-  hyperframesPrepare: (projectId: string) => req<Hyperframes & { downloaded: string[]; failed: string[] }>('POST', `/api/projects/${projectId}/hyperframes/prepare`, {}),
-  hyperframesPreview: (projectId: string) => req<{ running: boolean; url: string | null }>('POST', `/api/projects/${projectId}/hyperframes/preview`, {}),
+
+
 
   /** `at` = the folder this person is browsing (null = the shared root). */
   workspace: (at: Loc | null = null) => req<WorkspaceInfo>('GET', `/api/workspace${atQ(at, '?')}`),

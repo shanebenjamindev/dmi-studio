@@ -113,18 +113,18 @@ export async function pageAccess(): Promise<Record<Role, Page[]>> {
   const member = Array.isArray(v?.member) ? v!.member.filter((p) => PAGES.includes(p)) : PAGES.filter((p) => p !== 'ads');
   return { admin: PAGES, member };
 }
-/** The pages this account may open: its department's (a view-only role does not edit videos, so no Trình dựng). */
+/** The pages this account may open: its department's ('editor' is the old key of Báo cáo, kept so roles keep their
+ *  access; a view-only role does not get it). */
 export async function pagesOf(u: User): Promise<Page[]> {
   if (u.role === 'admin') return PAGES;
   const r = u.team_role ? await get<any>('SELECT pages FROM team_roles WHERE id = ?', u.team_role) : null;
   const pages = r ? (JSON.parse(r.pages || '[]') as Page[]).filter((p) => PAGES.includes(p)) : (await pageAccess()).member;
   return deptLevel(u) === 'observer' ? pages.filter((p) => p !== 'editor') : pages;
 }
-/** The pages an API belongs to (opening any one of them is enough): client reports are made in the editor and in Báo cáo. */
+/** The pages an API belongs to (opening any one of them is enough): client reports belong to Báo cáo ('editor') and Ads. */
 const PAGE_OF: [RegExp, Page[]][] = [
   [/^\/api\/(customers|workspace|customer-tasks)(\/|$)/, ['workspace']],
   [/^\/api\/reports(\/|$)/, ['editor', 'ads']],
-  [/^\/api\/(projects|sheets|sources|renders|editor-link)(\/|$)/, ['editor']],
   [/^\/api\/ads\//, ['ads']],
 ];
 /** The Khách hàng page's own records (list, record, members, projects, tasks, history) need no page: everyone sees the

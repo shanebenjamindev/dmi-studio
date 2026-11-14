@@ -14,7 +14,7 @@ import { Router, HttpError, json, readJson, readBody, sendFile } from './http';
 import { DATA_DIR, CLOUD_STORAGE_ONLY } from './config';
 import { all, get, run, uid, now } from './db';
 import * as G from './google';
-import { driveId, locate } from './sources';
+import { driveId, locate } from './drive-links';
 import { metaSnapshot } from './ads';
 import { currentUser, pagesOf } from './auth';
 

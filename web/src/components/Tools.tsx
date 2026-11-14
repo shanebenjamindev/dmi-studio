@@ -28,7 +28,6 @@ function download(blob: Blob, name: string) {
 
 let nextId = 1;
 export function ToolsPage() {
-  const canEdit = useStore((s) => s.pages.includes('editor'));
   const [items, setItems] = useState<Item[]>([]);
   const list = useRef<Item[]>([]); // the latest list, for the conversion loop between renders
   const set = (next: Item[]) => { list.current = next; setItems(next); };
@@ -115,7 +114,6 @@ export function ToolsPage() {
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDrag(false); }}
       onDrop={(e) => { e.preventDefault(); setDrag(false); add(e.dataTransfer.files); }}>
       {(running||merging)&&<BrandLoading compact label={merging?'Đang gộp file…':'Đang chuyển đổi…'}/>}
-      {canEdit && <section className="tools-editor-entry"><div><Icon name="film" size={22} /><div><h2>Trình dựng video</h2><p>Tạo video mới hoặc mở các bản dựng đã lưu.</p></div></div><button className="btn btn-primary" onClick={() => goto('editor')}>Mở trình dựng<Icon name="right" size={15} /></button></section>}
       <input ref={picker} type="file" multiple hidden onChange={(e) => { add(e.target.files); e.target.value = ''; }} />
       <header className="tpl-head">
         <div>

@@ -18,7 +18,7 @@ const LEVEL_LABEL: Record<Level, string> = { admin: 'Admin', normal: 'Thành vi�
 const LEVEL_HINT: Record<Level, string> = {
   admin: 'Quản lý board của phòng (chia sẻ, quyền xem, xoá board) và thư mục khách hàng trên Drive',
   normal: 'Sửa board của phòng; trên Drive xem, tải lên, sửa link và ghi chú',
-  observer: 'Chỉ xem và bình luận; không mở Trình dựng, không sửa gì trên Drive',
+  observer: 'Chỉ xem và bình luận; không sửa gì trên Drive',
 };
 const LEVELS: Level[] = ['admin', 'normal', 'observer'];
 
@@ -162,12 +162,12 @@ function UserSheet({ user, initialTeam, google, onClose, onSaved }: { initialTea
 
 const PAGE_LABEL: [Page, string, string][] = [
   ['workspace', 'Drive', 'Thư mục khách hàng, video, link và ghi chú'],
-  ['editor', 'Trình dựng', 'Dự án dựng từ sheet, timeline, xuất CapCut'],
+  ['editor', 'Báo cáo', 'Báo cáo khách hàng'],
   ['ads', 'Báo cáo Ads', 'Số liệu Meta Ads lấy trực tiếp: chi tiêu, kết quả, chiến dịch'],
 ];
 /**
  * The company's departments (phòng ban): each gives its people a board of their own in Workspace and the tool pages
- * they open (Media Execute: Drive and Trình dựng), and has its own roles (Trưởng phòng, Editor…), each at a level:
+ * they open (Media Execute: Drive and Báo cáo), and has its own roles (Trưởng phòng, Editor…), each at a level:
  * admin (manage the department's boards and Drive), member (edit) or view only. People in no department open the
  * pages set on the "Chưa có phòng ban" row; admins, everything.
  */

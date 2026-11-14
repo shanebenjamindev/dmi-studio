@@ -90,8 +90,8 @@ test('two backend instances share accounts, sessions, settings and customer note
     assert.equal((await a.call('GET','/api/profiles/missing',undefined,login.cookie)).status,404);
 
 
-    assert.equal((await a.call('PUT', '/api/settings/editor-link', { url: 'http://localhost:1' }, admin.cookie)).status, 200);
-    assert.equal((await b.call('GET', '/api/editor-link', undefined, admin.cookie)).data.url, 'http://localhost:1');
+    assert.equal((await a.call('PUT', '/api/settings/ads', { metaVersion: 'v25.0' }, admin.cookie)).status, 200);
+    assert.equal((await b.call('GET', '/api/settings/ads', undefined, admin.cookie)).data.metaVersion, 'v25.0');
     const customer = await a.call('POST', '/api/customers', { name: 'Shared customer', notes: 'initial' }, admin.cookie);
     assert.equal(customer.status, 201);
     const cid = customer.data.id;
@@ -134,9 +134,12 @@ test('existing SQLite data survives schema upgrades', async () => {
     db.close();
     server = await start(dir);
     const admin = await server.call('POST', '/api/auth/setup', { code: 'test-setup-only', email: 'upgrade@example.test', password: 'test-password' });
-    const projects = await server.call('GET', '/api/projects', undefined, admin.cookie);
-    assert.equal(projects.data[0].title, 'Keep this project');
-    assert.equal(projects.data[0].customerId, null);
+    assert.equal(admin.status, 201);
+    // The old rows stay as they were (the video editor is gone, its data is kept).
+    const after = new DatabaseSync(path.join(dir, 'studio.db'));
+    const kept = after.prepare('SELECT title, customer_id FROM projects').all();
+    after.close();
+    assert.deepEqual(kept.map((r) => [r.title, r.customer_id]), [['Keep this project', null]]);
   } finally { if (server) await server.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -151,7 +154,7 @@ test('local Node development uses SQLite independently of retired Turso variable
   } finally { if (server) await server.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
-test('customer association agrees across pages and explicit unlink survives reloads', async () => {
+test('customers from the workspace folder are offered when choosing a customer', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'dmi-customer-link-'));
   let server;
   try {
@@ -169,23 +172,6 @@ test('customer association agrees across pages and explicit unlink survives relo
     await server.call('GET', '/api/customers', undefined, cookie);
     const choices = await server.call('GET', '/api/customers/all', undefined, cookie);
     assert.deepEqual(choices.data.map(c => c.id), [customer.data.id]);
-    const project = await server.call('POST', '/api/projects', { title: 'Drive project' }, cookie);
-    assert.equal(project.status, 201);
-    const id = project.data.id, cid = customer.data.id;
-    // Simulate an existing sheet project before this customer folder was imported.
-    const db = new DatabaseSync(path.join(dir, 'studio.db'));
-    db.prepare('UPDATE projects SET data=? WHERE id=?').run(JSON.stringify({ sheet: { form: { customer: 'Khach hang Anh Duong' } } }), id);
-    db.close();
-    const detail = await server.call('GET', `/api/customers/${cid}`, undefined, cookie);
-    assert.equal(detail.data.projects[0].id, id);
-    assert.equal((await server.call('GET', '/api/projects', undefined, cookie)).data[0].customerId, cid);
-    assert.equal((await server.call('PUT', `/api/projects/${id}`, { customerId: null }, cookie)).data.customerId, null);
-    assert.equal((await server.call('GET', '/api/projects', undefined, cookie)).data[0].customerId, null);
-    assert.equal((await server.call('GET', `/api/customers/${cid}`, undefined, cookie)).data.projects.length, 0);
-    assert.equal((await server.call('POST', `/api/projects/${id}/customer/auto`, undefined, cookie)).data.customerId, cid);
-    const invalid = await server.call('POST', `/api/projects/${id}/drive`, { link: 'invalid' }, cookie);
-    assert.equal(invalid.status, 400);
-    assert.equal((await server.call('GET', `/api/projects/${id}`, undefined, cookie)).data.customerId, cid);
   } finally { if (server) await server.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -242,7 +228,7 @@ test('company departments do not grant board access; direct invitations allow ca
     // Only admins change roles; a role's pages are enforced on the API.
     assert.equal((await server.call('PUT', `/api/roles/${media.id}`, { pages: [] }, mc)).status, 403);
     assert.equal((await server.call('PUT', `/api/roles/${media.id}`, { pages: ['workspace'] }, ac)).status, 200);
-    assert.equal((await server.call('GET', '/api/projects', undefined, mc)).status, 403);
+    assert.equal((await server.call('GET', '/api/reports', undefined, mc)).status, 403);
     // Deleting a role keeps its board, for admins (and the people added to it).
     await server.call('DELETE', `/api/roles/${sale.id}`, undefined, ac);
     assert.ok(!(await server.call('GET', '/api/boards', undefined, mc)).data.some(b => b.id === saleBoard.id));
@@ -527,9 +513,9 @@ test('departments have their own roles: a role\'s level (admin, member, view onl
     assert.equal(await levelOf(kid.cookie), 'normal'); // added to the board at a level of its own
     assert.equal((await server.call('POST', '/api/boards', { name: 'x', roleId: media.id }, kid.cookie)).status, 403); // view-only role: no new company boards
     assert.equal((await server.call('POST', '/api/boards', { name: 'Dựng mới', roleId: media.id }, ed.cookie)).status, 201);
-    // Tool pages: interns do not open Trình dựng and change nothing on Drive; only admins manage customers and files.
+    // Tool pages: interns do not open Báo cáo and change nothing on Drive; only admins manage customers and files.
     assert.deepEqual((await server.call('GET', '/api/auth/me', undefined, kid.cookie)).data.pages, ['workspace']);
-    assert.equal((await server.call('GET', '/api/projects', undefined, kid.cookie)).status, 403);
+    assert.equal((await server.call('GET', '/api/reports', undefined, kid.cookie)).status, 403);
     assert.equal((await server.call('PUT', '/api/customers/c_x', { notes: 'x' }, kid.cookie)).status, 404);
     assert.equal((await server.call('DELETE', '/api/customers/c_x/files/abc', undefined, ed.cookie)).status, 404);
     assert.equal((await server.call('DELETE', '/api/customers/c_x/videos/abc', undefined, ed.cookie)).status, 404);

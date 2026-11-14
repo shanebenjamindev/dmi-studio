@@ -23,7 +23,7 @@ export function Info() {
         <div className="ax-two">
           <Section title="Máy chủ"><dl className="ax-facts">
             <dt>Ứng dụng</dt><dd>{d.app.name} {d.app.version}</dd><dt>Nền tảng</dt><dd>{d.app.runtime}</dd><dt>Cơ sở dữ liệu</dt><dd>{d.app.database}</dd><dt>Lưu file</dt><dd>{d.app.storage}</dd>
-            <dt>Trình dựng video</dt><dd>{d.app.editor ? <Badge tone="ok">Chạy được ở máy chủ này</Badge> : <Badge tone="muted">Chỉ chạy trên máy Mac</Badge>}</dd><dt>Giờ máy chủ</dt><dd>{fmtTime(d.app.serverTime)}</dd>
+            <dt>Giờ máy chủ</dt><dd>{fmtTime(d.app.serverTime)}</dd>
           </dl></Section>
           <Section title="Kết nối"><dl className="ax-facts">
             <dt>Google Drive</dt><dd>{d.integrations.googleAccounts.length ? d.integrations.googleAccounts.join(', ') : 'Chưa kết nối'}</dd><dt>Thư mục gốc</dt><dd>{d.integrations.workspaceRoot || 'Mặc định'}</dd>

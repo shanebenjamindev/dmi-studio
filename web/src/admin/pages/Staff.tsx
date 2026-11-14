@@ -259,7 +259,7 @@ export function Departments() {
   const can = useCan(), user = useStore((s) => s.user)!;
   const load = useLoad(() => admin.departments(), []);
   const [view, setView] = useState<'list' | 'chart'>('list');
-  const PAGE: Record<string, string> = { workspace: 'Drive', editor: 'Trình dựng', ads: 'Báo cáo Ads' };
+  const PAGE: Record<string, string> = { workspace: 'Drive', editor: 'Báo cáo', ads: 'Báo cáo Ads' };
   return (
     <>
       <PageHead title="Phòng ban" sub="Mỗi phòng ban có board riêng, các trang công cụ người trong phòng mở được và các chức vụ của phòng."

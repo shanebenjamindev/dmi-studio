@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -20,7 +20,7 @@ async function start(dir) {
   await new Promise((resolve) => listener.close(resolve));
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
     cwd: root,
-    env: { ...process.env, DATA_DIR: path.join(dir, 'data'), DRIVE_DIR: path.join(dir, 'drive'), HYPERFRAMES_DIR: path.join(dir, 'hf'), PORT: String(port), HOST: '127.0.0.1', PUBLIC_URL: '',
+    env: { ...process.env, DATA_DIR: path.join(dir, 'data'), DRIVE_DIR: path.join(dir, 'drive'), PORT: String(port), HOST: '127.0.0.1', PUBLIC_URL: '',
       TURNSTILE_SITE_KEY: '', TURNSTILE_SECRET_KEY: '', DMS_RUNTIME: '', CLOUD_STORAGE_ONLY: '', SETUP_CODE: 'test-setup-only' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -117,7 +117,8 @@ test('Claude connector: OAuth, tools, rights and safety', async () => {
     assert.equal((await rpc(A, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } })).result.protocolVersion, '2025-06-18');
     assert.equal((await json('POST', '/api/mcp', { jsonrpc: '2.0', method: 'notifications/initialized' }, { authorization: 'Bearer ' + A })).status, 202);
     const names = (await rpc(A, 'tools/list')).result.tools.map((t) => t.name);
-    for (const n of ['whoami', 'list_tasks', 'create_task', 'task_workflow', 'list_customers', 'list_video_projects', 'publish_render']) assert.ok(names.includes(n), n);
+    for (const n of ['whoami', 'list_tasks', 'create_task', 'task_workflow', 'list_customers', 'get_customer']) assert.ok(names.includes(n), n);
+    assert.ok(!names.some((n) => /video|render|hyperframes/.test(n)), 'the video editor is gone');
     // P6: nothing reaches SQL, accounts or locking
     assert.ok(!names.some((n) => /sql|delete|lock|role|password/.test(n)));
 
@@ -151,17 +152,6 @@ test('Claude connector: OAuth, tools, rights and safety', async () => {
     // P4: a team's tasks are for its leaders
     assert.equal((await call(M, 'list_tasks', { scope: 'team' })).err, true);
 
-    // T7: a render must come from the project's own HyperFrames folder
-    const data = JSON.stringify({ sources: [], sheet: null });
-    db.prepare("INSERT INTO projects(id,title,aspect,data,customer_id,created_at,updated_at) VALUES('p_t1','Video Test','9:16',?,NULL,1,1)").run(data);
-    const folder = path.join(dir, 'hf', 'video-test-p_t1');
-    await mkdir(folder, { recursive: true });
-    await writeFile(path.join(folder, 'out.mp4'), Buffer.from('not really a video'));
-    await writeFile(path.join(dir, 'outside.mp4'), Buffer.from('x'));
-    assert.equal((await call(A, 'publish_render', { project_id: 'p_t1', file: '../outside.mp4' })).err, true);
-    assert.equal((await call(A, 'publish_render', { project_id: 'p_t1', file: path.join(dir, 'outside.mp4') })).err, true);
-    assert.equal((await call(A, 'publish_render', { project_id: 'p_t1', file: 'out.mp4' })).err, false);
-    assert.equal((await call(A, 'get_video_project', { project_id: 'p_t1' })).v.renders.length, 1);
     db.close();
 
     // M3: a person sees the Claude apps connected to their account and takes one back; nobody else can.

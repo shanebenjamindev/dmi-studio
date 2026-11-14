@@ -4,11 +4,11 @@ import { api, auth } from './api';
 import { adoptPrefs } from './prefs';
 import { applyTheme } from './theme';
 import { langPref } from './i18n';
-import type { AdminAccess, TeamRole, User, Project, Page } from './types';
+import type { AdminAccess, TeamRole, User, Page } from './types';
 
-/** Công việc: personal tasks, both kinds of project and department boards; Drive and the editor stay in projects;
+/** Công việc: personal tasks, services and department boards; Drive holds the customers' folders;
  *  'tools': file conversion, open to everyone (it runs in the browser). */
-export type View = 'profile' | 'customers' | 'boards' | 'tasks' | 'projects' | 'workspace' | 'admin' | 'editor' | 'tools' | 'reports' | 'ads';
+export type View = 'profile' | 'customers' | 'boards' | 'tasks' | 'projects' | 'workspace' | 'admin' | 'tools' | 'reports' | 'ads';
 export interface AppState {
   ready: boolean;
   /** Signed-in DMI Workspace account; null shows the sign-in page. */
@@ -23,25 +23,20 @@ export interface AppState {
   /** The company's roles (names and colours for the Workspace and Quản trị). */
   roles: TeamRole[];
   ffmpeg: boolean;
-  /** This server can run the editor (ffmpeg and a local disk for HyperFrames); false on the cloud Worker. */
-  editorAvailable: boolean;
   /** Pages the signed-in account may open (admins: all). */
   pages: Page[];
   /** What the account may do in Quản trị (null: nothing there). */
   admin: AdminAccess | null;
-  /** Bumped when projects are added in the background, so the project list reloads. */
-  homeVersion: number;
-  project: Project | null;
   busy: string | null;
   toast: { text: string; err?: boolean; id: number } | null;
 }
 
-export const HASH: Partial<Record<View, string>> = { profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', editor: '#editor', reports: '#reports', ads: '#ads', tools: '#tools', admin: '#admin' };
+export const HASH: Partial<Record<View, string>> = { profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', reports: '#reports', ads: '#ads', tools: '#tools', admin: '#admin' };
 /** The page an address opens (the reverse of HASH); any other address opens the boards. */
 const viewOfHash = (hash: string) => (Object.keys(HASH) as View[]).find((v) => hash.startsWith(HASH[v]!)) ?? 'boards';
 
 let state: AppState = {
-  ready: false, user: null, siteLock: null, setup: false, setupCode: false, googleSignin: false, view: viewOfHash(location.hash), roles: [], ffmpeg: false, editorAvailable: false, pages: [], admin: null, homeVersion: 0, project: null,
+  ready: false, user: null, siteLock: null, setup: false, setupCode: false, googleSignin: false, view: viewOfHash(location.hash), roles: [], ffmpeg: false, pages: [], admin: null,
   busy: null, toast: null,
 };
 const subs = new Set<() => void>();
@@ -62,7 +57,6 @@ export function useStore<T>(sel: (s: AppState) => T): T {
 }
 
 // ------------------------------------------------------------------ helpers
-const LS_LAST = 'dms.lastProject';
 const ls = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } },
@@ -104,13 +98,12 @@ export const canDo = (perm: string) => !!state.admin?.perms[perm];
  *  server's rule in auth.ts). */
 export const mayAddCustomer = () =>
   state.user?.role === 'admin' || (state.pages.includes('workspace') && state.user?.level !== 'observer') || canDo('customers.create');
-/** Pages this account can open. On a server that cannot run the editor (the cloud site), its tab says where it runs. */
+/** Pages this account can open. */
 export function openPages(): View[] {
   // Khách hàng: everyone sees the customers they work on; Drive (their folders) only those given it.
   const out: View[] = ['boards', 'tasks', 'projects', 'customers', 'profile'];
   if (state.pages.includes('workspace')) out.push('workspace');
-  if (state.pages.includes('editor')) out.push('editor');
-  // Báo cáo: every client report (made in the editor or here) and, for those allowed, the Meta Ads numbers.
+  // Báo cáo: every client report and, for those allowed, the Meta Ads numbers.
   out.push('reports');
   if (state.pages.includes('ads') || state.user?.role === 'admin') out.push('ads');
   out.push('tools');
@@ -120,7 +113,7 @@ export function openPages(): View[] {
 }
 /** Open a page (and keep it in the address, so a reload comes back to it). */
 export function goto(view: View) {
-  const h = view === 'editor' && state.project ? `#editor/${state.project.id}` : HASH[view];
+  const h = HASH[view];
   if (h && !location.hash.startsWith(h)) history.pushState(null, '', h);
   setState({ view });
 }
@@ -155,85 +148,11 @@ async function loadApp(health = api.health()) {
     // Roles fill in after the first screen: only the admin forms use them.
     api.roles().then((roles) => setState({ roles })).catch(() => {});
     const h = await health;
-    setState({ ffmpeg: h.ffmpeg, editorAvailable: !!h.editor });
+    setState({ ffmpeg: h.ffmpeg });
     fixView();
-    // The editor opens on the project list; a reload inside a project (#editor/<id>) reopens that project.
-    const id = h.editor ? location.hash.match(/^#editor\/(p_\w+)/)?.[1] : undefined;
-    const p = id ? await api.getProject(id).catch(() => null) : null;
-    if (p) { loadProject(p); setState({ view: 'editor' }); }
   } catch (e: any) {
     toast('Không kết nối được server: ' + e.message, true);
   }
-}
-function loadProject(p: Project) {
-  setState({ project: p });
-  ls.set(LS_LAST, p.id);
-}
-export async function openProject(id: string) { loadProject(await api.getProject(id)); setState({ view: 'editor' }); history.replaceState(null, '', `#editor/${id}`); }
-/** Back to the project list. */
-export async function closeProject() {
-  setState({ project: null });
-  history.replaceState(null, '', '#editor');
-}
-export async function newProject(customerId?: string, title = 'Dự án mới') {
-  const p = await api.createProject({ title, aspect: state.project?.aspect || '16:9', customerId });
-  loadProject(p); setState({ view: 'editor' });
-  history.replaceState(null, '', `#editor/${p.id}`);
-  return p;
-}
-/** Read one tab of a sheet on the server, showing its current step (prefixed) as the busy text; it takes a minute or two. */
-async function readWithProgress(link: string, tab: string | undefined, prefix = '') {
-  const token = crypto.randomUUID();
-  let polling = true;
-  (async () => {
-    while (polling) {
-      await new Promise((r) => setTimeout(r, 1200));
-      const t = polling && await api.sheetProgress(token).then((x) => x.text, () => '');
-      if (polling && t) setState({ busy: prefix + t });
-    }
-  })();
-  try { return await api.readSheet(link, token, tab); } finally { polling = false; }
-}
-/**
- * From a request form in Google Sheets to a project: the server reads the form's script and the footage it links; Claude
- * Code builds the video. A new project, unless `here` asks to read the current one's sheet again.
- */
-export async function buildFromSheet(link: string, here = false, tab = here ? state.project?.sheet?.tab : undefined) {
-  setState({ busy: 'Đang đọc sheet…' });
-  try {
-    const r = await readWithProgress(link, tab);
-    // Each sheet (or tab) is its own project: a new one, unless this is "read the sheet again" inside its project.
-    const p = here && state.project ? state.project : await newProject(undefined, r.sheet.title);
-    setState({ project: { ...state.project!, title: r.sheet.title, sources: r.sources, sheet: r.sheet, aspect: r.sheet.form.aspect } });
-    await api.saveProject(p.id, { title: r.sheet.title, sources: r.sources, sheet: r.sheet, aspect: r.sheet.form.aspect });
-    toast(`Đã đọc sheet: ${r.sheet.form.script?.length || 0} cảnh, ${r.sources.length} footage${r.missing.length ? ` · ${r.missing.length} file không tìm thấy` : ''}. Dựng video ở tab “Làm với Claude”.`, !!r.sheet.warning || !!r.missing.length);
-  } catch (e: any) { toast(e.message, true); } finally { setState({ busy: null }); }
-}
-/**
- * A sheet with several tabs: one project per chosen tab, named after the tab, built one after another while the
- * project list stays open. Returns how many were made.
- */
-export async function buildTabs(link: string, tabs: string[]) {
-  let made = 0;
-  const failed: string[] = [];
-  for (const [i, tab] of tabs.entries()) {
-    const prefix = `Tab ${i + 1}/${tabs.length} · ${tab} — `;
-    setState({ busy: prefix + 'Đang đọc…' });
-    try {
-      const r = await readWithProgress(link, tab, prefix);
-      await api.createProject({ title: r.sheet.title, aspect: r.sheet.form.aspect, sources: r.sources, sheet: r.sheet });
-      made++;
-      setState({ homeVersion: state.homeVersion + 1 }); // show it in the list right away
-    } catch { failed.push(tab); }
-  }
-  setState({ busy: null });
-  toast(`Đã tạo ${made} dự án từ ${tabs.length} tab${failed.length ? ` · không đọc được: ${failed.join(', ')}` : ''}.`, !!failed.length && !made);
-  return made;
-}
-/** Read the current project's sheet again (it may have changed): its script and footage. */
-export async function rebuildFromSheet() {
-  const sheet = state.project?.sheet;
-  if (sheet) await buildFromSheet(sheet.link, true, sheet.tab);
 }
 export const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 

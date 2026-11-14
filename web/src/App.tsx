@@ -39,11 +39,10 @@ export function App() {
   const busy=useStore(s=>s.busy);
   const toast = useStore((s) => s.toast);
   const view = useStore((s) => s.view);
-  const editorHere = useStore((s) => s.editorAvailable);
   const user = useStore((s) => s.user);
   const siteLock = useStore((s) => s.siteLock);
   const adminAccess = useStore((s) => s.admin);
-  const can = { admin: user?.role === 'admin' || Object.keys(adminAccess?.perms || {}).length > 0, editor: editorHere };
+  const can = { admin: user?.role === 'admin' || Object.keys(adminAccess?.perms || {}).length > 0 };
   const Page = pageFor(view, can);
 
   useEffect(() => { init(); }, []);
@@ -53,7 +52,7 @@ export function App() {
     try { q = sessionStorage.getItem(OAUTH); sessionStorage.removeItem(OAUTH); } catch { /* private mode */ }
     if (q) location.replace('/api/oauth/authorize?' + q);
   }, [user?.id]);
-  useEffect(() => { if (ready && user) prefetchPages(openPages(), can); }, [ready, user?.id, editorHere, can.admin]);
+  useEffect(() => { if (ready && user) prefetchPages(openPages(), can); }, [ready, user?.id, can.admin]);
 
   return (
     <>

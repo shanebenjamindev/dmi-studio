@@ -9,6 +9,14 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-14-5',
+    date: '14/11/2026',
+    items: [
+      { kind: 'fix', vi: 'Bỏ trình dựng video (Tools › Trình dựng). Báo cáo vẫn giữ nguyên; quyền trang “Trình dựng” trong phân quyền nay mang tên “Báo cáo”.', en: 'The video editor (Tools › Editor) is gone. Reports stay as they are; the “Editor” page access in roles is now called “Reports”.' },
+      { kind: 'fix', vi: 'Ảnh đại diện hiện đúng ở người giao việc, người được giao và người theo dõi công việc (trước chỉ hiện chữ viết tắt).', en: 'Profile photos now show for who gave a task, who does it and who follows it (only initials showed before).' },
+    ],
+  },
+  {
     id: '2026-11-14-4',
     date: '14/11/2026',
     items: [

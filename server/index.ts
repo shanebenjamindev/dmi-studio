@@ -84,7 +84,7 @@ server.requestTimeout = 0;
 server.listen(PORT, HOST, () => {
   console.log(`\n  ▶ DMI Workspace  ${PUBLIC_URL || `http://localhost:${PORT}`}`);
   console.log(`    Database: ${cloudDatabase ? 'Cloudflare D1 (dùng chung)' : 'SQLite local'}`);
-  console.log(`    ffmpeg: ${FFMPEG ? 'có (trình dựng HyperFrames dùng được)' : 'không có (trình dựng cần ffmpeg)'}\n`);
+  console.log(`    ffmpeg: ${FFMPEG ? 'có' : 'không có'}\n`);
 });
 
 const mailTimer=setInterval(()=>{void drainNotifications().catch(()=>console.error('Chưa xử lý được hàng đợi email'));},60000);

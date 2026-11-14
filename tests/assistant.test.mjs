@@ -72,7 +72,7 @@ test('assistant: streaming, tools with the person\'s rights, approval before a c
   const port = await freePort();
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
     cwd: root,
-    env: { ...process.env, DATA_DIR: path.join(dir, 'data'), DRIVE_DIR: path.join(dir, 'drive'), HYPERFRAMES_DIR: path.join(dir, 'hf'), PORT: String(port), HOST: '127.0.0.1', PUBLIC_URL: '',
+    env: { ...process.env, DATA_DIR: path.join(dir, 'data'), DRIVE_DIR: path.join(dir, 'drive'), PORT: String(port), HOST: '127.0.0.1', PUBLIC_URL: '',
       TURNSTILE_SITE_KEY: '', TURNSTILE_SECRET_KEY: '', DMS_RUNTIME: '', CLOUD_STORAGE_ONLY: '', SETUP_CODE: 'test-setup-only',
       ANTHROPIC_API_KEY: 'test-key', ANTHROPIC_BASE_URL: `http://127.0.0.1:${claude.server.address().port}`, ASSISTANT_MODEL: '', ASSISTANT_MONTHLY_TOKENS: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
