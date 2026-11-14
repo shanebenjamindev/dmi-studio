@@ -518,7 +518,7 @@ function TaskReadingList({
                       : isDone ? <span className="wework-badge done">HOÀN THÀNH</span>
                       : isDoing ? <span className="wework-badge doing">ĐANG LÀM</span>
                       : <span className="wework-badge" style={{ background: 'var(--fill)', color: 'var(--label-2)' }}>{t.status || 'CHƯA XONG'}</span>}
-                    {assignee && <Avatar m={{ id: assignee.id, name: assignee.name }} size={22} />}
+                    {assignee && <Avatar m={{ id: assignee.id, userId: assignee.userId, avatarAt: assignee.avatarAt, name: assignee.name }} size={22} />}
                   </div>
                 </div>
               );
@@ -825,7 +825,7 @@ function WeworkTaskView({
             </button> : <Badge t={t} />}
             {hasAssignee ? (
               <button className="wework-pill-btn" onClick={(e) => setPop({ kind: 'members', el: e.currentTarget })} title="Người thực hiện">
-                <Avatar m={{ id: assignee.id, name: assigneeName }} size={20} />
+                <Avatar m={{ id: assignee.id, userId: assignee.userId, avatarAt: assignee.avatarAt, name: assigneeName }} size={20} />
                 <b>{assigneeName}</b>
                 {assigneeRole && <><span className="wework-pill-sep">/</span><span className="wework-pill-sub">{assigneeRole}</span></>}
                 {t.assignees.length > 1 && <span style={{ marginLeft: 4, color: 'var(--tint)', fontSize: 11 }}>+{t.assignees.length - 1}</span>}
@@ -1025,7 +1025,7 @@ function WeworkTaskView({
             </button>
             {!foldAssignor && (
               <div className="wework-person-card">
-                <Avatar m={{ id: t.createdBy?.id || 'c', name: creatorName }} size={34} />
+                <Avatar m={{ id: t.createdBy?.id || 'c', userId: t.createdBy?.userId, name: creatorName }} size={34} />
                 <div className="wework-person-meta">
                   <b className="wework-person-name">{creatorName}</b>
                   {creatorRole && <span className="wework-person-sub">{creatorRole}</span>}
@@ -1045,7 +1045,7 @@ function WeworkTaskView({
               <>
                 <div className="wework-followers-row">
                   {t.followers.length > 0 ? (
-                    t.followers.map((f) => <Avatar key={f.id} m={{ id: f.id, name: f.name }} size={28} />)
+                    t.followers.map((f) => <Avatar key={f.id} m={{ id: f.id, userId: f.id, avatarAt: f.avatarAt, name: f.name }} size={28} />)
                   ) : (
                     <p className="note" style={{ margin: '4px 0 8px', fontSize: 12 }}>Chưa có người theo dõi</p>
                   )}

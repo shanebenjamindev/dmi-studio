@@ -229,7 +229,7 @@ function taskOut(t: any, l: Awaited<ReturnType<typeof links>>) {
     project: t.project_id ? { id: t.project_id, name: t.project_name || '', customerId: t.customer_id || null } : null,
     campaign: t.campaign_id ? { id:t.campaign_id,name:t.campaign_name || '',projectId:t.project_id } : null,
     parent: t.parent_id ? { id: t.parent_id, title: t.parent_title || '' } : null, children: Number(t.children) || 0,
-    createdBy: t.created_by ? { id: t.created_by, name: t.creator_name || '' } : null, assignees: l.who.get(t.id) || [],
+    createdBy: t.created_by ? { id: t.created_by, name: t.creator_name || '', userId: t.creator_user_id || null } : null, assignees: l.who.get(t.id) || [],
     // The people on its card who are not given the task (a card linked by hand keeps its own people): it is their work too.
     cardPeople: (l.onCard.get(t.id) || []).filter((p) => !(l.who.get(t.id) || []).some((a) => a.userId === p.userId)), followers: l.followers.get(t.id) || [], labels: l.tags.get(t.id) || [],
     boardLink:l.boardLinks.get(t.id)||null,hasBoardLink:l.linkedTasks.has(t.id),

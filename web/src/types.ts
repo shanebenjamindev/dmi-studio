@@ -205,7 +205,7 @@ export interface TaskItem {
   canDelete?: boolean;
   id: string; externalId: string | null; title: string; status: string; state: TaskState; startAt: number | null; dueAt: number | null; doneAt: number | null;
   project: { id: string; name: string; customerId: string | null } | null; parent: { id: string; title: string } | null; children: number;
-  createdBy: { id: string; name: string } | null; assignees: TaskPerson[]; cardPeople?: TaskPerson[]; followers: { id: string; name: string; avatarAt?: number | null }[]; labels: string[]; services?: ServiceRef[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number; createdAt?: number;
+  createdBy: { id: string; name: string; userId?: string | null } | null; assignees: TaskPerson[]; cardPeople?: TaskPerson[]; followers: { id: string; name: string; avatarAt?: number | null }[]; labels: string[]; services?: ServiceRef[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number; createdAt?: number;
 }
 export interface TaskDetail extends TaskItem {
   statuses?: string[];

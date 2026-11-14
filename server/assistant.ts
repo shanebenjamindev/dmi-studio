@@ -153,7 +153,10 @@ function sse(req: Req, res: Res, work: (emit: Emit, signal: { aborted: boolean; 
       // The API's own reason (no credit, a model the key cannot use…) is what the person needs to fix it.
       const reason = e instanceof Anthropic.APIError ? String(e.error?.error?.message || e.message || '').slice(0, 300) : '';
       if (e instanceof Anthropic.APIError) console.error('Claude API', e.status, reason);
-      emit('error', { message: e instanceof HttpError ? e.message : e instanceof Anthropic.RateLimitError ? 'Claude đang quá tải, thử lại sau ít phút.' : e instanceof Anthropic.APIError ? `Claude API lỗi ${e.status}${reason ? `: ${reason}` : ''}` : 'Trợ lý gặp lỗi, hãy thử lại.' });
+      // Out of credit: said the way the team would say it, not the API's billing notice.
+      const broke = e instanceof Anthropic.APIError && /credit balance/i.test(reason);
+      emit('error', { message: broke ? 'Please Ed, buy me some API credits… or give me a new API key! 🥺 Ví em rỗng tuếch rồi, không có xu nào để nghĩ tiếp. Nạp giúp em ở platform.claude.com › Billing nha, em hứa làm việc chăm chỉ! 🙏'
+        : e instanceof HttpError ? e.message : e instanceof Anthropic.RateLimitError ? 'Claude đang quá tải, thử lại sau ít phút.' : e instanceof Anthropic.APIError ? `Claude API lỗi ${e.status}${reason ? `: ${reason}` : ''}` : 'Trợ lý gặp lỗi, hãy thử lại.' });
     })
     .finally(() => { emit('done', {}); res.end(); });
 }
