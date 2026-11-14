@@ -21,6 +21,7 @@ import { registerSearch } from './search';
 import { registerSupport } from './support';
 import { registerMcp } from './mcp';
 import { registerHyperframes } from './hyperframes';
+import { registerAssistant } from './assistant';
 import { registerSheets, checkSheet } from './sheets';
 import { registerSources, driveId, locate, checkSources } from './sources';
 
@@ -214,4 +215,5 @@ registerSearch(api);
 registerSupport(api);
 registerMcp(api);
 registerHyperframes(api);
+registerAssistant(api);
 

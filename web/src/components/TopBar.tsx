@@ -1,5 +1,6 @@
 import {NotificationBell} from './NotificationBell';
 import { QuickNotesButton } from './QuickNotes';
+import { AssistantButton } from './Assistant';
 import { MessengerTopButton } from './Messenger';
 import { Reminders } from './Reminders';
 import { SupportButton } from './SupportDialog';
@@ -55,7 +56,7 @@ export function AppHeader() {
         <Icon name="search" size={16} /><span>Tìm mọi thứ: khách, việc, dịch vụ…</span><kbd>{mac ? '⌘' : 'Ctrl'} K</kbd>
       </button>
       <div className="app-head-right">
-        <MessengerTopButton /><QuickNotesButton /><NotificationBell /><ThemeSwitch />
+        <MessengerTopButton /><AssistantButton /><QuickNotesButton /><NotificationBell /><ThemeSwitch />
         <div className="tb-user" ref={ref}>
           <button className="tb-user-btn" onClick={() => setMenu(!menu)} aria-expanded={menu} aria-haspopup="menu" title={user.name} aria-label={`Tài khoản ${user.name}`}>
             <Avatar m={{ id: user.id, userId: user.id, name: user.name || user.email, avatarAt: user.avatarAt }} size={28} /><span className="tb-user-name">{user.name}</span><Icon name="chevron" size={13} />

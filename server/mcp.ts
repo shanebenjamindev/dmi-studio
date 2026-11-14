@@ -222,7 +222,7 @@ async function answer(req: Req, user: User, m: any) {
 // The API's own entry (server/app.ts hands it over: importing it here would make a cycle, which the Worker bundle can't start).
 let handleApi: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>;
 export const useApiEntry = (h: typeof handleApi) => { handleApi = h; };
-function callAs(outer: Req, user: User): Call {
+export function callAs(outer: Req, user: User): Call {
   return async (method, path, data) => {
     const req = Readable.from(data === undefined ? [] : [Buffer.from(JSON.stringify(data))]) as any;
     Object.assign(req, {
@@ -247,7 +247,7 @@ function callAs(outer: Req, user: User): Call {
   };
 }
 
-const WORK_TOOLS: Tool[] = [
+export const WORK_TOOLS: Tool[] = [
   {
     name: 'whoami', title: 'Tài khoản đang kết nối', description: 'Tên, email, vai trò của tài khoản DMI đang kết nối.', annotations: read,
     inputSchema: { type: 'object', properties: {} },

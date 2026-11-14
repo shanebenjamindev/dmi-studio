@@ -25,6 +25,10 @@ npm start                   # build giao diện + chạy server → http://local
 
 Công cụ: tìm kiếm, công việc (xem, tạo, sửa, bình luận, chuyển bước quy trình), dịch vụ, nhân sự, khách hàng. Trên máy Mac có thêm công cụ của trình dựng (bên dưới).
 
+## Trợ lý AI trong DMI
+
+Nút ✦ trên thanh trên cùng (⌘J): chat với Claude, dùng chung bộ công cụ với connector MCP và đúng quyền của người đang chat; thay đổi nào cũng chờ người dùng Duyệt. Gọi Claude API (tính phí theo token, cần `ANTHROPIC_API_KEY`, xem [DEPLOY.md](DEPLOY.md)). Code: `server/assistant.ts`, `web/src/components/Assistant.tsx`.
+
 ## Trình dựng video: Claude Code + HyperFrames (chỉ trên Mac)
 
 1. **Tools → Trình dựng → Tạo dự án** từ link sheet yêu cầu. Server đọc kịch bản theo mẫu form và tìm footage trên Drive (nhãn s1, s2…). Không gọi AI.

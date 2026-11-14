@@ -33,7 +33,9 @@ Người dùng ──chat──▶ Claude (claude.ai / Desktop / Code)
 
 Ưu điểm: không tốn phí, dùng được trên mọi thiết bị của người dùng, phần lớn đã chạy. Nhược điểm: người dùng phải rời DMI để chat; trải nghiệm phụ thuộc client; gói Team cần Owner thêm connector.
 
-## 2. Phương án B: Agent trong DMI [Đề xuất, cần API trả phí]
+## 2. Phương án B: Agent trong DMI [Đã làm bản đầu 14/11/2026, cần API trả phí]
+
+> Chủ dự án chấp nhận chi phí token ngày 14/11/2026. Bản đầu: [server/assistant.ts](../../server/assistant.ts), [web/src/components/Assistant.tsx](../../web/src/components/Assistant.tsx), test [tests/assistant.test.mjs](../../tests/assistant.test.mjs). Có: streaming SSE, lưu hội thoại, công cụ chung với MCP, duyệt trong khung chat cho mọi công cụ ghi, hạn mức token theo tháng, fallback phía server. Chưa có: tóm tắt hội thoại dài, trang chi phí trong Quản trị, gắn ngữ cảnh trang đang mở.
 
 ### 2.1 Kiến trúc
 

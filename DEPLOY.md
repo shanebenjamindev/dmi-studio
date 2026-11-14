@@ -75,3 +75,17 @@ Cookie thuộc từng domain. Người dùng đăng nhập bằng email và mậ
 Workers không có ổ lưu trữ local bền vững hoặc ffmpeg. Video khách hàng đi thẳng tới Google Drive; tính năng lưu media/render trên ổ server bị tắt.
 
 Gói D1 Free hiện giới hạn **500 MB cho mỗi database**, tối đa 5 GB tổng mỗi tài khoản. Xem [giới hạn D1](https://developers.cloudflare.com/d1/platform/limits/) và [hạn mức Workers](https://developers.cloudflare.com/workers/platform/limits/). Dữ liệu tài khoản/ghi chú của app hiện rất nhỏ; video không được lưu trong D1.
+
+## Trợ lý AI (Claude API, tính phí theo token)
+
+Khung chat ✦ trong app gọi Claude API từ máy chủ ([server/assistant.ts](server/assistant.ts)). Không có khoá thì khung chat báo "chưa được bật", app vẫn chạy bình thường.
+
+1. Tạo API key tại https://platform.claude.com (Settings → API keys), nạp credit, nên đặt giới hạn chi tiêu tháng ở đó.
+2. Đặt khoá lên Cloudflare (không ghi vào Git): `npx wrangler secret put ANTHROPIC_API_KEY`, hoặc thêm `ANTHROPIC_API_KEY=...` vào `.env` rồi `npm run cf:secrets`.
+3. Tuỳ chọn (biến thường, đặt trong `vars` của `wrangler.jsonc` hoặc `.env` khi chạy local):
+   - `ASSISTANT_MODEL`: mặc định `claude-opus-5-5`; rẻ hơn: `claude-sonnet-5-5`, `claude-haiku-5-5`.
+   - `ASSISTANT_MONTHLY_TOKENS`: hạn mức mỗi người mỗi tháng, mặc định `2000000` (đầu vào + đầu ra; token đọc cache tính 1/10).
+4. Lượng token từng câu trả lời lưu trong bảng `ai_messages` (`tokens_in`, `tokens_out`, `cache_read`, `cache_write`).
+
+Opus 5.5 bật sẵn fallback phía server (`fallbacks: "default"`): khi bộ lọc an toàn từ chối, Anthropic chạy lại trên model dự phòng phù hợp. Lần chạy lại tính phí theo model dự phòng.
+

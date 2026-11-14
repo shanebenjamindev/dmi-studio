@@ -7,7 +7,7 @@ import '../server/config';
 const secrets: Record<string, string> = {
   SETUP_CODE: process.env.SETUP_CODE || crypto.randomBytes(32).toString('hex'),
 };
-for (const key of ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY', 'CF_API_TOKEN']) {
+for (const key of ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY', 'CF_API_TOKEN', 'ANTHROPIC_API_KEY']) {
   const value = process.env[key]?.trim();
   if (value) secrets[key] = value;
 }

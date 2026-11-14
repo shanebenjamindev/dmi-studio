@@ -23,6 +23,7 @@
     "node": ">=22.13"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "@mediabunny/mp3-encoder": "1.61.6",
     "ffmpeg-static": "^5.2.0",
     "gifenc": "1.0.3",

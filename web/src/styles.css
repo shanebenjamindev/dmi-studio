@@ -7888,3 +7888,50 @@ button.fo-tile { cursor: pointer; } button.fo-tile:hover { border-color: var(--a
 .tk-cc .cm-actions, .tk-cc .cm-meta, .tk-cc .tk-create-compose, .tk-cc .tk-create-advanced { margin-left: 0; padding-left: 0; }
 /* The chat bubble keeps out of the way while a window, picker or question is open (it sat on their buttons). */
 body:has(.bd-modal, .cm-back, .bk-pop, dialog[open]) .fmsg-bubble { display: none; }
+
+/* ================================================================ Trợ lý AI (Assistant.tsx) */
+.as { position: fixed; z-index: 900; top: var(--head-h, 52px); right: 0; bottom: 0; width: min(420px, 100vw); display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--sep); box-shadow: -12px 0 32px rgba(0, 0, 0, .08); }
+.as-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--sep); color: var(--tint); }
+.as-head b { flex: 1; min-width: 0; color: var(--label); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.as-icon { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; color: var(--label-2); cursor: pointer; }
+.as-icon:hover, .as-icon[aria-pressed="true"] { background: var(--fill-2); color: var(--label); }
+.as-log, .as-list { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.as-list { gap: 4px; }
+.as-conv { display: flex; align-items: center; gap: 4px; border-radius: 10px; }
+.as-conv.on, .as-conv:hover { background: var(--fill-2); }
+.as-conv > button:first-child { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: 0; background: none; color: var(--label); text-align: left; cursor: pointer; }
+.as-conv span { max-width: 100%; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.as-conv small { font-size: 11.5px; color: var(--label-3); }
+.as-note { margin: 0; font-size: 13px; color: var(--label-3); }
+.as-note.warn { padding: 10px 12px; border-radius: 10px; background: rgba(255, 149, 0, .12); color: var(--label); }
+.as-hello { display: flex; flex-direction: column; gap: 8px; }
+.as-hello p { margin: 0 0 4px; font-size: 13.5px; line-height: 1.5; color: var(--label-2); }
+.as-hello button { padding: 9px 12px; border: 1px solid var(--sep); border-radius: 10px; background: var(--surface); color: var(--label); font-size: 13px; text-align: left; cursor: pointer; }
+.as-hello button:hover { border-color: var(--tint); }
+.as-msg { max-width: 92%; font-size: 13.5px; line-height: 1.55; color: var(--label); overflow-wrap: anywhere; }
+.as-msg.user { align-self: flex-end; padding: 8px 12px; border-radius: 14px 14px 4px 14px; background: var(--tint); color: #fff; white-space: pre-wrap; }
+.as-msg.assistant { align-self: flex-start; }
+.as-md p { margin: 0 0 6px; }
+.as-md ul, .as-md ol { margin: 0 0 6px; padding-left: 20px; }
+.as-md code { padding: 1px 4px; border-radius: 4px; background: var(--fill-2); font-size: 12px; }
+.as-tool { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 9px; border-radius: 999px; background: var(--fill-2); color: var(--label-2); font-size: 12px; }
+.as-tool em { font-style: normal; color: var(--label-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.as-tool.done .ico { color: #16a34a; }
+.as-tool.error .ico, .as-tool.declined .ico { color: #dc2626; }
+.as-approve { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--tint); border-radius: 12px; background: var(--tint-soft); font-size: 13px; color: var(--label); }
+.as-call { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--surface); }
+.as-call span { font-weight: 600; }
+.as-call small { color: var(--label-2); overflow-wrap: anywhere; }
+.as-approve-btns { display: flex; justify-content: flex-end; gap: 8px; }
+.as-typing { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--label-3); }
+.as-compose { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--sep); }
+.as-compose textarea { flex: 1; min-width: 0; max-height: 160px; resize: none; padding: 9px 12px; border: 1px solid var(--sep); border-radius: 12px; background: var(--fill-2); color: var(--label); font: inherit; font-size: 13.5px; outline: none; }
+.as-compose textarea:focus { border-color: var(--tint); background: var(--surface); }
+.as-send { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 50%; background: var(--tint); color: #fff; cursor: pointer; }
+.as-send:disabled { opacity: .4; cursor: default; }
+.as-send.stop { background: var(--label-2); }
+.as-usage { flex: none; margin: 0; padding: 0 14px 8px; font-size: 11px; color: var(--label-3); }
+@media (max-width: 640px) { .as { top: 0; z-index: 1000; } }
+
+.as .spinner.sm { width: 12px; height: 12px; border-width: 2px; border-color: var(--fill-2); border-top-color: var(--tint); }
+body.as-open .fmsg-heads-stack { display: none; }

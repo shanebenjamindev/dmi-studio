@@ -310,4 +310,15 @@ CREATE TABLE IF NOT EXISTS mcp_tokens (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL, client_id TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mcp_tokens_user ON mcp_tokens(user_id);
+-- Trợ lý AI in the app (server/assistant.ts): each person's conversations, their messages as the Claude API sees them
+-- (content blocks as JSON), the tokens each answer used, and the calls waiting for the person to approve.
+CREATE TABLE IF NOT EXISTS ai_conversations (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, pending TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ai_conversations_user ON ai_conversations(user_id, updated_at);
+CREATE TABLE IF NOT EXISTS ai_messages (
+  id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE, seq INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
+  tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ai_messages_conversation ON ai_messages(conversation_id, seq);
 `;
