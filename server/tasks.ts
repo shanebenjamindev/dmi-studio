@@ -27,6 +27,7 @@ import { readTaskExport, readTaskSheet, statusKey, normName, type TaskRow } from
 import { matcher } from './admin/common';
 import { applyFlow, flowDetail, flowSettings, settleStages, stageOf, statusBlocked } from './task-flow';
 import { isFlowFilter, flowMatch } from '../shared/flow-filter';
+import { handOver, lastAdded } from './task-assign';
 
 const me = async (req: Req) => (await currentUser(req))!;
 /** The names in the task data linked to this account. */
@@ -141,14 +142,16 @@ export async function importTasks(text: string, userId: string, sourceName = '',
       const k = normName(row.title);
       byTitle.set(k, [...(byTitle.get(k) || []), { id, project: projectId }]);
     }
-    await run('DELETE FROM task_assignees WHERE task_id = ?', id);
-    for (const name of row.assignees) {
-      const p = await person(name);
-      if (!p) continue;
-      await run('INSERT OR IGNORE INTO task_assignees(task_id, person_id) VALUES(?,?)', id, p);
-      // As when a task is assigned by hand: an employee opens the project of the work given to them.
-      const account = people.get(normName(name))!.userId, grant = `${account}|${projectId}`;
-      if (account && projectId && !granted.has(grant)) { granted.add(grant); await grantAccess(account, userId, { projectId }, 'normal'); }
+    // One person does it, the last one the row names (server/task-assign.ts); those named before them follow it.
+    const named: { p: string; account: string | null }[] = [];
+    for (const name of row.assignees) { const p = await person(name); if (p) named.push({ p, account: people.get(normName(name))!.userId || null }); }
+    const doer = named.at(-1);
+    for (const { account } of named.slice(0, -1)) if (account) await run('INSERT OR IGNORE INTO task_followers(task_id, user_id) VALUES(?,?)', id, account);
+    await handOver(id, doer?.p ?? null);
+    // As when a task is assigned by hand: an employee opens the project of the work given to them.
+    for (const { account } of named) {
+      const grant = `${account}|${projectId}`;
+      if (account && projectId && !granted.has(grant)) { granted.add(grant); await grantAccess(account, userId, { projectId }, account === doer?.account ? 'normal' : 'observer'); }
     }
     await run('DELETE FROM task_label_links WHERE task_id = ?', id);
     for (const name of row.labels) await run('INSERT OR IGNORE INTO task_label_links(task_id, label_id) VALUES(?,?)', id, await label(name));
@@ -325,12 +328,11 @@ async function taskInput(b: any, old?: any,userId?:string) {
     for (const id of userIds) if (!await get('SELECT 1 FROM users WHERE id=? AND disabled=0',id)) throw new HttpError(400,'Người được giao phải là tài khoản đang hoạt động');
     if ((people?.length||0)+userIds.length>20) throw new HttpError(400,'Mỗi công việc tối đa 20 người được giao');
   }
-  // One person does a task, and whoever gives it out does not give it to themselves (a choice already made stays).
+  // One person does a task (the last one added: server/task-assign.ts), and whoever gives it out does not give it to
+  // themselves (a choice already made stays).
   if (people !== undefined || userIds !== undefined) {
     const before = old ? await all<any>('SELECT p.id, p.user_id FROM task_assignees a JOIN task_people p ON p.id=a.person_id WHERE a.task_id=?', old.id) : [];
     const nextPeople = people ?? before.filter((r) => !r.user_id).map((r) => r.id), nextUsers = userIds ?? before.filter((r) => r.user_id).map((r) => r.user_id);
-    const same = nextPeople.every((id) => before.some((r) => r.id === id)) && nextUsers.every((id) => before.some((r) => r.user_id === id));
-    if (nextPeople.length + nextUsers.length > 1 && !same) throw new HttpError(400, 'Mỗi công việc chỉ giao cho một người');
     const selfPeople = userId ? (await all<any>('SELECT id FROM task_people WHERE user_id=?', userId)).map((r) => r.id) : [];
     const selfNew = !!userId && (nextUsers.includes(userId) && !before.some((r) => r.user_id === userId) || nextPeople.some((id) => selfPeople.includes(id) && !before.some((r) => r.id === id)));
     if (selfNew) throw new HttpError(400, 'Không tự giao việc cho mình: hãy chọn người khác');
@@ -354,19 +356,21 @@ async function taskInput(b: any, old?: any,userId?:string) {
     description: richIn(b.description ?? old?.description), result: richIn(b.result ?? old?.result), people, userIds, followers, labels };
 }
 async function saveLinks(id: string, input: Awaited<ReturnType<typeof taskInput>>, by?: string) {
-  if (input.people !== undefined || input.userIds !== undefined) {
-    const assigned = new Set(input.people || []);
-    for (const userId of input.userIds || []) assigned.add(await taskPersonForUser(userId));
-    // People given the task can work on it: they become members of its project (and customer) if they were not.
-    if (by && input.project) for (const p of assigned) { const userId = (await get<any>('SELECT user_id FROM task_people WHERE id=?', p))?.user_id; if (userId) await grantAccess(userId, by, { projectId: input.project }, 'normal'); }
-    await run('DELETE FROM task_assignees WHERE task_id=?', id);
-    for (const p of assigned) await run('INSERT INTO task_assignees(task_id,person_id) VALUES(?,?)', id, p);
-  }
   if (input.followers !== undefined) {
     // Followers see the task: view access to its project (and customer) when they had none.
     if (by && input.project) for (const userId of input.followers) await grantAccess(userId, by, { projectId: input.project }, 'observer');
     await run('DELETE FROM task_followers WHERE task_id=?', id);
     for (const userId of input.followers) await run('INSERT INTO task_followers(task_id,user_id) VALUES(?,?)', id, userId);
+  }
+  // After the followers, so whoever is handed off stays among them.
+  if (input.people !== undefined || input.userIds !== undefined) {
+    const named = [...(input.people || [])];
+    for (const userId of input.userIds || []) named.push(await taskPersonForUser(userId));
+    const doer = lastAdded(named, (await all<any>('SELECT person_id FROM task_assignees WHERE task_id=?', id)).map((r) => r.person_id));
+    // The person given the task can work on it: they become a member of its project (and customer) if they were not.
+    const userId = doer ? (await get<any>('SELECT user_id FROM task_people WHERE id=?', doer))?.user_id : null;
+    if (by && input.project && userId) await grantAccess(userId, by, { projectId: input.project }, 'normal');
+    await handOver(id, doer);
   }
   if (input.labels !== undefined) {
     await run('DELETE FROM task_label_links WHERE task_id=?', id);

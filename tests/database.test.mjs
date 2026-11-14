@@ -916,15 +916,17 @@ test('customer directory links existing folders, multiple campaigns and multi-pe
     assert.equal(c1.status,201); assert.equal(c2.status,201);
     const people = [];
     for (const name of ['Staff A','Staff B']) people.push((await server.call('POST','/api/task-people',{name},cookie)).data.id);
-    // One person does a task: two are refused.
-    assert.equal((await server.call('POST','/api/tasks',{title:'Two people',projectId:c1.data.id,assigneeIds:people},cookie)).status,400);
+    // One person does a task: of two named, the last one added does it.
+    const two = await server.call('POST','/api/tasks',{title:'Two people',projectId:c1.data.id,assigneeIds:people},cookie);
+    assert.equal(two.status,201);
+    assert.deepEqual((await server.call('GET',`/api/tasks/${two.data.id}`,undefined,cookie)).data.assignees.map(a=>a.id),[people[1]]);
     const task = await server.call('POST','/api/tasks',{title:'Campaign work',projectId:c1.data.id,assigneeIds:[people[0]]},cookie);
     assert.equal(task.status,201,JSON.stringify(task.data));
     const taskDetail = await server.call('GET',`/api/tasks/${task.data.id}`,undefined,cookie);
     assert.equal(taskDetail.data.assignees.length,1);
     const campaigns = await server.call('GET',`/api/customers/${id}/projects`,undefined,cookie);
     assert.equal(campaigns.data.length,2);
-    assert.equal(campaigns.data.find(c => c.id === c1.data.id).tasks,1);
+    assert.equal(campaigns.data.find(c => c.id === c1.data.id).tasks,2); // 'Two people' and 'Campaign work'
     await server.call('POST','/api/users',{name:'Staff',email:'crm-staff@example.test',password:'test-password',role:'member'},cookie);
     const staff = await server.call('POST','/api/auth/login',{email:'crm-staff@example.test',password:'test-password'});
     assert.equal((await server.call('POST',`/api/customers/${id}/projects`,{name:'Forbidden'},staff.cookie)).status,404);
@@ -1772,8 +1774,10 @@ test('a sheet import links the names it gives people to the employee accounts th
   assert.equal((await server.call('POST','/api/tasks/import',{text:sheet,people:{DM:'u_missing'}},ac)).status,400);
   const first=await server.call('POST','/api/tasks/import',{text:sheet,people:{DM:minh.id,'Khánh Đỗ':null}},ac);
   assert.equal(first.status,200);assert.equal(first.data.linked,1);
-  const linked=(await task(ac)).assignees;
-  assert.deepEqual(linked.map(a=>[a.name,a.userId]).sort(),[['Khánh Đỗ',null],['Trần Minh',minh.id]]);
+  // One person does a task: the last one the row names; DM (named before) follows it.
+  const t501=await task(ac);
+  assert.deepEqual(t501.assignees.map(a=>[a.name,a.userId]),[['Khánh Đỗ',null]]);
+  assert.deepEqual(t501.followers.map(f=>f.id),[minh.id]);
   assert.ok(await task(minhCookie,'502'),'the linked employee sees the tasks given to them');
   // A name nobody chose stays a name, even when an account has the same one.
   const people=(await server.call('GET','/api/tasks/meta',undefined,ac)).data.people;

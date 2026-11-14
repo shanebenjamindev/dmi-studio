@@ -40,6 +40,7 @@ import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
 import { AUTO, syncBoardGrants, syncBoardPeople } from './board-people';
 import { projectCustomerChanged } from './taskworkspace';
 import { flowSettings, statusFor } from './task-flow';
+import { handOver } from './task-assign';
 
 /** Board backgrounds and label / cover colours (drawn by the web app). */
 export const BGS = ['ocean', 'forest', 'sunset', 'grape', 'berry', 'slate', 'sky', 'lime', 'rose', 'night'];
@@ -1145,7 +1146,8 @@ export function registerBoards(api: Router) {
     const c = await mustCard(req, req.params.id), b = await readJson(req), u = await me(req);
     const board = await get<any>('SELECT * FROM boards WHERE id = ?', c.board_id);
     let who = (await membersOf(board)).find((m) => m.id === String(b.userId));
-    // A card that is a task has one person doing it, never put there by themselves: putting someone on replaces who was.
+    // A card that is a task has one person doing it, never put there by themselves: putting someone on hands it over (who
+    // did it before follows it from then on).
     const taskLink = await get<any>('SELECT task_id FROM task_board_links WHERE card_id=?', c.id);
     if (b.on && taskLink && String(b.userId) === u.id) throw new HttpError(400, 'Không tự giao việc cho mình: hãy chọn người khác');
     if (b.on) {
@@ -1165,7 +1167,6 @@ export function registerBoards(api: Router) {
     if (!who) throw new HttpError(404, 'Người này không xem được board');
     if (b.on && taskLink) {
       await run('DELETE FROM card_members WHERE card_id=? AND user_id<>?', c.id, who.id);
-      await run('DELETE FROM task_assignees WHERE task_id=? AND person_id NOT IN (SELECT id FROM task_people WHERE user_id=?)', taskLink.task_id, who.id);
     }
     if (b.on && (await run('INSERT OR IGNORE INTO card_members(card_id, user_id) VALUES(?,?)', c.id, who.id)).changes)
       await notifyPeople([who.id], u.id, { title: 'Bạn được thêm vào thẻ', body: `${c.title} · ${board.name}`, link: `#boards/${board.id}/c/${c.id}`, cardId: c.id });
@@ -1180,7 +1181,8 @@ export function registerBoards(api: Router) {
       }
       if (person) {
         if (b.on) {
-          await run('INSERT OR IGNORE INTO task_assignees(task_id, person_id) VALUES(?,?)', linked.task_id, person.id);
+          // Handed over: whoever did it before follows it now (server/task-assign.ts).
+          await handOver(linked.task_id, person.id);
         } else {
           await run('DELETE FROM task_assignees WHERE task_id=? AND person_id=?', linked.task_id, person.id);
         }

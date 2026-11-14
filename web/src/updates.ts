@@ -9,6 +9,13 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-14-6',
+    date: '14/11/2026',
+    items: [
+      { kind: 'new', vi: 'Mỗi công việc chỉ có một người thực hiện, là người được giao sau cùng. Khi người tạo hoặc người đang nhận việc giao cho người khác (ở trang công việc hay trên thẻ board), người thực hiện cũ tự chuyển thành người theo dõi. Nhập từ sheet: người ghi sau cùng thực hiện, những người ghi trước theo dõi.', en: 'Each task has one person doing it: the last one given it. When its maker or the person doing it gives it to someone else (on the task page or its board card), the previous person becomes a follower. Sheet imports: the last person named does it, those named before follow it.' },
+    ],
+  },
+  {
     id: '2026-11-14-5',
     date: '14/11/2026',
     items: [
