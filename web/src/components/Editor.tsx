@@ -190,7 +190,7 @@ const Cell = ({ label, text }: { label: string; text: string }) => (text?.trim()
 function ClaudeTab({ hf, reload }: { hf: Hyperframes | null; reload: () => Promise<void> }) {
   const project = useStore((s) => s.project)!;
   const [busy, setBusy] = useState(false);
-  const connect = `claude mcp add --transport http --scope user dmi-mac ${location.origin}/api/mcp`;
+  const connect = `claude mcp add --transport http --scope user dmi ${location.origin}/api/mcp`;
   const ask = promptFor(project, hf);
   const prepare = async () => {
     setBusy(true);
@@ -208,7 +208,7 @@ function ClaudeTab({ hf, reload }: { hf: Hyperframes | null; reload: () => Promi
           <b>1. Kết nối Claude Code với DMI <span>(một lần)</span></b>
           <code>{connect}</code>
           <button className="ed-btn" onClick={() => copy(connect, 'lệnh kết nối')}><Icon name="copy" size={13} />Chép lệnh</button>
-          <small>Rồi gõ <code>/mcp</code> trong Claude Code, chọn dmi-mac, đăng nhập DMI và bấm Cho phép.</small>
+          <small>Rồi gõ <code>/mcp</code> trong Claude Code, chọn dmi, đăng nhập DMI và bấm Cho phép.</small>
         </section>
         <section>
           <b>2. Nhờ Claude</b>

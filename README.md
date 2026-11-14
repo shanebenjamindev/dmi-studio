@@ -32,7 +32,7 @@ Nút ✦ trên thanh trên cùng (⌘J): chat với Claude, dùng chung bộ cô
 ## Trình dựng video: Claude Code + HyperFrames (chỉ trên Mac)
 
 1. **Tools → Trình dựng → Tạo dự án** từ link sheet yêu cầu. Server đọc kịch bản theo mẫu form và tìm footage trên Drive (nhãn s1, s2…). Không gọi AI.
-2. Kết nối Claude Code với DMI trên Mac (một lần): `claude mcp add --transport http --scope user dmi-mac http://localhost:5173/api/mcp`.
+2. Kết nối Claude Code với DMI trên Mac (một lần): `claude mcp add --transport http --scope user dmi http://localhost:5173/api/mcp`.
 3. Tab **Làm với Claude** có lời nhắc để chép vào Claude Code. Claude dùng `get_video_project`, `view_footage`, `prepare_hyperframes` (tạo thư mục `~/DMI-HyperFrames/<dự án>/`, tải footage vào `assets/`, ghi `BRIEF.md`), dựng bằng [HyperFrames](https://hyperframes.heygen.com) và mở bản xem trước (hiện ngay trong trang).
 4. Khi duyệt, Claude render trên máy (`npx hyperframes render`, miễn phí) rồi `publish_render`: bản MP4 hiện ở tab Bản render.
 
