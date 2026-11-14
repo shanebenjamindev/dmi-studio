@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { goto, openCard, openLink, openTask } from '../store';
-import { langPref } from '../i18n';
+import { langPref, tr } from '../i18n';
 import { Icon } from './ui';
 import type { NotificationInbox } from '../types';
 
@@ -42,7 +42,7 @@ async function loadItems(): Promise<Item[]> {
   const asTask = new Set(tasks.map((t) => t.boardLink?.cardId).filter(Boolean));
   return [
     ...tasks.filter((t) => t.dueAt).map((t) => ({ id: t.id, title: t.title, where: t.project?.name || 'Công việc', dueAt: t.dueAt!, open: () => openTask(t.id) })),
-    ...cards.filter((c) => c.dueAt && !c.done && !asTask.has(c.id)).map((c) => ({ id: c.id, title: c.title, where: `${c.boardName} · ${c.listName}`, dueAt: c.dueAt!, open: () => openCard(c.boardId, c.id) })),
+    ...cards.filter((c) => c.dueAt && !c.done && !asTask.has(c.id)).map((c) => ({ id: c.id, title: c.title, where: `${c.boardName} · ${tr(c.listName)}`, dueAt: c.dueAt!, open: () => openCard(c.boardId, c.id) })),
   ].sort((a, b) => a.dueAt - b.dueAt);
 }
 
@@ -124,7 +124,7 @@ export function Reminders() {
             {tab === 'important' && given.length > 0 && <section className="rm-new"><h3>Mới dành cho bạn<span>{given.length}</span></h3><ul>{given.map((g) => (
               <li key={g.id}><button onClick={() => openGiven(g)}>
                 <span className="rm-dot new" />
-                <span className="rm-text"><b>{g.body || g.title}</b><small>{g.title}{g.detail?.status ? ` · ${g.detail.status}` : ''}</small></span>
+                <span className="rm-text"><b>{g.body || g.title}</b><small>{g.title}{g.detail?.status ? ` · ${tr(g.detail.status)}` : ''}</small></span>
                 <time>{g.detail?.dueAt ? due(g.detail.dueAt) : ago(g.createdAt)}</time><Icon name="right" size={14} />
               </button></li>
             ))}</ul></section>}

@@ -6,6 +6,7 @@ import {createPortal} from 'react-dom';
 import {Icon} from './ui';
 import {MemberAvatar} from './MemberAvatar';
 import {AvatarStack} from './AvatarStack';
+import { tr } from '../i18n';
 
 type Member = {id:string;name:string;email?:string};
 export function EmployeeAvatars({people}:{people:Member[]}){return <span className="employee-avatars">{people.length?<AvatarStack people={people} max={4} render={p=><MemberAvatar key={p.id} person={p} size={28}/>}/>:<span>—</span>}</span>;}
@@ -48,7 +49,7 @@ export function EmployeePicker({users:initialUsers,selected,onChange,legacy=[],o
  };
  return <div className="employee-picker">
    <span className="employee-picker-label">{label}</span>
-   <div className="employee-picker-summary">{[...chosen,...legacy].map(p=><MemberAvatar key={p.id} person={p} onRemove={()=>toggle(p.id)}/>)}<button type="button" className="employee-picker-add" aria-label={`Thêm ${label.toLocaleLowerCase('vi')}`} aria-haspopup="dialog" aria-expanded={!!anchor} onClick={e=>setAnchor(anchor?null:e.currentTarget)}><Icon name="plus" size={22}/></button></div>
+   <div className="employee-picker-summary">{[...chosen,...legacy].map(p=><MemberAvatar key={p.id} person={p} onRemove={()=>toggle(p.id)}/>)}<button type="button" className="employee-picker-add" aria-label={`${tr('Thêm')} ${tr(label).toLocaleLowerCase()}`} aria-haspopup="dialog" aria-expanded={!!anchor} onClick={e=>setAnchor(anchor?null:e.currentTarget)}><Icon name="plus" size={22}/></button></div>
    {anchor&&createPortal(<Pop anchor={anchor} title={label} onClose={close}><MemberChoices people={members} exclude={exclude} chosenLabel={label} selected={[...selected,...legacy.map(p=>p.id)]} onToggle={toggle}/><QuickCreateButton kind="employee" onCreated={async r=>{await reloadUsers();onChange([...selected,r.id]);}}/></Pop>,document.body)}
  </div>;
 }

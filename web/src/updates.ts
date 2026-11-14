@@ -9,6 +9,13 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-14-8',
+    date: '14/11/2026',
+    items: [
+      { kind: 'fix', vi: 'Giao diện tiếng Anh dịch đủ những phần còn sót: Hồ sơ › Kết nối Claude, dòng nộp/duyệt của công việc, nhắc việc, biểu đồ Thống kê, Quản trị › Dịch vụ và các thông báo của máy chủ.', en: 'The English interface now covers what was still in Vietnamese: Profile › Connect Claude, a task’s submitted/reviewed lines, reminders, the Stats charts, Admin › Services and the server’s messages.' },
+    ],
+  },
+  {
     id: '2026-11-14-7',
     date: '14/11/2026',
     items: [

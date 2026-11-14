@@ -5,6 +5,7 @@
 // legend when it has two series or more, and can be read as a table.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { fmtNum } from './kit';
+import { tr } from '../i18n';
 
 export const SERIES = (i: number) => `var(--viz-${(i % 8) + 1})`;
 export type Dist = { key: string; label: string; value: number; color?: string }[];
@@ -70,7 +71,7 @@ export function LineChart({ trend, period, colors }: { trend: Trend; period: str
   };
   return (
     <div className="ax-plot" ref={ref}>
-      <svg width={w} height={H} onPointerMove={move} onPointerLeave={() => setAt(null)} role="img" aria-label={trend.lines.map((l) => l.name).join(', ')}>
+      <svg width={w} height={H} onPointerMove={move} onPointerLeave={() => setAt(null)} role="img" aria-label={trend.lines.map((l) => tr(l.name)).join(', ')}>
         {ys.map((v) => <g key={v}><line className="ax-grid" x1={PAD.l} x2={w - PAD.r} y1={y(v)} y2={y(v)} /><text className="ax-tick" x={PAD.l - 6} y={y(v) + 4} textAnchor="end">{fmtNum(v)}</text></g>)}
         {trend.keys.map((k, i) => (i % every === 0 ? <text key={k} className="ax-tick" x={x(i)} y={H - 8} textAnchor="middle">{periodLabel(k, period)}</text> : null))}
         {at !== null && <line className="ax-cross" x1={x(at)} x2={x(at)} y1={PAD.t} y2={H - PAD.b} />}
@@ -127,7 +128,7 @@ export function Bars({ dist, total, onPick }: { dist: Dist; total?: number; onPi
   if (!dist.length) return <p className="ax-nodata">Chưa có số liệu</p>;
   return (
     <ul className="ax-bars">{dist.map((d, i) => (
-      <li key={d.key} title={`${d.label}: ${fmtNum(d.value)}${sum ? ` (${Math.round((d.value / sum) * 100)}%)` : ''}`} tabIndex={0} {...pickable(d.key, onPick)}>
+      <li key={d.key} title={`${tr(d.label)}: ${fmtNum(d.value)}${sum ? ` (${Math.round((d.value / sum) * 100)}%)` : ''}`} tabIndex={0} {...pickable(d.key, onPick)}>
         <span className="ax-bar-label">{d.label}</span>
         <span className="ax-bar-track"><span className="ax-bar-fill" style={{ width: `${(d.value / max) * 100}%`, background: d.color || (dist.length > 8 ? 'var(--viz-1)' : SERIES(i)) }} /></span>
         <span className="ax-bar-value">{fmtNum(d.value)}{sum ? <small>{Math.round((d.value / sum) * 100)}%</small> : null}</span>
@@ -141,7 +142,7 @@ export function StackBars({ rows, parts, onPick }: { rows: { key: string; label:
   if (!rows.length) return <p className="ax-nodata">Chưa có số liệu</p>;
   return (
     <ul className="ax-bars">{rows.map((r) => (
-      <li key={r.key} title={`${r.label}: ${r.values.map((v, i) => `${parts[i].name} ${fmtNum(v)}`).join(' · ')}`} tabIndex={0} {...pickable(r.key, onPick)}>
+      <li key={r.key} title={`${tr(r.label)}: ${r.values.map((v, i) => `${tr(parts[i].name)} ${fmtNum(v)}`).join(' · ')}`} tabIndex={0} {...pickable(r.key, onPick)}>
         <span className="ax-bar-label">{r.label}</span>
         <span className="ax-bar-track stack">{r.values.map((v, i) => (v ? <span key={i} className="ax-bar-fill" style={{ width: `${(v / max) * 100}%`, background: parts[i].color }} /> : null))}</span>
         {/* Each part's name is its own text, so the English interface can put it in English; a code (REVIEW) keeps its case. */}
