@@ -7470,6 +7470,11 @@ button.fo-tile { cursor: pointer; } button.fo-tile:hover { border-color: var(--a
 .wework-sidebar .wework-info-card .wework-meta-label { width: 76px; }
 .wework-sidebar .wework-info-card .wework-meta-val { min-width: 0; text-align: left; }
 .wework-sidebar .wework-info-card .wework-meta-val > span { overflow-wrap: anywhere; }
+/* Phones and narrow windows: the task's page is one column, its details under it, and the whole page scrolls as one. */
+@media (max-width: 760px) {
+  .wework-task-view { flex-direction: column; overflow-y: auto; gap: 12px; padding: 10px 10px 80px; }
+  .wework-main, .wework-sidebar { flex: none; width: 100%; height: auto; overflow: visible; padding: 0; }
+}
 /* Comments on the task page: who and when on one line with room between, the text as written (rich), actions apart. */
 .wework-comments-list { display: flex; flex-direction: column; }
 .wework-comment-header { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -7667,3 +7672,25 @@ body.as-open .fmsg-heads-stack { display: none; }
 .cc-list small { color: var(--label-3); font-size: 12px; }
 .cc-list .danger { color: #dc2626; }
 
+
+/* Phones: the Workspace page fits the screen. The top bar's "Tạo mới" and the home's "Tạo workspace" keep only their
+   "+", the view tabs scroll sideways, and the board dock spans the width with its names under the icons, the chat
+   bubble sitting above it. */
+@media (max-width: 650px) {
+  .bd-top-create { width: 30px; padding: 0; justify-content: center; gap: 0; font-size: 0; }
+  .bd-home-toolbar { padding: 12px; }
+  .bd-home-toolbar-left { min-width: 0; flex-wrap: wrap; gap: 8px; }
+  .bd-home-toolbar-right { width: 100%; gap: 8px; }
+  .bd-home-views { order: -1; flex: none; width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .bd-home-views::-webkit-scrollbar { display: none; }
+  .bd-home-view-btn { flex: none; }
+  .bd-home-search { flex: 1; min-width: 0; }
+  .bd-home-search input { width: 100%; min-width: 0; }
+  .bd-home-new-btn { flex: none; width: 34px; padding: 0; justify-content: center; }
+  .bd-home-new-btn span { display: none; }
+  .bd-dock { left: 8px; right: 8px; max-width: none; transform: none; justify-content: space-around; }
+  .bd-dock > button { flex: 1; min-width: 0; flex-direction: column; justify-content: center; gap: 1px; height: 42px; padding: 0 4px; font-size: 11px; }
+  .bd-dock > button.on::after { bottom: 1px; }
+  .bd-dock-sep { display: none; }
+  body:has(.bd-dock) .fmsg-heads-stack { bottom: calc(var(--bn-h) + 78px); }
+}

@@ -9,6 +9,13 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-14-7',
+    date: '14/11/2026',
+    items: [
+      { kind: 'fix', vi: 'Trên điện thoại: trang công việc xếp một cột (chi tiết nằm dưới, tên việc dài xuống dòng đủ chữ); trang Workspace vừa màn hình — nút Tạo, các kiểu xem, ô tìm và thanh Inbox/Planner/Board/Đổi board không còn bị cắt, bong bóng chat không che thanh nữa.', en: 'On phones: a task’s page is one column (details below it, a long title wraps in full); the Workspace page fits the screen — the Create buttons, the view tabs, the search and the Inbox/Planner/Board/Switch board bar are no longer cut off, and the chat bubble no longer covers the bar.' },
+    ],
+  },
+  {
     id: '2026-11-14-6',
     date: '14/11/2026',
     items: [

@@ -34,6 +34,20 @@ import { FLOW_FILTERS, FLOW_FILTER_LABEL } from '../../../shared/flow-filter';
 import type { FlowStage } from '../../../shared/task-flow';
 import { askConfirm } from './AskDialog';
 
+/** A textarea as tall as what it holds: when it opens, as it is typed in, and when its width changes (a phone, a
+ *  narrower pane), so a long title is never cut to its first line. */
+function useAutoHeight(ref: { current: HTMLTextAreaElement | null }, value: string) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; };
+    fit();
+    let width = el.clientWidth;
+    const ro = new ResizeObserver(() => { if (el.clientWidth !== width) { width = el.clientWidth; fit(); } });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref, value]);
+}
 const initials = (n: string) => n.replace(/^@/, '').split(/[\s._-]+/).filter(Boolean).slice(-2).map((w) => w[0]).join('').toUpperCase() || '?';
 
 const onTaskPage = () => /^#tasks\/tk_\w+\/page/.test(location.hash);
@@ -616,6 +630,8 @@ function WeworkTaskView({
   const [pop, setPop] = useState<{ kind: 'members' | 'dates' | 'project' | 'actions'; el: HTMLElement } | null>(null);
   const [busy, setBusy] = useState(false);
   const [titleDraft, setTitleDraft] = useState(t.title);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+  useAutoHeight(titleRef, titleDraft);
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState(t.description || '');
   // The work's result (a link to what was posted, logins handed over…): read and written by those who may (null: not them).
@@ -796,6 +812,7 @@ function WeworkTaskView({
           </header>
 
           <textarea
+            ref={titleRef}
             className="wework-title-in"
             value={titleDraft}
             rows={1}
