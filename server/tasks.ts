@@ -342,6 +342,9 @@ async function taskInput(b: any, old?: any,userId?:string) {
     if (!Array.isArray(b.followerUserIds) || b.followerUserIds.length > 50 || b.followerUserIds.some((x:any)=>typeof x!=='string')) throw new HttpError(400,'Danh sách người theo dõi không hợp lệ');
     followers=[...new Set<string>(b.followerUserIds)];
     for (const id of followers) if (!await get('SELECT 1 FROM users WHERE id=? AND disabled=0',id)) throw new HttpError(400,'Người theo dõi phải là tài khoản đang hoạt động');
+    // Nor do they make themselves a follower (one already following, e.g. after handing it over, stays).
+    if (userId && followers.includes(userId) && !(old && await get('SELECT 1 FROM task_followers WHERE task_id=? AND user_id=?', old.id, userId)))
+      throw new HttpError(400, 'Không tự thêm mình làm người theo dõi: hãy chọn người khác');
   }
   let labels: string[] | undefined;
   if (b.labels !== undefined) {
@@ -382,11 +385,13 @@ async function saveLinks(id: string, input: Awaited<ReturnType<typeof taskInput>
   }
 }
 
-/** A new task is followed by its project's followers, and a new subtask by its parent's, as far as they can see it. */
-async function inheritFollowers(id: string, project: string | null, parent: string | null) {
+/** A new task is followed by its project's followers, and a new subtask by its parent's, as far as they can see it;
+ *  never by whoever made it. */
+async function inheritFollowers(id: string, project: string | null, parent: string | null, maker: string) {
   const ids = new Set<string>();
   if (project) for (const r of await all<any>("SELECT user_id FROM task_project_members WHERE project_id=? AND role='observer' AND follows=1", project)) ids.add(r.user_id);
   if (parent) for (const r of await all<any>('SELECT user_id FROM task_followers WHERE task_id=?', parent)) ids.add(r.user_id);
+  ids.delete(maker);
   for (const userId of ids) if (!project || (await projectLevels(userId)).has(project)) await run('INSERT OR IGNORE INTO task_followers(task_id,user_id) SELECT ?,id FROM users WHERE id=? AND disabled=0', id, userId);
 }
 
@@ -760,7 +765,7 @@ export function registerTasks(api: Router) {
     await saveLinks(id,input,u.id);
     if (reviewer && input.project) await grantAccess(reviewer, u.id, { projectId: input.project }, 'normal');
     if (services) await saveTaskServices(id, services, u.id);
-    await inheritFollowers(id,input.project,input.parent);
+    await inheritFollowers(id,input.project,input.parent,u.id);
     await routeTaskToWorkspace(id,u.id);
     await queueTaskNotifications(id,undefined,u.id).catch(()=>console.error('Không xếp được thông báo công việc'));
     json(res,201,{ id });
@@ -837,7 +842,8 @@ export function registerTasks(api: Router) {
       card = {id:uid('k_'),board_id:list.board_id,list_id:list.id}; created = true;
       const pos = (await get<any>('SELECT MAX(pos) n FROM board_cards WHERE list_id=?',list.id))?.n || 0;
       await run('INSERT INTO board_cards(id,board_id,list_id,title,pos,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)',card.id,card.board_id,card.list_id,t.title,pos+1,u.id,now(),now());
-      await run('INSERT INTO card_members(card_id,user_id) VALUES(?,?)',card.id,u.id);
+      // On a task's card are the people doing it, not whoever made the card.
+      for (const id of await assigneeUsers(t.id)) await run('INSERT INTO card_members(card_id,user_id) VALUES(?,?)',card.id,id);
     }
     try { await run('INSERT INTO task_board_links(task_id,card_id) VALUES(?,?)',t.id,card.id); }
     catch { if (created) { await run('DELETE FROM card_members WHERE card_id=?',card.id); await run('DELETE FROM board_cards WHERE id=?',card.id); } throw new HttpError(409,'Công việc hoặc thẻ đã được liên kết; hãy tải lại'); }

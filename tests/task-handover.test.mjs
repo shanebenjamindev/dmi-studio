@@ -42,8 +42,8 @@ test('a task has one person doing it; handing it over makes the previous one a f
     const user = async (email, name) => (await call('POST', '/api/users', { email, name, password: 'Passw0rd!long', role: 'member' }, boss)).data.id;
     const mia = await user('mia@example.test', 'Mia'), lan = await user('lan@example.test', 'Lan'), khoa = await user('khoa@example.test', 'Khoa');
     const miaCookie = (await call('POST', '/api/auth/login', { email: 'mia@example.test', password: 'Passw0rd!long' })).cookie;
-    const state = async (id) => {
-      const t = (await call('GET', `/api/tasks/${id}`, undefined, boss)).data;
+    const state = async (id, cookie = boss) => {
+      const t = (await call('GET', `/api/tasks/${id}`, undefined, cookie)).data;
       return { doer: t.assignees.map((a) => a.userId), followers: t.followers.map((f) => f.id).sort() };
     };
 
@@ -77,6 +77,13 @@ test('a task has one person doing it; handing it over makes the previous one a f
     assert.ok(cardId, 'the task has its card');
     assert.equal((await call('PUT', `/api/cards/${cardId}/members`, { userId: mia, on: true }, boss)).status, 200);
     assert.deepEqual(await state(id), { doer: [mia], followers: [khoa, lan].sort() });
+
+    // Whoever makes a task does not follow it either: not by choosing themselves, nor through its parent's followers.
+    assert.equal((await call('POST', '/api/tasks', { title: 'Tự theo dõi', followerUserIds: [bossId] }, boss)).status, 400);
+    const parent = (await call('POST', '/api/tasks', { title: 'Việc cha', followerUserIds: [lan] }, boss)).data.id;
+    const lanCookie = (await call('POST', '/api/auth/login', { email: 'lan@example.test', password: 'Passw0rd!long' })).cookie;
+    const sub = (await call('POST', '/api/tasks', { title: 'Việc con', parentId: parent, assigneeUserIds: [khoa] }, lanCookie)).data.id;
+    assert.deepEqual(await state(sub, lanCookie), { doer: [khoa], followers: [] });
   } finally {
     child.kill();
     await rm(dir, { recursive: true, force: true });

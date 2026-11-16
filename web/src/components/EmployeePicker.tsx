@@ -13,9 +13,10 @@ export function EmployeeAvatars({people}:{people:Member[]}){return <span classNa
 
 /** Shared with the Workspace card: assigned members first, then people available to add (`others`: everyone else
  *  in the company, for a card: they join its board when picked). */
-/** `exclude`: people not offered (whoever gives a task out is not one to do it); `chosenLabel`: the heading of those chosen. */
+/** `exclude`: people not offered (whoever gives a task out is not one to do it), though one already chosen can still be
+ *  taken off; `chosenLabel`: the heading of those chosen. */
 export function MemberChoices({people:all,selected,onToggle,others:allOthers=[],exclude=[],chosenLabel='Thành viên của thẻ'}:{people:Member[];selected:string[];onToggle:(id:string)=>void;others?:Member[];exclude?:string[];chosenLabel?:string}) {
- const people=all.filter(p=>!exclude.includes(p.id)),others=allOthers.filter(p=>!exclude.includes(p.id));
+ const people=all.filter(p=>!exclude.includes(p.id)||selected.includes(p.id)),others=allOthers.filter(p=>!exclude.includes(p.id));
  const[q,setQ]=useState('');
  const normalize=(s:string)=>s.toLocaleLowerCase('vi').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d');
  const visible=people.filter(p=>normalize(`${p.name} ${p.email||''}`).includes(normalize(q.trim())));

@@ -1776,14 +1776,15 @@ function TaskInlineMembers({task,meta,onSaved}:{task:TaskDetail;meta:TaskMeta;on
 }
 
 function TaskInlineFollowers({task,meta,onSaved}:{task:TaskDetail;meta:TaskMeta;onSaved:()=>void}){
+ const me=useStore((s)=>s.user);
  const[ids,setIds]=useState(task.followers.map(f=>f.id)),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const save=async(next:string[])=>{if(busy)return;setBusy(true);setError('');try{await api.updateTask(task.id,{followerUserIds:next});setIds(next);onSaved();}catch(e:any){setError(e.message);}finally{setBusy(false);}};
- return <div className="tk-inline-members" aria-busy={busy}><fieldset disabled={busy}><EmployeePicker label="Người theo dõi" users={meta.users} selected={ids} onChange={next=>void save(next)}/></fieldset>{busy&&<small>Đang lưu…</small>}{error&&<p className="note err" role="alert">{error}</p>}</div>;
+ return <div className="tk-inline-members" aria-busy={busy}><fieldset disabled={busy}><EmployeePicker label="Người theo dõi" exclude={me ? [me.id] : []} users={meta.users} selected={ids} onChange={next=>void save(next)}/></fieldset>{busy&&<small>Đang lưu…</small>}{error&&<p className="note err" role="alert">{error}</p>}</div>;
 }
 
 export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, campaignId, parentId, parentTask, onClose, onSaved }: { inline?:boolean; task?: TaskDetail; meta?: TaskMeta; projectId?: string; campaignId?:string; parentId?: string; parentTask?: TaskDetail | TaskItem; onClose: () => void; onSaved: (id: string) => void }) {
   const[meta,setMeta]=useState<TaskMeta | null>(initialMeta || null);
-  // Whoever gives a task out is not offered to do it.
+  // Whoever gives a task out is not offered to do it, follow it or review it (they review it by default).
   const me=useStore((s)=>s.user);
   const reloadMeta=()=>api.taskMeta().then(setMeta);
   useEffect(()=>{ if(!meta) void reloadMeta().catch(()=>{}); },[meta]);
@@ -1906,7 +1907,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       </div>
       <label>Nhãn tuỳ chỉnh<input value={labels} onChange={e=>setLabels(e.target.value)} placeholder="Cách nhau bằng dấu phẩy"/></label>
       <div className="tk-staff-picker"><EmployeePicker single exclude={me ? [me.id] : []} label="Người thực hiện" users={meta.users} selected={users} onChange={setUsers} legacy={task?.assignees.filter(p=>people.includes(p.id)) || []} onLegacyChange={setPeople}/></div>
-      <div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
+      <div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" exclude={me ? [me.id] : []} users={meta.users} selected={followers} onChange={setFollowers}/></div>
       {!task&&(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dịch vụ'} được tự động thêm khi lưu.</p>}
     </fieldset>):(<fieldset disabled={busy} className="tk-create-fields tk-cc">
       {/* As a card's window: its head (title, quick buttons, what is chosen), then a section for each part. */}
@@ -1941,7 +1942,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       <details className="cm-sec tk-cc-sec tk-cc-more"><summary><Icon name="more" size={16} />Tuỳ chọn khác</summary>
         <div className="tk-create-advanced">
           <label>Công việc cha<EntitySelect kind="task" context={{projectId:project}} value={parent} onCreated={async()=>setParents((await parentsOf(project)).tasks)} onChange={setParent}><option value="">Không có</option>{parents.filter(p=>!project||p.project?.id===project).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</EntitySelect></label>
-          <div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" users={meta.users} selected={followers} onChange={setFollowers}/></div>
+          <div className="tk-staff-picker"><EmployeePicker label="Người theo dõi" exclude={me ? [me.id] : []} users={meta.users} selected={followers} onChange={setFollowers}/></div>
           {(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dịch vụ'} được tự động thêm khi lưu.</p>}
         </div>
       </details>
@@ -1957,7 +1958,7 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       {pick?.kind === 'dates' && <SpanPop anchor={pick.el} value={{ start: fromLocal(start), end: fromLocal(due) }} onClose={() => setPick(null)} onSave={(v) => { setStart(toLocal(v.start)); setDue(toLocal(v.end)); }} />}
       {pick?.kind === 'reviewer' && <Pop anchor={pick.el} title="Người duyệt (REVIEW)" onClose={() => setPick(null)}><div className="bk-menu">
         <button type="button" onClick={() => { setReviewer(''); setPick(null); }}><span>Người tạo (mặc định)</span>{!reviewer && <Icon name="check" size={15} />}</button>
-        {meta.users.map((u) => <button type="button" key={u.id} onClick={() => { setReviewer(u.id); setPick(null); }}><span>{u.name}</span>{reviewer === u.id && <Icon name="check" size={15} />}</button>)}
+        {meta.users.filter((u) => u.id !== me?.id).map((u) => <button type="button" key={u.id} onClick={() => { setReviewer(u.id); setPick(null); }}><span>{u.name}</span>{reviewer === u.id && <Icon name="check" size={15} />}</button>)}
       </div></Pop>}
     </fieldset>)}
     {task?.hasBoardLink&&<p className="note">Tên, mô tả, ngày và hoàn thành sẽ cập nhật trên thẻ liên kết. Kết quả công việc được giữ ở đây.</p>}

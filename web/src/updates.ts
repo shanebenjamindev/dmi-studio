@@ -9,6 +9,13 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-16-3',
+    date: '16/11/2026',
+    items: [
+      { kind: 'fix', vi: 'Người giao việc không tự thêm mình vào công việc: danh sách Người thực hiện, Người theo dõi và Người duyệt không hiện tên bạn (bạn là người duyệt sẵn). Việc con cũng không tự cho bạn theo dõi khi bạn tạo nó.', en: 'Whoever gives a task out no longer adds themselves to it: your name is not offered as Assignee, Follower or Reviewer (you review it by default). A subtask you create does not make you follow it either.' },
+    ],
+  },
+  {
     id: '2026-11-14-8',
     date: '14/11/2026',
     items: [
