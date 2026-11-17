@@ -23,7 +23,22 @@ export interface D1Binding {
   batch(statements: D1Statement[]): Promise<D1Result[]>;
 }
 export const cloudDatabase = IS_CLOUDFLARE;
-export let db: SqlClient;
+let rawDb: SqlClient | undefined;
+export const db: SqlClient = {
+  async execute(statement) {
+    if (!rawDb && !IS_CLOUDFLARE) await initDatabase();
+    return rawDb!.execute(statement);
+  },
+  async executeMultiple(sql) {
+    if (!rawDb && !IS_CLOUDFLARE) await initDatabase();
+    return rawDb!.executeMultiple(sql);
+  },
+  close() {
+    rawDb?.close();
+    rawDb = undefined;
+    initialized = undefined;
+  },
+};
 function d1Client(binding: D1Binding): SqlClient {
   return {
     async execute(statement) {
@@ -66,10 +81,10 @@ export function initDatabase(binding?: D1Binding): Promise<void> {
 }
 async function initialize(binding?: D1Binding) {
   if (IS_CLOUDFLARE && !binding) throw new Error('Thiếu Cloudflare D1 binding DB');
-  db ||= IS_CLOUDFLARE ? d1Client(binding!) : await localClient();
+  rawDb ||= IS_CLOUDFLARE ? d1Client(binding!) : await localClient();
   if (!IS_CLOUDFLARE) {
-    await db.execute('PRAGMA journal_mode=WAL');
-    await db.execute('PRAGMA foreign_keys=ON');
+    await rawDb.execute('PRAGMA journal_mode=WAL');
+    await rawDb.execute('PRAGMA foreign_keys=ON');
   }
   // A database this code already upgraded is used as it is: a cold start reads one setting instead of running the
   // upgrade again (some sixty statements in a row, about two seconds on D1 before the first answer). A new database

@@ -159,7 +159,24 @@ test('Claude connector: OAuth, tools, rights and safety', async () => {
     assert.equal((await json('POST', '/api/mcp', { jsonrpc: '2.0', id: 0, method: 'ping' }, { authorization: 'Bearer ' + G })).status, 401);
 
     // P1: a member connects and keeps a member's rights
-    assert.equal((await json('POST', '/api/users', { email: 'mia@example.test', name: 'Mia', password: 'Passw0rd!long', role: 'member' }, { cookie: admin })).status, 201);
+    const miaCreated = await (await json('POST', '/api/users', { email: 'mia@example.test', name: 'Mia', password: 'Passw0rd!long', role: 'member' }, { cookie: admin })).json();
+    const miaUserId = miaCreated.id;
+    // Followers can be added via update_task or manage_task_followers
+    assert.equal((await call(A, 'update_task', { task_id: tid, add_follower_user_id: miaUserId })).err, false);
+    let gotFollowers = (await call(A, 'get_task', { task_id: tid })).v;
+    assert.ok(gotFollowers.followers.some((f) => f.id === miaUserId), 'Mia is a follower');
+
+    assert.equal((await call(A, 'manage_task_followers', { task_id: tid, action: 'remove', user_id: miaUserId })).err, false);
+    gotFollowers = (await call(A, 'get_task', { task_id: tid })).v;
+    assert.ok(!gotFollowers.followers.some((f) => f.id === miaUserId), 'Mia removed from followers');
+
+    assert.equal((await call(A, 'manage_task_followers', { task_id: tid, action: 'add', user_id: miaUserId })).err, false);
+    gotFollowers = (await call(A, 'get_task', { task_id: tid })).v;
+    assert.ok(gotFollowers.followers.some((f) => f.id === miaUserId), 'Mia added via manage_task_followers');
+
+    // Remove Mia so she no longer sees the task
+    assert.equal((await call(A, 'manage_task_followers', { task_id: tid, action: 'remove', user_id: miaUserId })).err, false);
+
     const mia = cookieOf(await json('POST', '/api/auth/login', { email: 'mia@example.test', password: 'Passw0rd!long' }));
     const M = (await connect(mia)).access_token;
     assert.equal((await call(M, 'whoami')).v.email, 'mia@example.test');

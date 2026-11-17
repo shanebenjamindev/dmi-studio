@@ -7894,6 +7894,18 @@ body.as-open .fmsg-heads-stack { display: none; }
 .mb-settings-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .mb-settings .me-text { min-height: 120px; padding: 10px 12px; border: 1px solid var(--sep); border-radius: 8px; background: var(--surface); }
 .mb-settings-check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.me-code { width: 100%; min-height: 140px; padding: 10px 12px; border: 1px solid var(--sep); border-radius: 6px; background: var(--surface); color: var(--label); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12.5px; line-height: 1.5; tab-size: 2; resize: vertical; outline: none; box-sizing: border-box; }
+.me-code:focus { border-color: var(--tint); }
+.mb-code-wrap { display: flex; flex-direction: column; gap: 10px; }
+.mb-code-area { width: 100%; min-height: 140px; padding: 10px 12px; border: 1px solid var(--sep); border-radius: 8px; background: var(--surface); color: var(--label); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12.5px; line-height: 1.5; tab-size: 2; resize: vertical; outline: none; box-sizing: border-box; }
+.mb-code-area:focus { border-color: var(--tint); }
+.mb-sig-preview { border: 1px solid var(--sep); border-radius: 8px; background: var(--fill-2); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.mb-sig-preview-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--label-2); }
+.mb-sig-preview-body { border: 1px solid var(--sep); border-radius: 6px; padding: 10px 14px; background: var(--surface); min-height: 60px; overflow-x: auto; }
+.mb-sig-tabs { display: inline-flex; align-items: center; gap: 2px; background: var(--fill-2); padding: 2px; border-radius: 6px; }
+.mb-sig-tab { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--label-2); font-size: 12px; font-weight: 500; cursor: pointer; transition: all .15s ease; }
+.mb-sig-tab:hover { color: var(--label); }
+.mb-sig-tab.active { background: var(--surface); color: var(--label); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
 .mb-c-files { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 6px 0; }
 .mb-c-file { display: flex; align-items: center; gap: 6px; max-width: 420px; padding: 6px 8px 6px 10px; border-radius: 4px; background: var(--fill-2); font-size: 13px; }
 .mb-c-file b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--tint); }

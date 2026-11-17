@@ -22,7 +22,8 @@ export const need = (v: any, what: string) => { const s = String(v ?? '').trim()
 export const seg = (v: any, what: string) => encodeURIComponent(need(v, what));
 export const brief = (t: any) => ({
   id: t.id, title: t.title, stage: t.stage, status: t.status, state: t.state, due: vn(t.dueAt), start: vn(t.startAt), done: vn(t.doneAt),
-  service: t.project?.name || null, serviceId: t.project?.id || null, assignees: (t.assignees || []).map((a: any) => a.name), labels: t.labels || [],
+  service: t.project?.name || null, serviceId: t.project?.id || null, assignees: (t.assignees || []).map((a: any) => a.name),
+  followers: (t.followers || []).map((f: any) => f.name), labels: t.labels || [],
   createdBy: t.createdBy?.name || null, parent: t.parent?.title || null, updated: vn(t.updatedAt),
 });
 export const str = (description: string) => ({ type: 'string', description });

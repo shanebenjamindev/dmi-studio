@@ -16,7 +16,7 @@ const ATTACH_MAX = 3.5 * 1024 * 1024;
 
 interface Box { user_id: string; email: string; name: string; picture: string; refresh: string; access: string | null; expiry: number | null; signature: string; signature_on: number }
 /** A signature as written in Hộp thư or taken from Gmail: HTML, kept small. */
-const SIGNATURE_MAX = 20_000;
+const SIGNATURE_MAX = 65_536;
 const me = async (req: Req) => (await currentUser(req))!;
 const boxOf = (userId: string) => get<Box>('SELECT * FROM user_gmail WHERE user_id=?', userId);
 /** 409 with need 'reconnect' (never 401: the app would take that for its own session ending). */

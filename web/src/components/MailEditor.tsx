@@ -28,18 +28,37 @@ export function cleanHtml(html: string) {
 export const textToHtml = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
 
 /** `bar`: the formatting bar shown (the writer's "A" button shows or hides it). */
-export function MailEditor({ html, onChange, autoFocus, placeholder, minHeight, onSend, label = 'Nội dung thư', bar = true }: {
-  html: string; onChange: (html: string, text: string) => void; autoFocus?: boolean; placeholder?: string; minHeight?: number; onSend?: () => void; label?: string; bar?: boolean;
+export function MailEditor({ html, onChange, autoFocus, placeholder, minHeight, onSend, label = 'Nội dung thư', bar = true, allowCode = true }: {
+  html: string; onChange: (html: string, text: string) => void; autoFocus?: boolean; placeholder?: string; minHeight?: number; onSend?: () => void; label?: string; bar?: boolean; allowCode?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null), range = useRef<Range | null>(null);
   const [pop, setPop] = useState<{ kind: 'color' | 'align'; el: HTMLElement } | null>(null), [, tick] = useState(0);
+  const [codeMode, setCodeMode] = useState(false);
+  const [rawHtml, setRawHtml] = useState(html);
   useEffect(() => {
     const el = box.current!;
     el.innerHTML = html;
+    setRawHtml(html);
     onChange(el.innerHTML, el.innerText); // what it starts with is sent as it is if nothing is typed
     if (autoFocus) { el.focus(); const r = document.createRange(); r.setStart(el, 0); r.collapse(true); const s = getSelection(); s?.removeAllRanges(); s?.addRange(r); range.current = r; }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const changed = () => { const el = box.current!; onChange(el.innerHTML, el.innerText); };
+  const changed = () => { const el = box.current!; setRawHtml(el.innerHTML); onChange(el.innerHTML, el.innerText); };
+  const toggleCode = () => {
+    if (codeMode) {
+      const cleaned = cleanHtml(rawHtml);
+      setCodeMode(false);
+      if (box.current) { box.current.innerHTML = cleaned; onChange(cleaned, box.current.innerText); }
+    } else {
+      if (box.current) setRawHtml(box.current.innerHTML);
+      setCodeMode(true);
+    }
+  };
+  const onCodeInput = (val: string) => {
+    setRawHtml(val);
+    const cleaned = cleanHtml(val);
+    if (box.current) { box.current.innerHTML = cleaned; onChange(cleaned, box.current.innerText); }
+    else { onChange(cleaned, val.replace(/<[^>]+>/g, ' ')); }
+  };
   // The place being written at, kept while a button or list of the bar has the focus.
   const keep = () => { const s = getSelection(); if (s?.rangeCount && box.current?.contains(s.anchorNode)) range.current = s.getRangeAt(0); tick((n) => n + 1); };
   const run = (cmd: string, value?: string) => {
@@ -65,9 +84,16 @@ export function MailEditor({ html, onChange, autoFocus, placeholder, minHeight, 
   };
   return (
     <div className="me">
-      <div ref={box} className="me-text" contentEditable role="textbox" aria-multiline aria-label={label} data-placeholder={placeholder} style={minHeight ? { minHeight } : undefined}
+      <div ref={box} className="me-text" contentEditable={!codeMode} role="textbox" aria-multiline aria-label={label} data-placeholder={placeholder}
+        style={{ display: codeMode ? 'none' : undefined, ...(minHeight ? { minHeight } : {}) }}
         onInput={changed} onKeyUp={keep} onMouseUp={keep} onBlur={keep}
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && onSend) { e.preventDefault(); onSend(); } }} />
+      {codeMode && (
+        <textarea className="me-code" value={rawHtml} onChange={(e) => onCodeInput(e.target.value)}
+          placeholder="Nhập hoặc dán mã code HTML vào đây..."
+          style={minHeight ? { minHeight } : undefined}
+          spellCheck={false} autoCapitalize="off" autoCorrect="off" />
+      )}
       {bar && (
         <div className="me-bar" role="toolbar" aria-label="Định dạng">
           <button type="button" className="me-b" title="Hoàn tác" aria-label="Hoàn tác" onMouseDown={(e) => e.preventDefault()} onClick={() => run('undo')}><Icon name="undo" size={15} /></button>
@@ -91,6 +117,12 @@ export function MailEditor({ html, onChange, autoFocus, placeholder, minHeight, 
           {btn('strikeThrough', 'strike', 'Gạch ngang')}
           <button type="button" className="me-b" title="Chèn liên kết" aria-label="Chèn liên kết" onMouseDown={(e) => e.preventDefault()} onClick={link}><Icon name="link" size={15} /></button>
           <button type="button" className="me-b" title="Xoá định dạng" aria-label="Xoá định dạng" onMouseDown={(e) => e.preventDefault()} onClick={() => { run('removeFormat'); run('unlink'); }}><Icon name="clear" size={15} /></button>
+          {allowCode && (
+            <>
+              <span className="me-sep" />
+              <button type="button" className={'me-b' + (codeMode ? ' on' : '')} title={codeMode ? 'Chuyển sang soạn thảo trực quan' : 'Mã code HTML'} aria-label="Mã HTML" onMouseDown={(e) => e.preventDefault()} onClick={toggleCode}><Icon name="code" size={15} /></button>
+            </>
+          )}
         </div>
       )}
       {pop?.kind === 'color' && (

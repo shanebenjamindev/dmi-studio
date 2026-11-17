@@ -737,7 +737,6 @@ export function BoardsPage() {
 
                 {globalView === 'sections' && (
                   <>
-                    {!q && recentBoards.length > 0 && <Tiles title="Đã xem gần đây" icon={<Icon name="clock" size={16} />} list={recentBoards.slice(0, 4)} roles={roles} spaces={spaces} onOpen={go} onStar={star} onMore={moreOf} />}
                     {!q && boards.some((b) => b.starred) && <Tiles title="Board đã gắn sao" icon={<Icon name="star" size={16} />} list={boards.filter((b) => b.starred)} roles={roles} spaces={spaces} onOpen={go} onStar={star} onMore={moreOf} />}
                     <h2 className="bd-home-h">Các workspace của bạn, theo khách hàng</h2>
                     <div className="bd-home-sections">

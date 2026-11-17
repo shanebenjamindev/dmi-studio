@@ -349,15 +349,16 @@ export function MailPanel({ onHide, onUnread }: { onHide: () => void; onUnread?:
 }
 
 /** Hộp thư's settings, as Gmail's: the signature added under what one writes (and whether it is), written here with the
- *  same formatting or taken from the one set in Gmail. */
+ *  same formatting, raw HTML code, or taken from the one set in Gmail. */
 function MailSettings({ status, onClose, onSaved }: { status: MailboxStatus; onClose: () => void; onSaved: () => void }) {
   const [sig, setSig] = useState(status.signature || ''), [on, setOn] = useState(status.signatureOn !== false), [busy, setBusy] = useState(false), [version, setVersion] = useState(0);
+  const [mode, setMode] = useState<'visual' | 'code'>('visual');
   const fromGmail = async () => {
     setBusy(true);
     try {
       const r = await api.gmailSignature();
       if (!r.signature) toast('Gmail của bạn chưa có chữ ký');
-      else { setSig(cleanHtml(r.signature)); setVersion(version + 1); }
+      else { setSig(cleanHtml(r.signature)); setVersion((v) => v + 1); }
     } catch (e: any) { toast(e.message, true); } finally { setBusy(false); }
   };
   const save = async () => {
@@ -371,9 +372,59 @@ function MailSettings({ status, onClose, onSaved }: { status: MailboxStatus; onC
       <button className="btn btn-primary" disabled={busy} onClick={save}>Lưu thay đổi</button>
     </>}>
       <div className="mb-settings">
-        <div className="mb-settings-h"><b>Chữ ký</b><button type="button" className="btn btn-gray btn-sm" disabled={busy} onClick={fromGmail}><Icon name="download" size={14} />Lấy chữ ký từ Gmail</button></div>
-        <p className="note">Thêm vào cuối thư mới, thư trả lời và thư chuyển tiếp, sau dòng “--”, như Gmail. Định dạng được như khi viết thư (phông, màu, liên kết…).</p>
-        <MailEditor key={version} html={sig} label="Chữ ký" placeholder="Họ tên · Chức vụ · Số điện thoại · Detailers Movement" minHeight={120} onChange={(html) => setSig(html)} />
+        <div className="mb-settings-h">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <b>Chữ ký</b>
+            <div className="mb-sig-tabs" role="tablist" aria-label="Kiểu soạn chữ ký">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'visual'}
+                className={'mb-sig-tab' + (mode === 'visual' ? ' active' : '')}
+                onClick={() => { setVersion((v) => v + 1); setMode('visual'); }}
+              >
+                <Icon name="edit" size={13} />
+                <span>Soạn trực quan</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'code'}
+                className={'mb-sig-tab' + (mode === 'code' ? ' active' : '')}
+                onClick={() => setMode('code')}
+              >
+                <Icon name="code" size={13} />
+                <span>Mã code HTML</span>
+              </button>
+            </div>
+          </div>
+          <button type="button" className="btn btn-gray btn-sm" disabled={busy} onClick={fromGmail}><Icon name="download" size={14} />Lấy chữ ký từ Gmail</button>
+        </div>
+        <p className="note">
+          {mode === 'code'
+            ? 'Nhập hoặc dán mã HTML (bảng table, link a, hình ảnh img, inline style CSS...). Hệ thống tự động làm sạch và bảo đảm an toàn.'
+            : 'Thêm vào cuối thư mới, thư trả lời và thư chuyển tiếp, sau dòng “--”, như Gmail. Định dạng được như khi viết thư (phông, màu, liên kết…).'}
+        </p>
+        {mode === 'visual' ? (
+          <MailEditor key={version} html={sig} label="Chữ ký" placeholder="Họ tên · Chức vụ · Số điện thoại · Detailers Movement" minHeight={120} onChange={(html) => setSig(html)} />
+        ) : (
+          <div className="mb-code-wrap">
+            <textarea
+              className="mb-code-area"
+              value={sig}
+              onChange={(e) => setSig(e.target.value)}
+              placeholder={'<!-- Dán mã code HTML chữ ký của bạn vào đây, ví dụ: -->\n<div style="font-family: Arial, sans-serif; font-size: 13px; line-height: 1.5; color: #1e293b;">\n  <strong style="color: #0f172a; font-size: 14px;">Nguyễn Văn A</strong><br>\n  <span style="color: #64748b;">Chuyên viên Tư vấn · Detailers Movement</span><br>\n  <a href="mailto:contact@detailersmovement.com" style="color: #0b7df2; text-decoration: none;">contact@detailersmovement.com</a>\n</div>'}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              rows={8}
+            />
+            <div className="mb-sig-preview">
+              <div className="mb-sig-preview-head"><Icon name="eye" size={14} /><span>Xem trước hiển thị</span></div>
+              <div className="me-text mb-sig-preview-body" dangerouslySetInnerHTML={{ __html: cleanHtml(sig) || '<span style="color:var(--label-3);font-style:italic">Chưa có nội dung chữ ký</span>' }} />
+            </div>
+          </div>
+        )}
         <label className="mb-settings-check"><input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} />Tự thêm chữ ký vào thư mới, trả lời và chuyển tiếp</label>
       </div>
     </Sheet>

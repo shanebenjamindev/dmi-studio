@@ -295,12 +295,14 @@ export const WORK_TOOLS: Tool[] = [
   },
   {
     name: 'get_task', title: 'Chi tiết công việc', annotations: read,
-    description: 'Một công việc: mô tả, kết quả, việc con, bình luận, lịch sử, bước quy trình và người duyệt.',
+    description: 'Một công việc: mô tả, kết quả, việc con, bình luận, lịch sử, bước quy trình, người được giao và người theo dõi (followers).',
     inputSchema: { type: 'object', properties: { task_id: str('Id công việc (tk_…)') }, required: ['task_id'] },
     run: async (call, a) => {
       const t = await call('GET', `/api/tasks/${seg(a.task_id, 'task_id')}`);
       return {
         ...brief(t), description: t.description, result: t.result, canEdit: t.canEdit, statuses: t.statuses, path: (t.path || []).map((p: any) => p.title),
+        assignees: (t.assignees || []).map((u: any) => ({ id: u.id, name: u.name, email: u.email })),
+        followers: (t.followers || []).map((u: any) => ({ id: u.id, name: u.name })),
         subtasks: (t.childTasks || []).map(brief), flow: t.flow,
         comments: (t.comments || []).slice(-30).map((c: any) => ({ by: c.userName, at: vn(c.createdAt), text: c.text })),
         activity: (t.activity || []).slice(0, 20).map((x: any) => `${vn(x.at)} ${x.user} ${x.text}`),
@@ -309,29 +311,35 @@ export const WORK_TOOLS: Tool[] = [
   },
   {
     name: 'create_task', title: 'Tạo công việc', annotations: write,
-    description: 'Tạo công việc mới. Giao cho người khác bằng assignee_user_id (từ list_users; không tự giao cho mình); để trống thì công việc chờ ở ACCOUNT để giao.',
+    description: 'Tạo công việc mới. Giao cho người khác bằng assignee_user_id (từ list_users; không tự giao cho mình); thêm người theo dõi bằng follower_user_ids; để trống thì công việc chờ ở ACCOUNT để giao.',
     inputSchema: {
       type: 'object', properties: {
         title: str('Tên công việc'), service_id: str('Id dịch vụ (từ list_services)'), description: str('Mô tả'),
         due: str('Hạn chót: YYYY-MM-DD (cuối ngày) hoặc ISO 8601'), start: str('Ngày bắt đầu'), assignee_user_id: str('Id tài khoản được giao'),
+        follower_user_ids: { type: 'array', items: { type: 'string' }, description: 'Danh sách ID tài khoản người theo dõi (tuỳ chọn)' },
         reviewer_user_id: str('Id tài khoản người duyệt (tuỳ chọn)'), parent_task_id: str('Id công việc cha, để tạo việc con'),
       }, required: ['title'],
     },
     run: async (call, a) => {
       const r = await call('POST', '/api/tasks', {
         title: need(a.title, 'tên công việc'), projectId: a.service_id || null, description: a.description, dueAt: when(a.due, 'due'), startAt: when(a.start, 'start'),
-        parentId: a.parent_task_id || null, reviewerUserId: a.reviewer_user_id || undefined, ...(a.assignee_user_id ? { assigneeUserIds: [String(a.assignee_user_id)] } : {}),
+        parentId: a.parent_task_id || null, reviewerUserId: a.reviewer_user_id || undefined,
+        ...(a.assignee_user_id ? { assigneeUserIds: [String(a.assignee_user_id)] } : {}),
+        ...(a.follower_user_ids ? { followerUserIds: (Array.isArray(a.follower_user_ids) ? a.follower_user_ids : [a.follower_user_ids]).map(String) } : {}),
       });
       return { id: r.id, created: true };
     },
   },
   {
     name: 'update_task', title: 'Sửa công việc', annotations: write,
-    description: 'Sửa tên, mô tả, kết quả, hạn, ngày bắt đầu, dịch vụ hoặc người được giao của một công việc. Chỉ gửi trường cần đổi. Chuyển bước quy trình thì dùng task_workflow.',
+    description: 'Sửa tên, mô tả, kết quả, hạn, ngày bắt đầu, dịch vụ, người được giao hoặc người theo dõi (follower_user_ids, add_follower_user_id, remove_follower_user_id) của một công việc. Chỉ gửi trường cần đổi. Chuyển bước quy trình thì dùng task_workflow.',
     inputSchema: {
       type: 'object', properties: {
         task_id: str('Id công việc'), title: str('Tên mới'), description: str('Mô tả mới'), result: str('Kết quả công việc (link, ghi chú bàn giao…)'),
         due: str('Hạn chót mới; "" để gỡ'), start: str('Ngày bắt đầu mới; "" để gỡ'), service_id: str('Id dịch vụ mới'), assignee_user_id: str('Id tài khoản được giao (thay người cũ)'),
+        follower_user_ids: { type: 'array', items: { type: 'string' }, description: 'Danh sách ID người theo dõi mới (thay thế toàn bộ danh sách cũ)' },
+        add_follower_user_id: str('Id tài khoản muốn thêm vào danh sách người theo dõi'),
+        remove_follower_user_id: str('Id tài khoản muốn xoá khỏi danh sách người theo dõi'),
       }, required: ['task_id'],
     },
     run: async (call, a) => {
@@ -340,9 +348,53 @@ export const WORK_TOOLS: Tool[] = [
       if (a.due !== undefined) b.dueAt = when(a.due, 'due');
       if (a.start !== undefined) b.startAt = when(a.start, 'start');
       if (a.assignee_user_id !== undefined) b.assigneeUserIds = a.assignee_user_id ? [String(a.assignee_user_id)] : [];
+      if (a.follower_user_ids !== undefined) {
+        b.followerUserIds = (Array.isArray(a.follower_user_ids) ? a.follower_user_ids : [a.follower_user_ids]).map(String);
+      } else if (a.add_follower_user_id || a.remove_follower_user_id) {
+        const cur = await call('GET', `/api/tasks/${seg(a.task_id, 'task_id')}`);
+        const existing: string[] = (cur.followers || []).map((f: any) => f.id);
+        let updated = [...existing];
+        if (a.add_follower_user_id && !updated.includes(String(a.add_follower_user_id))) {
+          updated.push(String(a.add_follower_user_id));
+        }
+        if (a.remove_follower_user_id) {
+          updated = updated.filter((id) => id !== String(a.remove_follower_user_id));
+        }
+        b.followerUserIds = updated;
+      }
       if (!Object.keys(b).length) throw new HttpError(400, 'Không có gì để sửa');
       await call('PUT', `/api/tasks/${seg(a.task_id, 'task_id')}`, b);
       return { updated: true };
+    },
+  },
+  {
+    name: 'manage_task_followers', title: 'Quản lý người theo dõi công việc', annotations: write,
+    description: 'Thêm, gỡ hoặc đặt danh sách người theo dõi (followers) của công việc. Dùng action "add", "remove", hoặc "set".',
+    inputSchema: {
+      type: 'object', properties: {
+        task_id: str('Id công việc (tk_…)'),
+        action: { type: 'string', enum: ['add', 'remove', 'set'], description: 'Thao tác: add (thêm), remove (gỡ), set (đặt danh sách mới)' },
+        user_id: str('Id tài khoản người dùng (khi action là add hoặc remove)'),
+        follower_user_ids: { type: 'array', items: { type: 'string' }, description: 'Danh sách ID người theo dõi (khi action là set)' },
+      }, required: ['task_id', 'action'],
+    },
+    run: async (call, a) => {
+      const cur = await call('GET', `/api/tasks/${seg(a.task_id, 'task_id')}`);
+      const existing: string[] = (cur.followers || []).map((f: any) => f.id);
+      let updated = [...existing];
+      if (a.action === 'add') {
+        const uid = need(a.user_id, 'user_id');
+        if (!updated.includes(uid)) updated.push(uid);
+      } else if (a.action === 'remove') {
+        const uid = need(a.user_id, 'user_id');
+        updated = updated.filter((id) => id !== uid);
+      } else if (a.action === 'set') {
+        updated = Array.isArray(a.follower_user_ids) ? a.follower_user_ids.map(String) : [];
+      } else {
+        throw new HttpError(400, 'Action không hợp lệ: dùng add, remove hoặc set');
+      }
+      await call('PUT', `/api/tasks/${seg(a.task_id, 'task_id')}`, { followerUserIds: updated });
+      return { task_id: a.task_id, action: a.action, followers: updated };
     },
   },
   {
