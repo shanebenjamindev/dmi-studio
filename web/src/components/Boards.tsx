@@ -84,6 +84,25 @@ function savedGlobalWsView(): GlobalWsView {
 }
 function saveGlobalWsView(v: GlobalWsView) {
   try { localStorage.setItem(LS_GLOBAL_WS_VIEW, v); } catch {}
+  remember(LS_GLOBAL_WS_VIEW, v);
+}
+
+const LS_WS_FOLDED = 'dms.wsFolded';
+function loadFoldedWs(): Set<string> {
+  const raw = ls.get<unknown>(LS_WS_FOLDED, []);
+  return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []);
+}
+function saveFoldedWs(ids: Iterable<string>) {
+  ls.set(LS_WS_FOLDED, [...new Set(ids)]);
+}
+function isWsFolded(wsId: string): boolean {
+  return loadFoldedWs().has(wsId);
+}
+function setWsFolded(wsId: string, folded: boolean) {
+  const set = loadFoldedWs();
+  if (folded) set.add(wsId);
+  else set.delete(wsId);
+  saveFoldedWs(set);
 }
 
 function WorkspaceTreeTable({
@@ -126,7 +145,10 @@ function WorkspaceTreeTable({
 }) {
   const [sort, setSort] = useState<'name' | 'kind' | 'boards' | 'members' | 'updated'>('name');
   const [reverse, setReverse] = useState(false);
-  const [openWs, setOpenWs] = useState<Set<string>>(() => new Set(spaces.map((s) => s.id)));
+  const [openWs, setOpenWs] = useState<Set<string>>(() => {
+    const folded = loadFoldedWs();
+    return new Set(spaces.filter((s) => !folded.has(s.id)).map((s) => s.id));
+  });
   const [openBoard, setOpenBoard] = useState<Set<string>>(() => new Set());
 
   const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
@@ -165,8 +187,13 @@ function WorkspaceTreeTable({
   const toggleWs = (id: string) => {
     setOpenWs((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+        setWsFolded(id, true);
+      } else {
+        next.add(id);
+        setWsFolded(id, false);
+      }
       return next;
     });
   };
@@ -236,8 +263,13 @@ function WorkspaceTreeTable({
                 type="button"
                 className="ws-toggle-all-btn"
                 onClick={() => {
-                  if (openWs.size > 0) setOpenWs(new Set());
-                  else setOpenWs(new Set(spaces.map((s) => s.id)));
+                  if (openWs.size > 0) {
+                    setOpenWs(new Set());
+                    saveFoldedWs(spaces.map((s) => s.id));
+                  } else {
+                    setOpenWs(new Set(spaces.map((s) => s.id)));
+                    saveFoldedWs([]);
+                  }
                 }}
                 title={openWs.size > 0 ? 'Thu gọn tất cả thư mục' : 'Mở rộng tất cả thư mục'}
               >
@@ -985,7 +1017,15 @@ function WorkspaceSection({ ws, me, roles, boards, onOpen, onCard, onTask, onSta
   /** Ticked for deleting with others (`onPick` only on a workspace this account may delete). */
   picked?: boolean; onPick?: () => void;
 }) {
-  const [folded, setFolded] = useState(false);
+  const [folded, setFoldedState] = useState(() => isWsFolded(ws.id));
+  useEffect(() => { setFoldedState(isWsFolded(ws.id)); }, [ws.id]);
+  const toggleFolded = () => {
+    setFoldedState((prev) => {
+      const next = !prev;
+      setWsFolded(ws.id, next);
+      return next;
+    });
+  };
   const [view, setViewState] = useState<WsView>(savedWsView), [viewEl, setViewEl] = useState<HTMLElement | null>(null);
   const setView = (v: WsView) => { setViewState(v); saveWsView(v); setViewEl(null); };
   const current = WS_VIEWS.find((v) => v.value === view)!;
@@ -996,7 +1036,7 @@ function WorkspaceSection({ ws, me, roles, boards, onOpen, onCard, onTask, onSta
         <button
           type="button"
           className={'bd-tree-arrow bd-wsec-fold' + (!folded ? ' open' : '')}
-          onClick={() => setFolded((f) => !f)}
+          onClick={toggleFolded}
           aria-expanded={!folded}
           aria-label={folded ? `Mở rộng workspace ${ws.name}` : `Thu gọn workspace ${ws.name}`}
           title={folded ? 'Mở rộng workspace' : 'Thu gọn thành 1 dòng'}
@@ -1004,7 +1044,7 @@ function WorkspaceSection({ ws, me, roles, boards, onOpen, onCard, onTask, onSta
           <Icon name="right" size={14} />
         </button>
         <WsMark ws={ws} size={30} />
-        <div className="bd-wsec-title" onClick={() => setFolded((f) => !f)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFolded((f) => !f); } }}>
+        <div className="bd-wsec-title" onClick={toggleFolded} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFolded(); } }}>
           <b>{ws.name}</b>
           <span>
             {ws.kind === 'company' ? 'Workspace công ty' : 'Nhãn hàng'} · {wsKind(ws, me)} · {boards.length} board
