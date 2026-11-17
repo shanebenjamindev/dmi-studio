@@ -279,7 +279,7 @@ export interface MailboxStatus { connected: boolean; googleConfigured: boolean; 
 export interface MailThreadRow { id: string; subject: string; snippet: string; from: string[]; count: number; at: number; unread: boolean; starred: boolean; attachments: boolean }
 export interface MailMessage {
   id: string; from: { name: string; email: string }; to: string; cc: string; subject: string; at: number; messageId: string; references: string;
-  unread: boolean; mine: boolean; html: string; text: string; attachments: { id: string; name: string; type: string; size: number }[];
+  unread: boolean; mine: boolean; html: string; text: string; attachments: { id: string; name: string; type: string; size: number; cid?: string }[];
 }
 export interface MailThread { id: string; subject: string; messages: MailMessage[]; spam?: boolean; trash?: boolean }
 export interface MailDraft { to: string; cc?: string; bcc?: string; subject: string; text: string; html?: string; threadId?: string; inReplyTo?: string; references?: string; attachments?: { name: string; type: string; data: string }[] }

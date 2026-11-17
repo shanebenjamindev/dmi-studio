@@ -151,14 +151,15 @@ function ThreadView({ id, me, sig, onBack, onSent, onGone }: { id: string; me: s
   useEffect(() => { if (reply) foot.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [!!reply]);
   if (error) return <div className="mb-thread"><button className="link mb-back" onClick={onBack}><Icon name="back" size={14} />Quay lại</button><p className="note err">{error}</p></div>;
   if (!t) return <p className="note mb-pad">Đang mở thư…</p>;
-  const last = t.messages.at(-1)!;
+  const last = t.messages.at(-1);
   const answer = (all: boolean) => {
+    if (!last) return;
     // Answering one's own last message goes to whoever it was sent to.
     const to = last.mine ? last.to : `${last.from.name} <${last.from.email}>`;
     const cc = all ? [last.mine ? '' : last.to, last.cc].join(',').split(',').map((s) => s.trim()).filter((s) => s && !s.toLowerCase().includes(me.toLowerCase())).join(', ') : '';
     setReply({ to, cc, subject: reSubject('Re', t.subject), text: '', threadId: t.id, inReplyTo: last.messageId, references: last.references });
   };
-  const forward = () => setReply({ to: '', subject: reSubject('Fwd', t.subject),
+  const forward = () => last && setReply({ to: '', subject: reSubject('Fwd', t.subject),
     text: `\n\n---------- Thư chuyển tiếp ----------\nTừ: ${last.from.name} <${last.from.email}>\nNgày: ${new Date(last.at).toLocaleString('vi')}\nTiêu đề: ${last.subject}\nĐến: ${last.to}\n\n${last.text || htmlToText(last.html)}` });
   // Moved out of the folder being read (archived, reported, binned, or back from spam or the bin): off the list.
   const move = async (change: Parameters<typeof api.markMailThread>[1], done: string) => { try { await api.markMailThread(t.id, change); toast(done); onGone(); } catch (e: any) { toast(e.message, true); } };
@@ -182,7 +183,7 @@ function ThreadView({ id, me, sig, onBack, onSent, onGone }: { id: string; me: s
       {t.messages.map((m, i) => <MessageView key={m.id} m={m} startOpen={i === t.messages.length - 1 || m.unread} />)}
       <div ref={foot}>
         {reply ? <Compose key={reply.subject + reply.to} mode="inline" draft={reply} from={me} sig={sig} onClose={() => setReply(null)} onSent={() => { setReply(null); toast('Đã gửi thư'); onSent(); }} />
-          : <div className="mb-answer">
+          : last && <div className="mb-answer">
               <button className="mb-answer-b" onClick={() => answer(false)}><Icon name="undo" size={15} />Trả lời</button>
               <button className="mb-answer-b" onClick={() => answer(true)}><Icon name="undo" size={15} />Trả lời tất cả</button>
               <button className="mb-answer-b" onClick={forward}><Icon name="fwd" size={15} />Chuyển tiếp</button>
@@ -197,12 +198,19 @@ function htmlToText(html: string) { return new DOMParser().parseFromString(html,
 function MessageView({ m, startOpen }: { m: MailMessage; startOpen: boolean }) {
   const [open, setOpen] = useState(startOpen), [images, setImages] = useState(false);
   const frame = useRef<HTMLIFrameElement>(null);
-  const remote = /<img[^>]+src=["']?https?:/i.test(m.html);
+  const atts = m.attachments || [];
+  const fileUrl = (a: MailMessage['attachments'][number], download = false) => `/api/mailbox/messages/${encodeURIComponent(m.id)}/attachments/${encodeURIComponent(a.id)}?${new URLSearchParams({ name: a.name, type: a.type, ...(download ? { download: '1' } : {}) })}`;
+  const htmlWithCid = m.html && atts.some((a) => a.cid)
+    ? m.html.replace(/cid:([^"'\s>]+)/gi, (match, cid) => {
+        const hit = atts.find((a) => a.cid && a.cid.toLowerCase() === String(cid).toLowerCase());
+        return hit ? fileUrl(hit) : match;
+      })
+    : m.html;
+  const remote = /<img[^>]+src=["']?https?:/i.test(m.html || '');
   // Someone else's HTML: in a frame that runs no script and cannot reach this page; pictures from other sites (which
   // tell the sender the mail was opened) only when asked for.
-  const doc = m.html && `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:${images ? ' https: http:' : ''}"><base target="_blank"><style>body{margin:0;font:14px/1.5 -apple-system,system-ui,sans-serif;color:#1d1d1f;background:#fff;overflow-wrap:anywhere}img{max-width:100%;height:auto}</style>${m.html}`;
+  const doc = htmlWithCid && `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src ${location.origin} data:${images ? ' https: http:' : ''}"><base target="_blank"><style>body{margin:0;font:14px/1.5 -apple-system,system-ui,sans-serif;color:#1d1d1f;background:#fff;overflow-wrap:anywhere}img{max-width:100%;height:auto}</style>${htmlWithCid}`;
   const fit = () => { const d = frame.current?.contentDocument; if (d && frame.current) frame.current.style.height = d.documentElement.scrollHeight + 4 + 'px'; };
-  const fileUrl = (a: MailMessage['attachments'][number], download = false) => `/api/mailbox/messages/${encodeURIComponent(m.id)}/attachments/${encodeURIComponent(a.id)}?${new URLSearchParams({ name: a.name, type: a.type, ...(download ? { download: '1' } : {}) })}`;
   return (
     <article className={'mb-msg' + (open ? ' open' : '')}>
       <button className="mb-msg-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -212,12 +220,12 @@ function MessageView({ m, startOpen }: { m: MailMessage; startOpen: boolean }) {
       {open && <>
         <p className="mb-msg-to">Đến: {m.to}{m.cc && <> · Cc: {m.cc}</>}</p>
         {remote && !images && <p className="note mb-images">Ảnh từ trang khác đang ẩn để người gửi không biết bạn đã mở thư. <button className="link" onClick={() => setImages(true)}>Hiện ảnh</button></p>}
-        {m.html ? <iframe ref={frame} key={String(images)} className="mb-html" title={`Thư từ ${m.from.name}`} sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcDoc={doc} onLoad={fit} />
+        {doc ? <iframe ref={frame} key={String(images)} className="mb-html" title={`Thư từ ${m.from.name}`} sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcDoc={doc} onLoad={fit} />
           : <pre className="mb-text">{m.text}</pre>}
-        {!!m.attachments.length && (
+        {!!atts.length && (
           <ul className="mb-files">
-            {m.attachments.map((a) => (
-              <li key={a.id}><a href={fileUrl(a)} target="_blank" rel="noreferrer"><Icon name="clip" size={14} /><span>{a.name}</span><small>{size(a.size)}</small></a>
+            {atts.map((a, idx) => (
+              <li key={a.id + ':' + idx}><a href={fileUrl(a)} target="_blank" rel="noreferrer"><Icon name="clip" size={14} /><span>{a.name}</span><small>{size(a.size)}</small></a>
                 <a href={fileUrl(a, true)} aria-label={`Tải ${a.name}`}><Icon name="download" size={14} /></a></li>
             ))}
           </ul>

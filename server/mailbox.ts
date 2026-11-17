@@ -6,7 +6,7 @@ import { HttpError, json, readJson, publicOrigin, untrustedHeaders } from './htt
 import { all, get, getSetting, run } from './db';
 import { currentUser } from './auth';
 import * as G from './google';
-import { buildMime, header, parseAddresses, person, readParts, type GPart } from './gmail-mime';
+import { buildMime, findPart, header, parseAddresses, person, readParts, type GPart } from './gmail-mime';
 
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
 /** The folders Hộp thư shows, as Gmail's labels. */
@@ -50,6 +50,9 @@ async function mustBox(req: Req) {
   return box;
 }
 const gid = (s: string) => { if (!/^[\w-]{1,200}$/.test(s)) throw new HttpError(400, 'Mã thư không hợp lệ'); return s; };
+/** Gmail attachmentId tokens are long base64url strings (often 300-600+ chars), or `part-...` for inline MIME parts. */
+const attId = (s: string) => { if (!/^[A-Za-z0-9_.=-]{1,4000}$/.test(s) || s.includes('..')) throw new HttpError(400, 'Mã tệp đính kèm không hợp lệ'); return s; };
+const hasFile = (p?: GPart): boolean => !!p && (!!p.filename || /multipart\/(mixed|related)/i.test(p.mimeType || '') || (p.parts || []).some(hasFile));
 
 /** A thread as a row of the list: its subject, who wrote, the last message's time, unread or not. */
 function threadRow(t: any) {
@@ -59,7 +62,7 @@ function threadRow(t: any) {
     id: t.id, subject: header(first?.payload, 'Subject') || '(Không có tiêu đề)', snippet: last?.snippet || '',
     from: people.map((p) => p.name), count: msgs.length, at: Number(last?.internalDate || 0),
     unread: msgs.some((m) => m.labelIds?.includes('UNREAD')), starred: msgs.some((m) => m.labelIds?.includes('STARRED')),
-    attachments: msgs.some((m) => /multipart\/mixed/i.test(m.payload?.mimeType || '')),
+    attachments: msgs.some((m) => hasFile(m.payload)),
   };
 }
 
@@ -145,8 +148,21 @@ export function registerMailbox(api: Router) {
     json(res, 200, { ok: true });
   });
   api.get('/api/mailbox/messages/:id/attachments/:att', async (req, res) => {
-    const box = await mustBox(req), a = await gmail(box, `/messages/${gid(req.params.id)}/attachments/${gid(req.params.att)}`);
-    const body = Buffer.from(a.data || '', 'base64url'), name = (req.query.get('name') || 'tep-dinh-kem').slice(0, 200), type = req.query.get('type') || 'application/octet-stream';
+    const box = await mustBox(req), msgId = gid(req.params.id), att = attId(req.params.att);
+    let data = '';
+    if (att.startsWith('part-')) {
+      const m = await gmail(box, `/messages/${msgId}?format=full`);
+      const part = findPart(m.payload || {}, att);
+      if (!part) throw new HttpError(404, 'Không tìm thấy tệp đính kèm');
+      if (part.body?.data) data = part.body.data;
+      else if (part.body?.attachmentId) data = (await gmail(box, `/messages/${msgId}/attachments/${encodeURIComponent(part.body.attachmentId)}`)).data || '';
+    } else {
+      const a = await gmail(box, `/messages/${msgId}/attachments/${encodeURIComponent(att)}`);
+      data = a.data || '';
+    }
+    const body = Buffer.from(String(data).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    const name = (req.query.get('name') || 'tep-dinh-kem').replace(/[\r\n\0]/g, ' ').slice(0, 200);
+    const type = (req.query.get('type') || 'application/octet-stream').split(';')[0].trim();
     // Someone else's file: never shown as a page of this site.
     res.writeHead(200, { 'content-type': /^[\w.+-]+\/[\w.+-]+$/.test(type) ? type : 'application/octet-stream', 'content-length': body.length, 'cache-control': 'private, no-store', ...untrustedHeaders(type, name),
       ...(req.query.get('download') ? { 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}` } : {}) });

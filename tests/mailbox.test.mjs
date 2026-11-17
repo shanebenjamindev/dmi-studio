@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import { once } from 'node:events';
-import { buildMime, parseAddresses, readParts, person } from '../server/gmail-mime.ts';
+import { buildMime, findPart, parseAddresses, readParts, person } from '../server/gmail-mime.ts';
 
 // Hộp thư (server/mailbox.ts): each person's own Gmail. Gmail itself is not reached here: the mail is written and read
 // by server/gmail-mime.ts, and the routes are checked up to the point they would call Google.
@@ -48,6 +48,25 @@ test('addresses as typed, and a message as Gmail returns it', () => {
     { mimeType: 'application/pdf', filename: 'hd.pdf', body: { attachmentId: 'att1', size: 1200 } },
   ] });
   assert.deepEqual(r, { html: '<b>Xin chào</b>', text: 'Xin chào', attachments: [{ id: 'att1', name: 'hd.pdf', type: 'application/pdf', size: 1200 }] });
+
+  // Inline body.data attachment (no attachmentId), Content-ID (cid:), and .txt attachment not hijacking message text.
+  const complex = {
+    mimeType: 'multipart/mixed',
+    parts: [
+      { partId: '0', mimeType: 'text/plain', filename: 'note.txt', body: { data: b64('File note'), size: 9 } },
+      { partId: '1', mimeType: 'multipart/related', parts: [
+        { partId: '1.0', mimeType: 'text/html', body: { data: b64('<p>Hi <img src="cid:img_1"></p>') } },
+        { partId: '1.1', mimeType: 'image/png', filename: 'pic.png', headers: [{ name: 'Content-ID', value: '<img_1>' }], body: { attachmentId: 'A'.repeat(380), size: 512 } },
+      ] },
+    ],
+  };
+  const parsed = readParts(complex);
+  assert.equal(parsed.text, '');
+  assert.equal(parsed.html, '<p>Hi <img src="cid:img_1"></p>');
+  assert.equal(parsed.attachments.length, 2);
+  assert.deepEqual(parsed.attachments[0], { id: 'part-0', name: 'note.txt', type: 'text/plain', size: 9 });
+  assert.deepEqual(parsed.attachments[1], { id: 'A'.repeat(380), name: 'pic.png', type: 'image/png', size: 512, cid: 'img_1' });
+  assert.equal(findPart(complex, 'part-0')?.filename, 'note.txt');
 });
 
 test('each person connects their own Gmail; nothing is sent without one', async () => {

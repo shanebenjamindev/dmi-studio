@@ -57,7 +57,7 @@ export function buildMime(m: OutMail, boundary = 'dmi' + Math.random().toString(
 }
 
 /** A Gmail message part (format=full). */
-export interface GPart { mimeType?: string; filename?: string; headers?: { name: string; value: string }[]; body?: { data?: string; size?: number; attachmentId?: string }; parts?: GPart[] }
+export interface GPart { partId?: string; mimeType?: string; filename?: string; headers?: { name: string; value: string }[]; body?: { data?: string; size?: number; attachmentId?: string }; parts?: GPart[] }
 export const header = (p: GPart | undefined, name: string) => p?.headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? '';
 
 function decode(data: string, contentType: string) {
@@ -67,16 +67,38 @@ function decode(data: string, contentType: string) {
 /** What a message says (its HTML and plain text, the first of each) and the files that come with it. */
 export function readParts(root: GPart) {
   let html = '', text = '';
-  const attachments: { id: string; name: string; type: string; size: number }[] = [];
-  const walk = (p: GPart) => {
+  const attachments: { id: string; name: string; type: string; size: number; cid?: string }[] = [];
+  const walk = (p: GPart, path: string, inAttachment = false) => {
     const type = (p.mimeType || '').toLowerCase();
-    if (p.filename && p.body?.attachmentId) attachments.push({ id: p.body.attachmentId, name: p.filename, type: type || 'application/octet-stream', size: p.body.size || 0 });
-    else if (type === 'text/html' && !html && p.body?.data) html = decode(p.body.data, header(p, 'content-type'));
-    else if (type === 'text/plain' && !text && p.body?.data) text = decode(p.body.data, header(p, 'content-type'));
-    for (const c of p.parts || []) walk(c);
+    const disp = header(p, 'content-disposition');
+    const cid = header(p, 'content-id').replace(/^<|>$/g, '').trim();
+    const isAtt = !!p.filename || /^attachment/i.test(disp.trim());
+    if (isAtt && (p.body?.attachmentId || p.body?.data)) {
+      const id = p.body.attachmentId || `part-${p.partId || path}`;
+      const size = p.body.size || (p.body.data ? Math.floor((p.body.data.length * 3) / 4) : 0);
+      attachments.push({ id, name: p.filename || 'tep-dinh-kem', type: type || 'application/octet-stream', size, ...(cid ? { cid } : {}) });
+    } else if (!inAttachment && !isAtt) {
+      if (type === 'text/html' && !html && p.body?.data) html = decode(p.body.data, header(p, 'content-type'));
+      else if (type === 'text/plain' && !text && p.body?.data) text = decode(p.body.data, header(p, 'content-type'));
+    }
+    const nestedAtt = inAttachment || isAtt || type === 'message/rfc822';
+    (p.parts || []).forEach((c, i) => walk(c, path ? `${path}.${i}` : String(i), nestedAtt));
   };
-  walk(root);
+  walk(root, '');
   return { html, text, attachments };
+}
+
+/** Finds an inline MIME part by its `part-<partId or tree path>` identifier (when Gmail did not return an attachmentId). */
+export function findPart(root: GPart, token: string): GPart | null {
+  const target = token.replace(/^part-/, '');
+  let hit: GPart | null = null;
+  const walk = (p: GPart, path: string) => {
+    if (hit) return;
+    if ((p.partId && p.partId === target) || (path && path === target)) { hit = p; return; }
+    (p.parts || []).forEach((c, i) => walk(c, path ? `${path}.${i}` : String(i)));
+  };
+  walk(root, '');
+  return hit;
 }
 
 /** "Name <a@x.com>" as its parts. */
