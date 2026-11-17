@@ -14,6 +14,7 @@ import { setDriveView, useDriveView } from '../driveView';
 import type { AdAccount, Report, ReportData, ReportDriveFolder, ReportItem, ReportKV, ReportShot, ReportVideo } from '../types';
 import { DayRangeField } from './DateRange';
 import { askConfirm } from './AskDialog';
+import { Button, EmptyState, PageShell } from './kit';
 
 const two = (n: number) => String(n).padStart(2, '0');
 const day = (ms: number) => { const d = new Date(ms); return `${two(d.getHours())}:${two(d.getMinutes())} · ${two(d.getDate())}/${two(d.getMonth() + 1)}`; };
@@ -41,48 +42,79 @@ export function ReportsPage() {
   const del = async (r: ReportItem) => { if (await askConfirm(`Xoá báo cáo “${r.title}”?`)) { await api.deleteReport(r.id).catch((e) => toast(e.message, true)); load(); } };
   const shown = (list || []).filter((r) => `${r.title} ${r.customerName || ''} ${r.client || ''} ${r.meta?.account || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
   return (
-    <div className="ad-page rp-all">
-      <header className="ad-head">
-        <h1>Tất cả báo cáo</h1>
-        <label className="rp-search"><Icon name="search" size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm báo cáo, khách, tài khoản" aria-label="Tìm báo cáo" /></label>
-      </header>
-      <div className="rp-new">
-        <label><span>Khách hàng trong database</span>
-          <EntitySelect kind="customer" value={customer} onCreated={reloadCustomers} onChange={setCustomer}>
-            <option value="">Không gắn khách</option>
-            {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </EntitySelect>
-        </label>
-        <button className="btn btn-primary btn-sm" disabled={busy} onClick={create}><Icon name="plus" size={14} />{busy ? 'Đang lấy dữ liệu…' : 'Tạo báo cáo'}</button>
-        <span className="note">Báo cáo mới lấy sẵn logo, video và dịch vụ của khách; trong báo cáo, mục “Hiệu quả Meta Ads” lấy số liệu quảng cáo trực tiếp.</span>
+    <div className="bsv-host">
+      <div className="bsv-page">
+        <PageShell
+          title="Tất cả báo cáo"
+          subtitle={`${shown.length} báo cáo chiến dịch`}
+          primaryAction={
+            <Button variant="primary" icon="plus" disabled={busy} onClick={() => void create()}>
+              {busy ? 'Đang lấy dữ liệu…' : 'Tạo báo cáo'}
+            </Button>
+          }
+          toolbar={
+            <div className="bsv-toolbar">
+              <label className="bsv-search">
+                <Icon name="search" size={14} />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Tìm báo cáo, khách hàng, tài khoản…"
+                  aria-label="Tìm báo cáo"
+                />
+              </label>
+              <div className="bsv-filters">
+                <EntitySelect kind="customer" className="bsv-select" value={customer} onCreated={reloadCustomers} onChange={setCustomer} aria-label="Khách hàng tạo báo cáo">
+                  <option value="">Không gắn khách hàng</option>
+                  {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </EntitySelect>
+              </div>
+            </div>
+          }
+        >
+          {list === null ? (
+            <BrandLoading label="Đang tải…" />
+          ) : !shown.length ? (
+            <EmptyState
+              icon="file"
+              title={q ? 'Không có báo cáo nào khớp' : 'Chưa có báo cáo nào'}
+              description="Chọn khách hàng rồi bấm Tạo báo cáo để lấy sẵn logo, dịch vụ và số liệu Meta Ads."
+              action={
+                !q && (
+                  <Button variant="secondary" size="sm" icon="plus" disabled={busy} onClick={() => void create()}>
+                    Tạo báo cáo đầu tiên
+                  </Button>
+                )
+              }
+            />
+          ) : (
+            <div className="ad-card">
+              <div className="ad-scroll">
+                <table className="ad-table rp-table">
+                  <thead><tr><th>Báo cáo</th><th>Khách hàng</th><th>Số liệu Meta Ads</th><th>Sửa lần cuối</th><th /></tr></thead>
+                  <tbody>
+                    {shown.map((r) => (
+                      <tr key={r.id}>
+                        <td className="ad-name"><button className="rp-open" onClick={() => setOpen(r.id)}><b>{r.title}</b></button></td>
+                        <td>{r.customerName || (r.client ? <>{r.client} <small className="note">(chưa gắn khách)</small></> : '—')}</td>
+                        <td>{r.meta ? <>{r.meta.account}<small>{dmy(r.meta.since)} – {dmy(r.meta.until)}</small></> : <span className="rp-none">Chưa lấy</span>}</td>
+                        <td>{day(r.updatedAt)}</td>
+                        <td className="rp-row-actions">
+                          <button className="btn btn-gray btn-sm" onClick={() => setOpen(r.id)}>Sửa</button>
+                          <a className="btn btn-gray btn-sm" href={`/api/reports/${r.id}/html`} target="_blank" rel="noreferrer">Xem</a>
+                          <a className="btn btn-gray btn-sm" href={`/api/reports/${r.id}/html?download=1`}><Icon name="download" size={13} />HTML</a>
+                          <button className="btn btn-gray btn-sm" onClick={() => del(r)} aria-label={`Xoá ${r.title}`}><Icon name="trash" size={13} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </PageShell>
+        {open && <ReportEditor id={open} driveFolder="" onClose={() => { setOpen(null); load(); }} />}
       </div>
-      {list === null ? <BrandLoading label="Đang tải…"/> : !shown.length ? <p className="note">{q ? 'Không có báo cáo nào khớp.' : 'Chưa có báo cáo nào. Chọn khách rồi bấm “Tạo báo cáo”.'}</p> : (
-        <div className="ad-card">
-          <div className="ad-scroll">
-            <table className="ad-table rp-table">
-              <thead><tr><th>Báo cáo</th><th>Khách hàng</th><th>Số liệu Meta Ads</th><th>Sửa lần cuối</th><th /></tr></thead>
-              <tbody>
-                {shown.map((r) => (
-                  <tr key={r.id}>
-                    <td className="ad-name"><button className="rp-open" onClick={() => setOpen(r.id)}><b>{r.title}</b></button></td>
-                    {/* A name typed in the report but no customer behind it (never linked, or the customer was deleted). */}
-                    <td>{r.customerName || (r.client ? <>{r.client} <small className="note">(chưa gắn khách)</small></> : '—')}</td>
-                    <td>{r.meta ? <>{r.meta.account}<small>{dmy(r.meta.since)} – {dmy(r.meta.until)}</small></> : <span className="rp-none">Chưa lấy</span>}</td>
-                    <td>{day(r.updatedAt)}</td>
-                    <td className="rp-row-actions">
-                      <button className="btn btn-gray btn-sm" onClick={() => setOpen(r.id)}>Sửa</button>
-                      <a className="btn btn-gray btn-sm" href={`/api/reports/${r.id}/html`} target="_blank" rel="noreferrer">Xem</a>
-                      <a className="btn btn-gray btn-sm" href={`/api/reports/${r.id}/html?download=1`}><Icon name="download" size={13} />HTML</a>
-                      <button className="btn btn-gray btn-sm" onClick={() => del(r)} aria-label={`Xoá ${r.title}`}><Icon name="trash" size={13} /></button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-      {open && <ReportEditor id={open} driveFolder="" onClose={() => { setOpen(null); load(); }} />}
     </div>
   );
 }
@@ -209,7 +241,7 @@ export function ReportEditor({ id, driveFolder, onClose }: { id: string; driveFo
       </header>
       <div className="rp-body">
         <div className="rp-form" inert={filling}>
-          <p className="rp-tip">Tự điền các ô trống từ khách hàng, dự án và Meta Ads đã liên kết. Nội dung bạn đã nhập được giữ lại. Cấu hình Ads là cấu hình hiện tại; chi tiêu là số thực tế trong kỳ.</p>
+          <p className="rp-tip">Tự điền các ô trống từ khách hàng, dịch vụ và Meta Ads đã liên kết. Nội dung bạn đã nhập được giữ lại. Cấu hình Ads là cấu hình hiện tại; chi tiêu là số thực tế trong kỳ.</p>
           {fillWarnings.map((w) => <p key={w} className="note warn" role="status">{w}</p>)}
           <p className="rp-tip">Ảnh: bấm vào ô để chọn file, kéo thả file vào ô, hoặc chụp màn hình (⌘⇧⌃4) rồi rê chuột vào ô và bấm ⌘V. Rê vào “Thêm ảnh chụp” rồi ⌘V để thêm dòng mới kèm ảnh.</p>
           <Section title="Đầu trang">

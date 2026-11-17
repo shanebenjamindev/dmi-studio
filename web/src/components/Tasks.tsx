@@ -291,8 +291,9 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
         {!overview && effectiveView !== 'table' && <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
           <option value="due">Thời hạn</option>
           <option value="none">Không nhóm (Tất cả)</option>
-          <option value="status">Quy trình</option>
+          <option value="status">Giai đoạn</option>
           <option value="project">Dịch vụ</option>
+          <option value="brand">Nhãn hàng</option>
           <option value="customer">Khách hàng</option>
           <option value="assignee">Người làm</option>
           <option value="created">Ngày tạo</option>
@@ -367,6 +368,7 @@ function TaskGroups({ tasks, groupBy, selected, onOpen, onNew, onChanged, select
     : groupBy === 'created' || groupBy === 'updated' ? byRecent(tasks, groupBy).map((g) => ({ ...g, onAdd: onNew }))
     : groupBy === 'status' ? byKey(tasks, stepGroup, 'Khác', STEP_ORDER).map((g) => ({ ...g, onAdd: onNew }))
     : groupBy === 'project' ? byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dịch vụ').map((g) => ({ ...g, onAdd: onNew }))
+    : groupBy === 'brand' ? byKey(tasks, (t) => (t.brand ? { key: t.brand.id, label: t.brand.name } : null), 'Chưa có nhãn hàng').map((g) => ({ ...g, onAdd: onNew }))
     : groupBy === 'customer' ? byKey(tasks, (t) => (t.customer ? { key: t.customer.id, label: t.customer.name } : null), 'Không có khách hàng').map((g) => ({ ...g, onAdd: onNew }))
     : groupBy === 'assignee' ? byKey(tasks, (t) => (t.assignees[0] ? { key: t.assignees[0].userId || t.assignees[0].id, label: t.assignees[0].name } : null), 'Chưa giao').map((g) => ({ ...g, onAdd: onNew }))
     : byDueDate(tasks, onNew);
@@ -382,12 +384,16 @@ function TaskGroups({ tasks, groupBy, selected, onOpen, onNew, onChanged, select
         if (!who.length) return <span className="tk-muted">Chưa giao</span>;
         return <div className="tk-who-cell"><EmployeeAvatars people={who} />{who.length === 1 && <span className="tk-who-name">{who[0].name}</span>}</div>;
       } },
-      { key: 'project', label: 'Khách hàng · Dịch vụ', width: 190, wide: true, render: (t) => (
-        <div className="tk-proj-cell">
-          <span>{t.project?.name || '—'}</span>
-          {t.customer?.name && <small>{t.customer.name}</small>}
-        </div>
-      ) },
+      { key: 'project', label: 'Khách hàng · Nhãn hàng · Dịch vụ', width: 210, wide: true, render: (t) => {
+        const svc = t.brandService?.name || t.project?.name;
+        const trail = [t.customer?.name, t.brand?.name].filter(Boolean).join(' › ');
+        return (
+          <div className="tk-proj-cell">
+            <span>{svc || '—'}</span>
+            {trail && <small>{trail}</small>}
+          </div>
+        );
+      } },
       { key: 'start', label: 'Bắt đầu', width: 105, render: (t) => when(t.startAt) },
       { key: 'due', label: 'Thời hạn', width: 115, render: (t) => <span className={t.state === 'overdue' ? 'tk-late' : ''}>{when(t.dueAt)}</span> },
       { key: 'done', label: 'Hoàn thành', width: 105, render: (t) => when(t.doneAt) },
@@ -408,14 +414,14 @@ function TaskTable({ tasks, selected, onOpen, selection }: { tasks: TaskItem[]; 
         <thead>
           <tr>
             {selection && <th style={{ width: 36, minWidth: 36, textAlign: 'center' }} scope="col">{selection.toggleAll && <input type="checkbox" checked={!!selection.all} onChange={(e) => selection.toggleAll!(e.target.checked)} aria-label="Chọn tất cả để thao tác" />}</th>}
-            {['Mã công việc', 'Tên công việc', 'Quy trình', 'Dịch vụ', 'Dịch vụ kèm', 'Board / thẻ', 'Giao cho', 'Ngày bắt đầu', 'Thời hạn', 'Hoàn thành', 'Công việc cha', 'Nhãn', 'Tạo bởi', 'Cập nhật'].map(label => <th key={label} scope="col">{label}</th>)}
+            {['Mã công việc', 'Tên công việc', 'Giai đoạn', 'Khách hàng · Nhãn hàng', 'Dịch vụ', 'Board / thẻ', 'Giao cho', 'Ngày bắt đầu', 'Thời hạn', 'Hoàn thành', 'Công việc cha', 'Nhãn', 'Tạo bởi', 'Cập nhật'].map(label => <th key={label} scope="col">{label}</th>)}
           </tr>
         </thead>
         <tbody>{pageTasks.map(t => <tr key={t.id} className={(selected === t.id ? 'on' : '') + (selection?.selected.includes(t.id) ? ' checked' : '')}>
           {selection && <td style={{ width: 36, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selection.selected.includes(t.id)} onChange={() => selection.toggle(t.id)} aria-label={`Chọn ${t.title}`} /></td>}
           <td>{t.externalId || '—'}</td>
           <th scope="row"><button className="tk-table-title" onClick={() => onOpen(t.id)}>{t.title}</button>{t.children > 0 && <small>{t.children} việc con</small>}</th>
-          <td><Badge t={t} /></td><td>{t.project?.name || '—'}</td><td>{t.services?.map((x) => x.name).join(', ') || '—'}</td><td>{t.boardLink?<button className="tk-board-shortcut" onClick={()=>openLinkedBoard(t.boardLink!)}><Icon name="boards" size={14}/><span>{t.boardLink.boardName}<small>{t.boardLink.listName}</small></span></button>:t.hasBoardLink?<small>Đã liên kết board</small>:'—'}</td><td><EmployeeAvatars people={[...t.assignees, ...(t.cardPeople || [])]}/></td>
+          <td><Badge t={t} /></td><td>{[t.customer?.name, t.brand?.name].filter(Boolean).join(' › ') || '—'}</td><td>{t.brandService?.name || t.project?.name || '—'}</td><td>{t.boardLink?<button className="tk-board-shortcut" onClick={()=>openLinkedBoard(t.boardLink!)}><Icon name="boards" size={14}/><span>{t.boardLink.boardName}<small>{t.boardLink.listName}</small></span></button>:t.hasBoardLink?<small>Đã liên kết board</small>:'—'}</td><td><EmployeeAvatars people={[...t.assignees, ...(t.cardPeople || [])]}/></td>
           <td>{when(t.startAt)}</td><td className={t.state === 'overdue' ? 'bad' : ''}>{when(t.dueAt)}</td><td>{when(t.doneAt)}</td>
           <td>{t.parent ? <button className="btn btn-gray btn-sm" onClick={() => onOpen(t.parent!.id)}>{t.parent.title}</button> : '—'}</td>
           <td><span className="tk-labels">{t.labels.map(l => <i key={l}>{l}</i>)}</span></td><td>{t.createdBy?.name || '—'}</td><td>{when(t.sourceUpdatedAt || t.updatedAt)}</td>
@@ -1319,7 +1325,7 @@ export function TaskPanel({ id, meta, statuses, page = false, inline = false, on
         </div>
       </header>
       <div className="wework-detail-body" style={{ padding: '16px 20px', overflowY: 'auto', flex: 1 }}>
-        <p className="note" style={{ marginBottom: 14 }}>Chế độ xem quản trị (mô tả chi tiết và kết quả của dự án riêng tư được ẩn nếu bạn chưa phải thành viên trực tiếp).</p>
+        <p className="note" style={{ marginBottom: 14 }}>Chế độ xem quản trị (mô tả chi tiết và kết quả của dịch vụ riêng tư được ẩn nếu bạn chưa phải thành viên trực tiếp).</p>
         <dl className="tk-facts tk-card-facts" style={{ marginBottom: 16 }}>
           <div><dt>Trạng thái</dt><dd>{adminTask.status}</dd></div>
           <div><dt>Người làm</dt><dd>{adminTask.assignees.map((a) => a.name).join(', ') || 'Chưa giao'}</dd></div>

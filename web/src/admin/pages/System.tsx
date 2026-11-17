@@ -604,7 +604,7 @@ export function Storage() {
                     )}
                   </Section>
 
-                  <Section title="Thư mục gốc quản trị dự án">
+                  <Section title="Thư mục gốc Google Drive">
                     {driveData.rootFolder ? (
                       <div className="ax-card" style={{ gap: 8 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -741,7 +741,7 @@ export function Backup() {
         ]} /></div>
         <Section title="Phục hồi"><p className="note">Phục hồi thay toàn bộ dữ liệu hiện tại của mọi người nên không làm từ giao diện. Cách làm: dừng máy chủ, sao lưu file <code>data/studio.db</code> hiện tại, chép bản sao lưu đè lên <code>data/studio.db</code> (xoá <code>studio.db-wal</code> và <code>studio.db-shm</code> nếu có), rồi chạy lại máy chủ.</p></Section>
       </> : <>
-        <Section title="Sao lưu trên Cloudflare D1"><p className="note">Máy chủ cloud không có ổ đĩa để tạo file sao lưu. Trên máy đã đăng nhập Cloudflare, chạy lệnh dưới đây trong thư mục dự án để xuất toàn bộ database ra <code>data/backups/d1-latest.sql</code>:</p><pre className="ax-code">{d.command}</pre></Section>
+        <Section title="Sao lưu trên Cloudflare D1"><p className="note">Máy chủ cloud không có ổ đĩa để tạo file sao lưu. Trên máy đã đăng nhập Cloudflare, chạy lệnh dưới đây trong thư mục mã nguồn để xuất toàn bộ database ra <code>data/backups/d1-latest.sql</code>:</p><pre className="ax-code">{d.command}</pre></Section>
         <Section title="Phục hồi"><p className="note">Cloudflare D1 giữ lịch sử 7 ngày (Time Travel). Phục hồi về một thời điểm bằng lệnh <code>wrangler d1 time-travel restore dmi-studio-db --timestamp=…</code>, hoặc nạp file .sql bằng <code>wrangler d1 execute dmi-studio-db --remote --file=…</code>. Làm ngoài giờ làm việc vì dữ liệu hiện tại sẽ bị thay.</p></Section>
       </>}</Async>
     </>

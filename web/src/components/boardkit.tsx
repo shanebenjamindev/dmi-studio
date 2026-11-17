@@ -220,14 +220,14 @@ export function Rich({ text }: { text: string }) {
 
 /** Board backgrounds, by the names the server keeps. */
 export const BG: Record<string, string> = {
-  ocean: 'linear-gradient(135deg, #0c66e4 0%, #0a3a80 100%)',
-  sky: 'linear-gradient(135deg, #6cc3e0 0%, #0055cc 100%)',
-  forest: 'linear-gradient(135deg, #22a06b 0%, #164b35 100%)',
-  lime: 'linear-gradient(135deg, #94c748 0%, #3f5224 100%)',
-  sunset: 'linear-gradient(135deg, #fea362 0%, #c9372c 100%)',
-  rose: 'linear-gradient(135deg, #ff8f73 0%, #ae2e24 100%)',
-  berry: 'linear-gradient(135deg, #e774bb 0%, #943d73 100%)',
-  grape: 'linear-gradient(135deg, #9f8fef 0%, #352c63 100%)',
-  slate: 'linear-gradient(135deg, #8590a2 0%, #2c333a 100%)',
-  night: 'linear-gradient(135deg, #454f59 0%, #101214 100%)',
+  ocean: '#0c66e4',
+  sky: '#0055cc',
+  forest: '#1f845a',
+  lime: '#4c6b1f',
+  sunset: '#c9372c',
+  rose: '#ae2e24',
+  berry: '#943d73',
+  grape: '#5e4db2',
+  slate: '#44546f',
+  night: '#1d2125',
 };

@@ -11,6 +11,7 @@ import { Icon, Segmented } from './ui';
 import type { AdAccount, AdsConversion, AdsReport, AdsSettings } from '../types';
 import { DayRangeField } from './DateRange';
 import { askConfirm } from './AskDialog';
+import { EmptyState, PageShell, PageTabs, Button } from './kit';
 
 const LS = 'dms.ads';
 type Preset = '7' | '14' | '30' | 'month' | 'lastMonth' | 'custom';
@@ -83,24 +84,36 @@ export function AdsPage() {
   const notConnected = /Chưa kết nối Meta/.test(err);
 
   return (
-    <div className="ad-page">
-      <header className="ad-head">
-        <h1>Meta Ads</h1>
-        <div className="ad-presets" role="group" aria-label="Mục báo cáo Ads">
-          {([['meta','Chi tiết Meta'],...(admin?[['settings','Cài đặt']]:[])] as ['meta'|'settings',string][]).map(([key,label])=><button key={key} className={tab===key?'on':''} aria-pressed={tab===key} onClick={()=>setTab(key)}>{label}</button>)}
-        </div>
-      </header>
-      {tab === 'settings' && admin
-        ? <AdsSettingsForm settings={settings} onSaved={(s) => { setSettings(s); readAccounts(true); if (s.metaConnected) setTab('meta'); }} />
-        : notConnected
-        ? <div className="ad-empty"><Icon name="key" size={22} /><h2>Chưa kết nối Meta Ads</h2>
-            <p>{admin ? 'Dán access token của Meta (quyền ads_read) để DMI Workspace đọc số liệu quảng cáo trực tiếp.' : 'Quản trị viên chưa kết nối Meta Ads cho DMI Workspace.'}</p>
-            {admin && <button className="btn btn-primary" onClick={() => setTab('settings')}>Kết nối Meta Ads</button>}</div>
-        : accounts === null ? <p className="note ad-pad">Đang đọc tài khoản quảng cáo…</p>
-        : err ? <p className="note err ad-pad">{err} <button className="bk-link" onClick={() => readAccounts(true)}>Thử lại</button></p>
-        : !accounts.length ? <p className="note ad-pad">Token này chưa được cấp tài khoản quảng cáo nào. Trong Business Manager, giao tài khoản quảng cáo cho người dùng hệ thống của token (quyền xem hiệu quả).</p>
-        : <MetaReport accounts={accounts} saved={saved} save={save} onAccounts={() => readAccounts(true)} onReport={openReport} />}
-      {reportId && <ReportEditor id={reportId} driveFolder="" onClose={() => openReport(null)} />}
+    <div className="bsv-host">
+      <div className="bsv-page">
+        <PageShell
+          title="Meta Ads"
+          subtitle="Số liệu quảng cáo trực tiếp từ Marketing API"
+          tabs={
+            <PageTabs
+              label="Mục báo cáo Ads"
+              value={tab}
+              onChange={(v) => setTab(v)}
+              items={[
+                { value: 'meta' as const, label: 'Chi tiết Meta', icon: 'chart' },
+                ...(admin ? [{ value: 'settings' as const, label: 'Cài đặt', icon: 'gear' }] : []),
+              ]}
+            />
+          }
+        >
+          {tab === 'settings' && admin
+            ? <AdsSettingsForm settings={settings} onSaved={(s) => { setSettings(s); readAccounts(true); if (s.metaConnected) setTab('meta'); }} />
+            : notConnected
+            ? <EmptyState icon="key" title="Chưa kết nối Meta Ads"
+                description={admin ? 'Dán access token của Meta (quyền ads_read) để DMI Workspace đọc số liệu quảng cáo trực tiếp.' : 'Quản trị viên chưa kết nối Meta Ads cho DMI Workspace.'}
+                action={admin && <Button variant="primary" size="sm" onClick={() => setTab('settings')}>Kết nối Meta Ads</Button>} />
+            : accounts === null ? <p className="note ad-pad">Đang đọc tài khoản quảng cáo…</p>
+            : err ? <p className="note err ad-pad">{err} <button className="bk-link" onClick={() => readAccounts(true)}>Thử lại</button></p>
+            : !accounts.length ? <p className="note ad-pad">Token này chưa được cấp tài khoản quảng cáo nào. Trong Business Manager, giao tài khoản quảng cáo cho người dùng hệ thống của token (quyền xem hiệu quả).</p>
+            : <MetaReport accounts={accounts} saved={saved} save={save} onAccounts={() => readAccounts(true)} onReport={openReport} />}
+        </PageShell>
+        {reportId && <ReportEditor id={reportId} driveFolder="" onClose={() => openReport(null)} />}
+      </div>
     </div>
   );
 }

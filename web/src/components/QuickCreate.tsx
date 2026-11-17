@@ -8,10 +8,10 @@ import {ServicePicker} from './ServicePicker';
 import {dateIn,timeIn} from './boardkit';
 import {SpanField,fromLocal,toLocal} from './DateRange';
 
-type Kind='workspace'|'customer'|'project'|'campaign'|'employee'|'department'|'position'|'board'|'list'|'task'|'card'|'label';
-export type CreatedRecord={id:string;name:string;projectId?:string;customerId?:string};
-type Context={customerId?:string;projectId?:string;campaignId?:string;departmentId?:string;boardId?:string;listId?:string};
-const labels:Record<Kind,string>={workspace:'workspace',customer:'khách hàng',project:'dịch vụ',campaign:'chiến dịch',employee:'nhân viên',department:'phòng ban',position:'vai trò trong phòng',board:'board',list:'danh sách',task:'công việc',card:'thẻ',label:'nhãn'};
+type Kind='workspace'|'customer'|'brand'|'project'|'campaign'|'employee'|'department'|'position'|'board'|'list'|'task'|'card'|'label';
+export type CreatedRecord={id:string;name:string;projectId?:string;customerId?:string;brandId?:string};
+type Context={customerId?:string;brandId?:string;projectId?:string;campaignId?:string;departmentId?:string;boardId?:string;listId?:string};
+const labels:Record<Kind,string>={workspace:'workspace',customer:'khách hàng',brand:'nhãn hàng',project:'dịch vụ',campaign:'chiến dịch',employee:'nhân viên',department:'phòng ban',position:'vai trò trong phòng',board:'board',list:'danh sách',task:'công việc',card:'thẻ',label:'nhãn'};
 export function useEntityRefresh(refresh:()=>void){
  const latest=useRef(refresh);latest.current=refresh;
  useEffect(()=>{
@@ -43,11 +43,18 @@ export function QuickCreateButton({kind,context,onCreated,label}:{kind:Kind;cont
 export function QuickCreateDialog({kind,context={},onClose,onCreated}:{kind:Kind;context?:Context;onClose:()=>void;onCreated:(r:CreatedRecord)=>void|Promise<void>}){
  const dialog=useRef<HTMLDialogElement>(null);
  const[name,setName]=useState(''),[email,setEmail]=useState(''),[password,setPassword]=useState('');
- const[customer,setCustomer]=useState(context.customerId||''),[project,setProject]=useState(context.projectId||''),[department,setDepartment]=useState(context.departmentId||'');
- const[customers,setCustomers]=useState<{id:string;name:string}[]>([]),[projects,setProjects]=useState<{id:string;name:string}[]>([]);
- // A project's services start as its customer's (those of the customer's other projects), and can be changed here.
+ const[customer,setCustomer]=useState(context.customerId||''),[brandId,setBrandId]=useState(context.brandId||''),[project,setProject]=useState(context.projectId||''),[department,setDepartment]=useState(context.departmentId||'');
+ const[customers,setCustomers]=useState<{id:string;name:string}[]>([]),[brands,setBrands]=useState<{id:string;name:string}[]>([]),[projects,setProjects]=useState<{id:string;name:string}[]>([]);
+ // A service starts from its customer/brand and picks one catalog service.
  const[services,setServices]=useState<string[]>([]),[known,setKnown]=useState<ServiceRef[]>([]);
- useEffect(()=>{if(kind!=='project')return;if(!customer){setServices([]);return;}let on=true;api.customerRecord(customer).then(r=>{if(on){setKnown(r.needs||[]);setServices((r.needs||[]).map(n=>n.id));}},()=>{});return()=>{on=false;};},[kind,customer]);
+ useEffect(()=>{
+  if(kind!=='project')return;
+  if(!customer){setServices([]);setBrands([]);setBrandId('');return;}
+  let on=true;
+  api.customerBrands(customer).then(list=>{if(!on)return;setBrands(list);if(context.brandId&&list.some(b=>b.id===context.brandId))setBrandId(context.brandId);else if(list.length)setBrandId(list[0].id);else setBrandId('');},()=>{});
+  api.customerRecord(customer).then(r=>{if(on){setKnown(r.needs||[]);setServices([]);}},()=>{});
+  return()=>{on=false;};
+ },[kind,customer]);
  // A board's type (the services it is for) and the day it starts: now unless changed (emptied: now as well).
  const[boardServices,setBoardServices]=useState<string[]>([]);
  const[catalog,setCatalog]=useState<{id:string;name:string}[]>([]);
@@ -69,9 +76,10 @@ export function QuickCreateDialog({kind,context={},onClose,onCreated}:{kind:Kind
    if(!record){
     if(kind==='workspace'){const r=await api.createWorkspace({name:name.trim(),visibility:'private'});record={id:r.id,name:r.name};}
     else if(kind==='customer'){const r=await api.createCustomer({name:name.trim(),databaseOnly:true});record={id:r.id,name:name.trim()};}
+    else if(kind==='brand'){const cid=customer||context.customerId||'';if(!cid)throw new Error('Hãy chọn khách hàng');const r=await api.createBrand(cid,{name:name.trim()});record={id:r.id,name:r.name,customerId:cid,brandId:r.id};}
     else if(kind==='project'){
-     // A customer's service: its name is the service's.
-     if(customer){const r=await api.createCustomerProject(customer,{name:'',services});record={...r,customerId:customer};}
+     if(brandId){const r=await api.createBrandService({brandId,catalogServiceId:services[0]});record={id:r.id,name:r.name,customerId:customer,brandId};}
+     else if(customer){const r=await api.createCustomerProject(customer,{name:'',services});record={...r,customerId:customer};}
      else{const r=await api.createTaskProject({name:'',services});record={id:r.id,name:r.name,customerId:''};}
     }
     else if(kind==='campaign'){const r=await api.createCampaign(project,name.trim());record=r;}
@@ -101,6 +109,7 @@ export function QuickCreateDialog({kind,context={},onClose,onCreated}:{kind:Kind
  return createPortal(<dialog ref={dialog} className="qc-dialog" aria-label={`Tạo ${labels[kind]} mới`} onCancel={e=>{e.preventDefault();e.stopPropagation();if(!busyRef.current)onClose();}} onClick={e=>{e.stopPropagation();if(e.target===e.currentTarget&&!busyRef.current)onClose();}}><form onSubmit={save}><header><h2>Tạo {labels[kind]} mới</h2><button type="button" className="bd-icon" disabled={busy} onClick={onClose} aria-label="Đóng"><Icon name="x" size={17}/></button></header><fieldset disabled={busy||!!created}>
   {kind!=='board'&&kind!=='project'&&<label>Tên {labels[kind]}<input className="bk-in" autoFocus required maxLength={kind==='list'?80:200} value={name} onChange={e=>setName(e.target.value)}/></label>}
   {kind==='project'&&<label>Khách hàng<EntitySelect kind="customer" className="bk-in" value={customer} onChange={setCustomer} onCreated={refresh} disabled={!!context.customerId}><option value="">Dịch vụ nội bộ (không gắn khách hàng)</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</EntitySelect></label>}
+  {kind==='project'&&customer&&<label>Nhãn hàng<EntitySelect kind="brand" context={{customerId:customer}} className="bk-in" value={brandId} onChange={setBrandId} onCreated={async r=>{setBrands(await api.customerBrands(customer));if(r.id)setBrandId(r.id);}} disabled={!!context.brandId}>{brands.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</EntitySelect></label>}
   {kind==='board'&&<label>Khách hàng<EntitySelect kind="customer" className="bk-in" value={customer} onChange={setCustomer} onCreated={refresh}><option value="">Không gắn khách hàng</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</EntitySelect></label>}
   {kind==='board'&&<><div className="qc-field"><span>Loại board (dịch vụ)</span><ServicePicker single value={boardServices} onChange={setBoardServices}/></div><div style={{padding:'8px 10px',background:'var(--fill-2)',borderRadius:8,marginBottom:10,fontSize:13}}><span style={{color:'var(--label-2)',fontSize:11,display:'block',marginBottom:2}}>Tên board (tự động theo dịch vụ):</span><strong>{(() => { const custName=customers.find(c=>c.id===customer)?.name; const chosen=boardServices.map(id=>catalog.find(c=>c.id===id)?.name).filter(Boolean); return chosen.length?(custName?`${custName} · ${chosen.join(' · ')}`:chosen.join(' · ')):(custName?`${custName} · Board`:'Board mới'); })()}</strong></div><div className="qc-field"><span>Ngày bắt đầu</span><SpanField single endLabel="Ngày bắt đầu" placeholder="Chọn ngày bắt đầu" value={{start:null,end:fromLocal(boardStart)}} onChange={v=>setBoardStart(toLocal(v.end))}/><small>Để trống thì lấy thời điểm tạo board.</small></div></>}
   {kind==='project'&&<div className="qc-field"><span>Dịch vụ</span><ServicePicker single value={services} onChange={setServices} known={known}/></div>}

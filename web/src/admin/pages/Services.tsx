@@ -27,7 +27,7 @@ export function ServiceList() {
   ];
   return (
     <>
-      <PageHead title="Danh sách dịch vụ" sub="Dịch vụ công ty cung cấp. Mỗi dịch vụ của khách hàng chọn từ danh sách này."
+      <PageHead title="Danh mục dịch vụ" sub="Danh mục dịch vụ chuẩn công ty cung cấp. Mỗi dịch vụ của nhãn hàng chọn 1 dịch vụ từ danh mục này."
         actions={can('services.create') && <button className="btn btn-primary btn-sm" onClick={() => setEdit('new')}><Icon name="plus" size={14} />Thêm dịch vụ</button>} />
       <Toolbar search={q} onSearch={setQ} placeholder="Tìm tên, mã, mô tả…">
         <Select value={pkg} onChange={setPkg} label="Gói dịch vụ"><option value="">Mọi gói</option><option value="none">Chưa thuộc gói nào</option>{(pkgs.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>
