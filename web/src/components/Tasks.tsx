@@ -81,14 +81,11 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   const [open, setOpen] = useState<string | null>(() => location.hash.match(/^#tasks\/(tk_\w+)/)?.[1] || null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deletingMany, setDeletingMany] = useState(false);
-  const [taskListFolded, setTaskListFolded] = useState(false);
   // The tasks made or changed within a span of days (Ngày tạo / Ngày sửa), filtered here from what is listed.
   const [dates, setDates] = useDateFilter();
   // Danh sách or Tổng quan (FlowOverview), remembered per browser.
   const [overview, setOverviewState] = useState(() => { try { return localStorage.getItem('dms.taskOverview') === '1'; } catch { return false; } });
   const setOverview = (on: boolean) => { setOverviewState(on); try { localStorage.setItem('dms.taskOverview', on ? '1' : '0'); } catch { /* private mode */ } };
-  const listPane=useRef<HTMLElement>(null),listScroll=useRef(0);
-  useLayoutEffect(()=>{if(listPane.current)listPane.current.scrollTop=open?0:listScroll.current;},[!!open]);
   const [full, setFull] = useState(onTaskPage);
   const [creating, setCreating] = useState(false);
   const[syncing,setSyncing]=useState(false);
@@ -105,7 +102,6 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   const setView = (v: string) => { setViewState(v); remember('dms.taskView', v); };
   // A task's own page gets a history entry, so the browser's Back returns to the list.
   const showTask = (id: string | null, page = false) => {
-    if(id&&!open)listScroll.current=listPane.current?.scrollTop||0;
     setOpen(id); setFull(!!id && page);
     if (!location.hash.startsWith('#tasks')) return;
     const hash = id ? `#tasks/${id}${page ? '/page' : ''}` : '#tasks';
@@ -180,16 +176,6 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
     window.dispatchEvent(new CustomEvent('dms:task-nav-sync', { detail: { scope: listed, rel } }));
   }, [listed, rel]);
 
-  const toggleTaskDone = async (t: TaskItem) => {
-    const finished = t.state === 'done' || t.state === 'done_late';
-    try {
-      await api.setTaskStatus(t.id, finished ? 'Chưa thực hiện' : 'Hoàn thành');
-      refresh();
-    } catch (e: any) {
-      toast(e.message, true);
-    }
-  };
-
   const refresh = () => { load(); loadMeta(); };
 
   const handleBulkDelete = async () => {
@@ -244,9 +230,9 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   const activeTab = listed === 'org' ? 'org' : listed === 'team' ? 'team' : rel;
   const heading = projectName || (listed === 'org' ? 'Tổng công việc' : listed === 'team' ? `Công việc của ${teams.find((t) => t.id === teamId)?.name || 'team'}` : rel === 'all' ? 'Tất cả công việc của tôi' : 'Công việc của tôi');
   return (
-    <div className={'ad-page tk-page tk-mailbox' + (embedded ? ' tk-embedded' : '') + (open ? ' has-selection' : '') + (open && taskListFolded ? ' task-list-folded' : '')}>
-      <section ref={listPane} className="tk-list-pane" aria-label="Danh sách công việc">
-      {!open && !embedded && <header className="tk-head">
+    <div className={'ad-page tk-page tk-mailbox' + (embedded ? ' tk-embedded' : '')}>
+      <section className="tk-list-pane" aria-label="Danh sách công việc">
+      {!embedded && <header className="tk-head">
         <span className="tk-head-ico"><Icon name="checklist" size={20} /></span>
         <div className="tk-head-main">
           <h1>{heading}</h1>
@@ -271,7 +257,7 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
           { label: 'Nhân viên', icon: 'users', onClick: () => goto('admin'), hidden: !admin },
         ]} />
       </header>}
-      {!open && <div className="tk-toolbar">
+      <div className="tk-toolbar">
         <button className="tk-new" disabled={!meta} onClick={() => setCreating(true)}><Icon name="plus" size={15} />Thêm mới</button>
         {selectedIds.length > 0 && (
           <div className="tk-bulk-bar">
@@ -311,8 +297,8 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
           <option value="created">Ngày tạo</option>
           <option value="updated">Ngày sửa</option>
         </select></label>}
-      </div>}
-      {!open && !overview && data && <div className="tk-summary-bar" aria-label="Thống kê nhanh">
+      </div>
+      {!overview && data && <div className="tk-summary-bar" aria-label="Thống kê nhanh">
         <button type="button" className={'tk-sum-chip' + (state === '' ? ' on' : '')} onClick={() => setState('')}>
           <span>Tổng cộng</span><b>{summary.total}</b>
         </button>
@@ -331,41 +317,12 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
       </div>}
       {error ? <p className="note err" role="alert">{error} <button className="btn btn-gray btn-sm" onClick={load}>Thử lại</button></p> : !data ? <BrandLoading label="Đang tải…"/> : !listed_.length ? (
         <p className="note">{meta && !meta.people.length && !data.tasks.length ? (admin ? 'Chưa có dữ liệu công việc. Bấm “Thêm file sheet” và chọn file hoặc dán bảng.' : 'Chưa có dữ liệu công việc. Quản trị viên cần nhập dữ liệu trước.') : listed === 'mine' && !state && !q.trim() && !project && !campaign && !data.tasks.length ? 'Chưa có công việc nào giao cho bạn, có tên bạn trên thẻ, hoặc bạn đang theo dõi.' : 'Không có công việc nào khớp với bộ lọc.'}</p>
-      ) : open ? (
-        <TaskReadingList
-          tasks={listed_}
-          groupBy={groupBy}
-          selected={open}
-          onOpen={showTask}
-          selection={selection}
-          hideProject={!!initialProject}
-          onToggleDone={toggleTaskDone}
-          q={q}
-          setQ={setQ}
-          rel={activeTab}
-          setRel={(v) => {
-            if (v === 'org') setScope('org');
-            else if (v === 'team') { setScope('team'); setPerson(''); }
-            else { setScope('mine'); setRel(v); }
-          }}
-          hasOrgTasks={hasOrgTasks && !initialProject}
-          hasTeams={teams.length > 0 && !initialProject}
-          state={state}
-          setState={setState}
-          onNew={() => setCreating(true)}
-          onBackToList={() => showTask(null)}
-          projectName={projectName || (listed === 'org' ? 'Tổng công việc' : undefined)}
-          meta={meta}
-          onFold={() => setTaskListFolded(true)}
-          onOverview={() => { showTask(null); setOverview(true); }}
-        />
       ) : overview ? <FlowOverview rows={listed_.map((t) => { const p = meta?.projects.find((x) => x.id === t.project?.id); return { ...t, customer: t.customer || (p?.customerId ? { id: p.customerId, name: p.customerName || '' } : null) }; })}
           onOpenTask={(id) => showTask(id)} onPick={(f) => { setData(null); setState(f); setOverview(false); }} />
         : effectiveView === 'table' ? <TaskTable tasks={listed_} selected={open} onOpen={showTask} selection={selection} />
         : <TaskGroups tasks={listed_} groupBy={groupBy} selected={open} onOpen={showTask} onNew={() => setCreating(true)} onChanged={load} selection={selection} />}
       </section>
-      {open && !taskListFolded && <ResizeHandle cssVar="--rd-list-w" storage={embedded ? 'tasks-embedded' : 'tasks'} min={220} max={640} label="Đổi độ rộng danh sách công việc" />}
-      {open && <TaskPanel inline id={open} meta={meta} statuses={meta?.statuses || []} onOpen={(id) => showTask(id)} onClose={() => showTask(null)} onExpand={() => showTask(open, true)} onChanged={refresh} onUnfoldList={taskListFolded ? () => setTaskListFolded(false) : undefined} />}
+      {open && !full && <TaskPanel id={open} meta={meta} statuses={meta?.statuses || []} onOpen={(id) => showTask(id)} onClose={() => showTask(null)} onExpand={() => showTask(open, true)} onChanged={refresh} />}
       {creating && meta && <TaskEditor meta={meta} projectId={initialProject || project} campaignId={initialCampaign || campaign} onClose={() => setCreating(false)} onSaved={(id) => { setCreating(false); refresh(); showTask(id); }} />}
       {dialog === 'import' && <ImportDialog meta={meta} onClose={() => setDialog(null)} onDone={imported} />}
     </div>
@@ -389,44 +346,6 @@ function formatWeworkDate(ts?: number | null) {
   return `${dd}/${MM}/${yyyy}`;
 }
 
-function byWeek(tasks: TaskItem[]) {
-  const groups = new Map<string, { key: string; label: string; monTime: number; rows: TaskItem[] }>();
-  const undated: TaskItem[] = [];
-
-  for (const t of tasks) {
-    const ts = t.dueAt || t.startAt || t.createdAt;
-    if (!ts) {
-      undated.push(t);
-      continue;
-    }
-    const d = new Date(ts);
-    const day = d.getDay();
-    const diffToMon = (day === 0 ? -6 : 1) - day;
-    const mon = new Date(d);
-    mon.setDate(d.getDate() + diffToMon);
-    mon.setHours(0, 0, 0, 0);
-    const sun = new Date(mon);
-    sun.setDate(mon.getDate() + 6);
-
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const d1 = pad(mon.getDate()), m1 = pad(mon.getMonth() + 1);
-    const d2 = pad(sun.getDate()), m2 = pad(sun.getMonth() + 1), y2 = String(sun.getFullYear()).slice(-2);
-    const key = `${mon.getFullYear()}-${m1}-${d1}`;
-    const label = `TUẦN ${d1}/${m1} - ${d2}/${m2}/${y2}`;
-
-    if (!groups.has(key)) {
-      groups.set(key, { key, label, monTime: mon.getTime(), rows: [] });
-    }
-    groups.get(key)!.rows.push(t);
-  }
-
-  const sorted = [...groups.values()].sort((a, b) => b.monTime - a.monTime);
-  if (undated.length) {
-    sorted.push({ key: 'undated', label: 'CHƯA CÓ THỜI HẠN', monTime: 0, rows: undated });
-  }
-  return sorted;
-}
-
 /** The filters of the task lists: every step, then what needs a hand (shared/flow-filter.ts; Tổng quan's numbers). */
 function FlowFilterOptions() {
   return <>
@@ -434,236 +353,6 @@ function FlowFilterOptions() {
     <optgroup label="Bước">{STEP_ORDER.map((k) => <option key={k} value={k}>{stepCode(k as FlowStage)}</option>)}</optgroup>
     <optgroup label="Cần chú ý"><option value="open">Chưa xong</option>{FLOW_FILTERS.filter((f) => !STEP_ORDER.includes(f)).map((f) => <option key={f} value={f}>{FLOW_FILTER_LABEL[f]}</option>)}</optgroup>
   </>;
-}
-
-function TaskReadingList({
-  tasks,
-  groupBy,
-  selected,
-  onOpen,
-  selection,
-  hideProject,
-  onToggleDone,
-  q,
-  setQ,
-  rel,
-  setRel,
-  hasOrgTasks,
-  hasTeams,
-  state,
-  setState,
-  onNew,
-  onBackToList,
-  projectName,
-  meta,
-  onFold,
-  onOverview,
-}: {
-  tasks: TaskItem[];
-  groupBy?: string;
-  selected: string;
-  onOpen: (id: string) => void;
-  selection?: { selected: string[]; toggle: (id: string) => void };
-  hideProject?: boolean;
-  onToggleDone?: (t: TaskItem) => void;
-  q: string;
-  setQ: (v: string) => void;
-  rel: string;
-  setRel: (v: string) => void;
-  hasOrgTasks?: boolean;
-  hasTeams?: boolean;
-  state: string;
-  setState: (v: string) => void;
-  onNew?: () => void;
-  onBackToList?: () => void;
-  projectName?: string;
-  meta?: TaskMeta | null;
-  onFold?: () => void;
-  /** Leave the open task for Tổng quan. */
-  onOverview?: () => void;
-}) {
-  const user = useStore((s) => s.user);
-
-  const groups = useMemo(() => {
-    if (groupBy === 'none') {
-      return [{ key: 'all', label: `Tất cả công việc (${tasks.length})`, rows: tasks }];
-    }
-    if (groupBy === 'project') {
-      return byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dịch vụ');
-    }
-    if (groupBy === 'customer') {
-      return byKey(tasks, (t) => (t.customer ? { key: t.customer.id, label: t.customer.name } : null), 'Không có khách hàng');
-    }
-    if (groupBy === 'assignee') {
-      return byKey(tasks, (t) => (t.assignees[0] ? { key: t.assignees[0].userId || t.assignees[0].id, label: t.assignees[0].name } : null), 'Chưa giao');
-    }
-    if (groupBy === 'status') {
-      return byKey(tasks, stepGroup, 'Khác', STEP_ORDER);
-    }
-    if (groupBy === 'created' || groupBy === 'updated') return byRecent(tasks, groupBy);
-    return byWeek(tasks);
-  }, [tasks, groupBy]);
-
-  const ordered = groups.flatMap((g) => g.rows);
-
-  return (
-    <div className="wework-reading-list">
-      <div className="wework-list-head">
-        <div className="wework-head-left">
-          {onBackToList && (
-            <button
-              type="button"
-              className="bd-icon"
-              onClick={onBackToList}
-              title="Quay lại danh sách tổng hợp (List)"
-              aria-label="Quay lại danh sách"
-            >
-              <Icon name="list" size={15} />
-            </button>
-          )}
-          <b className="wework-head-name">{projectName || 'Công việc của tôi'}</b>
-        </div>
-        <div className="wework-head-actions">
-          {onFold && (
-            <button
-              type="button"
-              className="bd-icon tk-pane-fold"
-              onClick={onFold}
-              title="Thu gọn danh sách công việc"
-              aria-label="Thu gọn danh sách"
-            >
-              <Icon name="left" size={14} />
-            </button>
-          )}
-          {onOverview && <button type="button" className="bd-icon" onClick={onOverview} title="Tổng quan công việc" aria-label="Tổng quan công việc"><Icon name="chart" size={15} /></button>}
-          {onNew && (
-            <button type="button" className="btn btn-primary btn-sm" onClick={onNew} title="Thêm công việc mới">
-              <Icon name="plus" size={13} />
-              <span>Thêm mới</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {!hideProject && (
-        <div className="wework-list-tabs">
-          {hasOrgTasks && <button type="button" className={'wework-list-tab' + (rel === 'org' ? ' active' : '')} onClick={() => setRel('org')}>Tổng task</button>}
-          <button type="button" className={'wework-list-tab' + (rel === 'all' ? ' active' : '')} onClick={() => setRel('all')}>Tất cả</button>
-          <button type="button" className={'wework-list-tab' + (rel === 'assigned' ? ' active' : '')} onClick={() => setRel('assigned')}>Giao cho tôi</button>
-          <button type="button" className={'wework-list-tab' + (rel === 'created' ? ' active' : '')} onClick={() => setRel('created')}>Tôi giao</button>
-          <button type="button" className={'wework-list-tab' + (rel === 'following' ? ' active' : '')} onClick={() => setRel('following')}>Theo dõi</button>
-          {hasTeams && <button type="button" className={'wework-list-tab' + (rel === 'team' ? ' active' : '')} onClick={() => setRel('team')}>Team</button>}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 6, margin: '0 14px 10px' }}>
-        <label className="wework-search-bar" style={{ margin: 0, flex: 1 }}>
-          <Icon name="search" size={13} />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm kiếm công việc" aria-label="Tìm kiếm công việc" />
-        </label>
-        <select
-          className="bk-in"
-          style={{ width: 'auto', fontSize: 12, height: 34, padding: '0 8px', borderRadius: 8, background: 'var(--fill-2)', border: '1px solid var(--sep)', color: 'var(--label)' }}
-          value={state}
-          onChange={(e) => setState(e.target.value)}
-          aria-label="Lọc theo quy trình"
-        >
-          <FlowFilterOptions />
-        </select>
-      </div>
-
-      <div className="wework-list-scroll">
-        {groups.map((g) => (
-          <section key={g.key} className="wework-week-sec">
-            <h3 className="wework-week-h">{g.label}</h3>
-            {g.rows.map((t) => {
-              const isDone = t.state === 'done' || t.state === 'done_late';
-              const isSelected = selected === t.id;
-              const isDoing = t.stage ? t.stage === 'execution' || t.stage === 'review' : t.state === 'doing' || t.status.toLowerCase().includes('đang');
-              const assignee = t.assignees[0];
-
-              return (
-                <div
-                  key={t.id}
-                  id={'task-row-' + t.id}
-                  className={'wework-row' + (isSelected ? ' selected' : '') + (isDone ? ' done' : '') + (selection?.selected.includes(t.id) ? ' checked' : '')}
-                  onClick={() => onOpen(t.id)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                      e.preventDefault();
-                      const i = ordered.findIndex((x) => x.id === t.id),
-                        next = ordered[i + (e.key === 'ArrowDown' ? 1 : -1)];
-                      if (next) {
-                        onOpen(next.id);
-                        document.getElementById('task-row-' + next.id)?.focus();
-                      }
-                    } else if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onOpen(t.id);
-                    }
-                  }}
-                >
-                  <button
-                    type="button"
-                    className={'wework-check-btn' + (isDone ? ' done' : '')}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (onToggleDone) onToggleDone(t);
-                    }}
-                    aria-label={isDone ? 'Đánh dấu chưa xong' : 'Đánh dấu hoàn thành'}
-                    title={isDone ? 'Đánh dấu chưa xong' : 'Đánh dấu hoàn thành'}
-                  >
-                    {isDone ? '✔' : ''}
-                  </button>
-                  <div className="wework-row-main">
-                    <span className="wework-row-title">{t.title}</span>
-                    <div className="wework-row-meta">
-                      {!hideProject && t.project?.name && <span className="wework-row-project">[{t.project.name}]</span>}
-                      {t.campaign?.name && t.campaign.name !== 'Công việc hiện có' && (
-                        <span className="wework-row-project" style={{ color: 'var(--tint)' }}>{t.campaign.name}</span>
-                      )}
-                      {t.services && t.services.length > 0 && t.services.map((s) => (
-                        <span key={s.id} className="wework-row-tag" style={{ background: 'rgba(59,130,246,0.12)', color: '#2563eb' }}>
-                          {s.name}
-                        </span>
-                      ))}
-                      {t.boardLink && (
-                        <span className="wework-row-tag" style={{ background: 'rgba(16,185,129,0.12)', color: '#059669' }}>
-                          {t.boardLink.boardName}
-                        </span>
-                      )}
-                      {t.labels && t.labels.length > 0 && t.labels.map((l) => {
-                        const isUrgent = l.toLowerCase().includes('khẩn') || l.toLowerCase().includes('gấp');
-                        return (
-                          <span key={l} className={'wework-row-tag' + (isUrgent ? ' urgent' : '')}>
-                            {l}
-                          </span>
-                        );
-                      })}
-                      {t.dueAt && <span className="wework-row-date">Hạn {formatWeworkDate(t.dueAt)}</span>}
-                      {t.children > 0 && <span className="wework-row-sub">· {t.children} việc con</span>}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flex: 'none' }}>
-                    {t.stage ? <span className={'wework-badge tf-solid tf-' + t.stage}>{stepCode(t.stage)}</span>
-                      : isDone ? <span className="wework-badge done">HOÀN THÀNH</span>
-                      : isDoing ? <span className="wework-badge doing">ĐANG LÀM</span>
-                      : <span className="wework-badge" style={{ background: 'var(--fill)', color: 'var(--label-2)' }}>{t.status || 'CHƯA XONG'}</span>}
-                    {assignee && <Avatar m={{ id: assignee.id, userId: assignee.userId, avatarAt: assignee.avatarAt, name: assignee.name }} size={22} />}
-                  </div>
-                </div>
-              );
-            })}
-          </section>
-        ))}
-      </div>
-      <div className="wework-pagination">
-        <span>Tổng cộng {tasks.length} công việc</span>
-      </div>
-    </div>
-  );
 }
 
 /** The tasks in groups (flat, due date, status, project, customer or assignee), each with a tick box to finish it or open it again. */
@@ -742,6 +431,7 @@ function WeworkTaskView({
   statuses,
   onOpen,
   onClose,
+  onExpand,
   onChanged,
   onLink,
   onToggleCard,
@@ -752,6 +442,7 @@ function WeworkTaskView({
   statuses: string[];
   onOpen: (id: string) => void;
   onClose: () => void;
+  onExpand?: () => void;
   onChanged: () => void;
   onLink: () => void;
   onToggleCard?: () => void;
@@ -938,6 +629,7 @@ function WeworkTaskView({
               <button className="wework-action-btn" onClick={() => { void navigator.clipboard.writeText(location.href); toast('Đã sao chép liên kết công việc'); }} title="Sao chép liên kết" aria-label="Sao chép liên kết"><Icon name="link" size={15} /></button>
               <button className={'wework-action-btn' + (bookmarked ? ' active' : '')} onClick={() => { setBookmarked(!bookmarked); toast(bookmarked ? 'Đã bỏ lưu' : 'Đã lưu công việc'); }} title="Đánh dấu" aria-label="Đánh dấu"><Icon name="tag" size={15} /></button>
               <button className={'wework-action-btn' + (starred ? ' active' : '')} onClick={() => { setStarred(!starred); toast(starred ? 'Đã bỏ gắn sao' : 'Đã gắn sao công việc'); }} title="Gắn sao" aria-label="Gắn sao"><Icon name="star" size={15} /></button>
+              {onExpand && <button type="button" className="wework-action-btn" onClick={onExpand} title="Mở toàn trang" aria-label="Mở toàn trang"><Icon name="expand" size={15} /></button>}
               <button className="wework-action-btn" onClick={onClose} title="Đóng" aria-label="Đóng"><Icon name="x" size={16} /></button>
             </div>
           </header>
@@ -1499,8 +1191,8 @@ export function LinkedTaskFacts({ task, meta, onOpen, onChanged }: { task: TaskD
   return <TaskFacts t={task} meta={meta} isLinked onOpen={onOpen} onChanged={onChanged} />;
 }
 
-/** A task's detail: beside the list, or as its own page (`page`) with the unified CardModal layout (Image 2). */
-export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOpen, onClose, onChanged, onExpand, onUnfoldList }: { inline?:boolean; id: string; meta: TaskMeta | null; statuses: string[]; page?: boolean; onOpen: (id: string) => void; onClose: () => void; onChanged: () => void; onExpand?: () => void; onUnfoldList?: () => void }) {
+/** A task's detail: in a popup modal (`!page && !inline`), beside the list (`inline`), or as its own page (`page`). */
+export function TaskPanel({ id, meta, statuses, page = false, inline = false, onOpen, onClose, onChanged, onExpand, onUnfoldList }: { inline?: boolean; id: string; meta: TaskMeta | null; statuses: string[]; page?: boolean; onOpen: (id: string) => void; onClose: () => void; onChanged: () => void; onExpand?: () => void; onUnfoldList?: () => void }) {
   const user = useStore((s) => s.user);
   const adminAccess = useStore((s) => s.admin);
   const hasOrgTasks = user?.role === 'admin' || !!adminAccess?.perms?.['tasks.view'];
@@ -1528,7 +1220,21 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
     );
   };
   useEffect(() => { setT(null); setAdminTask(null); setLinking(false); setAsCard(false); load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (page) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !linking && !document.querySelector('dialog.qc-dialog[open]')) onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose, linking, page]);
+  useEffect(() => {
+    if (page) return;
+    const k = (e: KeyboardEvent) => {
+      if (
+        e.key === 'Escape' &&
+        !linking &&
+        !subtaskParent &&
+        !document.querySelector('dialog.qc-dialog[open], dialog.ask-modal[open], dialog.tf-modal[open], .bk-pop, .task-editor-back')
+      ) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [onClose, linking, subtaskParent, page]);
 
   useEffect(() => {
     const handleAddSubtask = (e: Event) => {
@@ -1564,7 +1270,7 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
         ? <LinkedCard embedded={inline || page} link={t.boardLink} extra={taskFacts} topActions={topActions} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onFail={() => setAsCard(false)} />
         : <StandaloneTaskCard task={t} meta={meta} statuses={t.statuses || statuses} embedded={inline || page} extra={taskFacts} topActions={topActions} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onLink={() => setLinking(true)} />
     ) : (
-      <WeworkTaskView task={t} meta={meta} statuses={t.statuses || statuses} onOpen={onOpen} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onLink={() => setLinking(true)} onToggleCard={() => setAsCard(true)} onUnfoldList={onUnfoldList} />
+      <WeworkTaskView task={t} meta={meta} statuses={t.statuses || statuses} onOpen={onOpen} onClose={onClose} onExpand={onExpand} onChanged={() => { void load(); onChanged(); }} onLink={() => setLinking(true)} onToggleCard={() => setAsCard(true)} onUnfoldList={onUnfoldList} />
     )
   ) : adminTask ? (
     <div className="wework-detail">
@@ -1582,6 +1288,7 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
         <div className="wework-detail-acts">
           {onUnfoldList && <button type="button" className="bd-icon" onClick={onUnfoldList} title="Mở danh sách bên trái" aria-label="Mở danh sách"><Icon name="right" size={16} /></button>}
           {topActions}
+          {!topActions && onExpand && <button type="button" className="bd-icon" onClick={onExpand} title="Mở toàn trang" aria-label="Mở toàn trang"><Icon name="expand" size={15} /></button>}
           {!topActions && <button type="button" className="bd-icon" onClick={onClose} title="Về danh sách" aria-label="Đóng"><Icon name="x" size={18} /></button>}
         </div>
       </header>
@@ -1639,7 +1346,32 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
       }}
     />
   );
-  if (!page && !inline) return <>{cardBody}{linkDialog}{subtaskDialog}</>;
+  if (!page && !inline) {
+    if (t && asCard) return <>{cardBody}{linkDialog}{subtaskDialog}</>;
+    return createPortal(
+      <>
+        <div
+          className="cm-back tk-popup-back"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !linking && !subtaskParent) onClose();
+          }}
+        >
+          <div
+            className="tk-popup-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t?.title || adminTask?.title || 'Chi tiết công việc'}
+            aria-busy={!loaded}
+          >
+            {!loaded ? <div className="tk-popup-loading"><BrandLoading label="Đang mở công việc…" /></div> : cardBody}
+          </div>
+        </div>
+        {linkDialog}
+        {subtaskDialog}
+      </>,
+      document.body,
+    );
+  }
   if (inline) return <article className="tk-reading-pane" aria-label="Chi tiết công việc" aria-busy={!loaded}>
     {!loaded?<BrandLoading label="Đang mở công việc…"/>:<div className="tk-card-embed">{cardBody}</div>}
     {linkDialog}
@@ -2183,7 +1915,7 @@ function TaskBoardLink({task,onClose,onLinked}:{task:TaskDetail;onClose:()=>void
   useEffect(()=>{const key=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!busy&&!document.querySelector('dialog.qc-dialog[open]')){e.stopPropagation();onClose();}};document.addEventListener('keydown',key,true);return()=>document.removeEventListener('keydown',key,true);},[busy,onClose]);
   const cards=board?.lists.find(l=>l.id===listId)?.cards||[];
   const save=async(e:React.FormEvent)=>{e.preventDefault();if(busy)return;setBusy(true);setError('');try{await api.linkTaskCard(task.id,mode==='new'?{listId}:{cardId});onLinked();}catch(e:any){setError(e.message);}finally{setBusy(false);}};
-  return createPortal(<div className="bd-modal" onMouseDown={e=>e.target===e.currentTarget&&!busy&&onClose()}><form className="tk-dialog tk-editor" role="dialog" aria-modal="true" aria-label="Liên kết Workspace" onSubmit={save}>
+  return createPortal(<div className="bd-modal task-editor-back" onMouseDown={e=>e.target===e.currentTarget&&!busy&&onClose()}><form className="tk-dialog tk-editor" role="dialog" aria-modal="true" aria-label="Liên kết Workspace" onSubmit={save}>
     <header><b>Liên kết Workspace</b><button type="button" className="bd-icon" disabled={busy} onClick={onClose} aria-label="Đóng"><Icon name="x" size={15}/></button></header>
     <p className="note">{task.title}</p>
     <fieldset disabled={busy}>

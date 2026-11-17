@@ -7587,8 +7587,19 @@ button.fo-tile { cursor: pointer; } button.fo-tile:hover { border-color: var(--a
 .wework-sidebar .wework-info-card .wework-meta-val > span { overflow-wrap: anywhere; }
 /* Phones and narrow windows: the task's page is one column, its details under it, and the whole page scrolls as one. */
 @media (max-width: 760px) {
-  .wework-task-view { flex-direction: column; overflow-y: auto; gap: 12px; padding: 10px 10px 80px; }
+  .wework-task-view { flex-direction: column; overflow-y: auto; gap: 12px; padding: 10px 10px 24px; }
   .wework-main, .wework-sidebar { flex: none; width: 100%; height: auto; overflow: visible; padding: 0; }
+}
+/* Task details modal popup (Tasks list -> centered overlay instead of split reading pane) */
+.tk-popup-back { z-index: 60; align-items: center; justify-content: center; padding: 20px 16px; overflow: hidden; }
+.tk-popup-dialog { position: relative; width: min(1140px, calc(100vw - 32px)); height: min(860px, calc(100dvh - 40px)); max-height: calc(100dvh - 40px); border-radius: 16px; background: var(--bg); color: var(--label); border: 1px solid var(--sep); box-shadow: var(--shadow-lg); overflow: hidden; display: flex; flex-direction: column; }
+.tk-popup-dialog > .wework-detail { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface); }
+.tk-popup-dialog > .wework-detail .wework-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--sep); }
+.tk-popup-dialog > .wework-detail .wework-detail-acts { display: flex; align-items: center; gap: 6px; flex: none; }
+.tk-popup-loading { flex: 1; display: grid; place-items: center; padding: 48px 24px; }
+@media (max-width: 760px) {
+  .tk-popup-back { padding: 8px; }
+  .tk-popup-dialog { width: 100%; height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); border-radius: 12px; }
 }
 /* Comments on the task page: who and when on one line with room between, the text as written (rich), actions apart. */
 .wework-comments-list { display: flex; flex-direction: column; }
