@@ -176,9 +176,10 @@ test('admin module: task and customer records, their history, and the lists the 
 
     // Tasks in Quản trị: the manager sees the department's work only, with no description or result; history is kept.
     ok(await s.call('PUT', `/api/tasks/${t1.id}`, { title: 'Quay video Ceramic', result: 'mật khẩu: abc' }, b));
-    const theirs = ok(await s.call('GET', '/api/admin/tasks', undefined, ann.cookie));
+    const theirs = ok(await s.call('GET', '/api/admin/tasks?all=1', undefined, ann.cookie));
     assert.deepEqual(theirs.items.map((t) => t.title), ['Quay video Ceramic']);
     assert.equal(theirs.counts.overdue, 1);
+    assert.equal(ok(await s.call('GET', '/api/admin/tasks?all=1&state=overdue', undefined, ann.cookie)).items.length, 1);
     assert.equal((await s.call('GET', `/api/admin/tasks/${t2.id}`, undefined, ann.cookie)).status, 404);
     const detail = ok(await s.call('GET', `/api/admin/tasks/${t1.id}`, undefined, b));
     assert.equal(detail.result, undefined); assert.equal(detail.description, undefined);
@@ -334,6 +335,7 @@ test('quick notes belong to their writer alone, stay out of the logs; task tabs 
     assert.deepEqual(await titles('assigned'), [given.id]);
     assert.deepEqual(await titles('created'), [made.id]);
     assert.deepEqual(await titles('following'), [followed.id]);
+    assert.deepEqual((await titles('all')).sort(), [given.id, made.id, followed.id].sort());
   } finally { await s.close(); await rm(dir, { recursive: true, force: true }); }
 });
 

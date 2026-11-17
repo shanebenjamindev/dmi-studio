@@ -12,6 +12,7 @@ import { syncTaskToCard } from '../tasklinks';
 import { flowSettings, restatus, settleStages, stageOf } from '../task-flow';
 import { normalizeAllBoards } from '../board-flow';
 import { FLOW_STAGES, flowConfig } from '../../shared/task-flow';
+import { flowMatch, isFlowFilter } from '../../shared/flow-filter';
 import { need, reach, text, color, exists, page, sendCsv, csvDate, changed, logAction, registerDict, dictName, matcher, type Ctx } from './common';
 
 /** New tasks start in this status (server/tasks.ts), so it can be neither renamed nor turned off. */
@@ -20,14 +21,17 @@ export const STATE_LABEL: Record<string, string> = { todo: 'Chưa làm', doing: 
 
 /** Every task (but the placeholders made for missing parents) with the people on it. */
 export async function taskRows() {
-  const tasks = await all<any>(`SELECT t.id, t.title, t.status, t.stage, t.revision, t.submitted_at, t.start_at, t.due_at, t.done_at, t.created_at, t.updated_at, t.parent_id, t.project_id, t.priority_id, t.campaign_id, t.external_id,
-    j.name project_name, j.customer_id, j.team_id project_dept, cu.name customer_name, ca.name campaign_name, pr.name priority_name, pr.color priority_color, pr.pos priority_pos, cp.user_id creator_user, cp.name creator_name, pa.title parent_title,
-    (SELECT COUNT(*) FROM tasks x WHERE x.parent_id = t.id) children
-    FROM tasks t LEFT JOIN task_projects j ON j.id = t.project_id LEFT JOIN customers cu ON cu.id = j.customer_id LEFT JOIN task_campaigns ca ON ca.id = t.campaign_id
-    LEFT JOIN task_priorities pr ON pr.id = t.priority_id LEFT JOIN task_people cp ON cp.id = t.created_by LEFT JOIN tasks pa ON pa.id = t.parent_id WHERE t.stub = 0`);
+  const [tasks, flow] = await Promise.all([
+    all<any>(`SELECT t.id, t.title, t.status, t.stage, t.revision, t.submitted_at, t.start_at, t.due_at, t.done_at, t.created_at, t.updated_at, t.parent_id, t.project_id, t.priority_id, t.campaign_id, t.external_id,
+      j.name project_name, j.customer_id, j.team_id project_dept, cu.name customer_name, ca.name campaign_name, pr.name priority_name, pr.color priority_color, pr.pos priority_pos, cp.user_id creator_user, cp.name creator_name, pa.title parent_title,
+      (SELECT COUNT(*) FROM tasks x WHERE x.parent_id = t.id) children
+      FROM tasks t LEFT JOIN task_projects j ON j.id = t.project_id LEFT JOIN customers cu ON cu.id = j.customer_id LEFT JOIN task_campaigns ca ON ca.id = t.campaign_id
+      LEFT JOIN task_priorities pr ON pr.id = t.priority_id LEFT JOIN task_people cp ON cp.id = t.created_by LEFT JOIN tasks pa ON pa.id = t.parent_id WHERE t.stub = 0`),
+    flowSettings(),
+  ]);
   const many = <T,>(rows: any[], key: string, val: (r: any) => T) => { const m = new Map<string, T[]>(); for (const r of rows) m.set(r[key], [...(m.get(r[key]) || []), val(r)]); return m; };
-  const assignees = many(await all<any>('SELECT a.task_id, p.id, p.name, p.user_id, u.name user_name, u.team_role FROM task_assignees a JOIN task_people p ON p.id = a.person_id LEFT JOIN users u ON u.id = p.user_id'), 'task_id',
-    (r) => ({ id: r.id as string, name: (r.user_name || r.name) as string, userId: (r.user_id || null) as string | null, departmentId: (r.team_role || null) as string | null }));
+  const assignees = many(await all<any>('SELECT a.task_id, p.id, p.name, p.user_id, u.name user_name, u.team_role, u.avatar_at FROM task_assignees a JOIN task_people p ON p.id = a.person_id LEFT JOIN users u ON u.id = p.user_id'), 'task_id',
+    (r) => ({ id: r.id as string, name: (r.user_name || r.name) as string, userId: (r.user_id || null) as string | null, departmentId: (r.team_role || null) as string | null, avatarAt: (r.avatar_at ?? null) as number | null }));
   const followers = many(await all<any>('SELECT task_id, user_id FROM task_followers'), 'task_id', (r) => r.user_id as string);
   const onCard = many(await all<any>('SELECT l.task_id, m.user_id FROM task_board_links l JOIN card_members m ON m.card_id = l.card_id'), 'task_id', (r) => r.user_id as string);
   const labels = many(await all<any>('SELECT ll.task_id, l.name FROM task_label_links ll JOIN task_labels l ON l.id = ll.label_id'), 'task_id', (r) => r.name as string);
@@ -35,7 +39,7 @@ export async function taskRows() {
     const who = assignees.get(t.id) || [];
     const people = new Set([...who.map((a) => a.userId), t.creator_user, ...(followers.get(t.id) || []), ...(onCard.get(t.id) || [])].filter(Boolean) as string[]);
     return {
-      id: t.id, title: t.title, status: t.status, state: stateOf(t), stage: stageOf(t, who.length > 0), revision: Number(t.revision) || 0, submittedAt: (t.submitted_at ?? null) as number | null, category: statusKey(t.status), startAt: t.start_at ?? null, dueAt: t.due_at ?? null, doneAt: t.done_at ?? null, createdAt: t.created_at, updatedAt: t.updated_at,
+      id: t.id, title: t.title, status: t.status, state: stateOf(t), stage: stageOf(t, who.length > 0, flow), revision: Number(t.revision) || 0, submittedAt: (t.submitted_at ?? null) as number | null, category: statusKey(t.status), startAt: t.start_at ?? null, dueAt: t.due_at ?? null, doneAt: t.done_at ?? null, createdAt: t.created_at, updatedAt: t.updated_at,
       externalId: t.external_id || null, project: t.project_id ? { id: t.project_id, name: t.project_name || '', departmentId: (t.project_dept || null) as string | null } : null, customer: t.customer_id ? { id: t.customer_id, name: t.customer_name || '' } : null,
       campaign: t.campaign_id ? { id: t.campaign_id, name: t.campaign_name || '' } : null, parent: t.parent_id ? { id: t.parent_id, title: t.parent_title || '' } : null, children: Number(t.children) || 0,
       priority: t.priority_id ? { id: t.priority_id, name: t.priority_name || '', color: t.priority_color || '#94a3b8', pos: Number(t.priority_pos) || 0 } : null,
@@ -56,7 +60,7 @@ async function tasksFor(c: Ctx, q: URLSearchParams) {
   const from = Number(q.get('from')) || 0, to = Number(q.get('to')) || 0;
   return inReach(await taskRows(), await reach(c))
     .filter((t) => hit(t.id, t.title, t.project?.name, t.customer?.name, t.campaign?.name, t.labels.join(' '), t.externalId, t.status, STATE_LABEL[t.state], t.state, t.priority?.name, t.creator?.name, t.parent?.title, t.assignees.map((a) => a.name).join(' ')))
-    .filter((t) => !q.get('state') || (q.get('state') === 'open' ? !['done', 'done_late', 'cancelled'].includes(t.state) : q.get('state') === 'done' ? ['done', 'done_late'].includes(t.state) : t.state === q.get('state')))
+    .filter((t) => { const st = q.get('state'); return !st || (isFlowFilter(st) ? flowMatch(t, st) : st === 'open' ? !['done', 'done_late', 'cancelled'].includes(t.state) : st === 'done' ? ['done', 'done_late'].includes(t.state) : t.state === st); })
     .filter((t) => !q.get('status') || t.status === q.get('status'))
     .filter((t) => !q.get('priority') || (q.get('priority') === 'none' ? !t.priority : t.priority?.id === q.get('priority')))
     .filter((t) => !q.get('project') || t.project?.id === q.get('project'))
@@ -73,7 +77,7 @@ const strip = ({ people, cardMembers, ...t }: TaskRow) => t;
 export function registerWork(api: Router) {
   api.get('/api/admin/tasks', async (req, res) => {
     const c = await need(req, 'tasks.view'), rows = await tasksFor(c, req.query);
-    const out = page(req, rows, { dueAt: (t) => t.dueAt, title: (t) => t.title, status: (t) => t.status, priority: (t) => (t.priority ? -t.priority.pos : null), updatedAt: (t) => t.updatedAt, createdAt: (t) => t.createdAt });
+    const out = page(req, rows, { dueAt: (t) => t.dueAt, title: (t) => t.title, status: (t) => t.status, priority: (t) => (t.priority ? -t.priority.pos : null), updatedAt: (t) => t.updatedAt, createdAt: (t) => t.createdAt }, req.query.get('all') === '1' ? 2000 : 200);
     json(res, 200, { ...out, items: out.items.map(strip), counts: { total: rows.length, open: rows.filter((t) => !['done', 'done_late', 'cancelled'].includes(t.state)).length, overdue: rows.filter(late).length, done: rows.filter((t) => ['done', 'done_late'].includes(t.state)).length } });
   });
   api.get('/api/admin/tasks/export', async (req, res) => {

@@ -24,9 +24,9 @@ export interface Role { id: string; key: string | null; name: string; about: str
 export interface PermGroupOut { key: string; label: string; about: string; scoped: boolean; actions: Record<string, string>; perms: { key: string; action: string; about: string; roles: string[] }[] }
 export interface LogEntry { id: string; kind?: string; action?: string; userId: string | null; userName: string | null; entityType?: string | null; entityId?: string | null; entityLabel?: string | null; method?: string | null; path?: string | null; status?: number | null; before?: any; after?: any; ip: string | null; agent: string | null; at: number; email?: string; ok?: boolean; reason?: string | null }
 export interface TaskRow {
-  id: string; title: string; status: string; state: string; category: string; startAt: number | null; dueAt: number | null; doneAt: number | null; createdAt: number; updatedAt: number; externalId: string | null;
+  id: string; title: string; status: string; state: string; stage?: import('../../../shared/task-flow').FlowStage; revision?: number; submittedAt?: number | null; category: string; startAt: number | null; dueAt: number | null; doneAt: number | null; createdAt: number; updatedAt: number; externalId: string | null;
   project: Ref | null; customer: Ref | null; campaign: Ref | null; parent: { id: string; title: string } | null; children: number; priority: { id: string; name: string; color: string } | null;
-  creator: { name: string; userId: string | null } | null; assignees: { id: string; name: string; userId: string | null; departmentId: string | null }[]; labels: string[];
+  creator: { name: string; userId: string | null } | null; assignees: { id: string; name: string; userId: string | null; departmentId: string | null; avatarAt?: number | null }[]; labels: string[];
 }
 export interface TaskDetail extends TaskRow { canSetPriority: boolean; subtasks: { id: string; title: string; status: string; state: string; category: string; dueAt: number | null }[]; history: Change[] }
 export interface DictItem { id: string; name: string; color: string; pos: number; active: boolean; used: number }

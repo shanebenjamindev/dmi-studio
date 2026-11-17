@@ -15,6 +15,7 @@ import { Avatar, Pop, ago, dueState, fullDate } from './boardkit';
 import { ClientServiceFields, ClientServicePop, placeOf } from './ClientServicePick';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
+import { admin as adminApi, type TaskRow as AdminTaskRow, type TaskDetail as AdminTaskDetail } from '../admin/api';
 import { useStore, toast, getState, goto } from '../store';
 import { Icon, Menu } from './ui';
 import { GroupedList, byDueDate, byKey } from './GroupedList';
@@ -54,11 +55,21 @@ const onTaskPage = () => /^#tasks\/tk_\w+\/page/.test(location.hash);
 
 export function TasksPage({ initialProject = '', initialCampaign = '', projectName, embedded = false, forcedView }: { initialProject?: string; initialCampaign?:string; projectName?: string; embedded?: boolean; forcedView?: 'list' | 'table' } = {}) {
   const user = useStore((s) => s.user);
+  const adminAccess = useStore((s) => s.admin);
   const admin = user?.role === 'admin';
+  const hasOrgTasks = admin || !!adminAccess?.perms?.['tasks.view'];
   // "Công việc của tôi" lists the account's own tasks (given to it, on its cards, followed). A department's head also
-  // lists the department's, a company admin any department's; a project's page lists all of the project's tasks.
-  // The last choice is remembered per browser.
-  const [scope, setScopeState] = useState<'mine' | 'team' | 'all'>(() => { if (initialProject) return 'all'; try { return localStorage.getItem('dms.taskScope') === 'team' ? 'team' : 'mine'; } catch { return 'mine'; } });
+  // lists the department's, a company admin / RBAC viewer lists all tasks in scope (`org`); a project's page lists all
+  // of the project's tasks. The last choice is remembered per browser.
+  const [scope, setScopeState] = useState<'org' | 'mine' | 'team' | 'all'>(() => {
+    if (initialProject) return 'all';
+    try {
+      const saved = localStorage.getItem('dms.taskScope');
+      if (saved === 'org' || saved === 'all') return hasOrgTasks ? 'org' : 'mine';
+      if (saved === 'team') return 'team';
+      return 'mine';
+    } catch { return 'mine'; }
+  });
   const [team, setTeam] = useState(user?.teamRole || '');
   const [state, setState] = useState<string>('');
   const [project, setProject] = useState(initialProject);
@@ -82,7 +93,7 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   const [creating, setCreating] = useState(false);
   const[syncing,setSyncing]=useState(false);
   const [error, setError] = useState('');
-  // "Của tôi" in three tabs (given to me, made by me, followed), grouped by due date by default; the full table on request.
+  // "Của tôi" in tabs (all of mine, given to me, made by me, followed), grouped by due date by default; the full table or flat list on request.
   const remembered = (k: string, fallback: string) => { try { return localStorage.getItem(k) || fallback; } catch { return fallback; } };
   const remember = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
   const [rel, setRelState] = useState(() => remembered('dms.taskRel', 'assigned'));
@@ -102,17 +113,39 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   };
   useEffect(() => { const change = () => { if (location.hash.startsWith('#tasks')) { setOpen(location.hash.match(/^#tasks\/(tk_\w+)/)?.[1] || null); setFull(onTaskPage()); } }; window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change); }, []);
   const [dialog, setDialog] = useState<'import' | null>(null);
-  const setScope = (v: 'mine' | 'team' | 'all') => { setScopeState(v); if (!initialProject) try { localStorage.setItem('dms.taskScope', v); } catch { /* private mode */ } };
+  const setScope = (v: 'org' | 'mine' | 'team' | 'all') => { setScopeState(v); if (!initialProject) try { localStorage.setItem('dms.taskScope', v); } catch { /* private mode */ } };
   const teams = (meta?.workTeams || meta?.teams || []).filter((t) => admin || (user?.level === 'admin' && (t.id === user.teamRole || (meta?.teams || []).some((d) => d.id === user.teamRole && d.name === t.name))));
   const teamId = teams.some((t) => t.id === team) ? team : teams[0]?.id || '';
-  // Without a department to look at (not a head, or still loading), the list is the account's own.
-  const listed = scope === 'team' && !teamId ? 'mine' : scope;
+  // Without org permission or department, fall back gracefully to the account's own tasks.
+  const listed = scope === 'org' && (!hasOrgTasks || initialProject) ? (initialProject ? 'all' : 'mine') : scope === 'team' && !teamId ? 'mine' : scope;
   const loadMeta = () => api.taskMeta().then(setMeta).catch((e) => toast(e.message, true));
   useEntityRefresh(() => { void loadMeta(); void load(); });
+  const mapAdminRow = (r: AdminTaskRow): TaskItem => ({
+    id: r.id, externalId: r.externalId, title: r.title, status: r.status, state: r.state as TaskState,
+    stage: r.stage, revision: r.revision, submittedAt: r.submittedAt ?? null,
+    startAt: r.startAt, dueAt: r.dueAt, doneAt: r.doneAt, createdAt: r.createdAt, updatedAt: r.updatedAt,
+    sourceUpdatedAt: null, stub: false,
+    project: r.project ? { id: r.project.id, name: r.project.name, customerId: r.customer?.id || null } : null,
+    customer: r.customer || null,
+    campaign: r.campaign ? { id: r.campaign.id, name: r.campaign.name, projectId: r.project?.id || '' } : null,
+    parent: r.parent, children: r.children,
+    priority: r.priority || null,
+    createdBy: r.creator ? { id: r.creator.userId || '', name: r.creator.name, userId: r.creator.userId } : null,
+    assignees: (r.assignees || []).map((a) => ({ id: a.id, name: a.name, userId: a.userId, avatarAt: a.avatarAt ?? null })),
+    cardPeople: [], followers: [], labels: r.labels || [], services: [],
+    canDelete: admin || r.creator?.userId === user?.id,
+    readOnly: !admin && r.creator?.userId !== user?.id && !(r.assignees || []).some((a) => a.userId === user?.id),
+  });
   const request = useRef(0);
   const load = () => {
     const seq = ++request.current;
-    return api.tasks({ scope: listed, rel: listed === 'mine' ? rel : '', team: listed === 'team' ? teamId : '', state, project, campaign, employee: listed === 'team' ? person : '', q: q.trim() }).then((r) => { if (seq === request.current) { setData(r); setError(''); } }, (e) => { if (seq === request.current) { setError(e.message); setData(null); } });
+    if (listed === 'org' && hasOrgTasks && !initialProject) {
+      return adminApi.tasks({ all: 1, q: q.trim(), state, project, user: person, sort: 'dueAt', dir: 'desc' })
+        .then((r) => { if (seq === request.current) { setData({ tasks: r.items.map(mapAdminRow), linked: true }); setError(''); } },
+          (e) => { if (seq === request.current) { setError(e.message); setData(null); } });
+    }
+    return api.tasks({ scope: listed === 'team' ? 'team' : listed === 'all' ? 'all' : 'mine', rel: listed === 'mine' ? rel : '', team: listed === 'team' ? teamId : '', state, project, campaign, employee: listed === 'team' || listed === 'all' ? person : '', q: q.trim() })
+      .then((r) => { if (seq === request.current) { setData(r); setError(''); } }, (e) => { if (seq === request.current) { setError(e.message); setData(null); } });
   };
   useEffect(() => { loadMeta(); }, []);
   useEffect(() => {
@@ -131,21 +164,21 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
     const handleFilterEvent = (e: any) => {
       const detail = e.detail;
       if (detail?.scope) setScope(detail.scope);
-      if (detail?.rel) setRel(detail.rel);
+      if (detail?.rel !== undefined) setRel(detail.rel);
       if (detail?.project !== undefined) {
         setProject(detail.project);
         setCampaign('');
       }
+      if (detail?.view) setView(detail.view);
+      if (detail?.overview !== undefined) setOverview(!!detail.overview);
+      if (detail?.clearOpen) showTask(null);
     };
     window.addEventListener('dms:task-filter', handleFilterEvent);
     return () => window.removeEventListener('dms:task-filter', handleFilterEvent);
   }, []);
-
   useEffect(() => {
-    if (!embedded && !overview && data?.tasks?.length && !open && !location.hash.startsWith('#tasks/')) {
-      showTask(data.tasks[0].id);
-    }
-  }, [data?.tasks, open, embedded, overview]);
+    window.dispatchEvent(new CustomEvent('dms:task-nav-sync', { detail: { scope: listed, rel } }));
+  }, [listed, rel]);
 
   const toggleTaskDone = async (t: TaskItem) => {
     const finished = t.state === 'done' || t.state === 'done_late';
@@ -201,18 +234,38 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
 
   if (open && full) return <TaskPanel page id={open} meta={meta} statuses={meta?.statuses || []} onOpen={(id) => showTask(id, true)} onClose={() => showTask(null)} onChanged={refresh} />;
   const listed_ = data ? filterByDate(data.tasks, dates) : [];
+  const summary = {
+    total: listed_.length,
+    openCount: listed_.filter((t) => !['done', 'done_late', 'cancelled'].includes(t.state)).length,
+    review: listed_.filter((t) => t.stage === 'review').length,
+    overdue: listed_.filter((t) => t.state === 'overdue').length,
+    done: listed_.filter((t) => t.state === 'done' || t.state === 'done_late').length,
+  };
+  const activeTab = listed === 'org' ? 'org' : listed === 'team' ? 'team' : rel;
+  const heading = projectName || (listed === 'org' ? 'Tổng công việc' : listed === 'team' ? `Công việc của ${teams.find((t) => t.id === teamId)?.name || 'team'}` : rel === 'all' ? 'Tất cả công việc của tôi' : 'Công việc của tôi');
   return (
     <div className={'ad-page tk-page tk-mailbox' + (embedded ? ' tk-embedded' : '') + (open ? ' has-selection' : '') + (open && taskListFolded ? ' task-list-folded' : '')}>
       <section ref={listPane} className="tk-list-pane" aria-label="Danh sách công việc">
       {!open && !embedded && <header className="tk-head">
         <span className="tk-head-ico"><Icon name="checklist" size={20} /></span>
         <div className="tk-head-main">
-          <h1>{projectName || (listed === 'team' ? `Công việc của ${teams.find((t) => t.id === teamId)?.name || 'team'}` : 'Công việc của tôi')}</h1>
-          {!initialProject && <ReadingTabs label="Danh sách công việc" value={listed==='team'?'team':rel} items={[{value:'assigned',label:'Giao cho tôi',icon:'user'},{value:'created',label:'Tôi giao đi',icon:'send'},{value:'following',label:'Đang theo dõi',icon:'eye'},...(teams.length?[{value:'team',label:'Team',icon:'users'}]:[])]} onChange={value=>{if(value==='team'){setScope('team');setPerson('');}else{setScope('mine');setRel(value);}}}/>}
+          <h1>{heading}</h1>
+          {!initialProject && <ReadingTabs label="Danh sách công việc" value={activeTab} items={[
+            ...(hasOrgTasks ? [{ value: 'org', label: 'Tổng task', icon: 'list' }] : []),
+            { value: 'all', label: 'Tất cả của tôi', icon: 'layers' },
+            { value: 'assigned', label: 'Giao cho tôi', icon: 'user' },
+            { value: 'created', label: 'Tôi giao đi', icon: 'send' },
+            { value: 'following', label: 'Đang theo dõi', icon: 'eye' },
+            ...(teams.length ? [{ value: 'team', label: 'Team', icon: 'users' }] : []),
+          ]} onChange={(value) => {
+            if (value === 'org') { setScope('org'); }
+            else if (value === 'team') { setScope('team'); setPerson(''); }
+            else { setScope('mine'); setRel(value); }
+          }} />}
         </div>
         <Menu label="Thêm thao tác" items={[
           { label: 'Mở Workspace', icon: 'boards', onClick: () => { goto('boards'); window.location.hash = '#boards'; } },
-          { label: view === 'table' ? 'Xem dạng danh sách nhóm' : 'Xem bảng đầy đủ', icon: view === 'table' ? 'list' : 'sheet', onClick: () => setView(view === 'table' ? 'list' : 'table') },
+          { label: view === 'table' ? 'Xem dạng danh sách' : 'Xem bảng đầy đủ', icon: view === 'table' ? 'list' : 'sheet', onClick: () => { setOverview(false); setView(view === 'table' ? 'list' : 'table'); } },
           { label: 'Thêm file sheet', icon: 'sheet', onClick: () => setDialog('import'), hidden: !admin },
           { label: syncing ? 'Đang đồng bộ…' : 'Đồng bộ lên board', icon: 'boards', hidden: !admin, onClick: async () => { if (syncing) return; setSyncing(true); try { const r = await api.syncTasksToBoard(); toast(`Đã liên kết ${r.linked}/${r.total} công việc; thêm ${r.created} thẻ mới.`); refresh(); } catch (e: any) { toast(e.message, true); } finally { setSyncing(false); } } },
           { label: 'Nhân viên', icon: 'users', onClick: () => goto('admin'), hidden: !admin },
@@ -231,7 +284,7 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
             </div>
           </div>
         )}
-        <label className="tk-find"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm công việc, dịch vụ, nhãn, mã" aria-label="Tìm công việc" /></label>
+        <label className="tk-find"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm công việc, khách hàng, dịch vụ, người làm…" aria-label="Tìm công việc" /></label>
         <label className="tk-pick"><Icon name="filter" size={14} /><select aria-label="Quy trình" value={state} onChange={(e) => setState(e.target.value)}><FlowFilterOptions /></select></label>
         <DateFilterBar value={dates} onChange={setDates} />
         {!initialProject && <label className="tk-pick"><Icon name="folder" size={14} /><EntitySelect kind="project" onCreated={async()=>setMeta(await api.taskMeta())} value={project} onChange={v=>{setProject(v);setCampaign('');}} aria-label="Dịch vụ">
@@ -239,15 +292,45 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
           {meta?.projects.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.tasks})</option>)}
         </EntitySelect></label>}
         {listed === 'team' && teams.length > 1 && <label className="tk-pick"><Icon name="users" size={14} /><select aria-label="Phòng ban" value={teamId} onChange={(e) => { setTeam(e.target.value); setPerson(''); }}>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>}
-        {listed === 'team' && <label className="tk-pick"><Icon name="user" size={14} /><EntitySelect kind="employee" onCreated={async()=>setMeta(await api.taskMeta())} value={person} onChange={setPerson} aria-label="Người được giao">
-          <option value="">Cả team</option>
-          {meta?.users.filter((u) => !teamId || u.teamId === teamId || (u.workTeamIds || []).includes(teamId)).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+        {(listed === 'team' || listed === 'org' || listed === 'all') && <label className="tk-pick"><Icon name="user" size={14} /><EntitySelect kind="employee" onCreated={async()=>setMeta(await api.taskMeta())} value={person} onChange={setPerson} aria-label="Người được giao">
+          <option value="">{listed === 'team' ? 'Cả team' : 'Mọi nhân viên'}</option>
+          {meta?.users.filter((u) => listed !== 'team' || !teamId || u.teamId === teamId || (u.workTeamIds || []).includes(teamId)).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
         </EntitySelect></label>}
-        <div className="ax-seg fo-switch" role="radiogroup" aria-label="Cách xem công việc">{([[false, 'Danh sách'], [true, 'Tổng quan']] as const).map(([on, label]) => <button key={label} role="radio" aria-checked={overview === on} onClick={() => setOverview(on)}>{label}</button>)}</div>
-        {!overview && effectiveView !== 'table' && <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}><option value="due">Thời hạn</option><option value="status">Quy trình</option><option value="project">Dịch vụ</option><option value="created">Ngày tạo</option><option value="updated">Ngày sửa</option></select></label>}
+        <div className="ax-seg fo-switch" role="radiogroup" aria-label="Cách xem công việc">
+          <button role="radio" aria-checked={!overview && effectiveView === 'list'} onClick={() => { setOverview(false); setView('list'); }}>Danh sách</button>
+          <button role="radio" aria-checked={!overview && effectiveView === 'table'} onClick={() => { setOverview(false); setView('table'); }}>Bảng</button>
+          <button role="radio" aria-checked={overview} onClick={() => setOverview(true)}>Tổng quan</button>
+        </div>
+        {!overview && effectiveView !== 'table' && <label className="tk-pick"><Icon name="layers" size={14} /><span>Nhóm theo:</span><select aria-label="Nhóm theo" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
+          <option value="due">Thời hạn</option>
+          <option value="none">Không nhóm (Tất cả)</option>
+          <option value="status">Quy trình</option>
+          <option value="project">Dịch vụ</option>
+          <option value="customer">Khách hàng</option>
+          <option value="assignee">Người làm</option>
+          <option value="created">Ngày tạo</option>
+          <option value="updated">Ngày sửa</option>
+        </select></label>}
       </div>}
-      {error ? <p className="note err" role="alert">{error} <button className="btn btn-gray btn-sm" onClick={load}>Thử lại</button></p> : !data ? <BrandLoading label="Đang tải…"/> : !data.tasks.length ? (
-        <p className="note">{meta && !meta.people.length ? (admin ? 'Chưa có dữ liệu công việc. Bấm “Thêm file sheet” và chọn file hoặc dán bảng.' : 'Chưa có dữ liệu công việc. Quản trị viên cần nhập dữ liệu trước.') : listed === 'mine' && !state && !q.trim() && !project && !campaign ? 'Chưa có công việc nào giao cho bạn, có tên bạn trên thẻ, hoặc bạn đang theo dõi.' : 'Không có công việc nào khớp.'}</p>
+      {!open && !overview && data && <div className="tk-summary-bar" aria-label="Thống kê nhanh">
+        <button type="button" className={'tk-sum-chip' + (state === '' ? ' on' : '')} onClick={() => setState('')}>
+          <span>Tổng cộng</span><b>{summary.total}</b>
+        </button>
+        <button type="button" className={'tk-sum-chip' + (state === 'open' ? ' on' : '')} onClick={() => setState(state === 'open' ? '' : 'open')}>
+          <span>Đang mở</span><b>{summary.openCount}</b>
+        </button>
+        <button type="button" className={'tk-sum-chip' + (state === 'review' ? ' on' : '')} onClick={() => setState(state === 'review' ? '' : 'review')}>
+          <span>Đang đánh giá</span><b>{summary.review}</b>
+        </button>
+        <button type="button" className={'tk-sum-chip bad' + (state === 'overdue' ? ' on' : '')} onClick={() => setState(state === 'overdue' ? '' : 'overdue')}>
+          <span>Quá hạn</span><b>{summary.overdue}</b>
+        </button>
+        <button type="button" className={'tk-sum-chip ok' + (state === 'done' ? ' on' : '')} onClick={() => setState(state === 'done' ? '' : 'done')}>
+          <span>Hoàn thành</span><b>{summary.done}</b>
+        </button>
+      </div>}
+      {error ? <p className="note err" role="alert">{error} <button className="btn btn-gray btn-sm" onClick={load}>Thử lại</button></p> : !data ? <BrandLoading label="Đang tải…"/> : !listed_.length ? (
+        <p className="note">{meta && !meta.people.length && !data.tasks.length ? (admin ? 'Chưa có dữ liệu công việc. Bấm “Thêm file sheet” và chọn file hoặc dán bảng.' : 'Chưa có dữ liệu công việc. Quản trị viên cần nhập dữ liệu trước.') : listed === 'mine' && !state && !q.trim() && !project && !campaign && !data.tasks.length ? 'Chưa có công việc nào giao cho bạn, có tên bạn trên thẻ, hoặc bạn đang theo dõi.' : 'Không có công việc nào khớp với bộ lọc.'}</p>
       ) : open ? (
         <TaskReadingList
           tasks={listed_}
@@ -259,17 +342,24 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
           onToggleDone={toggleTaskDone}
           q={q}
           setQ={setQ}
-          rel={rel}
-          setRel={setRel}
+          rel={activeTab}
+          setRel={(v) => {
+            if (v === 'org') setScope('org');
+            else if (v === 'team') { setScope('team'); setPerson(''); }
+            else { setScope('mine'); setRel(v); }
+          }}
+          hasOrgTasks={hasOrgTasks && !initialProject}
+          hasTeams={teams.length > 0 && !initialProject}
           state={state}
           setState={setState}
           onNew={() => setCreating(true)}
-          projectName={projectName}
+          onBackToList={() => showTask(null)}
+          projectName={projectName || (listed === 'org' ? 'Tổng công việc' : undefined)}
           meta={meta}
           onFold={() => setTaskListFolded(true)}
           onOverview={() => { showTask(null); setOverview(true); }}
         />
-      ) : overview ? <FlowOverview rows={listed_.map((t) => { const p = meta?.projects.find((x) => x.id === t.project?.id); return { ...t, customer: p?.customerId ? { id: p.customerId, name: p.customerName || '' } : null }; })}
+      ) : overview ? <FlowOverview rows={listed_.map((t) => { const p = meta?.projects.find((x) => x.id === t.project?.id); return { ...t, customer: t.customer || (p?.customerId ? { id: p.customerId, name: p.customerName || '' } : null) }; })}
           onOpenTask={(id) => showTask(id)} onPick={(f) => { setData(null); setState(f); setOverview(false); }} />
         : effectiveView === 'table' ? <TaskTable tasks={listed_} selected={open} onOpen={showTask} selection={selection} />
         : <TaskGroups tasks={listed_} groupBy={groupBy} selected={open} onOpen={showTask} onNew={() => setCreating(true)} onChanged={load} selection={selection} />}
@@ -358,9 +448,12 @@ function TaskReadingList({
   setQ,
   rel,
   setRel,
+  hasOrgTasks,
+  hasTeams,
   state,
   setState,
   onNew,
+  onBackToList,
   projectName,
   meta,
   onFold,
@@ -377,9 +470,12 @@ function TaskReadingList({
   setQ: (v: string) => void;
   rel: string;
   setRel: (v: string) => void;
+  hasOrgTasks?: boolean;
+  hasTeams?: boolean;
   state: string;
   setState: (v: string) => void;
   onNew?: () => void;
+  onBackToList?: () => void;
   projectName?: string;
   meta?: TaskMeta | null;
   onFold?: () => void;
@@ -389,8 +485,17 @@ function TaskReadingList({
   const user = useStore((s) => s.user);
 
   const groups = useMemo(() => {
+    if (groupBy === 'none') {
+      return [{ key: 'all', label: `Tất cả công việc (${tasks.length})`, rows: tasks }];
+    }
     if (groupBy === 'project') {
       return byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dịch vụ');
+    }
+    if (groupBy === 'customer') {
+      return byKey(tasks, (t) => (t.customer ? { key: t.customer.id, label: t.customer.name } : null), 'Không có khách hàng');
+    }
+    if (groupBy === 'assignee') {
+      return byKey(tasks, (t) => (t.assignees[0] ? { key: t.assignees[0].userId || t.assignees[0].id, label: t.assignees[0].name } : null), 'Chưa giao');
     }
     if (groupBy === 'status') {
       return byKey(tasks, stepGroup, 'Khác', STEP_ORDER);
@@ -405,6 +510,17 @@ function TaskReadingList({
     <div className="wework-reading-list">
       <div className="wework-list-head">
         <div className="wework-head-left">
+          {onBackToList && (
+            <button
+              type="button"
+              className="bd-icon"
+              onClick={onBackToList}
+              title="Quay lại danh sách tổng hợp (List)"
+              aria-label="Quay lại danh sách"
+            >
+              <Icon name="list" size={15} />
+            </button>
+          )}
           <b className="wework-head-name">{projectName || 'Công việc của tôi'}</b>
         </div>
         <div className="wework-head-actions">
@@ -429,11 +545,14 @@ function TaskReadingList({
         </div>
       </div>
 
-      {!projectName && (
+      {!hideProject && (
         <div className="wework-list-tabs">
+          {hasOrgTasks && <button type="button" className={'wework-list-tab' + (rel === 'org' ? ' active' : '')} onClick={() => setRel('org')}>Tổng task</button>}
+          <button type="button" className={'wework-list-tab' + (rel === 'all' ? ' active' : '')} onClick={() => setRel('all')}>Tất cả</button>
           <button type="button" className={'wework-list-tab' + (rel === 'assigned' ? ' active' : '')} onClick={() => setRel('assigned')}>Giao cho tôi</button>
-          <button type="button" className={'wework-list-tab' + (rel === 'created' ? ' active' : '')} onClick={() => setRel('created')}>Tôi giao đi</button>
-          <button type="button" className={'wework-list-tab' + (rel === 'following' ? ' active' : '')} onClick={() => setRel('following')}>Đang theo dõi</button>
+          <button type="button" className={'wework-list-tab' + (rel === 'created' ? ' active' : '')} onClick={() => setRel('created')}>Tôi giao</button>
+          <button type="button" className={'wework-list-tab' + (rel === 'following' ? ' active' : '')} onClick={() => setRel('following')}>Theo dõi</button>
+          {hasTeams && <button type="button" className={'wework-list-tab' + (rel === 'team' ? ' active' : '')} onClick={() => setRel('team')}>Team</button>}
         </div>
       )}
 
@@ -547,30 +666,42 @@ function TaskReadingList({
   );
 }
 
-/** The tasks in groups (due date, status or project), each with a tick box to finish it or open it again. */
+/** The tasks in groups (flat, due date, status, project, customer or assignee), each with a tick box to finish it or open it again. */
 function TaskGroups({ tasks, groupBy, selected, onOpen, onNew, onChanged, selection }: { tasks: TaskItem[]; groupBy: string; selected: string | null; onOpen: (id: string) => void; onNew: () => void; onChanged: () => void; selection?: { selected: string[]; toggle: (id: string) => void; all?: boolean; toggleAll?: (checked: boolean) => void } }) {
   const finished = (t: TaskItem) => t.state === 'done' || t.state === 'done_late';
   const toggle = async (t: TaskItem) => {
     try { await api.updateTask(t.id, { status: finished(t) ? 'Chưa thực hiện' : 'Hoàn thành' }); onChanged(); }
     catch (e: any) { toast(e.message, true); }
   };
-  const groups = groupBy === 'created' || groupBy === 'updated' ? byRecent(tasks, groupBy).map((g) => ({ ...g, onAdd: onNew }))
+  const groups = groupBy === 'none' ? [{ key: 'all', label: 'Tất cả công việc', rows: tasks, onAdd: onNew }]
+    : groupBy === 'created' || groupBy === 'updated' ? byRecent(tasks, groupBy).map((g) => ({ ...g, onAdd: onNew }))
     : groupBy === 'status' ? byKey(tasks, stepGroup, 'Khác', STEP_ORDER).map((g) => ({ ...g, onAdd: onNew }))
     : groupBy === 'project' ? byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dịch vụ').map((g) => ({ ...g, onAdd: onNew }))
+    : groupBy === 'customer' ? byKey(tasks, (t) => (t.customer ? { key: t.customer.id, label: t.customer.name } : null), 'Không có khách hàng').map((g) => ({ ...g, onAdd: onNew }))
+    : groupBy === 'assignee' ? byKey(tasks, (t) => (t.assignees[0] ? { key: t.assignees[0].userId || t.assignees[0].id, label: t.assignees[0].name } : null), 'Chưa giao').map((g) => ({ ...g, onAdd: onNew }))
     : byDueDate(tasks, onNew);
   return <GroupedList foldKey={`dms.taskFold.${groupBy}`} groups={groups} nameLabel="Tên công việc" addLabel="Tạo công việc" onOpen={(t) => onOpen(t.id)} selected={selected}
     selection={selection}
-    check={{ done: finished, toggle: (t) => void toggle(t), label: (t) => (finished(t) ? `Mở lại “${t.title}”` : `Hoàn thành “${t.title}”`) }}
-    name={(t) => <><span className={finished(t) ? 'tk-done-title' : ''}>{t.title}</span>{t.children > 0 && <small className="tk-kids">{t.children} việc con</small>}{t.parent && <small className="tk-parent-of" title="Công việc cha"><Icon name="up" size={11} />{t.parent.title}</small>}</>}
+    check={{ done: finished, toggle: (t) => void toggle(t), canCheck: (t) => !t.readOnly, label: (t) => (finished(t) ? `Mở lại “${t.title}”` : `Hoàn thành “${t.title}”`) }}
+    name={(t) => <><span className={finished(t) ? 'tk-done-title' : ''}>{t.title}</span>{t.children > 0 && <small className="tk-kids">{t.children} việc con</small>}{t.parent && <small className="tk-parent-of" title="Công việc cha"><Icon name="up" size={11} />{t.parent.title}</small>}{t.labels?.length > 0 && <span className="tk-inline-labels">{t.labels.map((l) => <i key={l}>{l}</i>)}</span>}</>}
     columns={[
       { key: 'status', label: 'Quy trình', width: 130, render: (t) => <Badge t={t} /> },
       // Those given the task, then the people on its card (it is listed as their work too).
-      { key: 'who', label: 'Người làm', width: 110, render: (t) => <EmployeeAvatars people={[...t.assignees, ...(t.cardPeople || [])]} /> },
-      { key: 'start', label: 'Bắt đầu', width: 120, render: (t) => when(t.startAt) },
-      { key: 'due', label: 'Thời hạn', width: 120, render: (t) => <span className={t.state === 'overdue' ? 'tk-late' : ''}>{when(t.dueAt)}</span> },
-      { key: 'done', label: 'Hoàn thành', width: 120, render: (t) => when(t.doneAt) },
-      { key: 'project', label: 'Dịch vụ', width: 160, wide: true, render: (t) => t.project?.name || '—' },
-      { key: 'parent', label: 'Công việc cha', width: 160, wide: true, render: (t) => t.parent?.title || '—' },
+      { key: 'who', label: 'Người làm', width: 155, render: (t) => {
+        const who = [...t.assignees, ...(t.cardPeople || [])];
+        if (!who.length) return <span className="tk-muted">Chưa giao</span>;
+        return <div className="tk-who-cell"><EmployeeAvatars people={who} />{who.length === 1 && <span className="tk-who-name">{who[0].name}</span>}</div>;
+      } },
+      { key: 'project', label: 'Khách hàng · Dịch vụ', width: 190, wide: true, render: (t) => (
+        <div className="tk-proj-cell">
+          <span>{t.project?.name || '—'}</span>
+          {t.customer?.name && <small>{t.customer.name}</small>}
+        </div>
+      ) },
+      { key: 'start', label: 'Bắt đầu', width: 105, render: (t) => when(t.startAt) },
+      { key: 'due', label: 'Thời hạn', width: 115, render: (t) => <span className={t.state === 'overdue' ? 'tk-late' : ''}>{when(t.dueAt)}</span> },
+      { key: 'done', label: 'Hoàn thành', width: 105, render: (t) => when(t.doneAt) },
+      { key: 'parent', label: 'Công việc cha', width: 150, wide: true, render: (t) => t.parent?.title || '—' },
     ]} />;
 }
 
@@ -1370,14 +1501,33 @@ export function LinkedTaskFacts({ task, meta, onOpen, onChanged }: { task: TaskD
 
 /** A task's detail: beside the list, or as its own page (`page`) with the unified CardModal layout (Image 2). */
 export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOpen, onClose, onChanged, onExpand, onUnfoldList }: { inline?:boolean; id: string; meta: TaskMeta | null; statuses: string[]; page?: boolean; onOpen: (id: string) => void; onClose: () => void; onChanged: () => void; onExpand?: () => void; onUnfoldList?: () => void }) {
+  const user = useStore((s) => s.user);
+  const adminAccess = useStore((s) => s.admin);
+  const hasOrgTasks = user?.role === 'admin' || !!adminAccess?.perms?.['tasks.view'];
   const [t, setT] = useState<TaskDetail | null>(null);
+  const [adminTask, setAdminTask] = useState<AdminTaskDetail | null>(null);
   const [linking, setLinking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [asCard, setAsCard] = useState(false);
   const [subtaskParent, setSubtaskParent] = useState<{ id: string; task?: TaskDetail | TaskItem } | null>(null);
   const activeId = useRef(id); activeId.current = id;
-  const load = () => api.task(id).then((value) => { if (activeId.current === id) setT(value); }, (e) => { if (activeId.current === id) { toast(e.message, true); onClose(); } });
-  useEffect(() => { setT(null); setLinking(false); setAsCard(false); load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = () => {
+    api.task(id).then(
+      (value) => { if (activeId.current === id) { setT(value); setAdminTask(null); } },
+      async (e) => {
+        if (activeId.current !== id) return;
+        if (hasOrgTasks) {
+          try {
+            const adm = await adminApi.task(id);
+            if (activeId.current === id) { setAdminTask(adm); setT(null); return; }
+          } catch {}
+        }
+        toast(e.message, true);
+        onClose();
+      }
+    );
+  };
+  useEffect(() => { setT(null); setAdminTask(null); setLinking(false); setAsCard(false); load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (page) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !linking && !document.querySelector('dialog.qc-dialog[open]')) onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose, linking, page]);
 
   useEffect(() => {
@@ -1416,8 +1566,64 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
     ) : (
       <WeworkTaskView task={t} meta={meta} statuses={t.statuses || statuses} onOpen={onOpen} onClose={onClose} onChanged={() => { void load(); onChanged(); }} onLink={() => setLinking(true)} onToggleCard={() => setAsCard(true)} onUnfoldList={onUnfoldList} />
     )
+  ) : adminTask ? (
+    <div className="wework-detail">
+      <header className="wework-detail-head">
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+            {adminTask.stage ? <span className={'wework-badge tf-solid tf-' + adminTask.stage}>{stepCode(adminTask.stage)}</span>
+              : <span className="wework-badge">{adminTask.status || 'Chưa thực hiện'}</span>}
+            {adminTask.priority && <span className="wework-badge" style={{ background: adminTask.priority.color + '20', color: adminTask.priority.color }}>{adminTask.priority.name}</span>}
+            {adminTask.customer?.name && <span className="note" style={{ margin: 0 }}>{adminTask.customer.name}</span>}
+            {adminTask.project?.name && <span className="note" style={{ margin: 0 }}>· {adminTask.project.name}</span>}
+          </div>
+          <h2 style={{ margin: 0, fontSize: 18, lineHeight: 1.4 }}>{adminTask.title}</h2>
+        </div>
+        <div className="wework-detail-acts">
+          {onUnfoldList && <button type="button" className="bd-icon" onClick={onUnfoldList} title="Mở danh sách bên trái" aria-label="Mở danh sách"><Icon name="right" size={16} /></button>}
+          {topActions}
+          {!topActions && <button type="button" className="bd-icon" onClick={onClose} title="Về danh sách" aria-label="Đóng"><Icon name="x" size={18} /></button>}
+        </div>
+      </header>
+      <div className="wework-detail-body" style={{ padding: '16px 20px', overflowY: 'auto', flex: 1 }}>
+        <p className="note" style={{ marginBottom: 14 }}>Chế độ xem quản trị (mô tả chi tiết và kết quả của dự án riêng tư được ẩn nếu bạn chưa phải thành viên trực tiếp).</p>
+        <dl className="tk-facts tk-card-facts" style={{ marginBottom: 16 }}>
+          <div><dt>Trạng thái</dt><dd>{adminTask.status}</dd></div>
+          <div><dt>Người làm</dt><dd>{adminTask.assignees.map((a) => a.name).join(', ') || 'Chưa giao'}</dd></div>
+          <div><dt>Tạo bởi</dt><dd>{adminTask.creator?.name || '—'}</dd></div>
+          <div><dt>Bắt đầu</dt><dd>{when(adminTask.startAt)}</dd></div>
+          <div><dt>Thời hạn</dt><dd className={adminTask.state === 'overdue' ? 'tk-late' : ''}>{when(adminTask.dueAt)}</dd></div>
+          <div><dt>Hoàn thành</dt><dd>{when(adminTask.doneAt)}</dd></div>
+          <div><dt>Công việc cha</dt><dd>{adminTask.parent ? <button className="btn btn-gray btn-sm" onClick={() => onOpen(adminTask.parent!.id)}>{adminTask.parent.title}</button> : '—'}</dd></div>
+          <div><dt>Nhãn</dt><dd>{adminTask.labels.join(', ') || '—'}</dd></div>
+        </dl>
+        {adminTask.subtasks.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <h4 style={{ fontSize: 13, margin: '0 0 8px' }}>Công việc con ({adminTask.subtasks.length})</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {adminTask.subtasks.map((s) => (
+                <button key={s.id} type="button" className="btn btn-gray btn-sm" style={{ justifyContent: 'space-between', width: '100%' }} onClick={() => onOpen(s.id)}>
+                  <span>{s.title}</span><small>{s.status}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {adminTask.history.length > 0 && (
+          <div>
+            <h4 style={{ fontSize: 13, margin: '0 0 8px' }}>Lịch sử thay đổi</h4>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {adminTask.history.slice(0, 15).map((h, i) => (
+                <li key={i} className="note" style={{ margin: 0 }}><b>{h.by || 'Hệ thống'}</b> · {h.action} · <small>{ago(h.at)}</small></li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
   ) : null;
 
+  const loaded = !!(t || adminTask);
   const linkDialog = linking && t && <TaskBoardLink task={t} onClose={() => setLinking(false)} onLinked={() => { setLinking(false); setAsCard(true); load(); onChanged(); }} />;
   const subtaskDialog = subtaskParent && (
     <TaskEditor
@@ -1434,15 +1640,15 @@ export function TaskPanel({ id, meta, statuses, page = false, inline=false, onOp
     />
   );
   if (!page && !inline) return <>{cardBody}{linkDialog}{subtaskDialog}</>;
-  if (inline) return <article className="tk-reading-pane" aria-label="Chi tiết công việc" aria-busy={!t}>
-    {!t?<BrandLoading label="Đang mở công việc…"/>:<div className="tk-card-embed">{cardBody}</div>}
+  if (inline) return <article className="tk-reading-pane" aria-label="Chi tiết công việc" aria-busy={!loaded}>
+    {!loaded?<BrandLoading label="Đang mở công việc…"/>:<div className="tk-card-embed">{cardBody}</div>}
     {linkDialog}
     {subtaskDialog}
   </article>;
   return (
     <div className="ad-page tk-page tk-detail-page">
       <header className="tk-detail-top"><button className="btn btn-gray btn-sm" onClick={onClose}><Icon name="left" size={14} />Danh sách công việc</button></header>
-      {!t ? <BrandLoading label="Đang mở…"/> : <div className="tk-card-embed tk-card-page">{cardBody}</div>}
+      {!loaded ? <BrandLoading label="Đang mở…"/> : <div className="tk-card-embed tk-card-page">{cardBody}</div>}
       {linkDialog}
       {subtaskDialog}
     </div>

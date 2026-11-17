@@ -69,13 +69,14 @@ export function matcher(q: unknown) {
 export const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
 
 // ---------------------------------------------------------------- lists
-export function paging(req: Req) {
+export function paging(req: Req, maxSize = 200) {
   const page = Math.max(1, Math.floor(Number(req.query.get('page')) || 1));
-  const size = Math.min(200, Math.max(1, Math.floor(Number(req.query.get('size')) || 25)));
+  const raw = req.query.get('all') === '1' ? maxSize : Number(req.query.get('size')) || 25;
+  const size = Math.min(maxSize, Math.max(1, Math.floor(raw)));
   return { page, size, offset: (page - 1) * size };
 }
 /** One page of rows already filtered, after sorting by `sort` (a key of `keys`) in `dir`. */
-export function page<T>(req: Req, rows: T[], keys: Record<string, (r: T) => string | number | null>) {
+export function page<T>(req: Req, rows: T[], keys: Record<string, (r: T) => string | number | null>, maxSize = 200) {
   const sort = keys[String(req.query.get('sort'))] ? String(req.query.get('sort')) : Object.keys(keys)[0];
   const dir = req.query.get('dir') === 'desc' ? -1 : 1, key = keys[sort];
   const sorted = [...rows].sort((a, b) => {
@@ -85,7 +86,7 @@ export function page<T>(req: Req, rows: T[], keys: Record<string, (r: T) => stri
     if (y === null || y === undefined || y === '') return -1;
     return (typeof x === 'string' ? x.localeCompare(String(y), 'vi') : (x as number) - (y as number)) * dir;
   });
-  const { page: p, size, offset } = paging(req);
+  const { page: p, size, offset } = paging(req, maxSize);
   return { items: sorted.slice(offset, offset + size), total: rows.length, page: p, size, sort, dir: dir === 1 ? 'asc' : 'desc' };
 }
 

@@ -224,13 +224,14 @@ async function links(req:Req,customers?:Awaited<ReturnType<typeof customerLevels
   }
   return { who, tags, followers, onCard, boardLinks, linkedTasks, user, pLevels, flow: await flowSettings() };
 }
-const TASK_SQL = `SELECT t.*, j.name project_name, j.customer_id, (SELECT name FROM task_campaigns WHERE id=t.campaign_id) campaign_name, c.name creator_name, c.user_id creator_user_id, p.title parent_title,
+const TASK_SQL = `SELECT t.*, j.name project_name, j.customer_id, cu.name customer_name, (SELECT name FROM task_campaigns WHERE id=t.campaign_id) campaign_name, c.name creator_name, c.user_id creator_user_id, p.title parent_title,
   (SELECT COUNT(*) FROM tasks x WHERE x.parent_id = t.id) children
-  FROM tasks t LEFT JOIN task_projects j ON j.id = t.project_id LEFT JOIN task_people c ON c.id = t.created_by LEFT JOIN tasks p ON p.id = t.parent_id`;
+  FROM tasks t LEFT JOIN task_projects j ON j.id = t.project_id LEFT JOIN customers cu ON cu.id = j.customer_id LEFT JOIN task_people c ON c.id = t.created_by LEFT JOIN tasks p ON p.id = t.parent_id`;
 function taskOut(t: any, l: Awaited<ReturnType<typeof links>>) {
   return {
     id: t.id, externalId: t.external_id || null, title: t.title, status: t.status, state: stateOf(t), stage: stageOf(t, l.who.has(t.id), l.flow), startAt: t.start_at ?? null, dueAt: t.due_at ?? null, doneAt: t.done_at ?? null,
     project: t.project_id ? { id: t.project_id, name: t.project_name || '', customerId: t.customer_id || null } : null,
+    customer: t.customer_id ? { id: t.customer_id, name: t.customer_name || '' } : null,
     campaign: t.campaign_id ? { id:t.campaign_id,name:t.campaign_name || '',projectId:t.project_id } : null,
     parent: t.parent_id ? { id: t.parent_id, title: t.parent_title || '' } : null, children: Number(t.children) || 0,
     createdBy: t.created_by ? { id: t.created_by, name: t.creator_name || '', userId: t.creator_user_id || null } : null, assignees: l.who.get(t.id) || [],
@@ -593,7 +594,7 @@ export function registerTasks(api: Router) {
   // department's (`team=<id>`). Every task at once (`scope=all`) is only a project's list, on the project's page.
   api.get('/api/tasks', async (req, res) => {
     const u = await me(req), q = req.query, project = String(q.get('project') || '') || null;
-    const scope = q.get('scope') === 'all' && project ? 'all' : q.get('scope') === 'team' ? 'team' : 'mine';
+    const scope = q.get('scope') === 'all' && (project || u.role === 'admin') ? 'all' : q.get('scope') === 'team' ? 'team' : 'mine';
     let team = new Set<string>();
     if (scope === 'team') {
       const requested = String(q.get('team') || '');
@@ -625,7 +626,7 @@ export function registerTasks(api: Router) {
     // Within "mine", one relation only: given to me (or on my card), made by me, or followed by me.
     const rel = String(q.get('rel') || '');
     const related = (t: ReturnType<typeof taskOut>) => rel === 'assigned' ? t.assignees.some((a) => ids.includes(a.id)) || !!onCard.get(t.id)?.includes(u.id)
-      : rel === 'created' ? !!t.createdBy && ids.includes(t.createdBy.id) : rel === 'following' ? t.followers.some((f) => f.id === u.id) : mine(t);
+      : rel === 'created' ? !!t.createdBy && ids.includes(t.createdBy.id) : rel === 'following' ? t.followers.some((f) => f.id === u.id) : rel === 'all' ? (mine(t) || (!!t.createdBy && ids.includes(t.createdBy.id))) : mine(t);
     const ofTeam = (t: ReturnType<typeof taskOut>) => t.assignees.some((a) => !!a.userId && team.has(a.userId)) || !!onCard.get(t.id)?.some((id) => team.has(id));
     const person = scope === 'mine' ? null : String(q.get('person') || '') || null;
     const state = String(q.get('state') || ''), hit = matcher(q.get('q'));

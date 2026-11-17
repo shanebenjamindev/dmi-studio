@@ -3698,6 +3698,22 @@ button.ax-role:hover { border-color: var(--tint); }
 .tk-find-x { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 50%; background: var(--fill); color: var(--label-2); }
 .tk-find-x:hover { color: var(--label); }
 .tk-pick { display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 4px 0 10px; border-radius: 8px; color: var(--label-2); font-size: 13.5px; }
+.tk-summary-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 12px; }
+.tk-sum-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border: 1px solid var(--sep); border-radius: 20px; background: var(--surface); color: var(--label-2); font-size: 12.5px; cursor: pointer; transition: all .14s ease; }
+.tk-sum-chip:hover { background: var(--fill-2); color: var(--label); }
+.tk-sum-chip.on { background: var(--tint-soft); border-color: color-mix(in srgb, var(--tint) 45%, transparent); color: var(--tint); }
+.tk-sum-chip b { font-weight: 700; color: var(--label); }
+.tk-sum-chip.on b { color: var(--tint); }
+.tk-sum-chip.bad b { color: #dc2626; }
+.tk-sum-chip.ok b { color: #16a34a; }
+.tk-who-cell { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.tk-who-name { font-size: 13px; color: var(--label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
+.tk-proj-cell { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.tk-proj-cell span { font-size: 13px; color: var(--label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-proj-cell small { font-size: 11px; color: var(--label-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-inline-labels { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; flex-wrap: wrap; }
+.tk-inline-labels i { font-style: normal; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--fill-2); color: var(--label-2); }
+.tk-muted { color: var(--label-3); font-size: 12.5px; }
 .tk-pick:hover { background: var(--fill-2); }
 .tk-pick span { color: var(--label-3); }
 .tk-pick select { max-width: 200px; border: 0; background: none; color: var(--label); font: 13.5px var(--font); padding: 0 2px; cursor: pointer; }
@@ -6035,12 +6051,17 @@ div.rt-view:not(.rt-body) [data-mention]:hover, div.rt-view:not(.rt-body) [data-
   padding: 3px;
   margin: 0 14px 8px;
   flex: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.wework-list-tabs::-webkit-scrollbar {
+  display: none;
 }
 .wework-list-tab {
-  flex: 1;
+  flex: 1 0 auto;
   min-width: 0;
   height: 28px;
-  padding: 0 4px;
+  padding: 0 9px;
   border-radius: 6px;
   border: none;
   background: transparent;
@@ -6049,8 +6070,6 @@ div.rt-view:not(.rt-body) [data-mention]:hover, div.rt-view:not(.rt-body) [data-
   font-weight: 500;
   text-align: center;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   cursor: pointer;
   transition: all .12s ease;
 }

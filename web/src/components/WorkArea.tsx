@@ -20,30 +20,61 @@ const LS_FOLD = 'dms.sectionFolded';
 export function WorkArea({ children }: { children: ReactNode }) {
   const view = useStore((s) => s.view);
   const user = useStore((s) => s.user);
+  const adminAccess = useStore((s) => s.admin);
   useStore((s) => s.pages);
   const section = sectionOf(view), def = SECTIONS[section], pages = def ? sectionPages(section, openPages()) : [];
   const [folded, setFolded] = useState(() => { try { return localStorage.getItem(LS_FOLD) === '1'; } catch { return false; } });
   const [searchQuery, setSearchQuery] = useState('');
+  const [taskNavMode, setTaskNavMode] = useState<'all' | 'mine'>(() => {
+    try {
+      const s = localStorage.getItem('dms.taskScope');
+      const r = localStorage.getItem('dms.taskRel');
+      return s === 'org' || s === 'all' || (s === 'mine' && r === 'all') ? 'all' : 'mine';
+    } catch { return 'mine'; }
+  });
   const fold = (v: boolean) => { setFolded(v); try { localStorage.setItem(LS_FOLD, v ? '1' : '0'); } catch { /* private mode */ } };
   useEffect(() => { const toggle = () => setFolded((f) => { const v = !f; try { localStorage.setItem(LS_FOLD, v ? '1' : '0'); } catch { /* private mode */ } return v; }); window.addEventListener('dms:section-fold', toggle); return () => window.removeEventListener('dms:section-fold', toggle); }, []);
+  useEffect(() => {
+    const onFilter = (e: any) => {
+      const d = e.detail;
+      if (d?.scope === 'org' || d?.scope === 'all' || (d?.scope === 'mine' && d?.rel === 'all')) setTaskNavMode('all');
+      else if (d?.scope === 'mine' || d?.scope === 'team') setTaskNavMode('mine');
+    };
+    window.addEventListener('dms:task-filter', onFilter);
+    window.addEventListener('dms:task-nav-sync', onFilter);
+    return () => {
+      window.removeEventListener('dms:task-filter', onFilter);
+      window.removeEventListener('dms:task-nav-sync', onFilter);
+    };
+  }, []);
   if (!def || !pages.length) return <>{children}</>;
 
   const isWork = section === 'work';
+  const hasOrgTasks = user?.role === 'admin' || !!adminAccess?.perms?.['tasks.view'];
 
   const handleSelectMyTasks = () => {
+    setTaskNavMode('mine');
     try {
       localStorage.setItem('dms.taskScope', 'mine');
       localStorage.setItem('dms.taskRel', 'assigned');
+      localStorage.setItem('dms.taskOverview', '0');
+      localStorage.setItem('dms.taskView', 'list');
     } catch {}
-    window.dispatchEvent(new CustomEvent('dms:task-filter', { detail: { scope: 'mine', rel: 'assigned', project: '' } }));
+    window.dispatchEvent(new CustomEvent('dms:task-filter', { detail: { scope: 'mine', rel: 'assigned', project: '', view: 'list', overview: false, clearOpen: true } }));
     openSub('tasks');
   };
 
   const handleSelectAllTasks = () => {
+    const nextScope = hasOrgTasks ? 'org' : 'mine';
+    const nextRel = hasOrgTasks ? '' : 'all';
+    setTaskNavMode('all');
     try {
-      localStorage.setItem('dms.taskScope', 'all');
+      localStorage.setItem('dms.taskScope', nextScope);
+      if (nextRel) localStorage.setItem('dms.taskRel', nextRel);
+      localStorage.setItem('dms.taskOverview', '0');
+      localStorage.setItem('dms.taskView', 'list');
     } catch {}
-    window.dispatchEvent(new CustomEvent('dms:task-filter', { detail: { scope: 'all', project: '' } }));
+    window.dispatchEvent(new CustomEvent('dms:task-filter', { detail: { scope: nextScope, rel: nextRel, project: '', view: 'list', overview: false, clearOpen: true } }));
     openSub('tasks');
   };
 
@@ -64,7 +95,16 @@ export function WorkArea({ children }: { children: ReactNode }) {
             <nav>
               {pages.includes('tasks') && (
                 <button
-                  className={'wework-nav-btn' + (view === 'tasks' ? ' active' : '')}
+                  className={'wework-nav-btn' + (view === 'tasks' && taskNavMode === 'all' ? ' active' : '')}
+                  onClick={handleSelectAllTasks}
+                >
+                  <Icon name="list" size={16} />
+                  <span>Tổng task</span>
+                </button>
+              )}
+              {pages.includes('tasks') && (
+                <button
+                  className={'wework-nav-btn' + (view === 'tasks' && taskNavMode === 'mine' ? ' active' : '')}
                   onClick={handleSelectMyTasks}
                 >
                   <Icon name="user" size={16} />

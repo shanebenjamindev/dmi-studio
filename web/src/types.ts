@@ -113,7 +113,8 @@ export interface TaskItem {
   boardLink?:{cardId:string;boardId:string;boardName:string;listName:string;listId:string}|null;hasBoardLink?:boolean;
   canDelete?: boolean;
   id: string; externalId: string | null; title: string; status: string; state: TaskState; startAt: number | null; dueAt: number | null; doneAt: number | null;
-  project: { id: string; name: string; customerId: string | null } | null; parent: { id: string; title: string } | null; children: number;
+  project: { id: string; name: string; customerId: string | null } | null; customer?: { id: string; name: string } | null; parent: { id: string; title: string } | null; children: number;
+  priority?: { id: string; name: string; color: string; pos?: number } | null; readOnly?: boolean;
   createdBy: { id: string; name: string; userId?: string | null } | null; assignees: TaskPerson[]; cardPeople?: TaskPerson[]; followers: { id: string; name: string; avatarAt?: number | null }[]; labels: string[]; services?: ServiceRef[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number; createdAt?: number;
 }
 export interface TaskDetail extends TaskItem {
