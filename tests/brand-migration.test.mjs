@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { SCHEMA } from '../server/schema';
 import {
   buildMigrationStatements,
   inspectMigration,
@@ -11,27 +10,36 @@ import {
 } from '../server/brand-migration';
 import { loadDumpIntoSqlite, sqliteQueryClient } from '../scripts/migrate-brand-hierarchy.ts';
 
+const LEGACY_PRE_BRAND_SCHEMA = `
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', pass TEXT, disabled INTEGER NOT NULL DEFAULT 0, last_login INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE customers (id TEXT PRIMARY KEY, name TEXT NOT NULL, contact TEXT, phone TEXT, email TEXT, notes TEXT, folder TEXT NOT NULL DEFAULT '', gloc TEXT, links TEXT, created_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE task_priorities (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL, pos REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE service_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL, pos REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE services (id TEXT PRIMARY KEY, name TEXT NOT NULL, code TEXT, category_id TEXT REFERENCES service_categories(id) ON DELETE SET NULL, about TEXT NOT NULL DEFAULT '', image TEXT, price REAL, currency TEXT NOT NULL DEFAULT 'VND', unit TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active', created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);
+CREATE TABLE service_packages (id TEXT PRIMARY KEY, name TEXT NOT NULL, about TEXT NOT NULL DEFAULT '', price REAL, currency TEXT NOT NULL DEFAULT 'VND', term TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active', created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);
+CREATE TABLE service_package_items (package_id TEXT NOT NULL REFERENCES service_packages(id) ON DELETE CASCADE, service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE, qty INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(package_id,service_id));
+CREATE TABLE customer_needs (customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(customer_id,service_id));
+CREATE TABLE task_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, customer_id TEXT, created_by TEXT, team_id TEXT, hold TEXT, created_at INTEGER NOT NULL);
+CREATE TABLE task_project_members (project_id TEXT NOT NULL REFERENCES task_projects(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, role TEXT NOT NULL DEFAULT 'normal', follows INTEGER NOT NULL DEFAULT 1, via_board TEXT, PRIMARY KEY(project_id,user_id));
+CREATE TABLE project_services (project_id TEXT NOT NULL REFERENCES task_projects(id) ON DELETE CASCADE, service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(project_id,service_id));
+CREATE TABLE task_campaigns (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE task_labels (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT);
+CREATE TABLE task_label_links (task_id TEXT NOT NULL, label_id TEXT NOT NULL, PRIMARY KEY (task_id, label_id));
+CREATE TABLE tasks (id TEXT PRIMARY KEY, external_id TEXT, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT '', start_at INTEGER, due_at INTEGER, done_at INTEGER, project_id TEXT, parent_id TEXT, campaign_id TEXT, description TEXT, result TEXT, created_by TEXT, source_updated_at INTEGER, import_id TEXT, stub INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX tasks_project ON tasks(project_id);
+CREATE TABLE task_reviews (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, round INTEGER NOT NULL, submitted_by TEXT, submitted_at INTEGER NOT NULL, note TEXT, result TEXT, reviewer_id TEXT, reviewed_at INTEGER, outcome TEXT, feedback TEXT);
+CREATE TABLE boards (id TEXT PRIMARY KEY, name TEXT NOT NULL, bg TEXT NOT NULL, role_id TEXT, created_by TEXT, pos REAL NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, workspace_id TEXT, private INTEGER NOT NULL DEFAULT 0, customer_id TEXT, project_id TEXT);
+CREATE UNIQUE INDEX boards_project ON boards(project_id) WHERE project_id IS NOT NULL;
+CREATE TABLE board_cards (id TEXT PRIMARY KEY, board_id TEXT NOT NULL, list_id TEXT NOT NULL, title TEXT NOT NULL, pos REAL NOT NULL, created_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, customer_id TEXT, card_kind TEXT NOT NULL DEFAULT 'task', project_card_id TEXT, work_project_id TEXT);
+CREATE TABLE reports (id TEXT PRIMARY KEY, customer_id TEXT, project_id TEXT, title TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE task_services (task_id TEXT NOT NULL, service_id TEXT NOT NULL, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(task_id,service_id));
+CREATE TABLE board_services (board_id TEXT NOT NULL, service_id TEXT NOT NULL, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(board_id,service_id));
+CREATE TABLE projects (id TEXT PRIMARY KEY, title TEXT NOT NULL, aspect TEXT NOT NULL DEFAULT '16:9', data TEXT NOT NULL, customer_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+`;
+
 function seedLegacyDb(db) {
-  db.exec(SCHEMA);
-  // Ensure legacy columns added dynamically in server/db.ts upgrade() exist on the pre-refactor fixture.
-  for (const sql of [
-    'ALTER TABLE task_projects ADD COLUMN created_by TEXT',
-    'ALTER TABLE task_projects ADD COLUMN team_id TEXT',
-    'ALTER TABLE task_projects ADD COLUMN hold TEXT',
-    'ALTER TABLE task_project_members ADD COLUMN follows INTEGER NOT NULL DEFAULT 1',
-    'ALTER TABLE task_project_members ADD COLUMN via_board TEXT',
-    'ALTER TABLE tasks ADD COLUMN campaign_id TEXT',
-    'ALTER TABLE boards ADD COLUMN project_id TEXT',
-    'ALTER TABLE boards ADD COLUMN customer_id TEXT',
-    "ALTER TABLE board_cards ADD COLUMN card_kind TEXT NOT NULL DEFAULT 'task'",
-    'ALTER TABLE board_cards ADD COLUMN project_card_id TEXT',
-    'ALTER TABLE board_cards ADD COLUMN work_project_id TEXT',
-    'ALTER TABLE board_cards ADD COLUMN customer_id TEXT',
-    'ALTER TABLE customers ADD COLUMN gloc TEXT',
-    'ALTER TABLE customers ADD COLUMN created_by TEXT',
-  ]) {
-    try { db.exec(sql); } catch { /* column may already exist in SCHEMA */ }
-  }
+  db.exec(LEGACY_PRE_BRAND_SCHEMA);
 }
 
 test('brand migration preserves tasks, multi-level subtask chains, permissions, custom campaign labels, and is idempotent', async () => {

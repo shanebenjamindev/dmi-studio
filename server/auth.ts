@@ -1,4 +1,4 @@
-import {requireProject} from './project-access';
+import { requireBrandService } from './project-access';
 import {customerLevel,requireCustomer} from './customer-access';
 // DMI Workspace accounts: email + password (or "Sign in with Google" for an email an admin has added),
 // cookie sessions, and admin-only user management. The first visitor creates the admin account.
@@ -132,7 +132,7 @@ const PAGE_OF: [RegExp, Page[]][] = [
  *  Drive folder and files, and adding or importing customers, stay with Drive. */
 const CRM: [string, RegExp][] = [
   ['*', /^\/api\/customers\/(directory|all|statuses|classifications|sources|managers|bulk-delete)$/],
-  ['*', /^\/api\/customers\/[^/]+\/(record|members|projects|tasks|history)(\/|$)/], ['DELETE', /^\/api\/customers\/[^/]+$/],
+  ['*', /^\/api\/customers\/[^/]+\/(record|members|brands|projects|tasks|history)(\/|$)/], ['DELETE', /^\/api\/customers\/[^/]+$/],
 ];
 
 /** Company-admin endpoints that a role may also be given (Phân quyền): departments and their positions (org.*), and
@@ -153,26 +153,47 @@ export async function guard(req: Req): Promise<User | null> {
   if (PUBLIC.some((r) => r.test(pathOf(req)))) return u;
   if (!u) throw new HttpError(401, 'Hãy đăng nhập');
   // Customers made from a card on a board have ids starting cust_.
-  const customerMatch=pathOf(req).match(/^\/api\/customers\/((?:c|cust)_[^/]+)(?:\/|$)/);
-  let scopedCustomer:string|null=customerMatch?decodeURIComponent(customerMatch[1]):null;
-  const reportMatch=pathOf(req).match(/^\/api\/reports\/(r_[^/]+)(?:\/|$)/);
-  const projectMatch=pathOf(req).match(/^\/api\/(?:projects|task-projects)\/([^/]+)(?:\/|$)/);
-  // Not project ids: routes under the path that check access themselves (for-service checks the customer).
-  const actualProjectMatch=projectMatch&&!['bulk-delete','for-service'].includes(projectMatch[1])?projectMatch:null;
-  const taskMatch=pathOf(req).match(/^\/api\/tasks\/(tk_[^/]+)(?:\/|$)/);
-  if(reportMatch)scopedCustomer=(await get<any>('SELECT customer_id FROM reports WHERE id=?',reportMatch[1]))?.customer_id||null;
-  if(actualProjectMatch){const table=pathOf(req).startsWith('/api/task-projects/')?'task_projects':'projects';scopedCustomer=(await get<any>(`SELECT customer_id FROM ${table} WHERE id=?`,actualProjectMatch[1]))?.customer_id||null;}
-  if(taskMatch)scopedCustomer=(await get<any>('SELECT p.customer_id FROM tasks t JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',taskMatch[1]))?.customer_id||null;
-  if(pathOf(req).startsWith('/api/task-projects/')&&actualProjectMatch)await requireProject(u.id,actualProjectMatch[1],req.method==='GET'?'observer':'normal');
-  const taskRow=taskMatch?await get<any>('SELECT project_id FROM tasks WHERE id=?',taskMatch[1]):null;
-  if(taskRow?.project_id)await requireProject(u.id,taskRow.project_id,req.method==='GET'||pathOf(req).endsWith('/reveal')?'observer':'normal');
-  // A task of a project is the project's people's (checked above), wherever its card is; a task of no project linked to
-  // a card on someone's board is for that board's people and the task's own.
-  if(taskMatch&&!taskRow?.project_id){
-    const linked=await get<any>('SELECT b.created_by,b.id board_id FROM task_board_links l JOIN board_cards c ON c.id=l.card_id JOIN boards b ON b.id=c.board_id WHERE l.task_id=?',taskMatch[1]);
-    if(linked&&linked.created_by!==u.id&&!await get('SELECT 1 FROM board_members WHERE board_id=? AND user_id=?',linked.board_id,u.id)){
-      const own=await get('SELECT 1 FROM task_people p WHERE p.user_id=? AND (p.id IN(SELECT person_id FROM task_assignees WHERE task_id=?) OR p.id=(SELECT created_by FROM tasks WHERE id=?))',u.id,taskMatch[1],taskMatch[1])||req.method==='GET'&&await get('SELECT 1 FROM task_followers WHERE task_id=? AND user_id=?',taskMatch[1],u.id);
-      if(!own)throw new HttpError(404,'Không tìm thấy công việc');
+  const customerMatch = pathOf(req).match(/^\/api\/customers\/((?:c|cust)_[^/]+)(?:\/|$)/);
+  let scopedCustomer: string | null = customerMatch ? decodeURIComponent(customerMatch[1]) : null;
+  const brandMatch = pathOf(req).match(/^\/api\/brands\/(br_[^/]+)(?:\/|$)/);
+  const reportMatch = pathOf(req).match(/^\/api\/reports\/(r_[^/]+)(?:\/|$)/);
+  const bsMatch = pathOf(req).match(/^\/api\/(?:brand-services|task-projects)\/([^/]+)(?:\/|$)/);
+  // Not service ids: helper sub-routes that resolve access from their body.
+  const actualBsMatch = bsMatch && !['bulk-delete', 'for-service'].includes(bsMatch[1]) ? bsMatch : null;
+  const taskMatch = pathOf(req).match(/^\/api\/tasks\/(tk_[^/]+)(?:\/|$)/);
+  if (reportMatch) scopedCustomer = (await get<any>('SELECT customer_id FROM reports WHERE id=?', reportMatch[1]))?.customer_id || null;
+  if (brandMatch) scopedCustomer = (await get<any>('SELECT customer_id FROM brands WHERE id=? AND deleted_at IS NULL', brandMatch[1]))?.customer_id || null;
+  if (actualBsMatch) {
+    scopedCustomer =
+      (
+        await get<any>(
+          'SELECT br.customer_id FROM brand_services bs LEFT JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL WHERE bs.id=?',
+          actualBsMatch[1]
+        )
+      )?.customer_id || null;
+    await requireBrandService(u.id, actualBsMatch[1], req.method === 'GET' ? 'observer' : 'normal');
+  }
+  if (taskMatch) {
+    scopedCustomer =
+      (
+        await get<any>(
+          'SELECT br.customer_id FROM tasks t LEFT JOIN brand_services bs ON bs.id=t.brand_service_id LEFT JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL WHERE t.id=?',
+          taskMatch[1]
+        )
+      )?.customer_id || null;
+  }
+  const taskRow = taskMatch ? await get<any>('SELECT brand_service_id FROM tasks WHERE id=?', taskMatch[1]) : null;
+  if (taskRow?.brand_service_id) {
+    await requireBrandService(u.id, taskRow.brand_service_id, req.method === 'GET' || pathOf(req).endsWith('/reveal') ? 'observer' : 'normal');
+  }
+  // A task outside brand_services linked to a card on someone's board belongs to that board's people and the task's own.
+  if (taskMatch && !taskRow?.brand_service_id) {
+    const linked = await get<any>('SELECT b.created_by,b.id board_id FROM task_board_links l JOIN board_cards c ON c.id=l.card_id JOIN boards b ON b.id=c.board_id WHERE l.task_id=?', taskMatch[1]);
+    if (linked && linked.created_by !== u.id && !(await get('SELECT 1 FROM board_members WHERE board_id=? AND user_id=?', linked.board_id, u.id))) {
+      const own =
+        (await get('SELECT 1 FROM task_people p WHERE p.user_id=? AND (p.id IN(SELECT person_id FROM task_assignees WHERE task_id=?) OR p.id=(SELECT created_by FROM tasks WHERE id=?))', u.id, taskMatch[1], taskMatch[1])) ||
+        (req.method === 'GET' && (await get('SELECT 1 FROM task_followers WHERE task_id=? AND user_id=?', taskMatch[1], u.id)));
+      if (!own) throw new HttpError(404, 'Không tìm thấy công việc');
     }
   }
   if(scopedCustomer){

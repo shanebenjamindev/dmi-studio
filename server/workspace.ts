@@ -1,6 +1,7 @@
-import {projectLevels,requireProject} from './project-access';
+import { brandServiceLevels, requireBrandService } from './project-access';
 import {customerLevels,customerLevel,requireCustomer,customerAccessSql,canDeleteCustomer,headedDepartment} from './customer-access';
 import {notifyPeople} from './notifications';
+import { ensureDefaultBrand } from './brands';
 // Customer workspace. A customer's videos live in a folder that is either
 //  • on Google Drive through "Sign in with Google" (Drive API; uploads stream straight to Google, nothing kept on disk), or
 //  • a folder on this Mac (data/workspace, or a Google Drive for desktop mount that syncs by itself).
@@ -23,10 +24,10 @@ import { normName } from './taskimport';
 import { driveId, locate } from './drive-links';
 import {customerStatuses,customerStatus,defaultCustomerStatus} from './customer-statuses';
 import { renameProjectBoard, projectHome, projectCustomerChanged } from './taskworkspace';
-import { boardOfProject, projectOf } from './service-boards';
-import { syncProjectCards } from './work-sync';
-import { customerServices, oneService, projectServices, saveProjectServices, settleCustomerServices } from './project-services';
-import { customerBoardId, syncBoardPeople } from './board-people';
+import { boardOfProject, brandServiceFor } from './service-boards';
+import { syncBrandServiceCards } from './work-sync';
+import { brandServiceCatalogMap, customerServices, ensureFallbackCatalogService, oneService } from './project-services';
+import {customerBoardId,syncBoardPeople} from './board-people';
 
 const pexec = promisify(execFile);
 /** Company admins and department admins create, rename and delete customers, folders and files. */
@@ -35,7 +36,7 @@ const VIDEO = /\.(mp4|mov|m4v|webm|mkv|avi)$/i;
 // Not shown: macOS/Windows bookkeeping files and Office lock files.
 const HIDDEN = /^(\.|~\$)|^(Icon\r|desktop\.ini|Thumbs\.db)$/i;
 const WORKSPACE_FOLDER = 'DM Studio Workspace';
-const SPARE = 300 * 1024 * 1024; // keep this much disk free after a local upload
+const SPARE = 100 * 1024 * 1024; // keep this much disk free after a local upload
 
 export type Loc = { kind: 'fs'; dir: string } | { kind: 'gdrive'; account: string; id: string; label?: string; owned?: boolean };
 
@@ -471,7 +472,7 @@ function cleanLinks(v: any) {
 const linksOf = (c: any) => { try { return JSON.parse(c.links || '[]'); } catch { return []; } };
 
 async function customerOut(c: any, full = false, fresh = false) {
-  if (!c.folder && !c.gloc) return { id:c.id, name:c.name, links:linksOf(c), notes:c.notes || '', storage:'local', account:null, folderLoc:null, folderLabel:'Chưa liên kết thư mục', folderPath:'', files:[], folders:[], projects:[], videoCount:0, fileCount:0, folderCount:0, projectCount:0, createdAt:c.created_at, updatedAt:c.updated_at, driveFolderUrl:null };
+  if (!c.folder && !c.gloc) return { id:c.id, name:c.name, links:linksOf(c), notes:c.notes || '', storage:'local', account:null, folderLoc:null, folderLabel:'Chưa liên kết thư mục', folderPath:'', files:[], folders:[], projects:[], brandServices:[], videoCount:0, fileCount:0, folderCount:0, projectCount:0, createdAt:c.created_at, updatedAt:c.updated_at, driveFolderUrl:null };
 
   const l = await custLoc(c);
   const out: any = {
@@ -621,6 +622,7 @@ export function registerWorkspace(api: Router) {
       await run('UPDATE customers SET created_by=?,status=?,category_id=?,source_id=?,manager_id=? WHERE id=?',creator,classification.status,classification.category,classification.source,managerId,id);
       if(managerId&&managerId!==creator)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',id,managerId,'admin',creator,now());
       if(tags)await saveTags(id,tags);
+      await ensureDefaultBrand(id, creator);
       json(res,201,await customerOut(await mustCustomer(id),true));return;
     }
     const name = safeName(fields.name);
@@ -634,6 +636,7 @@ export function registerWorkspace(api: Router) {
       await run('UPDATE customers SET created_by=?,status=?,category_id=?,source_id=?,manager_id=? WHERE id=?',creator,classification.status,classification.category,classification.source,managerId,id);
       if(managerId&&managerId!==creator)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',id,managerId,'admin',creator,now());
     if(tags)await saveTags(id,tags);
+    await ensureDefaultBrand(id, creator);
     json(res, 201, await customerOut(await mustCustomer(id), true)); return;
     }
     // Created inside the folder the admin is looking at.
@@ -657,6 +660,7 @@ export function registerWorkspace(api: Router) {
     await run('UPDATE customers SET created_by=?,status=?,category_id=?,source_id=?,manager_id=? WHERE id=?',creator,classification.status,classification.category,classification.source,managerId,id);
     if(managerId&&managerId!==creator)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',id,managerId,'admin',creator,now());
     if(tags)await saveTags(id,tags);
+    await ensureDefaultBrand(id, creator);
     json(res, 201, await customerOut(await mustCustomer(id), true));
   });
   // Picker is scoped to CLIENTS, independently of the folder currently being browsed.
@@ -668,19 +672,25 @@ export function registerWorkspace(api: Router) {
     for(const r of await all<any>("SELECT cm.customer_id,u.id,u.name FROM customer_members cm JOIN users u ON u.id=cm.user_id WHERE cm.role='admin' AND u.disabled=0 ORDER BY cm.created_at ASC")){
       if(!adminMembers.has(r.customer_id))adminMembers.set(r.customer_id,{id:r.id,name:r.name});
     }
-    json(res,200,(await all<any>(`SELECT c.*, (SELECT team_role FROM users WHERE id=COALESCE(c.created_by,c.manager_id)) owner_team, (SELECT COUNT(*) FROM task_projects p WHERE p.customer_id=c.id) projects,
+    const brandsByCust = new Map<string, { id: string; name: string }[]>();
+    for (const br of await all<any>('SELECT id, customer_id, name FROM brands WHERE deleted_at IS NULL ORDER BY pos, name COLLATE NOCASE')) {
+      brandsByCust.set(br.customer_id, [...(brandsByCust.get(br.customer_id) || []), { id: br.id, name: br.name }]);
+    }
+    json(res,200,(await all<any>(`SELECT c.*, (SELECT team_role FROM users WHERE id=COALESCE(c.created_by,c.manager_id)) owner_team,
+      (SELECT COUNT(*) FROM brand_services bs JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL WHERE br.customer_id=c.id) brand_service_count,
       cat.name category_name, cat.color category_color, src.name source_name, src.color source_color, ow.name owner_name, mg.name manager_name,
-      (SELECT COUNT(*) FROM task_campaigns a JOIN task_projects p ON p.id=a.project_id WHERE p.customer_id=c.id) campaigns,
-      (SELECT COUNT(*) FROM tasks t JOIN task_projects p ON p.id=t.project_id WHERE p.customer_id=c.id AND t.stub=0) tasks,
-      (SELECT COUNT(*) FROM tasks t JOIN task_projects p ON p.id=t.project_id WHERE p.customer_id=c.id AND t.stub=0 AND t.done_at IS NOT NULL) completed
+      (SELECT COUNT(*) FROM tasks t JOIN brand_services bs ON bs.id=t.brand_service_id JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL WHERE br.customer_id=c.id AND t.stub=0) tasks,
+      (SELECT COUNT(*) FROM tasks t JOIN brand_services bs ON bs.id=t.brand_service_id JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL WHERE br.customer_id=c.id AND t.stub=0 AND t.done_at IS NOT NULL) completed
       FROM customers c LEFT JOIN customer_categories cat ON cat.id=c.category_id LEFT JOIN customer_sources src ON src.id=c.source_id LEFT JOIN users ow ON ow.id=c.created_by LEFT JOIN users mg ON mg.id=c.manager_id
       WHERE c.archived_at IS NULL ORDER BY c.name COLLATE NOCASE`)).filter(c=>levels.has(c.id)).map(c=>{
       const fallbackAdmin=adminMembers.get(c.id)||null;
       const owner=c.created_by&&c.owner_name?{id:c.created_by,name:c.owner_name}:fallbackAdmin;
       const manager=c.manager_id&&c.manager_name?{id:c.manager_id,name:c.manager_name}:owner;
+      const custBrands = brandsByCust.get(c.id) || [];
       return {...customerRecord(c),needs:needs.get(c.id)||[],tags:tags.get(c.id)||[],
       status:c.status||null,category:c.category_id?{id:c.category_id,name:c.category_name||'',color:c.category_color||'#64748b'}:null,source:c.source_id?{id:c.source_id,name:c.source_name||'',color:c.source_color||'#64748b'}:null,
-      owner,manager,level:levels.get(c.id),canManage:levels.get(c.id)==='admin',canDelete:user.role==='admin'||(c.created_by?c.created_by===user.id||!!dept&&c.owner_team===dept:levels.get(c.id)==='admin'),projects:c.projects,campaigns:c.campaigns,tasks:c.tasks,completed:c.completed,hasDrive:!!c.gloc};
+      owner,manager,level:levels.get(c.id),canManage:levels.get(c.id)==='admin',canDelete:user.role==='admin'||(c.created_by?c.created_by===user.id||!!dept&&c.owner_team===dept:levels.get(c.id)==='admin'),
+      brands:custBrands,brandCount:custBrands.length,brandServices:c.brand_service_count,projects:c.brand_service_count,campaigns:0,tasks:c.tasks,completed:c.completed,hasDrive:!!c.gloc};
     }));
   });
   api.post('/api/customers/import', async (req,res) => {
@@ -698,16 +708,18 @@ export function registerWorkspace(api: Router) {
         id=uid('c_');const notes=[row.alias && `Tên khác / dịch vụ: ${row.alias}`,row.notes].filter(Boolean).join('\n');
         await run('INSERT INTO customers(id,name,email,phone,notes,links,folder,code,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',id,row.name,row.email,row.phone,notes,'[]','',row.externalId||null,now(),now());
         await run('UPDATE customers SET created_by=?,manager_id=COALESCE(manager_id,?),status=? WHERE id=?',owner,owner,await defaultCustomerStatus(),id);
+        await ensureDefaultBrand(id, owner);
         existing.set(key,id);created++;
       }
-      if(b.linkProjects===true){
+      if(b.linkBrandServices===true||b.linkProjects===true){
         const names=new Set([row.name,...row.alias.split(/[;\n]/)].map(n=>normName(n).replace(/^[\[\s]*master[\]\s|:-]*/,'')).filter(Boolean));
-        for(const p of await all<any>('SELECT id,name FROM task_projects WHERE customer_id IS NULL')) if(names.has(normName(p.name).replace(/^[\[\s]*master[\]\s|:-]*/,''))) {
-          projectLinks+=(await run('UPDATE task_projects SET customer_id=? WHERE id=? AND customer_id IS NULL',id,p.id)).changes;
+        const defBrand=await ensureDefaultBrand(id, owner);
+        for(const p of await all<any>('SELECT id,name FROM brand_services WHERE brand_id IS NULL')) if(names.has(normName(p.name).replace(/^[\[\s]*master[\]\s|:-]*/,''))) {
+          projectLinks+=(await run('UPDATE brand_services SET brand_id=?,updated_at=? WHERE id=? AND brand_id IS NULL',defBrand.id,now(),p.id)).changes;
         }
       }
     }
-    json(res,200,{created,kept,projectLinks,skipped:parsed.skipped});
+    json(res,200,{created,kept,brandServiceLinks:projectLinks,projectLinks,skipped:parsed.skipped});
   });
   api.get('/api/customers/:id/members',async(req,res)=>{
     const user=(await currentUser(req))!,level=await requireCustomer(user.id,req.params.id);
@@ -753,60 +765,101 @@ export function registerWorkspace(api: Router) {
     }
     json(res, 200, { ok: true, ownerId: newOwnerId });
   });
+  /** @deprecated Dùng GET /api/brands & GET /api/brand-services?customerId=... */
   api.get('/api/customers/:id/projects', async (req, res) => {
+    res.setHeader('Deprecation', 'true');
     await mustCustomer(req.params.id);
-    const visible=await projectLevels((await currentUser(req))!.id);
-    const rows=(await all<any>('SELECT p.id, p.name, (SELECT COUNT(*) FROM task_campaigns c WHERE c.project_id=p.id) campaigns, (SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id AND t.stub=0) tasks FROM task_projects p WHERE p.customer_id=? ORDER BY p.created_at DESC', req.params.id)).filter(p=>visible.has(p.id));
-    const services=await projectServices(rows.map(p=>p.id));
-    json(res, 200, rows.map(p=>({...p,services:services.get(p.id)||[]})));
+    const visible=await brandServiceLevels((await currentUser(req))!.id);
+    const rows=(await all<any>(
+      `SELECT bs.id, bs.name, bs.brand_id, bs.catalog_service_id, br.name brand_name, sc.name catalog_name,
+         (SELECT COUNT(*) FROM tasks t WHERE t.brand_service_id=bs.id AND t.stub=0) tasks
+       FROM brand_services bs
+       JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL
+       LEFT JOIN service_catalog sc ON sc.id=bs.catalog_service_id
+       WHERE br.customer_id=?
+       ORDER BY bs.created_at DESC`,
+      req.params.id
+    )).filter(p=>visible.has(p.id));
+    const services=await brandServiceCatalogMap(rows.map(p=>p.id));
+    json(res, 200, rows.map(p=>({
+      id: p.id,
+      name: p.catalog_service_id && p.catalog_service_id !== 'sv_general' ? (p.catalog_name || p.name) : p.name,
+      brandId: p.brand_id,
+      brandName: p.brand_name || '',
+      catalogServiceId: p.catalog_service_id,
+      campaigns: 0,
+      tasks: p.tasks,
+      services: services.get(p.id) || [],
+    })));
   });
+  /** @deprecated Dùng POST /api/brand-services */
   api.post('/api/customers/:id/projects', async (req, res) => {
-    await requireCustomer((await currentUser(req))!.id,req.params.id,'admin');
+    res.setHeader('Deprecation', 'true');
+    const creator = (await currentUser(req))!;
+    await requireCustomer(creator.id,req.params.id,'admin');
     await mustCustomer(req.params.id);
     const b = await readJson(req), name = String(b.name || '').trim();
-    if (b.projectId) {
-      const p = await get<any>('SELECT * FROM task_projects WHERE id=?', String(b.projectId));
-      if (!p) throw new HttpError(404, 'Không tìm thấy dịch vụ');
-      await requireProject((await currentUser(req))!.id,p.id,'admin');
-      if (p.customer_id && p.customer_id !== req.params.id) throw new HttpError(409, 'Dịch vụ đã thuộc khách hàng khác');
-      await run('UPDATE task_projects SET customer_id=? WHERE id=?', req.params.id, p.id);
-      await settleCustomerServices([req.params.id]);
-      json(res, 200, { id: p.id, name: p.name }); return;
+    const resolveBrand = async () => {
+      if (b.brandId) {
+        const br = await get<any>('SELECT * FROM brands WHERE id = ? AND customer_id = ? AND deleted_at IS NULL', String(b.brandId), req.params.id);
+        if (!br) throw new HttpError(404, 'Không tìm thấy nhãn hàng thuộc khách hàng này');
+        return br;
+      }
+      return ensureDefaultBrand(req.params.id, creator.id);
+    };
+    const attachId = b.brandServiceId || b.projectId;
+    if (attachId) {
+      const bs = await get<any>(
+        `SELECT bs.*, br.customer_id FROM brand_services bs LEFT JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL WHERE bs.id=?`,
+        String(attachId)
+      );
+      if (!bs) throw new HttpError(404, 'Không tìm thấy dịch vụ');
+      await requireBrandService(creator.id, bs.id, 'admin');
+      if (bs.customer_id && bs.customer_id !== req.params.id) throw new HttpError(409, 'Dịch vụ đã thuộc khách hàng khác');
+      const targetBrand = await resolveBrand();
+      if (bs.catalog_service_id && bs.catalog_service_id !== 'sv_general') {
+        const clash = await brandServiceFor(targetBrand.id, bs.catalog_service_id);
+        if (clash && clash.id !== bs.id) throw new HttpError(409, 'Nhãn hàng này đã có dịch vụ này');
+      }
+      await run('UPDATE brand_services SET brand_id=?, updated_at=? WHERE id=?', targetBrand.id, now(), bs.id);
+      json(res, 200, { id: bs.id, name: bs.name, brandId: targetBrand.id }); return;
     }
-    // One of the customer's services, called by the service's name (a name only for one of no service).
-    const services = b.services !== undefined ? await oneService(b.services, 'Chỉ chọn một dịch vụ') : null;
-    const title = services?.length ? (await get<any>('SELECT name FROM services WHERE id=?', services[0]))?.name || '' : name;
+    const targetBrand = await resolveBrand();
+    const services = b.services !== undefined ? await oneService(b.services, 'Chỉ chọn một dịch vụ') : b.catalogServiceId ? await oneService([String(b.catalogServiceId)], 'Chỉ chọn một dịch vụ') : null;
+    const catId = services?.length ? services[0] : await ensureFallbackCatalogService(creator.id);
+    const title = services?.length ? (await get<any>('SELECT name FROM service_catalog WHERE id=?', catId))?.name || '' : name;
     if (!title || title.length > 200) throw new HttpError(400, 'Hãy chọn dịch vụ');
-    // Each service once per customer: it has one board (server/service-boards.ts).
-    if (services?.length && await projectOf(req.params.id, services[0])) throw new HttpError(409, 'Khách hàng này đã có dịch vụ này');
-    const id = uid('tj_');
-    await run('INSERT INTO task_projects(id,name,customer_id,created_at) VALUES(?,?,?,?)', id, title, req.params.id, now());
-    const creator=(await currentUser(req))!;await run('UPDATE task_projects SET created_by=?,team_id=? WHERE id=?',creator.id,creator.team_role||null,id);
-    // The services chosen for it (the form offers the customer's as its defaults), or else those still set on the customer.
-    if (services) { await saveProjectServices(id, services, creator.id); await run('DELETE FROM customer_needs WHERE customer_id=?', req.params.id); }
-    else await settleCustomerServices([req.params.id]);
+    if (services?.length && await brandServiceFor(targetBrand.id, catId)) throw new HttpError(409, 'Nhãn hàng này đã có dịch vụ này');
+    const id = uid('tj_'), t = now();
+    await run('INSERT INTO brand_services(id,brand_id,catalog_service_id,name,created_by,team_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)', id, targetBrand.id, catId, title, creator.id, creator.team_role||null, t, t);
     await projectHome(id);
-    json(res, 201, { id, name: title });
+    json(res, 201, { id, name: title, brandId: targetBrand.id, catalogServiceId: catId });
   });
+  /** @deprecated Dùng PUT /api/brand-services/:id */
   api.put('/api/customers/:id/projects/:project', async (req, res) => {
-    await requireProject((await currentUser(req))!.id,req.params.project,'admin');
-    await requireCustomer((await currentUser(req))!.id,req.params.id,'admin');
-    const p = await get<any>('SELECT * FROM task_projects WHERE id=? AND customer_id=?', req.params.project, req.params.id);
+    res.setHeader('Deprecation', 'true');
+    const user = (await currentUser(req))!;
+    await requireBrandService(user.id,req.params.project,'admin');
+    await requireCustomer(user.id,req.params.id,'admin');
+    const p = await get<any>(
+      `SELECT bs.* FROM brand_services bs JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL WHERE bs.id=? AND br.customer_id=?`,
+      req.params.project,
+      req.params.id
+    );
     if (!p) throw new HttpError(404, 'Không tìm thấy dịch vụ của khách hàng');
     const b = await readJson(req);
     if (b.unlink === true) {
-      // A service with its board is the customer's for good: its board would belong to no one.
       const board = await boardOfProject(p.id);
       if (board) throw new HttpError(409, `Dịch vụ này có board “${board.name}” của khách hàng: hãy chuyển dịch vụ sang khách khác thay vì gỡ`);
-      await run('UPDATE task_projects SET customer_id=NULL WHERE id=?', p.id);
+      await run('UPDATE brand_services SET brand_id=NULL, updated_at=? WHERE id=?', now(), p.id);
       await projectCustomerChanged(p.id);
     } else {
       const name = String(b.name || '').trim();
       if (!name || name.length > 200) throw new HttpError(400, 'Tên dịch vụ cần từ 1 đến 200 ký tự');
-      await run('UPDATE task_projects SET name=? WHERE id=?', name, p.id);
+      await run('UPDATE brand_services SET name=?, updated_at=? WHERE id=?', name, now(), p.id);
       await renameProjectBoard(p.id, name, p.name);
     }
-    await syncProjectCards(p.id);
+    await syncBrandServiceCards(p.id);
     json(res, 200, { ok: true });
   });
   api.get('/api/customers/statuses',async(_req,res)=>json(res,200,await customerStatuses()));
@@ -849,8 +902,8 @@ export function registerWorkspace(api: Router) {
     if(classification.manager!==current.manager_id)await syncBoardPeople(customerBoardId(current.id));
     json(res,200,await recordOut(await mustCustomer(current.id)));
   });
-  // The services catalogue (Quản trị › Dịch vụ), to say what a project is for: names only, for everyone signed in.
-  api.get('/api/services',async(_req,res)=>json(res,200,(await all<any>("SELECT s.id,s.name,c.name category FROM services s LEFT JOIN service_categories c ON c.id=s.category_id WHERE s.deleted_at IS NULL AND s.status<>'inactive' ORDER BY c.pos,s.name")).map(s=>({id:s.id,name:s.name,category:s.category||null}))));
+  // The services catalogue (Quản trị › Danh mục dịch vụ), to say what a brand service is for: names only, for everyone signed in.
+  api.get('/api/services',async(_req,res)=>json(res,200,(await all<any>("SELECT s.id,s.name,c.name category FROM service_catalog s LEFT JOIN service_categories c ON c.id=s.category_id WHERE s.deleted_at IS NULL AND s.status<>'inactive' ORDER BY c.pos,s.name")).map(s=>({id:s.id,name:s.name,category:s.category||null}))));
   api.get('/api/customers/:id', async (req, res) => json(res, 200, await customerOut(await mustCustomer(req.params.id), true, req.query.get('fresh') === '1')));
   api.put('/api/customers/:id', async (req, res) => {
     const c = await mustCustomer(req.params.id);
@@ -896,14 +949,14 @@ export function registerWorkspace(api: Router) {
   // Hides the customer in DMI Workspace only; the folder and its videos stay untouched.
   const removeCustomerById = async (customer: any) => {
     if (customer.folder || customer.gloc) await setHidden(folderKey(await custLoc(customer)), true).catch(() => {});
-    await run('UPDATE projects SET customer_id = NULL WHERE customer_id = ?', customer.id);
-    await run('UPDATE task_projects SET customer_id = NULL WHERE customer_id = ?', customer.id);
+    // Detach brand_services before removing brands (brands ON DELETE CASCADE would otherwise delete brand_services).
+    await run('UPDATE brand_services SET brand_id = NULL, updated_at = ? WHERE brand_id IN (SELECT id FROM brands WHERE customer_id = ?)', now(), customer.id);
+    await run('DELETE FROM brands WHERE customer_id = ?', customer.id);
     await run('UPDATE reports SET customer_id = NULL WHERE customer_id = ?', customer.id);
     await run('UPDATE board_cards SET customer_id = NULL WHERE customer_id = ?', customer.id);
     await run('UPDATE boards SET customer_id = NULL WHERE customer_id = ?', customer.id); // its boards become unclassified
     await run('UPDATE card_attachments SET customer_id = NULL,file_key = NULL WHERE customer_id = ?', customer.id);
     await run('DELETE FROM customer_tags WHERE customer_id = ?', customer.id);
-    await run('DELETE FROM customer_needs WHERE customer_id = ?', customer.id);
     await run('DELETE FROM customer_members WHERE customer_id = ?', customer.id);
     await run('DELETE FROM customers WHERE id = ?', customer.id);
   };

@@ -5,13 +5,13 @@
 import { all } from './db';
 import { json, type Router } from './http';
 import { currentUser } from './auth';
+import { brandServiceLevels } from './project-access';
 import { customerLevels } from './customer-access';
-import { projectLevels } from './project-access';
 import { taskRows } from './admin/work';
 import { matcher } from './admin/common';
 import { richToText } from '../shared/rich';
 
-const TYPES = ['members', 'tasks', 'customers', 'projects', 'notes'] as const;
+const TYPES = ['members', 'tasks', 'customers', 'brands', 'brandServices', 'projects', 'notes'] as const;
 const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
 const plain = (html: string) => html.replace(/<\/?(br|p|div|li|h[12]|ul|ol)\b[^>]*>/gi, '\n').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 /** Some words around the first match (the text's own spelling), for showing why it was found. */
@@ -34,9 +34,9 @@ export function registerSearch(api: Router) {
     const take = <T,>(rows: T[]) => ({ items: rows.slice(0, limit), total: rows.length });
     const want = (t: (typeof TYPES)[number]) => !only || only === t;
     // What this person may open, looked up once for every kind of result (each look is several reads).
-    let customerAccess: ReturnType<typeof customerLevels> | undefined, projectAccess: ReturnType<typeof projectLevels> | undefined;
+    let customerAccess: ReturnType<typeof customerLevels> | undefined, bsAccess: ReturnType<typeof brandServiceLevels> | undefined;
     const myCustomers = () => customerAccess ||= customerLevels(user.id);
-    const myProjects = () => projectAccess ||= myCustomers().then((c) => projectLevels(user.id, c));
+    const myBrandServices = () => bsAccess ||= myCustomers().then((c) => brandServiceLevels(user.id, c));
 
     if (want('members')) {
       const rows = (await all<any>(`SELECT u.id, u.name, u.email, u.phone, u.avatar_at, d.name dept, p.name position FROM users u LEFT JOIN team_roles d ON d.id = u.team_role
@@ -44,32 +44,50 @@ export function registerSearch(api: Router) {
       out.members = take(rows.map((u) => ({ id: u.id, name: u.name, email: u.email, department: u.dept || null, position: u.position || null, avatarAt: u.avatar_at || null })));
     }
     if (want('tasks')) {
-      const [projects, customers] = await Promise.all([myProjects(), myCustomers()]);
-      // A task on a private board's card opens only for the board's people, or the task's own.
+      const [services, customers] = await Promise.all([myBrandServices(), myCustomers()]);
       const closed = new Set((await all<any>(`SELECT l.task_id FROM task_board_links l JOIN board_cards c ON c.id = l.card_id JOIN boards b ON b.id = c.board_id
         WHERE (b.created_by IS NULL OR b.created_by <> ?) AND NOT EXISTS (SELECT 1 FROM board_members m WHERE m.board_id = b.id AND m.user_id = ?)`, user.id, user.id)).map((r) => r.task_id));
       const seen = (t: Awaited<ReturnType<typeof taskRows>>[number]) => {
         const own = t.people.includes(user.id);
         if (closed.has(t.id) && !own) return false;
-        return t.project ? projects.has(t.project.id) && (!t.customer || customers.has(t.customer.id)) : own;
+        const bs = t.brandService || t.project;
+        return bs ? services.has(bs.id) && (!t.customer || customers.has(t.customer.id)) : own;
       };
       const visible = (await taskRows()).filter(seen);
       const desc = new Map((await all<any>("SELECT id, description FROM tasks WHERE description IS NOT NULL AND description <> ''")).map((r) => [r.id, richToText(String(r.description))]));
-      const rows = visible.filter((t) => hit(t.id, t.title, t.project?.name, t.customer?.name, t.campaign?.name, t.labels.join(' '), t.externalId, t.status, t.assignees.map((a) => a.name).join(' '), desc.get(t.id)))
+      const rows = visible.filter((t) => hit(t.id, t.title, t.brandService?.name || t.project?.name, t.brand?.name, t.customer?.name, t.labels.join(' '), t.externalId, t.status, t.assignees.map((a) => a.name).join(' '), desc.get(t.id)))
         .sort((a, b) => Number(hit(b.title)) - Number(hit(a.title)) || b.updatedAt - a.updatedAt);
-      out.tasks = take(rows.map((t) => ({ id: t.id, title: t.title, status: t.status, state: t.state, stage: t.stage, category: t.category, project: t.project, assignees: t.assignees.map((a) => a.name), startAt: t.startAt, dueAt: t.dueAt,
-        snippet: hit(t.title, t.project?.name) ? '' : around(desc.get(t.id) || '', words) })));
+      out.tasks = take(rows.map((t) => ({ id: t.id, title: t.title, status: t.status, state: t.state, stage: t.stage, category: t.category, brandService: t.brandService, brand: t.brand, project: t.project, assignees: t.assignees.map((a) => a.name), startAt: t.startAt, dueAt: t.dueAt,
+        snippet: hit(t.title, t.brandService?.name || t.project?.name) ? '' : around(desc.get(t.id) || '', words) })));
     }
     if (want('customers')) {
       const levels = await myCustomers();
       const rows = (await all<any>('SELECT id, name, code, contact, phone, email, notes FROM customers WHERE archived_at IS NULL ORDER BY name COLLATE NOCASE')).filter((c) => levels.has(c.id) && hit(c.id, c.name, c.code, c.contact, c.phone, c.email, c.notes));
       out.customers = take(rows.map((c) => ({ id: c.id, name: c.name, contact: c.contact || '', phone: c.phone || '', email: c.email || '' })));
     }
-    if (want('projects')) {
-      const levels = await myProjects();
-      const rows = (await all<any>('SELECT p.id, p.name, c.name customer, (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.stub = 0) tasks FROM task_projects p LEFT JOIN customers c ON c.id = p.customer_id ORDER BY p.name'))
-        .filter((p) => levels.has(p.id) && hit(p.name, p.customer));
-      out.projects = take(rows.map((p) => ({ id: p.id, name: p.name, customer: p.customer || null, tasks: Number(p.tasks) })));
+    if (want('brands')) {
+      const levels = await myCustomers();
+      const rows = (await all<any>(
+        `SELECT br.id, br.name, br.customer_id, c.name customer,
+          (SELECT COUNT(*) FROM brand_services bs WHERE bs.brand_id = br.id) services
+         FROM brands br JOIN customers c ON c.id = br.customer_id AND c.archived_at IS NULL
+         WHERE br.deleted_at IS NULL ORDER BY br.name`
+      )).filter((b) => levels.has(b.customer_id) && hit(b.name, b.customer));
+      out.brands = take(rows.map((b) => ({ id: b.id, name: b.name, customerId: b.customer_id, customer: b.customer, services: Number(b.services) })));
+    }
+    if (want('brandServices') || want('projects')) {
+      const levels = await myBrandServices();
+      const rows = (await all<any>(
+        `SELECT bs.id, bs.name, br.id brand_id, br.name brand, c.name customer,
+          (SELECT COUNT(*) FROM tasks t WHERE t.brand_service_id = bs.id AND t.stub = 0) tasks
+         FROM brand_services bs
+         LEFT JOIN brands br ON br.id = bs.brand_id AND br.deleted_at IS NULL
+         LEFT JOIN customers c ON c.id = br.customer_id
+         ORDER BY bs.name`
+      )).filter((p) => levels.has(p.id) && hit(p.name, p.brand, p.customer));
+      const result = take(rows.map((p) => ({ id: p.id, name: p.name, brandId: p.brand_id || null, brand: p.brand || null, customer: p.customer || null, tasks: Number(p.tasks) })));
+      if (want('brandServices')) out.brandServices = result;
+      if (want('projects')) out.projects = result;
     }
     if (want('notes')) {
       const rows = (await all<any>('SELECT id, body, color, updated_at FROM quick_notes WHERE user_id = ? ORDER BY updated_at DESC', user.id)).map((n) => ({ n, text: plain(n.body) })).filter((x) => hit(x.text));

@@ -48,7 +48,9 @@ export async function logError(req: Req, user: Who, e: any, status: number) {
 // ---------------------------------------------------------------- the trail of each change
 /** Records whose changes are kept field by field. `hidden`: kept as "changed" only, never their value. */
 interface Entity { type: string; table: string; label: string; fields: string[]; hidden?: string[] }
-const TASK: Entity = { type: 'task', table: 'tasks', label: 'title', fields: ['title', 'status', 'start_at', 'due_at', 'done_at', 'project_id', 'parent_id', 'campaign_id', 'priority_id'], hidden: ['description', 'result'] };
+const TASK: Entity = { type: 'task', table: 'tasks', label: 'title', fields: ['title', 'status', 'start_at', 'due_at', 'done_at', 'brand_service_id', 'parent_id', 'priority_id'], hidden: ['description', 'result'] };
+const BRAND: Entity = { type: 'brand', table: 'brands', label: 'name', fields: ['name', 'customer_id', 'drive_folder', 'pos', 'deleted_at'], hidden: ['notes'] };
+const BRAND_SERVICE: Entity = { type: 'brand_service', table: 'brand_services', label: 'name', fields: ['brand_id', 'catalog_service_id', 'name', 'hold', 'team_id'] };
 const CUSTOMER: Entity = { type: 'customer', table: 'customers', label: 'name', fields: ['name', 'contact', 'phone', 'email', 'folder', 'category_id', 'source_id', 'status', 'manager_id', 'archived_at'], hidden: ['notes'] };
 const USER: Entity = { type: 'user', table: 'users', label: 'name', fields: ['name', 'email', 'role', 'disabled', 'team_role', 'dept_role', 'phone', 'manager_id'], hidden: ['pass'] };
 const CARD: Entity = { type: 'card', table: 'board_cards', label: 'title', fields: ['title', 'list_id', 'start_at', 'due_at', 'done', 'archived', 'customer_id'], hidden: ['description', 'result'] };
@@ -56,11 +58,11 @@ const BOARD: Entity = { type: 'board', table: 'boards', label: 'name', fields: [
 const DEPARTMENT: Entity = { type: 'department', table: 'team_roles', label: 'name', fields: ['name', 'color', 'pages'] };
 const POSITION: Entity = { type: 'position', table: 'dept_roles', label: 'name', fields: ['name', 'level', 'team_role_id'] };
 const ONE: [RegExp, Entity][] = [
-  [/^\/api\/tasks\/(tk_[^/]+)$/, TASK], [/^\/api\/customers\/(c_[^/]+)(?:\/record|\/folder)?$/, CUSTOMER], [/^\/api\/users\/([^/]+)$/, USER], [/^\/api\/cards\/([^/]+)$/, CARD],
+  [/^\/api\/tasks\/(tk_[^/]+)$/, TASK], [/^\/api\/brands\/(br_[^/]+)$/, BRAND], [/^\/api\/brand-services\/(tj_[^/]+)$/, BRAND_SERVICE], [/^\/api\/customers\/(c_[^/]+)(?:\/record|\/folder)?$/, CUSTOMER], [/^\/api\/users\/([^/]+)$/, USER], [/^\/api\/cards\/([^/]+)$/, CARD],
   [/^\/api\/boards\/([^/]+)$/, BOARD], [/^\/api\/roles\/([^/]+)$/, DEPARTMENT], [/^\/api\/positions\/([^/]+)$/, POSITION],
 ];
 /** Creations, whose new record's id comes back in the answer. */
-const MADE: [RegExp, Entity][] = [[/^\/api\/tasks$/, TASK], [/^\/api\/customers$/, CUSTOMER], [/^\/api\/users$/, USER], [/^\/api\/lists\/[^/]+\/cards$/, CARD], [/^\/api\/boards$/, BOARD], [/^\/api\/roles$/, DEPARTMENT], [/^\/api\/roles\/[^/]+\/positions$/, POSITION]];
+const MADE: [RegExp, Entity][] = [[/^\/api\/tasks$/, TASK], [/^\/api\/customers\/[^/]+\/brands$/, BRAND], [/^\/api\/brand-services$/, BRAND_SERVICE], [/^\/api\/customers$/, CUSTOMER], [/^\/api\/users$/, USER], [/^\/api\/lists\/[^/]+\/cards$/, CARD], [/^\/api\/boards$/, BOARD], [/^\/api\/roles$/, DEPARTMENT], [/^\/api\/roles\/[^/]+\/positions$/, POSITION]];
 
 /** What a change is called in Lịch sử thao tác (the first that matches); others show their method and address. */
 const LABELS: [string, RegExp, string][] = [
@@ -75,14 +77,15 @@ const LABELS: [string, RegExp, string][] = [
   ['POST', /^\/api\/customers\/[^/]+\/videos$/, 'Tải video lên Drive'], ['PUT', /^\/api\/customers\/[^/]+\/members\//, 'Thêm người vào khách hàng'], ['DELETE', /^\/api\/customers\/[^/]+\/members\//, 'Bỏ người khỏi khách hàng'],
   ['POST', /^\/api\/boards$/, 'Tạo board'], ['PUT', /^\/api\/boards\/[^/]+$/, 'Sửa board'], ['DELETE', /^\/api\/boards\/[^/]+$/, 'Xoá board'], ['PUT', /^\/api\/boards\/[^/]+\/members\//, 'Thêm người vào board'],
   ['POST', /^\/api\/lists\/[^/]+\/cards$/, 'Tạo thẻ'], ['PUT', /^\/api\/cards\/[^/]+$/, 'Sửa thẻ'], ['DELETE', /^\/api\/cards\/[^/]+$/, 'Xoá thẻ'], ['POST', /^\/api\/cards\/[^/]+\/comments$/, 'Bình luận thẻ'],
-  ['POST', /^\/api\/task-projects\/[^/]+\/campaigns$/, 'Thêm chiến dịch'], ['PUT', /^\/api\/task-projects\/[^/]+\/members\//, 'Thêm người vào dịch vụ'], ['DELETE', /^\/api\/task-projects\/[^/]+\/members\//, 'Bỏ người khỏi dịch vụ'],
-  ['POST', /^\/api\/projects$/, 'Tạo dự án dựng'], ['DELETE', /^\/api\/projects\/[^/]+$/, 'Xoá dự án dựng'], ['POST', /^\/api\/projects\/[^/]+\/renders$/, 'Xuất video'],
+  ['POST', /^\/api\/customers\/[^/]+\/brands$/, 'Thêm nhãn hàng'], ['PUT', /^\/api\/brands\/[^/]+$/, 'Sửa nhãn hàng'], ['DELETE', /^\/api\/brands\/[^/]+$/, 'Xoá nhãn hàng'],
+  ['POST', /^\/api\/brand-services$/, 'Thêm dịch vụ cho nhãn hàng'], ['PUT', /^\/api\/brand-services\/[^/]+$/, 'Sửa dịch vụ của nhãn hàng'], ['DELETE', /^\/api\/brand-services\/[^/]+$/, 'Xoá dịch vụ của nhãn hàng'],
+  ['PUT', /^\/api\/(brand-services|task-projects)\/[^/]+\/members\//, 'Thêm người vào dịch vụ'], ['DELETE', /^\/api\/(brand-services|task-projects)\/[^/]+\/members\//, 'Bỏ người khỏi dịch vụ'],
   ['POST', /^\/api\/reports$/, 'Tạo báo cáo'], ['PUT', /^\/api\/reports\/[^/]+$/, 'Sửa báo cáo'], ['DELETE', /^\/api\/reports\/[^/]+$/, 'Xoá báo cáo'],
   ['*', /^\/api\/(settings|google|workspace$|notifications\/mail)/, 'Đổi cấu hình hệ thống'],
 ];
-// Saves that happen on their own while people work (the editor's autosave, page preferences, reading notifications,
+// Saves that happen on their own while people work (autosaves, page preferences, reading notifications,
 // upload sessions, browsing folders) would bury the changes people make. Quick notes are private: never logged.
-const QUIET = [/^\/api\/quick-notes(\/|$)/, /^\/api\/auth\/(prefs|login|setup)$/, /^\/api\/notifications\/read$/, /^\/api\/projects\/[^/]+$/, /^\/api\/sheets\//,
+const QUIET = [/^\/api\/quick-notes(\/|$)/, /^\/api\/auth\/(prefs|login|setup)$/, /^\/api\/notifications\/read$/, /^\/api\/sheets\//,
   /^\/api\/customers\/[^/]+\/videos\/session/, /^\/api\/workspace\/browse$/, /^\/api\/sources\/scan$/,
   // The assistant streams its answer (held responses would stop the stream); each tool it runs is logged on its own.
   /^\/api\/assistant\//];

@@ -113,8 +113,8 @@ export function registerStaff(api: Router) {
     const logins = await all<any>('SELECT ok, method, reason, ip, agent, created_at FROM login_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 20', s.id);
     const sessions = await all<any>('SELECT created_at, expires_at, ip, agent FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 20', s.id, now());
     const seesLogs = (await reaches(c, 'logs.view'))(s.id), seesTasks = (await reaches(c, 'tasks.view'))(s.id);
-    const tasks = seesTasks ? (await all<any>(`SELECT DISTINCT t.id, t.title, t.status, t.due_at, t.done_at, j.name project FROM task_assignees a JOIN task_people p ON p.id = a.person_id JOIN tasks t ON t.id = a.task_id LEFT JOIN task_projects j ON j.id = t.project_id
-      WHERE p.user_id = ? AND t.stub = 0 ORDER BY COALESCE(t.done_at, t.due_at, t.created_at) DESC LIMIT 15`, s.id)).map((t) => ({ id: t.id, title: t.title, status: t.status, state: stateOf(t), dueAt: t.due_at, doneAt: t.done_at, project: t.project })) : null;
+    const tasks = seesTasks ? (await all<any>(`SELECT DISTINCT t.id, t.title, t.status, t.due_at, t.done_at, j.name brand_service, br.name brand FROM task_assignees a JOIN task_people p ON p.id = a.person_id JOIN tasks t ON t.id = a.task_id LEFT JOIN brand_services j ON j.id = t.brand_service_id LEFT JOIN brands br ON br.id = j.brand_id AND br.deleted_at IS NULL
+      WHERE p.user_id = ? AND t.stub = 0 ORDER BY COALESCE(t.done_at, t.due_at, t.created_at) DESC LIMIT 15`, s.id)).map((t) => ({ id: t.id, title: t.title, status: t.status, state: stateOf(t), dueAt: t.due_at, doneAt: t.done_at, brandService: t.brand_service, brand: t.brand, project: t.brand_service })) : null;
     json(res, 200, {
       ...s, ...(await rightsFor(c))(s), notifyEmail: (await notifyEmails()).get(s.id) || null,
       logins: logins.map((l) => ({ ok: !!l.ok, method: l.method, reason: l.reason, ip: l.ip, agent: l.agent, at: l.created_at })),

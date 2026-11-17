@@ -1,4 +1,4 @@
-import {projectLevels} from './project-access';
+import { brandServiceLevels } from './project-access';
 import {customerLevel,customerLevels,visibleCardIds} from './customer-access';
 import {gmailEnableUrl} from '../shared/gmail-errors';
 import {richToText} from '../shared/rich';
@@ -22,7 +22,7 @@ async function concerns(userId:string,taskId:string){
 /** Only task name, status, deadline and an authenticated app link enter emails, never results or descriptions.
  *  Whoever made the change (`actorId`) is not told. */
 export async function queueTaskNotifications(taskId:string,before?:Snapshot,actorId?:string){
- const task=await get<any>('SELECT t.id,t.title,t.status,t.due_at,t.updated_at,t.project_id,t.parent_id,p.customer_id FROM tasks t LEFT JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',taskId);
+ const task=await get<any>('SELECT t.id,t.title,t.status,t.due_at,t.updated_at,t.brand_service_id,t.parent_id,br.customer_id FROM tasks t LEFT JOIN brand_services bs ON bs.id=t.brand_service_id LEFT JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL WHERE t.id=?',taskId);
  if(!task)return;
  const after=await notificationSnapshot(taskId);
  const base=await getSetting('notification_site_url',process.env.PUBLIC_URL||'');
@@ -33,7 +33,7 @@ export async function queueTaskNotifications(taskId:string,before?:Snapshot,acto
  for(const userId of after.followers)if(!recipients.has(userId))recipients.set(userId,!before?.followers.includes(userId)?(before?'followed':task.parent_id?'subtask':'created'):changed?'followed_updated':null);
  for(const [userId,kind] of recipients){
   if(userId===actorId)continue;
-  if(task.project_id&&!(await projectLevels(userId)).has(task.project_id))continue;
+  if(task.brand_service_id&&!(await brandServiceLevels(userId)).has(task.brand_service_id))continue;
   if(!kind||task.customer_id&&!await customerLevel(userId,task.customer_id))continue;
   const id='mail_'+createHash('sha256').update(JSON.stringify([task.id,userId,kind,task.updated_at,task.status,task.due_at])).digest('hex').slice(0,32);
   const payload={taskId:task.id,title:TITLES[kind],task:task.title,status:task.status,due:task.due_at,url:base?`${base}/#tasks/${task.id}/page`:''};
@@ -78,7 +78,7 @@ export async function drainNotifications(limit=10){
   try{
    const body=JSON.parse(row.payload);
    if(body.taskId&&!await concerns(row.user_id,body.taskId)){await run("UPDATE mail_outbox SET state='cancelled',locked_until=0 WHERE id=?",row.id);return;}
-   if(body.taskId){const task=await get<any>('SELECT t.project_id,p.customer_id FROM tasks t LEFT JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',body.taskId);if(task?.project_id&&!(await projectLevels(row.user_id)).has(task.project_id)||task?.customer_id&&!await customerLevel(row.user_id,task.customer_id)){await run("UPDATE mail_outbox SET state='cancelled',locked_until=0 WHERE id=?",row.id);return;}}
+   if(body.taskId){const task=await get<any>('SELECT t.brand_service_id,br.customer_id FROM tasks t LEFT JOIN brand_services bs ON bs.id=t.brand_service_id LEFT JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL WHERE t.id=?',body.taskId);if(task?.brand_service_id&&!(await brandServiceLevels(row.user_id)).has(task.brand_service_id)||task?.customer_id&&!await customerLevel(row.user_id,task.customer_id)){await run("UPDATE mail_outbox SET state='cancelled',locked_until=0 WHERE id=?",row.id);return;}}
    if(body.cardId&&!await get('SELECT 1 FROM board_cards WHERE id=?',body.cardId)){await run("UPDATE mail_outbox SET state='cancelled',locked_until=0 WHERE id=?",row.id);return;}
    const due=body.due?new Date(body.due).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'}):'Chưa có thời hạn';
    const text=body.link?`${body.title}\n\n${body.task}\n\n${body.url}\n\nBạn có thể tắt thông báo email trong Hồ sơ của tôi.`:body.task?`${body.title}\n\n${body.task}\nTrạng thái: ${body.status}\nThời hạn: ${due}\n\n${body.url}\n\nBạn có thể tắt thông báo email trong Hồ sơ của tôi.`:'Bạn đã kết nối thông báo email với DMI Workspace.\n\nĐây là email kiểm tra do bạn yêu cầu.';
@@ -159,12 +159,12 @@ export function registerNotifications(api:Router){
  api.get('/api/notifications/inbox',async(req,res)=>{
   const user=(await currentUser(req))!;const rows=await all<any>('SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 100',user.id);
   const items:{id:string;taskId:string|null;link:string|null;title:string;body:string;createdAt:number;read:boolean;detail:Awaited<ReturnType<typeof detailOf>>}[]=[];
-  let projects:Map<string,string>|null=null,customers:Awaited<ReturnType<typeof customerLevels>>|null=null,cards:Set<string>|null=null;
+  let services:Map<string,string>|null=null,customers:Awaited<ReturnType<typeof customerLevels>>|null=null,cards:Set<string>|null=null;
   const seesCard=async(id:string)=>(cards??=await visibleCardIds(user.id)).has(id);
   // The person's customers are looked up once for the whole list, not once per notification.
   const myCustomers=async()=>customers??=await customerLevels(user.id);
   for(const row of rows){
-   if(row.task_id){const task=await get<any>('SELECT t.project_id,p.customer_id FROM tasks t LEFT JOIN task_projects p ON p.id=t.project_id WHERE t.id=?',row.task_id);if(!task||task.project_id&&!(projects??=await projectLevels(user.id,await myCustomers())).has(task.project_id)||task.customer_id&&!(await myCustomers()).has(task.customer_id))continue;if(!await concerns(user.id,row.task_id))continue;}
+   if(row.task_id){const task=await get<any>('SELECT t.brand_service_id,br.customer_id FROM tasks t LEFT JOIN brand_services bs ON bs.id=t.brand_service_id LEFT JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL WHERE t.id=?',row.task_id);if(!task||task.brand_service_id&&!(services??=await brandServiceLevels(user.id,await myCustomers())).has(task.brand_service_id)||task.customer_id&&!(await myCustomers()).has(task.customer_id))continue;if(!await concerns(user.id,row.task_id))continue;}
    const p=JSON.parse(row.payload);if(p.cardId&&!await get('SELECT 1 FROM board_cards WHERE id=?',p.cardId))continue;
    // The newest ones show what they are about, read now, so never more than the person may still see.
    items.push({id:row.id,taskId:row.task_id,link:p.link||null,title:p.title,body:p.task||'',createdAt:row.created_at,read:!!row.read_at,detail:items.length<30?await detailOf(row.task_id,p,user.id,seesCard):null});

@@ -50,9 +50,9 @@ test('the boards from before become their customers\' service boards, once; a bo
     const summer = (await server.call('POST', '/api/customers', { name: 'SummerBreeze', databaseOnly: true }, ac)).data.id;
     const loner = (await server.call('POST', '/api/customers', { name: 'Không workspace', databaseOnly: true }, ac)).data.id;
     // Services of Flawless and of the customer with no workspace (their boards are made now; taken away below).
-    const proj = async (customerId, serviceId) => (await server.call('POST', '/api/task-projects/for-service', { customerId, serviceId }, ac)).data.id;
+    const proj = async (customerId, serviceId) => (await server.call('POST', '/api/brand-services/for-service', { customerId, serviceId }, ac)).data.id;
     const fWeb = await proj(flawless, web), fAds = await proj(flawless, ads), lWeb = await proj(loner, web);
-    const task = async (title, projectId) => (await server.call('POST', '/api/tasks', { title, projectId }, ac)).data.id;
+    const task = async (title, projectId) => (await server.call('POST', '/api/tasks', { title, brandServiceId: projectId }, ac)).data.id;
     const t1 = await task('Sửa trang chủ', fWeb), t2 = await task('Chạy quảng cáo', fAds), t3 = await task('Landing', lWeb);
     await server.close();
 
@@ -60,9 +60,9 @@ test('the boards from before become their customers\' service boards, once; a bo
     // it under project cards, a SummerBreeze board of one service, and a board of no service.
     const db = new DatabaseSync(path.join(dir, 'studio.db'));
     const now = Date.now(), boss = db.prepare('SELECT id FROM users LIMIT 1').get().id;
-    db.exec("DELETE FROM board_lists WHERE board_id IN (SELECT id FROM boards WHERE project_id IS NOT NULL)");
-    db.exec("UPDATE board_cards SET board_id = 'b_old' WHERE board_id IN (SELECT id FROM boards WHERE project_id IS NOT NULL)");
-    db.exec("DELETE FROM board_services; DELETE FROM boards WHERE project_id IS NOT NULL; DELETE FROM workspaces; DELETE FROM workspace_members; DELETE FROM settings WHERE key = 'service_boards_v1'");
+    db.exec("DELETE FROM board_lists WHERE board_id IN (SELECT id FROM boards WHERE brand_service_id IS NOT NULL)");
+    db.exec("UPDATE board_cards SET board_id = 'b_old' WHERE board_id IN (SELECT id FROM boards WHERE brand_service_id IS NOT NULL)");
+    db.exec("DELETE FROM board_services; DELETE FROM boards WHERE brand_service_id IS NOT NULL; DELETE FROM workspaces; DELETE FROM workspace_members; DELETE FROM settings WHERE key = 'service_boards_v1'");
     const ws = db.prepare('INSERT INTO workspaces(id, name, about, owner_id, visibility, created_at, updated_at) VALUES(?,?,?,?,?,?,?)');
     ws.run('w_old', 'Flawless Tint', '', boss, 'private', now, now);
     ws.run('w_summer', 'SummerBreeze', '', boss, 'private', now, now);
@@ -73,7 +73,7 @@ test('the boards from before become their customers\' service boards, once; a bo
     for (const b of ['b_old', 'b_summer', 'b_plain']) db.prepare("INSERT INTO board_lists(id, board_id, name, pos, created_at) VALUES(?,?,'ACCOUNT',1,?)").run('l_' + b, b, now);
     db.exec("UPDATE board_cards SET list_id = 'l_b_old' WHERE board_id = 'b_old'");
     db.prepare('INSERT INTO board_services(board_id, service_id, created_at) VALUES(?,?,?)').run('b_summer', ads, now);
-    db.prepare("INSERT INTO board_cards(id, board_id, list_id, title, pos, created_by, created_at, updated_at, card_kind, work_project_id, customer_id) VALUES('k_pc','b_old','l_b_old','Website',9,?,?,?,'project',?,?)").run(boss, now, now, fWeb, flawless);
+    db.prepare("INSERT INTO board_cards(id, board_id, list_id, title, pos, created_by, created_at, updated_at, card_kind, brand_service_id, customer_id) VALUES('k_pc','b_old','l_b_old','Website',9,?,?,?,'service',?,?)").run(boss, now, now, fWeb, flawless);
     db.close();
 
     server = await start(dir);

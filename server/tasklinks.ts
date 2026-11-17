@@ -1,5 +1,5 @@
-import {requireProject} from './project-access';
-import {notificationSnapshot,queueTaskNotifications} from './notifications';
+import { requireBrandService } from './project-access';
+import { notificationSnapshot, queueTaskNotifications } from './notifications';
 // A linked task and card share their public working fields. Results stay on the task.
 import { all, get, run, now } from './db';
 import { HttpError } from './http';
@@ -11,9 +11,7 @@ import { isClosedStage, isFlowStage, type FlowAction, type FlowStage } from '../
 export async function assertLinkedTaskEditable(cardId: string, userId: string) {
   const link = await get<any>('SELECT t.* FROM task_board_links l JOIN tasks t ON t.id=l.task_id WHERE l.card_id=?', cardId);
   if (!link) return;
-  // As on the task's own page: its project's managers and members change it (followers and viewers only look); outside
-  // projects, whoever edits the card on its board (the caller checked that) does.
-  if(link.project_id)await requireProject(userId,link.project_id,'normal');
+  if (link.brand_service_id) await requireBrandService(userId, link.brand_service_id, 'normal');
 }
 
 /** A card move or tick (`listId`, `done`) its task's review workflow does not allow: a closed task stays where it is
@@ -103,7 +101,7 @@ export async function syncTaskToCard(taskId: string) {
     t.title, t.description || '', t.description_by ?? null, t.start_at, t.due_at, ['done', 'done_late'].includes(statusKey(t.status)) ? 1 : 0, now(), t.card_id);
   const card=await get<any>('SELECT board_id,list_id FROM board_cards WHERE id=?',t.card_id);
   if (!card) return;
-  await run('UPDATE board_cards SET project_card_id=(SELECT id FROM board_cards WHERE board_id=? AND work_project_id=? AND card_kind=\'project\' ORDER BY created_at LIMIT 1) WHERE id=?',card.board_id,t.project_id,t.card_id);
+  await run("UPDATE board_cards SET service_card_id=(SELECT id FROM board_cards WHERE board_id=? AND brand_service_id=? AND card_kind IN ('service','project') ORDER BY created_at LIMIT 1) WHERE id=?", card.board_id, t.brand_service_id, t.card_id);
   const lists=await all<any>('SELECT id,name FROM board_lists WHERE board_id=? AND archived=0 ORDER BY pos',card.board_id);
   // A task in the review workflow: a column of its step — the one its card sits in if it is one (Cần sửa and Đang dựng
   // are both EXECUTION: the card stays where its people put it), or one of no step (Tạm dừng, Chờ phản hồi) it was put

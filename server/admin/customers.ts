@@ -8,8 +8,9 @@ import { historyOf } from '../audit';
 import { need, reach, text, exists, page, sendCsv, csvDate, changed, logAction, registerDict, matcher, inSet, type Ctx } from './common';
 import type { Perm } from '../../shared/permissions';
 
-import {customerStatuses,customerStatus,defaultCustomerStatus} from '../customer-statuses';
+import { customerStatuses, customerStatus, defaultCustomerStatus } from '../customer-statuses';
 import { customerServices } from '../project-services';
+import { ensureDefaultBrand } from '../brands';
 
 /** Every customer with what describes it; `ids`: only those reached through these accounts (null: all). */
 export async function customerRows(ids: Set<string> | null) {
@@ -17,8 +18,9 @@ export async function customerRows(ids: Set<string> | null) {
   const args = ids === null ? [] : [JSON.stringify([...ids]), JSON.stringify([...ids]), JSON.stringify([...ids])];
   const rows = await all<any>(`SELECT c.id, c.name, c.code, c.contact, c.phone, c.email, c.notes, c.status, c.created_at, c.updated_at, c.archived_at, c.gloc, c.created_by, c.manager_id, c.category_id, c.source_id,
     o.name owner_name, m.name manager_name, cat.name category_name, cat.color category_color, src.name source_name, src.color source_color,
-    (SELECT COUNT(*) FROM task_projects p WHERE p.customer_id = c.id) projects,
-    (SELECT COUNT(*) FROM tasks t JOIN task_projects p ON p.id = t.project_id WHERE p.customer_id = c.id AND t.stub = 0) tasks
+    (SELECT COUNT(*) FROM brands br WHERE br.customer_id = c.id AND br.deleted_at IS NULL) brands,
+    (SELECT COUNT(*) FROM brand_services bs JOIN brands br ON br.id = bs.brand_id WHERE br.customer_id = c.id AND br.deleted_at IS NULL) brand_services,
+    (SELECT COUNT(*) FROM tasks t JOIN brand_services bs ON bs.id = t.brand_service_id JOIN brands br ON br.id = bs.brand_id WHERE br.customer_id = c.id AND br.deleted_at IS NULL AND t.stub = 0) tasks
     FROM customers c LEFT JOIN users o ON o.id = c.created_by LEFT JOIN users m ON m.id = c.manager_id LEFT JOIN customer_categories cat ON cat.id = c.category_id LEFT JOIN customer_sources src ON src.id = c.source_id
     WHERE ${ids === null ? '1=1' : `(${own} OR ${man} OR EXISTS(SELECT 1 FROM customer_members cm WHERE cm.customer_id = c.id AND ${mem}))`}`, ...args);
   const needs = await customerServices();
@@ -37,7 +39,7 @@ export async function customerRows(ids: Set<string> | null) {
       owner: c.created_by ? { id: c.created_by, name: c.owner_name || '' } : (c.manager_id ? { id: c.manager_id, name: c.manager_name || '' } : null),
       manager: c.manager_id ? { id: c.manager_id, name: c.manager_name || '' } : (c.created_by ? { id: c.created_by, name: c.owner_name || '' } : null),
       createdAt: c.created_at, updatedAt: c.updated_at, archivedAt: c.archived_at || null, hasDrive: !!c.gloc,
-      needs: needs.get(c.id) || [], projects: Number(c.projects) || 0, tasks: Number(c.tasks) || 0,
+      needs: needs.get(c.id) || [], brands: Number(c.brands) || 0, brandServices: Number(c.brand_services) || 0, projects: Number(c.brand_services) || 0, tasks: Number(c.tasks) || 0,
     };
   });
 }
@@ -119,6 +121,7 @@ export function registerCustomers(api: Router) {
       id, f.name, f.contact, f.phone, f.email, f.notes, '[]', '', c.user.id, f.status, f.category, f.source, manager, c.user.id, now(), now());
     if (f.category) await run('INSERT OR IGNORE INTO customer_tags(customer_id, tag_id, created_at) VALUES(?,?,?)', id, f.category, now());
     if (manager && manager !== c.user.id) await grantManager(id, manager, c.user.id);
+    await ensureDefaultBrand(id, c.user.id);
     const made = (await customerRows(null)).find((x) => x.id === id)!;
     await changed(c, { action: 'Thêm khách hàng', type: 'customer', id, label: f.name, after: snap(made) });
     json(res, 201, made);
@@ -145,14 +148,13 @@ export function registerCustomers(api: Router) {
     json(res, 200, { ok: true });
   });
   const removeCustomer = async (c: Ctx, x: Row) => {
-    await run('UPDATE projects SET customer_id = NULL WHERE customer_id = ?', x.id);
-    await run('UPDATE task_projects SET customer_id = NULL WHERE customer_id = ?', x.id);
+    await run('UPDATE brand_services SET brand_id = NULL WHERE brand_id IN (SELECT id FROM brands WHERE customer_id = ?)', x.id);
+    await run('DELETE FROM brands WHERE customer_id = ?', x.id);
     await run('UPDATE reports SET customer_id = NULL WHERE customer_id = ?', x.id);
     await run('UPDATE board_cards SET customer_id = NULL WHERE customer_id = ?', x.id);
     await run('UPDATE boards SET customer_id = NULL WHERE customer_id = ?', x.id); // its boards become unclassified
     await run('UPDATE card_attachments SET customer_id = NULL, file_key = NULL WHERE customer_id = ?', x.id);
     await run('DELETE FROM customer_tags WHERE customer_id = ?', x.id);
-    await run('DELETE FROM customer_needs WHERE customer_id = ?', x.id);
     await run('DELETE FROM customer_members WHERE customer_id = ?', x.id);
     await run('DELETE FROM customers WHERE id = ?', x.id);
     await changed(c, { action: 'Xoá khách hàng', type: 'customer', id: x.id, label: x.name, before: snap(x) });

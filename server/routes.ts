@@ -2,6 +2,7 @@
 import { Router, json } from './http';
 import { FFMPEG } from './config';
 import { registerWorkspace } from './workspace';
+import { registerBrands } from './brands';
 import { registerNotifications } from './notifications';
 import { registerAuth } from './auth';
 import { registerReports } from './reports';
@@ -25,6 +26,7 @@ api.get('/api/health', (_q, res) => json(res, 200, { ok: true, ffmpeg: !!FFMPEG,
 registerAuth(api);
 registerNotifications(api);
 registerWorkspace(api);
+registerBrands(api);
 registerReports(api);
 registerAds(api);
 registerAdsSummary(api);

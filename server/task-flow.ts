@@ -93,8 +93,8 @@ export async function applyFlow(t: any, actor: { id: string; role: string }, can
       const id = b.reviewerId ? String(b.reviewerId) : null;
       if (id && !await get('SELECT 1 FROM users WHERE id=? AND disabled=0', id)) throw new HttpError(400, 'Người duyệt phải là tài khoản đang hoạt động');
       await run('UPDATE tasks SET reviewer_id=?,updated_at=? WHERE id=?', id, at, t.id);
-      // The reviewer reads the work: they join its project if they were not in it.
-      if (id && t.project_id) await grantAccess(id, actor.id, { projectId: t.project_id }, 'normal');
+      // The reviewer reads the work: they join its brand_service if they were not in it.
+      if (id && t.brand_service_id) await grantAccess(id, actor.id, { brandServiceId: t.brand_service_id }, 'normal');
       await log(t.id, actor.id, 'reviewer', { reviewer: (await nameOf(id))?.name || null });
       const next = await reviewerOf({ ...t, reviewer_id: id });
       if (stage === 'review' && next) await notifyPeople([next], actor.id, { title: 'Công việc chờ bạn duyệt', body: t.title, link: link(t.id) });

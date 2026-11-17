@@ -154,16 +154,34 @@ test('existing SQLite data survives schema upgrades', async () => {
   let server;
   try {
     const db = new DatabaseSync(path.join(dir, 'studio.db'));
-    db.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, title TEXT NOT NULL, aspect TEXT NOT NULL DEFAULT '16:9', data TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL); INSERT INTO projects VALUES('old', 'Keep this project', '16:9', '{}', 1, 1)");
+    db.exec(`
+      CREATE TABLE customers (id TEXT PRIMARY KEY, name TEXT NOT NULL, notes TEXT DEFAULT '', links TEXT DEFAULT '[]', folder TEXT DEFAULT '', gloc TEXT, created_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE services (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE task_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, customer_id TEXT, created_by TEXT, team_id TEXT, hold TEXT, created_at INTEGER NOT NULL);
+      CREATE TABLE project_services (project_id TEXT NOT NULL, service_id TEXT NOT NULL, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(project_id,service_id));
+      CREATE TABLE tasks (id TEXT PRIMARY KEY, external_id TEXT, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT '', start_at INTEGER, due_at INTEGER, done_at INTEGER, project_id TEXT, campaign_id TEXT, parent_id TEXT, description TEXT, result TEXT, created_by TEXT, source_updated_at INTEGER, import_id TEXT, stub INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE projects (id TEXT PRIMARY KEY, title TEXT NOT NULL, aspect TEXT NOT NULL DEFAULT '16:9', data TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      INSERT INTO customers(id, name, created_at, updated_at) VALUES('c_keep', 'Keep Client', 1, 1);
+      INSERT INTO services(id, name, created_at, updated_at) VALUES('sv_keep', 'Keep Service', 1, 1);
+      INSERT INTO task_projects(id, name, customer_id, created_at) VALUES('tj_keep', 'Keep Service', 'c_keep', 1);
+      INSERT INTO project_services(project_id, service_id, created_at) VALUES('tj_keep', 'sv_keep', 1);
+      INSERT INTO tasks(id, title, status, project_id, stub, created_at, updated_at) VALUES('tk_keep', 'Keep this task', 'Đang làm', 'tj_keep', 0, 1, 1);
+      INSERT INTO projects VALUES('old', 'Legacy video project', '16:9', '{}', 1, 1);
+    `);
     db.close();
     server = await start(dir);
     const admin = await server.call('POST', '/api/auth/setup', { code: 'test-setup-only', email: 'upgrade@example.test', password: 'test-password' });
     assert.equal(admin.status, 201);
-    // The old rows stay as they were (the video editor is gone, its data is kept).
     const after = new DatabaseSync(path.join(dir, 'studio.db'));
-    const kept = after.prepare('SELECT title, customer_id FROM projects').all();
+    const keptBs = after.prepare('SELECT id, brand_id, catalog_service_id, name FROM brand_services WHERE id = ?').get('tj_keep');
+    const keptTask = after.prepare('SELECT id, title, brand_service_id FROM tasks WHERE id = ?').get('tk_keep');
+    const legacyGone = after.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('projects','task_projects','services')").all();
     after.close();
-    assert.deepEqual(kept.map((r) => [r.title, r.customer_id]), [['Keep this project', null]]);
+    assert.equal(keptBs.name, 'Keep Service');
+    assert.equal(keptBs.catalog_service_id, 'sv_keep');
+    assert.ok(keptBs.brand_id);
+    assert.deepEqual([keptTask.title, keptTask.brand_service_id], ['Keep this task', 'tj_keep']);
+    assert.deepEqual(legacyGone, []);
   } finally { if (server) await server.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -322,17 +340,18 @@ test('Workspace Project cards persist task grouping and reject invalid parents',
     const board = (await server.call('GET', `/api/boards/${shared.id}`, undefined, cookie)).data;
     const list = board.lists[0];
     const create = body => server.call('POST', `/api/lists/${list.id}/cards`, body, cookie);
-    const project = await create({ title: 'Launch', kind: 'project', syncTask: true });
+    const project = await create({ title: 'Launch', kind: 'service', syncTask: true });
     assert.equal(project.status, 201);
-    assert.equal(project.data.kind, 'project');
-    const task = await create({ title: 'Design', kind: 'task', projectCardId: project.data.id, syncTask: true });
+    assert.equal(project.data.kind, 'service');
+    const task = await create({ title: 'Design', kind: 'task', serviceCardId: project.data.id, syncTask: true });
     assert.equal(task.status, 201);
+    assert.equal(task.data.serviceCardId, project.data.id);
     assert.equal(task.data.projectCardId, project.data.id);
-    assert.equal((await create({ title: 'Invalid', projectCardId: task.data.id })).status, 400);
+    assert.equal((await create({ title: 'Invalid', serviceCardId: task.data.id })).status, 400);
     const loaded = (await server.call('GET', `/api/boards/${shared.id}`, undefined, cookie)).data;
-    assert.equal(loaded.lists[0].cards.find(c => c.id === task.data.id).projectCardId, project.data.id);
+    assert.equal(loaded.lists[0].cards.find(c => c.id === task.data.id).serviceCardId, project.data.id);
     const detail = (await server.call('GET', `/api/cards/${project.data.id}`, undefined, cookie)).data;
-    assert.equal(detail.kind, 'project');
+    assert.equal(detail.kind, 'service');
   } finally { if (server) await server.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -1062,28 +1081,35 @@ test('customer CRUD edits database records, detaches references and leaves Drive
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
-test('customers, projects, campaigns and tasks remain separate with validated hierarchy',async()=>{
+test('customers, brands, brand services, labels and tasks remain separate with validated hierarchy',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-hierarchy-'));let server;
  try{
   server=await start(dir);const admin=await server.call('POST','/api/auth/setup',{code:'test-setup-only',email:'hierarchy@example.test',password:'test-password'});const cookie=admin.cookie;
   const customer=(await server.call('POST','/api/customers',{name:'Hierarchy Client',databaseOnly:true},cookie)).data;
-  const p1=(await server.call('POST',`/api/customers/${customer.id}/projects`,{name:'Project One'},cookie)).data;
-  const p2=(await server.call('POST',`/api/customers/${customer.id}/projects`,{name:'Project Two'},cookie)).data;
-  const c1=await server.call('POST',`/api/task-projects/${p1.id}/campaigns`,{name:'Campaign A'},cookie);
-  assert.equal(c1.status,201,JSON.stringify(c1.data));assert.equal(c1.data.projectId,p1.id);assert.notEqual(c1.data.id,p1.id);
-  const task=await server.call('POST','/api/tasks',{title:'Campaign Task',projectId:p1.id,campaignId:c1.data.id},cookie);assert.equal(task.status,201);
+  const brand=(await server.call('POST',`/api/customers/${customer.id}/brands`,{name:'Hierarchy Brand'},cookie)).data;
+  const svc1=(await server.call('POST','/api/admin/services',{name:'Service One'},cookie)).data;
+  const svc2=(await server.call('POST','/api/admin/services',{name:'Service Two'},cookie)).data;
+  const p1=(await server.call('POST','/api/brand-services',{brandId:brand.id,catalogServiceId:svc1.id},cookie)).data;
+  const p2=(await server.call('POST','/api/brand-services',{brandId:brand.id,catalogServiceId:svc2.id},cookie)).data;
+  const removedCamp=await server.call('POST',`/api/task-projects/${p1.id}/campaigns`,{name:'Campaign A'},cookie);
+  assert.equal(removedCamp.status,410);
+  const task=await server.call('POST','/api/tasks',{title:'Labelled Task',brandServiceId:p1.id,labels:['Campaign A']},cookie);assert.equal(task.status,201);
   const detail=(await server.call('GET',`/api/tasks/${task.data.id}`,undefined,cookie)).data;
-  assert.equal(detail.project.id,p1.id);assert.equal(detail.campaign.id,c1.data.id);
-  const invalid=await server.call('PUT',`/api/tasks/${task.data.id}`,{projectId:p2.id,campaignId:c1.data.id},cookie);assert.equal(invalid.status,400);
-  const list=(await server.call('GET',`/api/tasks?scope=all&project=${p1.id}&campaign=${c1.data.id}`,undefined,cookie)).data;assert.equal(list.tasks.length,1);
-  assert.equal((await server.call('DELETE',`/api/task-projects/${p1.id}/campaigns/${c1.data.id}`,undefined,cookie)).status,409);
-  const renamed=await server.call('PUT',`/api/task-projects/${p1.id}/campaigns/${c1.data.id}`,{name:'Campaign renamed'},cookie);assert.equal(renamed.status,200);
-  const record=(await server.call('GET','/api/customers/directory',undefined,cookie)).data[0];assert.equal(record.projects,2);assert.equal(record.campaigns,1);assert.equal(record.tasks,1);
-  const meta=(await server.call('GET','/api/tasks/meta',undefined,cookie)).data;assert.ok(meta.campaigns.some(c=>c.id===c1.data.id));
+  assert.equal(detail.brandService.id,p1.id);assert.equal(detail.project.id,p1.id);
+  assert.equal(detail.brand.id,brand.id);assert.deepEqual(detail.labels,['Campaign A']);
+  assert.equal(detail.campaign,null);
+  const list=(await server.call('GET',`/api/tasks?scope=all&brandService=${p1.id}&label=${encodeURIComponent('Campaign A')}`,undefined,cookie)).data;assert.equal(list.tasks.length,1);
+  const byBrand=(await server.call('GET',`/api/tasks?scope=all&brand=${brand.id}`,undefined,cookie)).data;assert.equal(byBrand.tasks.length,1);
+  const record=(await server.call('GET','/api/customers/directory',undefined,cookie)).data[0];
+  assert.equal(record.brandServices,2);assert.equal(record.projects,2);assert.equal(record.brandCount,2);assert.equal(record.tasks,1);
+  const meta=(await server.call('GET','/api/tasks/meta',undefined,cookie)).data;
+  assert.ok(meta.brands.some(b=>b.id===brand.id));
+  assert.ok(meta.brandServices.some(s=>s.id===p1.id&&s.brandId===brand.id));
+  assert.ok(meta.brandServices.some(s=>s.id===p2.id));
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
-test('quick-created records share customer, project, campaign, employee and Workspace links across backend views', async()=>{
+test('quick-created records share customer, brand, service, employee and Workspace links across backend views', async()=>{
   const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-create-linked-'));
   let server;
   try{
@@ -1094,19 +1120,16 @@ test('quick-created records share customer, project, campaign, employee and Work
     const cookie=admin.cookie;
     const create=async(url,body)=>{const r=await server.call('POST',url,body,cookie);assert.equal(r.status,201,JSON.stringify(r.data));return r.data;};
     const customer=await create('/api/customers',{name:'Quick Client',databaseOnly:true});
-    const project=await create(`/api/customers/${customer.id}/projects`,{name:'Quick Project'});
-    const campaign=await create(`/api/task-projects/${project.id}/campaigns`,{name:'Quick Campaign'});
+    const svc=await create('/api/admin/services',{name:'Quick Service'});
+    const project=await create('/api/brand-services',{customerId:customer.id,catalogServiceId:svc.id});
     const department=await create('/api/roles',{name:'Quick Department',pages:['workspace']});
     const employee=await create('/api/users',{name:'Quick Employee',email:'quick-employee@example.test',password:'test-password',role:'member',teamRole:department.id});
-    const task=await create('/api/tasks',{title:'Quick Task',projectId:project.id,campaignId:campaign.id,assigneeUserIds:[employee.id]});
+    const task=await create('/api/tasks',{title:'Quick Task',brandServiceId:project.id,labels:['Quick Campaign'],assigneeUserIds:[employee.id]});
     const meta=(await server.call('GET','/api/tasks/meta',undefined,cookie)).data;
-    assert.equal(meta.projects.find(p=>p.id===project.id).customerId,customer.id);
-    assert.equal(meta.campaigns.find(c=>c.id===campaign.id).projectId,project.id);
+    assert.equal(meta.brandServices.find(p=>p.id===project.id).customerId,customer.id);
     assert.ok(meta.users.some(u=>u.id===employee.id));
-    const projects=(await server.call('GET',`/api/customers/${customer.id}/projects`,undefined,cookie)).data;
+    const projects=(await server.call('GET',`/api/brand-services?customerId=${customer.id}`,undefined,cookie)).data;
     assert.equal(projects.find(p=>p.id===project.id).tasks,1);
-    const campaigns=(await server.call('GET',`/api/task-projects/${project.id}/campaigns`,undefined,cookie)).data;
-    assert.equal(campaigns.find(c=>c.id===campaign.id).tasks,1);
     const board=await create('/api/boards',{name:'Quick Board',roleId:null,private:true,lists:['Chưa thực hiện']});
     const column=await create(`/api/boards/${board.id}/lists`,{name:'Chờ phản hồi'});
     const link=await create(`/api/tasks/${task.id}/card`,{listId:column.id});
@@ -1119,8 +1142,8 @@ test('quick-created records share customer, project, campaign, employee and Work
     await server.close();server=await start(dir);
     // A company admin lists a department's work, here one employee's.
     const assigned=(await server.call('GET',`/api/tasks?scope=team&team=${department.id}&employee=${employee.id}`,undefined,cookie)).data.tasks;
-    assert.equal(assigned.length,1);assert.equal(assigned[0].campaign.id,campaign.id);
-    assert.equal(assigned[0].project.id,project.id);assert.equal(assigned[0].status,column.name);
+    assert.equal(assigned.length,1);assert.deepEqual(assigned[0].labels,['Quick Campaign']);
+    assert.equal(assigned[0].brandService.id,project.id);assert.equal(assigned[0].status,column.name);
     const directory=(await server.call('GET','/api/customers/directory',undefined,cookie)).data;
     assert.equal(directory.filter(c=>c.id===customer.id).length,1);
   }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
@@ -1206,37 +1229,36 @@ test('personal boards require direct membership even for system admins and works
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
-test('projects require explicit members, retain team classification and revoke nested access',async()=>{
+test('brand services require explicit members, retain team classification and revoke nested access',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-project-access-'));let server;
  try{
   server=await start(dir);const root=await server.call('POST','/api/auth/setup',{code:'test-setup-only',email:'project-owner@example.test',password:'test-password'}),cookie=root.cookie;
   const makeUser=async(name,role='member')=>{const r=await server.call('POST','/api/users',{name,email:`${name}@example.test`,password:'test-password',role},cookie);assert.equal(r.status,201);const login=await server.call('POST','/api/auth/login',{email:r.data.email,password:'test-password'});return {...r.data,cookie:login.cookie};};
   const member=await makeUser('project-member'),stranger=await makeUser('project-admin','admin');
   const customer=(await server.call('POST','/api/customers',{name:'Private Project Client',databaseOnly:true},cookie)).data;
-  const projectResponse=await server.call('POST',`/api/customers/${customer.id}/projects`,{name:'Private Project'},cookie);assert.equal(projectResponse.status,201,JSON.stringify(projectResponse.data));const project=projectResponse.data;
+  const svc=(await server.call('POST','/api/admin/services',{name:'Private Service'},cookie)).data;
+  const projectResponse=await server.call('POST','/api/brand-services',{customerId:customer.id,catalogServiceId:svc.id},cookie);assert.equal(projectResponse.status,201,JSON.stringify(projectResponse.data));const project=projectResponse.data;
   const team=(await server.call('POST','/api/roles',{name:'Project Team'},cookie)).data;
-  assert.equal((await server.call('PUT',`/api/task-projects/${project.id}/team`,{teamId:team.id},cookie)).status,200);
-  const campaign=(await server.call('POST',`/api/task-projects/${project.id}/campaigns`,{name:'Private Campaign'},cookie)).data;
-  const task=(await server.call('POST','/api/tasks',{title:'Project secret task',projectId:project.id,campaignId:campaign.id},cookie)).data;
+  assert.equal((await server.call('PUT',`/api/brand-services/${project.id}/team`,{teamId:team.id},cookie)).status,200);
+  const task=(await server.call('POST','/api/tasks',{title:'Project secret task',brandServiceId:project.id,labels:['Private Campaign']},cookie)).data;
   await server.call('PUT',`/api/customers/${customer.id}/members/${member.id}`,{level:'normal'},cookie);
   await server.call('PUT',`/api/customers/${customer.id}/members/${stranger.id}`,{level:'admin'},cookie);
   for(const who of [member,stranger]){
-   assert.equal((await server.call('GET',`/api/task-projects/${project.id}/campaigns`,undefined,who.cookie)).status,404);
+   assert.equal((await server.call('GET',`/api/brand-services/${project.id}/members`,undefined,who.cookie)).status,404);
    assert.equal((await server.call('GET',`/api/tasks/${task.id}`,undefined,who.cookie)).status,404);
-   assert.equal((await server.call('GET','/api/tasks/meta',undefined,who.cookie)).data.projects.some(p=>p.id===project.id),false);
+   assert.equal((await server.call('GET','/api/tasks/meta',undefined,who.cookie)).data.brandServices.some(p=>p.id===project.id),false);
    assert.equal((await server.call('GET',`/api/customers/${customer.id}/projects`,undefined,who.cookie)).data.some(p=>p.id===project.id),false);
    assert.equal((await server.call('GET','/api/tasks?scope=all',undefined,who.cookie)).data.tasks.some(t=>t.id===task.id),false);
   }
-  assert.equal((await server.call('PUT',`/api/task-projects/${project.id}/members/${member.id}`,{level:'observer'},cookie)).status,200);
-  assert.equal((await server.call('GET',`/api/task-projects/${project.id}/campaigns`,undefined,member.cookie)).status,200);
-  const visible=(await server.call('GET','/api/tasks/meta',undefined,member.cookie)).data.projects.find(p=>p.id===project.id);assert.equal(visible.teamId,team.id);assert.equal(visible.level,'observer');
-  assert.equal((await server.call('POST',`/api/task-projects/${project.id}/campaigns`,{name:'Denied'},member.cookie)).status,403);
-  assert.equal((await server.call('PUT',`/api/task-projects/${project.id}/team`,{teamId:null},member.cookie)).status,403);
-  assert.equal((await server.call('DELETE',`/api/task-projects/${project.id}/members/${root.data.user.id}`,undefined,cookie)).status,400);
-  assert.equal((await server.call('DELETE',`/api/task-projects/${project.id}/members/${member.id}`,undefined,cookie)).status,200);
-  assert.equal((await server.call('GET',`/api/task-projects/${project.id}/members`,undefined,member.cookie)).status,404);
+  assert.equal((await server.call('PUT',`/api/brand-services/${project.id}/members/${member.id}`,{level:'observer'},cookie)).status,200);
+  assert.equal((await server.call('GET',`/api/brand-services/${project.id}/members`,undefined,member.cookie)).status,200);
+  const visible=(await server.call('GET','/api/tasks/meta',undefined,member.cookie)).data.brandServices.find(p=>p.id===project.id);assert.equal(visible.teamId,team.id);assert.equal(visible.level,'observer');
+  assert.equal((await server.call('PUT',`/api/brand-services/${project.id}/team`,{teamId:null},member.cookie)).status,403);
+  assert.equal((await server.call('DELETE',`/api/brand-services/${project.id}/members/${root.data.user.id}`,undefined,cookie)).status,400);
+  assert.equal((await server.call('DELETE',`/api/brand-services/${project.id}/members/${member.id}`,undefined,cookie)).status,200);
+  assert.equal((await server.call('GET',`/api/brand-services/${project.id}/members`,undefined,member.cookie)).status,404);
   await server.close();server=await start(dir);
-  assert.equal((await server.call('GET','/api/tasks/meta',undefined,cookie)).data.projects.find(p=>p.id===project.id).teamId,team.id);
+  assert.equal((await server.call('GET','/api/tasks/meta',undefined,cookie)).data.brandServices.find(p=>p.id===project.id).teamId,team.id);
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
@@ -1371,34 +1393,32 @@ test('someone given a task of a customer finds it on Khách hàng without Drive;
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
-test('a customer\'s services are its projects\'; services once set on a customer go to its projects',async()=>{
+test('a customer\'s services are derived dynamically from its brands\' services',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-project-services-'));let server;
  try{
   server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
   const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'ps-boss@example.test',password:'test-password'})).cookie;
   const web=(await server.call('POST','/api/admin/services',{name:'Website'},ac)).data, ads=(await server.call('POST','/api/admin/services',{name:'Meta Ads'},ac)).data;
   const names=async(id)=>(await server.call('GET',`/api/customers/${id}/record`,undefined,ac)).data.needs.map(n=>n.name);
-  // Set on a customer before projects carried them (no project yet): still its services, until its first project takes them.
   const old=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách cũ'},ac)).data;
-  const db=new DatabaseSync(path.join(dir,'studio.db'));
-  db.prepare('INSERT INTO customer_needs(customer_id,service_id,created_at) VALUES(?,?,?),(?,?,?)').run(old.id,web.id,1,old.id,ads.id,1);
-  db.close();
-  assert.deepEqual(await names(old.id),['Meta Ads','Website']);
-  const first=(await server.call('POST',`/api/customers/${old.id}/projects`,{name:'Dự án đầu'},ac)).data;
-  const listed=async(id)=>(await server.call('GET',`/api/customers/${id}/projects`,undefined,ac)).data;
-  assert.deepEqual((await listed(old.id)).find(p=>p.id===first.id).services.map(n=>n.name),['Meta Ads','Website']);
-  // From then on they are the project's: dropping one there drops it from the customer.
-  assert.equal((await server.call('PUT',`/api/task-projects/${first.id}`,{services:[web.id]},ac)).status,200);
-  // A project is one service of its customer: two are refused.
-  assert.equal((await server.call('PUT',`/api/task-projects/${first.id}`,{services:[web.id,ads.id]},ac)).status,400);
+  assert.deepEqual(await names(old.id),[]);
+  // Creating a brand service attaches that catalog service to the customer's aggregated needs.
+  const first=(await server.call('POST','/api/brand-services',{customerId:old.id,catalogServiceId:ads.id},ac)).data;
+  const listed=async(id)=>(await server.call('GET',`/api/brand-services?customerId=${id}`,undefined,ac)).data;
+  assert.deepEqual((await listed(old.id)).find(p=>p.id===first.id).services.map(n=>n.name),['Meta Ads']);
+  assert.deepEqual(await names(old.id),['Meta Ads']);
+  // Updating it to Website switches the derived customer services.
+  assert.equal((await server.call('PUT',`/api/brand-services/${first.id}`,{services:[web.id]},ac)).status,200);
+  // A brand service is one catalog service of its brand: two are refused.
+  assert.equal((await server.call('PUT',`/api/brand-services/${first.id}`,{services:[web.id,ads.id]},ac)).status,400);
   assert.deepEqual(await names(old.id),['Website']);
-  // A new project gets the services it is created with (the form offers the customer's); the customer has them all.
-  const second=(await server.call('POST','/api/task-projects',{name:'Dự án quảng cáo',customerId:old.id,services:[ads.id]},ac)).data;
+  // A second brand service adds Ads; both appear on customer needs and meta.
+  const second=(await server.call('POST','/api/brand-services',{customerId:old.id,services:[ads.id]},ac)).data;
   assert.deepEqual(await names(old.id),['Meta Ads','Website']);
   const meta=(await server.call('GET','/api/tasks/meta',undefined,ac)).data;
-  assert.deepEqual(meta.projects.find(p=>p.id===second.id).services.map(n=>n.name),['Meta Ads']);
-  // Deleting a project takes its services off the customer.
-  assert.equal((await server.call('DELETE',`/api/task-projects/${second.id}`,undefined,ac)).status,200);
+  assert.deepEqual(meta.brandServices.find(p=>p.id===second.id).services.map(n=>n.name),['Meta Ads']);
+  // Deleting a brand service removes that service from customer needs.
+  assert.equal((await server.call('DELETE',`/api/brand-services/${second.id}`,undefined,ac)).status,200);
   assert.deepEqual(await names(old.id),['Website']);
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });

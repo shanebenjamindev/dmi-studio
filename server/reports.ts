@@ -479,54 +479,33 @@ async function videosFrom(id: string, d: ReportData, link: string) {
 }
 
 // ------------------------------------------------------------------ filled in from DMI Workspace
-/** "[ADS] FORM YÊU CẦU DỰNG VIDEO | DYNAMIC M DETAIL | CERAMIC COATING" → "Ceramic Coating" (the last part, in Title Case). */
-function serviceOf(sheetTitle: string) {
-  const parts = String(sheetTitle || '').split('|').map((x) => x.trim()).filter(Boolean);
-  const last = parts.length > 1 ? parts[parts.length - 1] : '';
-  return last.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
-}
-/** A project's title without the request form's prefix. */
-const videoTitle = (t: string) => String(t).replace(/\[ADS\]\s*/i, '').replace(/FORM YÊU CẦU DỰNG VIDEO\s*\|?\s*/i, '').trim();
-
-async function fillFrom(id: string, projectId: string | null, customerId: string | null) {
-  const c = customerId ? await get<any>('SELECT * FROM customers WHERE id = ?', customerId) : null;
-  const projects = customerId
-    ? await all<any>('SELECT id, title, data FROM projects WHERE customer_id = ? ORDER BY created_at', customerId)
-    : projectId ? await all<any>('SELECT id, title, data FROM projects WHERE id = ?', projectId) : [];
-  const first = projects.map((p) => JSON.parse(p.data)).find((d) => d.sheet);
-  const client = c?.name || first?.sheet?.form?.customer || 'Client';
-  const d = blank(client, serviceOf(first?.sheet?.title || ''));
-  // Setup values are not facts until Meta supplies them.
+async function fillFrom(id: string, brandServiceId: string | null, customerId: string | null) {
+  const bs = brandServiceId
+    ? await get<any>(
+        `SELECT bs.id, bs.name, br.name brand_name, br.drive_folder, br.customer_id, s.name svc_name
+         FROM brand_services bs
+         LEFT JOIN brands br ON br.id = bs.brand_id AND br.deleted_at IS NULL
+         LEFT JOIN service_catalog s ON s.id = bs.catalog_service_id
+         WHERE bs.id = ?`,
+        brandServiceId
+      )
+    : null;
+  const resolvedCustomerId = customerId || bs?.customer_id || null;
+  const c = resolvedCustomerId ? await get<any>('SELECT * FROM customers WHERE id = ?', resolvedCustomerId) : null;
+  const client = c?.name || bs?.brand_name || 'Client';
+  const serviceName = bs?.svc_name || bs?.name || '';
+  const d = blank(client, serviceName);
+  if (bs?.brand_name && bs.brand_name !== client && serviceName) d.hero.pill = `${bs.brand_name} · ${serviceName}`;
   d.adsets.sets = []; d.adsets.on = false; d.adsets.form.on = false;
   d.audience.fields = []; d.audience.on = false;
   d.budget.settings = []; d.budget.statFoot = ''; d.budget.currency = '';
   d.budget.statLabel = 'Ngân sách';
   const links = (() => { try { return JSON.parse(c?.links || '[]'); } catch { return []; } })();
   d.creatives.previews = links.filter((l: any) => /^https?:\/\//i.test(l.url || '')).slice(0, 20).map((l: any) => ({ label: l.label || l.url, url: l.url }));
-  const deadline = first?.sheet?.form?.deadline;
-  if (deadline) d.budget.focus.push({ label: 'Hạn bàn giao video', value: String(deadline) });
-  if (c?.gloc) { try { const g = JSON.parse(c.gloc); if (g.id) d.creatives.folder = { url: `https://drive.google.com/drive/folders/${g.id}`, name: c.name }; } catch { /* no linked Drive folder */ } }
-
-  // The agency's logo, and the client's from a logo outro (already cut out).
+  const driveRaw = bs?.drive_folder || c?.gloc || null;
+  if (driveRaw) { try { const g = JSON.parse(driveRaw); if (g.id) d.creatives.folder = { url: `https://drive.google.com/drive/folders/${g.id}`, name: bs?.brand_name || c?.name || 'Drive' }; } catch { /* no linked Drive folder */ } }
   try { d.hero.agencyLogo = await keep(id, fs.readFileSync(path.join(HERE(), '..', 'web', 'public', 'brand', 'logo.png')), 'image/png'); } catch { /* no brand file */ }
-  for (const p of projects) {
-    const f = path.join(DATA_DIR, 'outro', p.id, 'logo.png');
-    if (fs.existsSync(f)) { d.hero.clientLogo = await keep(id, fs.readFileSync(f), 'image/png'); break; }
-  }
-  // The videos of the Drive folder linked on the project (or another of the customer's projects), with their links;
-  // without one, one creative per project, with the thumbnail of its first clip.
-  const folder = [...projects].sort((a, b) => +(b.id === projectId) - +(a.id === projectId)).map((p) => JSON.parse(p.data).drive).find((x) => x?.folder);
-  if (folder && await videosFrom(id, d, folder.url).catch(() => 0)) return { data: d, title: `${client} · Meta Ads ${d.hero.month.charAt(0)}${d.hero.month.slice(1).toLowerCase()} ${d.hero.year}` };
-  for (const p of projects) {
-    const data = JSON.parse(p.data);
-    const shot = (data.storyboard?.scenes || []).flatMap((s: any) => s.shots || []).find((x: any) => x.media?.provider === 'drive');
-    let thumb = '';
-    if (shot) {
-      const q = new URLSearchParams(String(shot.media.url).split('?')[1] || '');
-      try { const t = await G.thumbBuffer(q.get('a') || '', shot.media.assetId); thumb = await keep(id, t.body, t.type.split(';')[0]); } catch { /* no thumbnail on Drive */ }
-    }
-    d.creatives.items.push({ type: 'Video Creative', title: videoTitle(p.title), url: data.drive && !data.drive.folder ? data.drive.url : '', thumb, captions: CAPTION_LABELS.map((label) => ({ label, text: '' })) });
-  }
+  if (d.creatives.folder?.url) await videosFrom(id, d, d.creatives.folder.url).catch(() => 0);
   return { data: d, title: `${client} · Meta Ads ${d.hero.month.charAt(0)}${d.hero.month.slice(1).toLowerCase()} ${d.hero.year}` };
 }
 
@@ -600,7 +579,7 @@ const mustReport = async (id: string) => {
   if (!r) throw new HttpError(404, 'Không tìm thấy báo cáo');
   return r;
 };
-const out = (r: any, full = true) => ({ id: r.id, title: r.title, customerId: r.customer_id, projectId: r.project_id, createdAt: r.created_at, updatedAt: r.updated_at, ...(full ? { data: clean(JSON.parse(r.data)) } : {}) });
+const out = (r: any, full = true) => ({ id: r.id, title: r.title, customerId: r.customer_id, brandServiceId: r.brand_service_id, projectId: r.brand_service_id, createdAt: r.created_at, updatedAt: r.updated_at, ...(full ? { data: clean(JSON.parse(r.data)) } : {}) });
 const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'report';
 
 /** A Drive video as the report's video picker shows it. */
@@ -610,12 +589,12 @@ export function registerReports(api: Router) {
   api.get('/api/reports/customers', async (req, res) => {
     const user=(await currentUser(req))!;json(res,200,await all(`SELECT c.id,c.name FROM customers c WHERE ${customerAccessSql()} ORDER BY c.name COLLATE NOCASE`,user.id,user.id,user.id));
   });
-  // A customer's reports (or a project's, when it has no customer).
+  // A customer's reports (or a brand_service's).
   api.get('/api/reports', async (req, res) => {
-    const c = req.query.get('customer'), p = req.query.get('project');
+    const c = req.query.get('customer'), bs = req.query.get('brandService') || req.query.get('project');
     const sql = 'SELECT r.*, c.name customer_name FROM reports r LEFT JOIN customers c ON c.id = r.customer_id';
     const rows = c ? await all<any>(`${sql} WHERE r.customer_id = ? ORDER BY r.updated_at DESC`, c)
-      : p ? await all<any>(`${sql} WHERE r.project_id = ? ORDER BY r.updated_at DESC`, p)
+      : bs ? await all<any>(`${sql} WHERE r.brand_service_id = ? ORDER BY r.updated_at DESC`, bs)
       : await all<any>(`${sql} ORDER BY r.updated_at DESC`);
     const levels=await customerLevels((await currentUser(req))!.id);
     json(res, 200, rows.filter(r=>!r.customer_id||levels.has(r.customer_id)).map((r) => {
@@ -623,7 +602,7 @@ export function registerReports(api: Router) {
       return { ...out(r, false), customerName: r.customer_name || null, client: d.client, meta: pf.account && pf.data ? { account: pf.account.name, since: pf.since, until: pf.until } : null };
     }));
   });
-  // A new report filled in from the customer (all its projects) or from one project.
+  // A new report filled in from the customer or a brand_service.
   api.post('/api/reports', async (req, res) => {
     const b = await readJson(req);
     let snapshot: Awaited<ReturnType<typeof metaSnapshot>> | null = null;
@@ -637,18 +616,19 @@ export function registerReports(api: Router) {
       snapshot = snap;
       meta = { account: snap.account, since, until, data: perf(snap.data), fetchedAt: now() };
     }
-    const p = b.projectId ? await get<any>('SELECT id, customer_id FROM projects WHERE id = ?', String(b.projectId)) : null;
+    const bsId = b.brandServiceId || b.projectId;
+    const bs = bsId ? await get<any>('SELECT bs.id, br.customer_id FROM brand_services bs LEFT JOIN brands br ON br.id = bs.brand_id AND br.deleted_at IS NULL WHERE bs.id = ?', String(bsId)) : null;
     const customer = b.customerId ? await get<any>('SELECT id FROM customers WHERE id = ?', String(b.customerId)) : null;
     if (b.customerId && !customer) throw new HttpError(404, 'Khách hàng không còn trong database. Hãy chọn lại.');
-    const customerId = customer?.id || p?.customer_id || null;
+    const customerId = customer?.id || bs?.customer_id || null;
     if(customerId)await requireCustomer((await currentUser(req))!.id,customerId,'normal');
     const id = uid('r_');
-    const filled = await fillFrom(id, p?.id || null, customerId);
+    const filled = await fillFrom(id, bs?.id || null, customerId);
     const data = filled.data;
     const title = meta ? `${meta.account.name} · Meta Ads ${meta.since} – ${meta.until}` : filled.title;
     if (meta) data.performance = { ...data.performance, ...meta, on: true };
     if (snapshot) fillMetaInputs(data, snapshot, true);
-    await run('INSERT INTO reports(id, customer_id, project_id, title, data, created_at, updated_at) VALUES(?,?,?,?,?,?,?)', id, customerId, p?.id || null, title, JSON.stringify(data), now(), now());
+    await run('INSERT INTO reports(id, customer_id, brand_service_id, title, data, created_at, updated_at) VALUES(?,?,?,?,?,?,?)', id, customerId, bs?.id || null, title, JSON.stringify(data), now(), now());
     json(res, 201, { ...out(await mustReport(id)), autofillWarnings: snapshot?.warnings || [] });
   });
   api.get('/api/reports/:id', async (req, res) => json(res, 200, out(await mustReport(req.params.id))));
@@ -660,7 +640,7 @@ export function registerReports(api: Router) {
   });
   api.post('/api/reports/:id/autofill', async (req, res) => {
     const r = await mustReport(req.params.id), d = clean(JSON.parse(r.data));
-    const source = (await fillFrom(r.id, r.project_id, r.customer_id)).data;
+    const source = (await fillFrom(r.id, r.brand_service_id, r.customer_id)).data;
     if (!d.client || d.client === 'Client') d.client = source.client;
     if (!d.hero.eyebrow || d.hero.eyebrow === 'CLIENT') d.hero.eyebrow = d.client.toUpperCase();
     for (const k of ['pill', 'agencyLogo', 'clientLogo'] as const) if (!d.hero[k]) d.hero[k] = source.hero[k];

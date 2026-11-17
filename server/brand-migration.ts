@@ -310,8 +310,13 @@ export async function buildMigrationStatements(db: QueryClient, options: Migrati
 
   const stmts: string[] = [];
 
-  // 1. Ensure target additive tables exist (brands & user_google_accounts).
+  // 1. Ensure referenced base tables and target additive tables exist (brands & user_google_accounts).
   stmts.push(
+    `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', pass TEXT, disabled INTEGER NOT NULL DEFAULT 0, last_login INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS customers (id TEXT PRIMARY KEY, name TEXT NOT NULL, contact TEXT, phone TEXT, email TEXT, notes TEXT, folder TEXT NOT NULL DEFAULT '', gloc TEXT, links TEXT, created_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS service_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL, pos REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS task_labels (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE)`,
+    `CREATE TABLE IF NOT EXISTS task_label_links (task_id TEXT NOT NULL, label_id TEXT NOT NULL, PRIMARY KEY (task_id, label_id))`,
     `CREATE TABLE IF NOT EXISTS brands (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, name TEXT NOT NULL, logo TEXT, notes TEXT NOT NULL DEFAULT '', pos REAL NOT NULL DEFAULT 0, drive_folder TEXT, created_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER)`,
     `CREATE INDEX IF NOT EXISTS brands_customer ON brands(customer_id, deleted_at, pos)`,
     `CREATE TABLE IF NOT EXISTS user_google_accounts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, email TEXT NOT NULL, name TEXT, picture TEXT, refresh TEXT NOT NULL, scopes TEXT NOT NULL DEFAULT 'drive', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, UNIQUE(user_id, email))`,
@@ -340,9 +345,11 @@ export async function buildMigrationStatements(db: QueryClient, options: Migrati
     );
   }
   if (hasOldServices) {
+    const sCols = await columnsOf(db, 'services');
+    const col = (name: string, fallback: string) => (sCols.has(name) ? name : `${fallback} ${name}`);
     stmts.push(
       `INSERT OR IGNORE INTO service_catalog(id, name, code, category_id, about, image, price, currency, unit, status, created_by, updated_by, created_at, updated_at, deleted_at)
-       SELECT id, name, code, category_id, about, image, price, currency, unit, status, created_by, updated_by, created_at, updated_at, deleted_at FROM services`
+       SELECT id, name, ${col('code', 'NULL')}, ${col('category_id', 'NULL')}, ${col('about', "''")}, ${col('image', 'NULL')}, ${col('price', 'NULL')}, ${col('currency', "'VND'")}, ${col('unit', "''")}, ${col('status', "'active'")}, ${col('created_by', 'NULL')}, ${col('updated_by', 'NULL')}, ${col('created_at', String(nowMs))}, ${col('updated_at', String(nowMs))}, ${col('deleted_at', 'NULL')} FROM services`
     );
     if (await tableExists(db, 'service_package_items')) {
       stmts.push(

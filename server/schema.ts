@@ -1,29 +1,6 @@
 // Admin module tables (roles … notification_logs, at the end): see server/admin/ and shared/permissions.ts. The logs keep the
 // person's id and name as they were, with no foreign key: they outlive the account, and nobody edits them.
 export const SCHEMA = `
-CREATE TABLE IF NOT EXISTS projects (
-  id TEXT PRIMARY KEY, title TEXT NOT NULL, aspect TEXT NOT NULL DEFAULT '16:9',
-  data TEXT NOT NULL, customer_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS assets (
-  id TEXT PRIMARY KEY, project_id TEXT, kind TEXT NOT NULL, mime TEXT, file TEXT NOT NULL,
-  bytes INTEGER, source TEXT, meta TEXT, created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS jobs (
-  id TEXT PRIMARY KEY, project_id TEXT, scene_id TEXT, kind TEXT NOT NULL,
-  provider TEXT NOT NULL, model TEXT, input TEXT NOT NULL, status TEXT NOT NULL,
-  remote_id TEXT, remote_meta TEXT, result TEXT, error TEXT,
-  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, polled_at INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS jobs_project ON jobs(project_id, created_at);
-CREATE TABLE IF NOT EXISTS renders (
-  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, asset_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ready',
-  created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS ai_calls (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, provider TEXT, model TEXT, kind TEXT,
-  ms INTEGER, ok INTEGER, error TEXT, created_at INTEGER NOT NULL
-);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS customers (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, contact TEXT, phone TEXT, email TEXT, notes TEXT,
@@ -54,14 +31,15 @@ CREATE TABLE IF NOT EXISTS dept_roles (
 );
 CREATE TABLE IF NOT EXISTS boards (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, bg TEXT NOT NULL, role_id TEXT, created_by TEXT, pos REAL NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-  about TEXT, workspace_id TEXT, private INTEGER NOT NULL DEFAULT 0
+  about TEXT, workspace_id TEXT, private INTEGER NOT NULL DEFAULT 0, brand_service_id TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS boards_brand_service ON boards(brand_service_id) WHERE brand_service_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS board_lists (
   id TEXT PRIMARY KEY, board_id TEXT NOT NULL, name TEXT NOT NULL, pos REAL NOT NULL, created_at INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS board_cards (
   id TEXT PRIMARY KEY, board_id TEXT NOT NULL, list_id TEXT NOT NULL, title TEXT NOT NULL, pos REAL NOT NULL, created_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-  description TEXT, start_at INTEGER, due_at INTEGER, done INTEGER NOT NULL DEFAULT 0, cover TEXT, archived INTEGER NOT NULL DEFAULT 0, customer_id TEXT, card_kind TEXT NOT NULL DEFAULT 'task', project_card_id TEXT, work_project_id TEXT
+  description TEXT, start_at INTEGER, due_at INTEGER, done INTEGER NOT NULL DEFAULT 0, cover TEXT, archived INTEGER NOT NULL DEFAULT 0, customer_id TEXT, card_kind TEXT NOT NULL DEFAULT 'task', service_card_id TEXT, brand_service_id TEXT
 );
 CREATE TABLE IF NOT EXISTS board_stars (user_id TEXT NOT NULL, board_id TEXT NOT NULL, PRIMARY KEY (user_id, board_id));
 CREATE TABLE IF NOT EXISTS user_prefs (user_id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -105,19 +83,15 @@ CREATE TABLE IF NOT EXISTS board_activity (
   id TEXT PRIMARY KEY, board_id TEXT NOT NULL, card_id TEXT, user_id TEXT, action TEXT NOT NULL, data TEXT, created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS board_activity_board ON board_activity(board_id, created_at);
-CREATE TABLE IF NOT EXISTS task_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, customer_id TEXT, created_by TEXT, team_id TEXT, created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS task_project_members (project_id TEXT NOT NULL REFERENCES task_projects(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, role TEXT NOT NULL DEFAULT 'normal', PRIMARY KEY(project_id,user_id));
-CREATE TABLE IF NOT EXISTS task_campaigns (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, created_at INTEGER NOT NULL);
-CREATE INDEX IF NOT EXISTS task_campaigns_project ON task_campaigns(project_id);
 CREATE TABLE IF NOT EXISTS task_people (id TEXT PRIMARY KEY, name TEXT NOT NULL, user_id TEXT, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY, external_id TEXT, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT '', start_at INTEGER, due_at INTEGER, done_at INTEGER,
-  project_id TEXT, parent_id TEXT, description TEXT, result TEXT, created_by TEXT, source_updated_at INTEGER, import_id TEXT,
+  brand_service_id TEXT, parent_id TEXT, description TEXT, result TEXT, created_by TEXT, source_updated_at INTEGER, import_id TEXT,
   stub INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS tasks_external ON tasks(external_id) WHERE external_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_id);
-CREATE INDEX IF NOT EXISTS tasks_project ON tasks(project_id);
+CREATE INDEX IF NOT EXISTS tasks_brand_service ON tasks(brand_service_id);
 CREATE TABLE IF NOT EXISTS task_assignees (task_id TEXT NOT NULL, person_id TEXT NOT NULL, PRIMARY KEY (task_id, person_id));
 CREATE TABLE IF NOT EXISTS task_followers (task_id TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (task_id, user_id));
 CREATE TABLE IF NOT EXISTS task_labels (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
@@ -140,7 +114,7 @@ CREATE TABLE IF NOT EXISTS task_imports (
 CREATE TABLE IF NOT EXISTS ads_services (id TEXT PRIMARY KEY, reporting_key TEXT NOT NULL UNIQUE, data TEXT NOT NULL, updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS report_images (report_id TEXT NOT NULL, file TEXT NOT NULL, mime TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(report_id,file));
 CREATE TABLE IF NOT EXISTS reports (
-  id TEXT PRIMARY KEY, customer_id TEXT, project_id TEXT, title TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  id TEXT PRIMARY KEY, customer_id TEXT, brand_service_id TEXT, title TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS notification_preferences (
@@ -217,7 +191,7 @@ CREATE TABLE IF NOT EXISTS customer_interactions (
 );
 CREATE INDEX IF NOT EXISTS customer_interactions_customer ON customer_interactions(customer_id,happened_at);
 CREATE TABLE IF NOT EXISTS service_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL, pos REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS services (
+CREATE TABLE IF NOT EXISTS service_catalog (
  id TEXT PRIMARY KEY, name TEXT NOT NULL, code TEXT, category_id TEXT REFERENCES service_categories(id) ON DELETE SET NULL, about TEXT NOT NULL DEFAULT '',
  image TEXT, price REAL, currency TEXT NOT NULL DEFAULT 'VND', unit TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active',
  created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
@@ -227,27 +201,37 @@ CREATE TABLE IF NOT EXISTS service_packages (
  status TEXT NOT NULL DEFAULT 'active', created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS service_package_items (
- package_id TEXT NOT NULL REFERENCES service_packages(id) ON DELETE CASCADE, service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+ package_id TEXT NOT NULL REFERENCES service_packages(id) ON DELETE CASCADE, service_id TEXT NOT NULL REFERENCES service_catalog(id) ON DELETE CASCADE,
  qty INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(package_id,service_id)
 );
-CREATE TABLE IF NOT EXISTS customer_needs (
- customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
- added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(customer_id,service_id)
+-- Khách hàng -> Nhãn hàng -> Dịch vụ của nhãn hàng (mã tj_ được giữ nguyên để link cũ và MCP không gãy).
+CREATE TABLE IF NOT EXISTS brands (
+  id TEXT PRIMARY KEY, customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, name TEXT NOT NULL,
+  logo TEXT, notes TEXT NOT NULL DEFAULT '', pos REAL NOT NULL DEFAULT 0, drive_folder TEXT,
+  created_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
 );
-CREATE INDEX IF NOT EXISTS customer_needs_service ON customer_needs(service_id);
--- The services each project is for (a customer has those of its projects, server/project-services.ts). No semicolons in
--- these notes: D1 runs the schema split at each one.
-CREATE TABLE IF NOT EXISTS project_services (
- project_id TEXT NOT NULL REFERENCES task_projects(id) ON DELETE CASCADE, service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
- added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(project_id,service_id)
+CREATE INDEX IF NOT EXISTS brands_customer ON brands(customer_id, deleted_at, pos);
+CREATE TABLE IF NOT EXISTS brand_services (
+  id TEXT PRIMARY KEY, brand_id TEXT REFERENCES brands(id) ON DELETE CASCADE,
+  catalog_service_id TEXT NOT NULL REFERENCES service_catalog(id) ON DELETE RESTRICT,
+  name TEXT NOT NULL, hold TEXT, created_by TEXT, team_id TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS project_services_service ON project_services(service_id);
--- The services a task is for (picked on the task, its project's suggested first).
+CREATE INDEX IF NOT EXISTS brand_services_brand ON brand_services(brand_id);
+CREATE INDEX IF NOT EXISTS brand_services_catalog ON brand_services(catalog_service_id);
+CREATE INDEX IF NOT EXISTS brand_services_brand_catalog ON brand_services(brand_id, catalog_service_id);
+CREATE TABLE IF NOT EXISTS brand_service_members (
+  brand_service_id TEXT NOT NULL REFERENCES brand_services(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'normal', follows INTEGER NOT NULL DEFAULT 1, via_board TEXT,
+  PRIMARY KEY(brand_service_id, user_id)
+);
+-- The services a task tags explicitly (from service_catalog).
 CREATE TABLE IF NOT EXISTS task_services (
  task_id TEXT NOT NULL, service_id TEXT NOT NULL, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(task_id,service_id)
 );
 CREATE INDEX IF NOT EXISTS task_services_service ON task_services(service_id);
--- A board's type: the services it is for (its cards' work counts for them unless their task names its own).
+-- A board's type: the catalog services it is for.
 CREATE TABLE IF NOT EXISTS board_services (
  board_id TEXT NOT NULL, service_id TEXT NOT NULL, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(board_id,service_id)
 );
@@ -327,13 +311,6 @@ CREATE TABLE IF NOT EXISTS user_gmail (
   refresh TEXT NOT NULL, access TEXT, expiry INTEGER, created_at INTEGER NOT NULL,
   signature TEXT NOT NULL DEFAULT '', signature_on INTEGER NOT NULL DEFAULT 1
 );
--- Khách hàng -> Nhãn hàng: each customer has one or more brands (default brand shares customer name).
-CREATE TABLE IF NOT EXISTS brands (
-  id TEXT PRIMARY KEY, customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, name TEXT NOT NULL,
-  logo TEXT, notes TEXT NOT NULL DEFAULT '', pos REAL NOT NULL DEFAULT 0, drive_folder TEXT,
-  created_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
-);
-CREATE INDEX IF NOT EXISTS brands_customer ON brands(customer_id, deleted_at, pos);
 -- Google Drive per DMI account: each signed-in user connects one or more of their own Gmail accounts.
 CREATE TABLE IF NOT EXISTS user_google_accounts (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, email TEXT NOT NULL,

@@ -27,8 +27,8 @@ export function registerSystem(api: Router) {
       counts: {
         users: await n('SELECT COUNT(*) n FROM users WHERE disabled = 0'), locked: await n('SELECT COUNT(*) n FROM users WHERE disabled = 1'), departments: await n('SELECT COUNT(*) n FROM team_roles'),
         teams: await n('SELECT COUNT(*) n FROM teams WHERE deleted_at IS NULL'), roles: await n('SELECT COUNT(*) n FROM roles'), tasks: await n('SELECT COUNT(*) n FROM tasks WHERE stub = 0'),
-        projects: await n('SELECT COUNT(*) n FROM task_projects'), customers: await n('SELECT COUNT(*) n FROM customers WHERE archived_at IS NULL'), boards: await n('SELECT COUNT(*) n FROM boards'),
-        cards: await n('SELECT COUNT(*) n FROM board_cards WHERE archived = 0'), services: await n('SELECT COUNT(*) n FROM services WHERE deleted_at IS NULL'), sessions: await n('SELECT COUNT(*) n FROM sessions WHERE expires_at > ?', now()),
+        brands: await n('SELECT COUNT(*) n FROM brands WHERE deleted_at IS NULL'), brandServices: await n('SELECT COUNT(*) n FROM brand_services'), projects: await n('SELECT COUNT(*) n FROM brand_services'), customers: await n('SELECT COUNT(*) n FROM customers WHERE archived_at IS NULL'), boards: await n('SELECT COUNT(*) n FROM boards'),
+        cards: await n('SELECT COUNT(*) n FROM board_cards WHERE archived = 0'), services: await n('SELECT COUNT(*) n FROM service_catalog WHERE deleted_at IS NULL'), sessions: await n('SELECT COUNT(*) n FROM sessions WHERE expires_at > ?', now()),
       },
       integrations: { googleAccounts: (await G.accounts()).map((a) => a.email), mailSender: mail?.email || null, workspaceRoot: root?.label || null, metaAds: !!(await getSetting('ads_config', null)) },
       logs: { retentionDays: Number(await getSetting('log_retention_days', RETENTION_DEFAULT)), audit: await n('SELECT COUNT(*) n FROM audit_logs'), logins: await n('SELECT COUNT(*) n FROM login_logs'),
@@ -253,11 +253,11 @@ export function registerSystem(api: Router) {
       "SELECT COALESCE(s.name, 'Bảng tính') || ' (Phần ' || p.part || ')' as name, 'Bảng tính Excel/CSV' as type, LENGTH(p.data) as bytes, NULL as date, 'Cloudflare D1 (In-DB)' as source FROM task_import_sheet_parts p LEFT JOIN task_import_sheets s ON s.import_id = p.import_id"
     ).catch(() => []);
     const cardAttachmentsCount = await n('SELECT COUNT(*) n FROM card_attachments').catch(() => 0);
-    const serverAssets = (await all<any>('SELECT file as name, kind as type, bytes, created_at as date, "Ổ đĩa máy chủ" as source FROM assets').catch(() => [])) as any[];
+    const serverAssets: any[] = [];
 
     const inDbFilesList = [...avatars, ...reports, ...sheets];
     const totalInDbBytes = inDbFilesList.reduce((acc, f) => acc + f.bytes, 0);
-    const serverFiles = (await all<any>('SELECT kind, COUNT(*) files, COALESCE(SUM(bytes), 0) bytes FROM assets GROUP BY kind ORDER BY bytes DESC').catch(() => [])).map((r: any) => ({ kind: r.kind, files: Number(r.files), bytes: Number(r.bytes) }));
+    const serverFiles: { kind: string; files: number; bytes: number }[] = [];
     const serverFilesBytes = serverFiles.reduce((acc: number, f: any) => acc + f.bytes, 0);
     const serverFilesCount = serverFiles.reduce((acc: number, f: any) => acc + f.files, 0);
 
@@ -419,7 +419,7 @@ export function registerSystem(api: Router) {
         { key: 'login_logs', label: 'Lịch sử đăng nhập', files: await safeCount('SELECT COUNT(*) n FROM login_logs'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(COALESCE(email, '')) + LENGTH(COALESCE(ip, '')) + 160), 0) n FROM login_logs") },
         { key: 'messages', label: 'Tin nhắn & Tệp Messenger', files: await safeCount('SELECT COUNT(*) n FROM chat_messages'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(COALESCE(message, '')) + 180), 0) n FROM chat_messages") },
         { key: 'task_import_sheet_parts', label: 'Bảng công việc đã nhập', files: await safeCount('SELECT COUNT(DISTINCT import_id) n FROM task_import_sheet_parts'), bytes: await safeBytes('SELECT COALESCE(SUM(LENGTH(data)), 0) n FROM task_import_sheet_parts') },
-        { key: 'customers', label: 'Khách hàng & Chiến dịch dịch vụ', files: await safeCount('SELECT (SELECT COUNT(*) FROM customers) + (SELECT COUNT(*) FROM task_projects) n'), bytes: await safeBytes("SELECT (SELECT COALESCE(SUM(LENGTH(name) + LENGTH(COALESCE(notes, '')) + 300), 0) FROM customers) + (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM task_projects) n") },
+        { key: 'customers', label: 'Khách hàng, Nhãn hàng & Dịch vụ', files: await safeCount('SELECT (SELECT COUNT(*) FROM customers) + (SELECT COUNT(*) FROM brands) + (SELECT COUNT(*) FROM brand_services) n'), bytes: await safeBytes("SELECT (SELECT COALESCE(SUM(LENGTH(name) + LENGTH(COALESCE(notes, '')) + 300), 0) FROM customers) + (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM brands) + (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM brand_services) n") },
         { key: 'workspaces', label: 'Không gian làm việc & Board', files: await safeCount('SELECT (SELECT COUNT(*) FROM workspaces) + (SELECT COUNT(*) FROM boards) n'), bytes: await safeBytes("SELECT (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM workspaces) + (SELECT COALESCE(SUM(LENGTH(name) + 200), 0) FROM boards) n") },
         { key: 'users', label: 'Tài khoản nhân viên & Thành viên', files: await safeCount('SELECT COUNT(*) n FROM users'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(name) + LENGTH(email) + 250), 0) n FROM users") },
         { key: 'sessions', label: 'Phiên đăng nhập đang hoạt động', files: await safeCount('SELECT COUNT(*) n FROM sessions'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(token) + 120), 0) n FROM sessions") },
@@ -428,7 +428,7 @@ export function registerSystem(api: Router) {
         { key: 'notifications', label: 'Thông báo hệ thống', files: await safeCount('SELECT COUNT(*) n FROM notifications'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(title) + LENGTH(body) + 150), 0) n FROM notifications") },
         { key: 'quick_notes', label: 'Ghi chú nhanh', files: await safeCount('SELECT COUNT(*) n FROM quick_notes'), bytes: await safeBytes("SELECT COALESCE(SUM(LENGTH(COALESCE(body, '')) + 150), 0) n FROM quick_notes") },
       ],
-      renders: await n('SELECT COUNT(*) n FROM renders').catch(() => 0),
+      renders: 0,
       drive: { accounts: driveAccounts.length, root: rootSetting?.label || null },
 
       // Full Storage Audit

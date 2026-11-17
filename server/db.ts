@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { DATA_DIR, IS_CLOUDFLARE } from './config';
 import { CUSTOMER_STATUS } from '../shared/customers';
 import { SCHEMA } from './schema';
+import { migrateToBrandHierarchy } from './brand-migration';
 import { DEFAULT_ROLES, SUPER_ADMIN } from '../shared/permissions';
 
 export type SqlValue = string | number | bigint | null | ArrayBuffer | Uint8Array;
@@ -97,16 +98,23 @@ async function initialize(binding?: D1Binding) {
  *  them once more on the next cold start. */
 let version = '';
 const schemaVersion = () => version ||= crypto.createHash('sha256')
-  .update([SCHEMA, upgrade, seedAdmin, repairData, JSON.stringify(DEFAULT_ROLES), JSON.stringify(CUSTOMER_STATUS)].map(String).join('\n')).digest('hex').slice(0, 16);
+  .update([SCHEMA, upgrade, seedAdmin, repairData, migrateToBrandHierarchy, JSON.stringify(DEFAULT_ROLES), JSON.stringify(CUSTOMER_STATUS)].map(String).join('\n')).digest('hex').slice(0, 16);
 async function upgrade() {
+  // Migrate pre-brand tables/columns before executing SCHEMA so new indexes (e.g. tasks.brand_service_id) succeed.
+  const hasLegacy = (await db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name IN ('task_projects','services','task_campaigns','customer_needs','project_services','projects') LIMIT 1")).rows.length > 0
+    || (await db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'")).rows.length > 0
+       && (await db.execute('PRAGMA table_info(tasks)')).rows.some((c) => c.name === 'project_id');
+  if (hasLegacy) {
+    await migrateToBrandHierarchy(db, { strict: false, allowFallbackService: true });
+  }
   await db.executeMultiple(SCHEMA);
   // Columns added after a table was first made, with their type.
   const columns = new Map<string, string[]>();
-  for (const [table, column, type = 'TEXT'] of [['task_projects','created_by'],['task_projects','team_id'],['projects', 'customer_id'], ['notification_preferences','email'],['notification_preferences','verified_at','INTEGER'],['notification_preferences','pending_email'],['notification_preferences','verification_hash'],['notification_preferences','verification_expires','INTEGER'],['notification_preferences','verification_attempts','INTEGER NOT NULL DEFAULT 0'],['notification_preferences','verification_sent_at','INTEGER'], ['customers','created_by'], ['customers', 'gloc'], ['customers', 'links'], ['users', 'team_role'], ['boards', 'about'],
+  for (const [table, column, type = 'TEXT'] of [['brand_services','created_by'],['brand_services','team_id'],['brand_services','hold'], ['notification_preferences','email'],['notification_preferences','verified_at','INTEGER'],['notification_preferences','pending_email'],['notification_preferences','verification_hash'],['notification_preferences','verification_expires','INTEGER'],['notification_preferences','verification_attempts','INTEGER NOT NULL DEFAULT 0'],['notification_preferences','verification_sent_at','INTEGER'], ['customers','created_by'], ['customers', 'gloc'], ['customers', 'links'], ['users', 'team_role'], ['boards', 'about'],
     ['board_lists', 'archived', 'INTEGER NOT NULL DEFAULT 0'], ['board_cards', 'description'], ['board_cards', 'start_at', 'INTEGER'], ['board_cards', 'due_at', 'INTEGER'],
     ['board_cards', 'done', 'INTEGER NOT NULL DEFAULT 0'], ['board_cards', 'cover'], ['board_cards', 'archived', 'INTEGER NOT NULL DEFAULT 0'],
     ['boards', 'workspace_id'], ['boards', 'private', 'INTEGER NOT NULL DEFAULT 0'], ['workspaces', 'visibility', "TEXT NOT NULL DEFAULT 'private'"], ['users', 'dept_role'],
-    ['oauth_states','owner_id'], ['tasks','campaign_id'], ['task_project_members','follows','INTEGER NOT NULL DEFAULT 1'], ['board_cards', 'card_kind', "TEXT NOT NULL DEFAULT 'task'"], ['board_cards', 'project_card_id'], ['board_cards', 'work_project_id'], ['board_cards', 'customer_id'], ['card_attachments', 'customer_id'], ['card_attachments', 'file_key'], ['tasks', 'description_by'], ['board_cards', 'description_by'], ['board_cards', 'result'],
+    ['oauth_states','owner_id'], ['brand_service_members','follows','INTEGER NOT NULL DEFAULT 1'], ['board_cards', 'card_kind', "TEXT NOT NULL DEFAULT 'task'"], ['board_cards', 'service_card_id'], ['board_cards', 'brand_service_id'], ['board_cards', 'customer_id'], ['card_attachments', 'customer_id'], ['card_attachments', 'file_key'], ['tasks', 'description_by'], ['board_cards', 'description_by'], ['board_cards', 'result'],
     // Admin module (server/admin/*): staff profiles, session origin, task priority, label colour, customer records.
     ['users', 'phone'], ['users', 'manager_id', 'TEXT REFERENCES users(id) ON DELETE SET NULL'], ['users', 'avatar_at', 'INTEGER'], ['sessions', 'ip'], ['sessions', 'agent'],
     ['tasks', 'priority_id', 'TEXT REFERENCES task_priorities(id) ON DELETE SET NULL'], ['task_labels', 'color'], ['notifications', 'broadcast_id'],
@@ -122,9 +130,7 @@ async function upgrade() {
     ['boards', 'view'], ['boards', 'start_at', 'INTEGER'],
     // The customer a workspace is for (none: none); its boards start out for that customer.
     ['workspaces', 'customer_id'],
-    ['task_project_members', 'via_board'], ['customer_members', 'via_board'],
-    // A project its managers put on hold or cancelled (shared/projects.ts); otherwise its stage follows its tasks.
-    ['task_projects', 'hold'],
+    ['brand_service_members', 'via_board'], ['customer_members', 'via_board'],
     // A list's own colour (the whole column), one of the cards' cover colours.
     ['board_lists', 'color'],
     // Screenshots sent with a support request (a JSON list of pictures).
@@ -133,8 +139,10 @@ async function upgrade() {
     // was last handed in and graded, and how many times it was sent back.
     ['tasks', 'stage'], ['tasks', 'reviewer_id'], ['tasks', 'submitted_at', 'INTEGER'], ['tasks', 'reviewed_at', 'INTEGER'], ['tasks', 'revision', 'INTEGER NOT NULL DEFAULT 0'],
     ['card_comments', 'reply_to_id'],
-    // The customer's service a board is (server/service-boards.ts): one board per customer × service.
-    ['boards', 'project_id'],
+    // The brand's service a board is (server/service-boards.ts): one board per brand × service.
+    ['boards', 'brand_service_id'],
+    ['reports', 'brand_service_id'],
+    ['brands', 'drive_folder'], ['brands', 'deleted_at', 'INTEGER'],
     ['task_comments', 'reply_to_id']]) {
     // One look at each table's columns, not one per column: every cold start on D1 runs this.
     const info = columns.get(table) || (await db.execute(`PRAGMA table_info(${table})`)).rows.map(c => c.name as string);
@@ -142,30 +150,31 @@ async function upgrade() {
     if (!info.includes(column)) { await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`); info.push(column); }
   }
   await db.execute('CREATE INDEX IF NOT EXISTS notifications_broadcast ON notifications(broadcast_id)');
-  await db.execute('CREATE UNIQUE INDEX IF NOT EXISTS boards_project ON boards(project_id) WHERE project_id IS NOT NULL');
+  await db.execute('CREATE UNIQUE INDEX IF NOT EXISTS boards_brand_service ON boards(brand_service_id) WHERE brand_service_id IS NOT NULL');
   await seedAdmin();
   await repairData();
 }
 /** Data a change elsewhere may leave out of step, set right: after each upgrade, and by the cron every ten minutes
  *  (they read whole tables, so not on every cold start). */
 export async function repairData() {
-  // Project cards without their project get one, keeping their existing child tasks.
-  await db.execute("INSERT OR IGNORE INTO task_projects(id,name,created_by,created_at) SELECT 'tj_card_'||id,title,created_by,created_at FROM board_cards WHERE card_kind='project' AND work_project_id IS NULL");
-  await db.execute("UPDATE board_cards SET work_project_id='tj_card_'||id WHERE card_kind='project' AND work_project_id IS NULL");
-  await db.execute("UPDATE tasks SET project_id=(SELECT p.work_project_id FROM task_board_links l JOIN board_cards c ON c.id=l.card_id JOIN board_cards p ON p.id=c.project_card_id WHERE l.task_id=tasks.id) WHERE project_id IS NULL AND EXISTS(SELECT 1 FROM task_board_links l JOIN board_cards c ON c.id=l.card_id JOIN board_cards p ON p.id=c.project_card_id WHERE l.task_id=tasks.id AND p.work_project_id IS NOT NULL)");
+  const t = Date.now();
+  // Every active customer has at least one brand (default shares customer name and Drive folder).
+  await db.execute({ sql: "INSERT OR IGNORE INTO brands(id,customer_id,name,logo,notes,pos,drive_folder,created_by,created_at,updated_at,deleted_at) SELECT 'br_default_'||c.id,c.id,c.name,NULL,'',0,c.gloc,c.created_by,c.created_at,?,NULL FROM customers c WHERE NOT EXISTS(SELECT 1 FROM brands b WHERE b.customer_id=c.id AND b.deleted_at IS NULL)", args: [t] });
+  // Service cards missing a brand_service keep their child tasks linked cleanly.
+  const needsFallbackSvc = (await db.execute("SELECT 1 FROM board_cards WHERE card_kind IN ('service','project') AND brand_service_id IS NULL LIMIT 1")).rows.length > 0;
+  if (needsFallbackSvc) {
+    await db.execute({ sql: "INSERT OR IGNORE INTO service_catalog(id,name,code,status,created_at,updated_at) VALUES('sv_general','Dịch vụ chung','GENERAL','active',?,?)", args: [t, t] });
+    await db.execute({ sql: "INSERT OR IGNORE INTO brand_services(id,brand_id,catalog_service_id,name,created_by,created_at,updated_at) SELECT 'tj_card_'||id, CASE WHEN customer_id IS NOT NULL THEN (SELECT b.id FROM brands b WHERE b.customer_id=board_cards.customer_id AND b.deleted_at IS NULL ORDER BY b.pos,b.created_at LIMIT 1) ELSE NULL END, 'sv_general', title, created_by, created_at, ? FROM board_cards WHERE card_kind IN ('service','project') AND brand_service_id IS NULL", args: [t] });
+    await db.execute("UPDATE board_cards SET card_kind='service', brand_service_id='tj_card_'||id WHERE card_kind IN ('service','project') AND brand_service_id IS NULL");
+  }
+  await db.execute("UPDATE tasks SET brand_service_id=(SELECT p.brand_service_id FROM task_board_links l JOIN board_cards c ON c.id=l.card_id JOIN board_cards p ON p.id=c.service_card_id WHERE l.task_id=tasks.id) WHERE brand_service_id IS NULL AND EXISTS(SELECT 1 FROM task_board_links l JOIN board_cards c ON c.id=l.card_id JOIN board_cards p ON p.id=c.service_card_id WHERE l.task_id=tasks.id AND p.brand_service_id IS NOT NULL)");
   // Company admins are Super Admins.
-  await db.execute({ sql: "INSERT OR IGNORE INTO user_roles(user_id,role_id,created_at) SELECT id,'role_super_admin',? FROM users WHERE role='admin'", args: [Date.now()] });
-  await db.execute("UPDATE task_projects SET created_by=COALESCE((SELECT c.created_by FROM customers c WHERE c.id=task_projects.customer_id),(SELECT i.user_id FROM task_imports i JOIN tasks t ON t.import_id=i.id WHERE t.project_id=task_projects.id ORDER BY i.created_at LIMIT 1),(SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1)) WHERE created_by IS NULL");
+  await db.execute({ sql: "INSERT OR IGNORE INTO user_roles(user_id,role_id,created_at) SELECT id,'role_super_admin',? FROM users WHERE role='admin'", args: [t] });
+  await db.execute("UPDATE brand_services SET created_by=COALESCE((SELECT b.created_by FROM brands b WHERE b.id=brand_services.brand_id),(SELECT i.user_id FROM task_imports i JOIN tasks t ON t.import_id=i.id WHERE t.brand_service_id=brand_services.id ORDER BY i.created_at LIMIT 1),(SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1)) WHERE created_by IS NULL");
   await db.execute("UPDATE mail_outbox SET state='cancelled',error='Cần xác minh email cá nhân để nhận thư' WHERE state='pending' AND user_id IN(SELECT user_id FROM notification_preferences WHERE email IS NULL OR verified_at IS NULL)");
   // Existing ownerless starter boards belong to the original administrator; no implicit admin access remains.
   await db.execute("UPDATE boards SET created_by=(SELECT id FROM users WHERE role='admin' AND disabled=0 ORDER BY created_at,id LIMIT 1) WHERE created_by IS NULL AND EXISTS(SELECT 1 FROM users WHERE role='admin' AND disabled=0)");
   await db.execute('UPDATE boards SET private=1 WHERE private<>1');
-  await db.execute("INSERT OR IGNORE INTO task_campaigns(id,project_id,name,created_at) SELECT 'tc_existing_'||p.id,p.id,'Công việc hiện có',p.created_at FROM task_projects p WHERE EXISTS(SELECT 1 FROM tasks t WHERE t.project_id=p.id AND t.campaign_id IS NULL)");
-  await db.execute("UPDATE tasks SET campaign_id='tc_existing_'||project_id WHERE project_id IS NOT NULL AND campaign_id IS NULL");
-  // Services set on a customer go to its projects that name none yet, once it has one (settleCustomerServices in
-  // project-services.ts; SQLite reads the whole SELECT before inserting, as it reads the table it fills).
-  await db.execute('INSERT OR IGNORE INTO project_services(project_id,service_id,added_by,created_at) SELECT p.id,n.service_id,n.added_by,n.created_at FROM customer_needs n JOIN task_projects p ON p.customer_id=n.customer_id WHERE NOT EXISTS(SELECT 1 FROM project_services x WHERE x.project_id=p.id)');
-  await db.execute('DELETE FROM customer_needs WHERE customer_id IN (SELECT customer_id FROM task_projects WHERE customer_id IS NOT NULL)');
   // A task dragged into a board's done column before the column's meaning was used took the column's name as its status
   // ("Xong"): it gets the task workflow's own, done late when finished after its due date.
   await db.execute("UPDATE tasks SET status=CASE WHEN due_at IS NOT NULL AND done_at > due_at THEN 'Hoàn thành muộn' ELSE 'Hoàn thành' END WHERE status IN ('Xong','Đã xong','Hoàn tất','Đã hoàn thành','Done','Completed')");

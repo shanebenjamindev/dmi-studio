@@ -22,11 +22,19 @@ export const STATE_LABEL: Record<string, string> = { todo: 'Chưa làm', doing: 
 /** Every task (but the placeholders made for missing parents) with the people on it. */
 export async function taskRows() {
   const [tasks, flow] = await Promise.all([
-    all<any>(`SELECT t.id, t.title, t.status, t.stage, t.revision, t.submitted_at, t.start_at, t.due_at, t.done_at, t.created_at, t.updated_at, t.parent_id, t.project_id, t.priority_id, t.campaign_id, t.external_id,
-      j.name project_name, j.customer_id, j.team_id project_dept, cu.name customer_name, ca.name campaign_name, pr.name priority_name, pr.color priority_color, pr.pos priority_pos, cp.user_id creator_user, cp.name creator_name, pa.title parent_title,
+    all<any>(`SELECT t.id, t.title, t.status, t.stage, t.revision, t.submitted_at, t.start_at, t.due_at, t.done_at, t.created_at, t.updated_at, t.parent_id, t.brand_service_id, t.priority_id, t.external_id,
+      j.name service_name, j.brand_id, j.catalog_service_id, j.team_id service_dept, br.name brand_name, br.customer_id, cu.name customer_name, sc.name catalog_service_name,
+      pr.name priority_name, pr.color priority_color, pr.pos priority_pos, cp.user_id creator_user, cp.name creator_name, pa.title parent_title,
       (SELECT COUNT(*) FROM tasks x WHERE x.parent_id = t.id) children
-      FROM tasks t LEFT JOIN task_projects j ON j.id = t.project_id LEFT JOIN customers cu ON cu.id = j.customer_id LEFT JOIN task_campaigns ca ON ca.id = t.campaign_id
-      LEFT JOIN task_priorities pr ON pr.id = t.priority_id LEFT JOIN task_people cp ON cp.id = t.created_by LEFT JOIN tasks pa ON pa.id = t.parent_id WHERE t.stub = 0`),
+      FROM tasks t
+      LEFT JOIN brand_services j ON j.id = t.brand_service_id
+      LEFT JOIN brands br ON br.id = j.brand_id AND br.deleted_at IS NULL
+      LEFT JOIN customers cu ON cu.id = br.customer_id
+      LEFT JOIN service_catalog sc ON sc.id = j.catalog_service_id
+      LEFT JOIN task_priorities pr ON pr.id = t.priority_id
+      LEFT JOIN task_people cp ON cp.id = t.created_by
+      LEFT JOIN tasks pa ON pa.id = t.parent_id
+      WHERE t.stub = 0`),
     flowSettings(),
   ]);
   const many = <T,>(rows: any[], key: string, val: (r: any) => T) => { const m = new Map<string, T[]>(); for (const r of rows) m.set(r[key], [...(m.get(r[key]) || []), val(r)]); return m; };
@@ -38,11 +46,27 @@ export async function taskRows() {
   return tasks.map((t) => {
     const who = assignees.get(t.id) || [];
     const people = new Set([...who.map((a) => a.userId), t.creator_user, ...(followers.get(t.id) || []), ...(onCard.get(t.id) || [])].filter(Boolean) as string[]);
+    const bs = t.brand_service_id
+      ? {
+          id: t.brand_service_id as string,
+          name: (t.catalog_service_id && t.catalog_service_id !== 'sv_general' ? t.catalog_service_name || t.service_name : t.service_name || t.catalog_service_name || '') as string,
+          brandId: (t.brand_id || null) as string | null,
+          brandName: (t.brand_name || null) as string | null,
+          customerId: (t.customer_id || null) as string | null,
+          catalogServiceId: (t.catalog_service_id || null) as string | null,
+          departmentId: (t.service_dept || null) as string | null,
+        }
+      : null;
     return {
       id: t.id, title: t.title, status: t.status, state: stateOf(t), stage: stageOf(t, who.length > 0, flow), revision: Number(t.revision) || 0, submittedAt: (t.submitted_at ?? null) as number | null, category: statusKey(t.status), startAt: t.start_at ?? null, dueAt: t.due_at ?? null, doneAt: t.done_at ?? null, createdAt: t.created_at, updatedAt: t.updated_at,
-      externalId: t.external_id || null, project: t.project_id ? { id: t.project_id, name: t.project_name || '', departmentId: (t.project_dept || null) as string | null } : null, customer: t.customer_id ? { id: t.customer_id, name: t.customer_name || '' } : null,
-      campaign: t.campaign_id ? { id: t.campaign_id, name: t.campaign_name || '' } : null, parent: t.parent_id ? { id: t.parent_id, title: t.parent_title || '' } : null, children: Number(t.children) || 0,
-      priority: t.priority_id ? { id: t.priority_id, name: t.priority_name || '', color: t.priority_color || '#94a3b8', pos: Number(t.priority_pos) || 0 } : null,
+      externalId: t.external_id || null,
+      brandService: bs,
+      /** @deprecated Dùng brandService. */
+      project: bs,
+      brand: t.brand_id ? { id: t.brand_id as string, name: (t.brand_name || '') as string } : null,
+      customer: t.customer_id ? { id: t.customer_id as string, name: (t.customer_name || '') as string } : null,
+      parent: t.parent_id ? { id: t.parent_id as string, title: (t.parent_title || '') as string } : null, children: Number(t.children) || 0,
+      priority: t.priority_id ? { id: t.priority_id as string, name: (t.priority_name || '') as string, color: (t.priority_color || '#94a3b8') as string, pos: Number(t.priority_pos) || 0 } : null,
       creator: t.creator_name ? { name: t.creator_name as string, userId: (t.creator_user || null) as string | null } : null,
       assignees: who, labels: labels.get(t.id) || [], people: [...people], cardMembers: onCard.get(t.id) || [],
     };
@@ -58,13 +82,20 @@ async function tasksFor(c: Ctx, q: URLSearchParams) {
   let team: Set<string> | null = null;
   if (q.get('team')) team = new Set((await all<any>('SELECT user_id FROM team_members WHERE team_id = ?', String(q.get('team')))).map((r) => r.user_id));
   const from = Number(q.get('from')) || 0, to = Number(q.get('to')) || 0;
+  const bsFilter = q.get('brandService') || q.get('brandServiceId') || q.get('project');
+  const brandFilter = q.get('brand') || q.get('brandId');
+  const custFilter = q.get('customer') || q.get('customerId');
+  const catSvcFilter = q.get('service') || q.get('catalogServiceId');
   return inReach(await taskRows(), await reach(c))
-    .filter((t) => hit(t.id, t.title, t.project?.name, t.customer?.name, t.campaign?.name, t.labels.join(' '), t.externalId, t.status, STATE_LABEL[t.state], t.state, t.priority?.name, t.creator?.name, t.parent?.title, t.assignees.map((a) => a.name).join(' ')))
+    .filter((t) => hit(t.id, t.title, t.brandService?.name, t.brand?.name, t.customer?.name, t.labels.join(' '), t.externalId, t.status, STATE_LABEL[t.state], t.state, t.priority?.name, t.creator?.name, t.parent?.title, t.assignees.map((a) => a.name).join(' ')))
     .filter((t) => { const st = q.get('state'); return !st || (isFlowFilter(st) ? flowMatch(t, st) : st === 'open' ? !['done', 'done_late', 'cancelled'].includes(t.state) : st === 'done' ? ['done', 'done_late'].includes(t.state) : t.state === st); })
     .filter((t) => !q.get('status') || t.status === q.get('status'))
     .filter((t) => !q.get('priority') || (q.get('priority') === 'none' ? !t.priority : t.priority?.id === q.get('priority')))
-    .filter((t) => !q.get('project') || t.project?.id === q.get('project'))
-    .filter((t) => !q.get('dept') || t.project?.departmentId === q.get('dept') || t.assignees.some((a) => a.departmentId === q.get('dept')))
+    .filter((t) => !bsFilter || t.brandService?.id === bsFilter)
+    .filter((t) => !brandFilter || t.brand?.id === brandFilter)
+    .filter((t) => !custFilter || t.customer?.id === custFilter)
+    .filter((t) => !catSvcFilter || t.brandService?.catalogServiceId === catSvcFilter)
+    .filter((t) => !q.get('dept') || t.brandService?.departmentId === q.get('dept') || t.assignees.some((a) => a.departmentId === q.get('dept')))
     .filter((t) => !team || t.assignees.some((a) => a.userId && team!.has(a.userId)) || t.cardMembers.some((m) => team!.has(m)))
     .filter((t) => !q.get('user') || t.assignees.some((a) => a.userId === q.get('user')) || t.cardMembers.includes(String(q.get('user'))))
     .filter((t) => !q.get('label') || t.labels.includes(String(q.get('label'))))
@@ -83,8 +114,8 @@ export function registerWork(api: Router) {
   api.get('/api/admin/tasks/export', async (req, res) => {
     const c = await need(req, 'tasks.export'), rows = (await tasksFor(await need(req, 'tasks.view'), req.query)).sort((a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity));
     await logAction(c, 'Xuất danh sách công việc (CSV)', `${rows.length} công việc`, 'task');
-    sendCsv(res, 'cong-viec.csv', [['Mã', 'Tên công việc', 'Trạng thái', 'Tình trạng', 'Ưu tiên', 'Dịch vụ', 'Khách hàng', 'Chiến dịch', 'Người làm', 'Nhãn', 'Bắt đầu', 'Thời hạn', 'Hoàn thành', 'Cập nhật'],
-      ...rows.map((t) => [t.externalId || t.id, t.title, t.status, STATE_LABEL[t.state] || t.state, t.priority?.name, t.project?.name, t.customer?.name, t.campaign?.name, t.assignees.map((a) => a.name).join('; '), t.labels.join('; '), csvDate(t.startAt), csvDate(t.dueAt), csvDate(t.doneAt), csvDate(t.updatedAt)])]);
+    sendCsv(res, 'cong-viec.csv', [['Mã', 'Tên công việc', 'Trạng thái', 'Tình trạng', 'Ưu tiên', 'Dịch vụ', 'Nhãn hàng', 'Khách hàng', 'Người làm', 'Nhãn', 'Bắt đầu', 'Thời hạn', 'Hoàn thành', 'Cập nhật'],
+      ...rows.map((t) => [t.externalId || t.id, t.title, t.status, STATE_LABEL[t.state] || t.state, t.priority?.name, t.brandService?.name, t.brand?.name, t.customer?.name, t.assignees.map((a) => a.name).join('; '), t.labels.join('; '), csvDate(t.startAt), csvDate(t.dueAt), csvDate(t.doneAt), csvDate(t.updatedAt)])]);
   });
   api.get('/api/admin/tasks/:id', async (req, res) => {
     const c = await need(req, 'tasks.view'), all_ = inReach(await taskRows(), await reach(c)), t = all_.find((x) => x.id === req.params.id);

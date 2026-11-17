@@ -1,30 +1,16 @@
 import { defaultCustomerStatus } from './customer-statuses';
 import { FLOW_COLUMNS, columnStage, listColor } from './flow-columns';
-import {assertTaskDelete,removeCardRecord,removeTaskRecord,removeProjectRecord,syncProjectCards} from './work-sync';
-import {grantAccess,projectLevels,requireProject} from './project-access';
-import {customerLevels,customerAccessSql,requireCustomer,visibleCardIds} from './customer-access';
-// Workspace: boards of lists of cards, working like Trello: cards have labels, members, start and due dates, a "done"
-// mark, a cover colour, a description, checklists, link attachments, comments and an activity history; cards and lists
-// can be archived and restored. Each company role (Media Execute, Account / Sale, Content / Script, Ads / Performance,
-// or one an admin adds) has its own board with columns made for its work, besides the boards everyone shares; a role
-// also sets which tool pages its people open (Media Execute: Drive and Báo cáo).
-//
-// Who may do what, like Trello. Boards live in a workspace: the company's or one a person makes for themselves,
-// private until they share it with others. In the company's, admins see every board and each department (company
-// role) sees only its own boards; a company board with no role is seen by admins and the people added to it. In a
-// person's workspace a board is seen by the whole workspace or only by the people added to it (private). People
-// added to a board see it whatever its visibility, at the level they were given, like Google Drive: 'admin' (Quản lý:
-// settings, sharing, delete), 'normal' (Người chỉnh sửa: work on its cards), 'observer' (Người nhận xét: view and
-// comment) and 'viewer' (Người xem: view only). Its editors share it too, at most at their own level, unless a manager
-// turns that off (`editor_share`). The board itself (name, background, how it shows, its description, lists and labels)
-// is changed by its managers, and by its editors only if a manager allows it (`member_edit`); everyone sees it as they
-// set it. A board may be for a customer (`customer_id`), who has as many as it needs; one with none is unclassified.
+import { assertTaskDelete, removeCardRecord, removeTaskRecord, removeBrandServiceRecord, syncBrandServiceCards } from './work-sync';
+import { grantAccess, brandServiceLevels, requireBrandService } from './project-access';
+import { customerLevels, customerAccessSql, requireCustomer, visibleCardIds } from './customer-access';
+import { ensureDefaultBrand } from './brands';
+// Workspace: boards of lists of cards, working like Trello.
 import { Router, HttpError, json, readJson } from './http';
 import type { Req } from './http';
 import { all, get, run, uid, now } from './db';
 import { assertCardFlow, assertLinkedTaskEditable, syncCardToTask, cardDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
 import { statusKey } from './taskimport';
-import { boardServices, oneService, saveBoardServices } from './project-services';
+import { boardServices, ensureFallbackCatalogService, oneService, saveBoardServices, saveBrandServiceCatalog } from './project-services';
 /** A task made from a card starts at the step of its column, with that step's status (a column of no step keeps its name). */
 async function atColumnStep(taskId: string, column: string, dueAt: number | null, doneAt: number | null) {
   const step = columnStage(column);
@@ -38,7 +24,7 @@ import { customerFile, clientCustomers } from './workspace';
 import { matcher } from './admin/common';
 import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
 import { AUTO, syncBoardGrants, syncBoardPeople } from './board-people';
-import { boardOfProject, checkServiceFree, gatherProjectCards, linkBoard, personalBoard, projectOf, serviceOf, syncWorkspacePeople } from './service-boards';
+import { boardOfProject, brandServiceFor, checkServiceFree, gatherProjectCards, linkBoard, personalBoard, serviceOf, syncWorkspacePeople } from './service-boards';
 import { projectForService } from './tasks';
 import { projectCustomerChanged } from './taskworkspace';
 import { flowSettings, statusFor } from './task-flow';
@@ -211,11 +197,11 @@ export async function mustList(req: Req, id: string, need: BoardLevel = 'normal'
 }
 export async function mustCard(req: Req, id: string, need: BoardLevel = 'normal') {
   const reads = rank(need) <= rank('observer');
-  const linkedProject=await get<any>('SELECT t.project_id FROM task_board_links l JOIN tasks t ON t.id=l.task_id WHERE l.card_id=?',id);if(linkedProject?.project_id)await requireProject((await currentUser(req))!.id,linkedProject.project_id,reads?'observer':'normal');
+  const linkedProject=await get<any>('SELECT t.brand_service_id FROM task_board_links l JOIN tasks t ON t.id=l.task_id WHERE l.card_id=?',id);if(linkedProject?.brand_service_id)await requireBrandService((await currentUser(req))!.id,linkedProject.brand_service_id,reads?'observer':'normal');
   const c = await get<any>('SELECT * FROM board_cards WHERE id = ?', id);
   if (!c) throw new HttpError(404, 'Không tìm thấy thẻ');
   c.level = (await mustBoard(req, c.board_id, need)).level;
-  const customer=(await get<any>('SELECT p.customer_id FROM task_board_links l JOIN tasks t ON t.id=l.task_id JOIN task_projects p ON p.id=t.project_id WHERE l.card_id=?',c.id))?.customer_id;
+  const customer=(await get<any>('SELECT br.customer_id FROM task_board_links l JOIN tasks t ON t.id=l.task_id JOIN brand_services bs ON bs.id=t.brand_service_id LEFT JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL WHERE l.card_id=?',c.id))?.customer_id;
   for(const id of new Set([c.customer_id,customer].filter(Boolean)))await requireCustomer((await me(req)).id,String(id),reads?'observer':'normal');
   return c;
 }
@@ -264,8 +250,11 @@ const boardOut = (b: any, starred: boolean, cards = 0, level: BoardLevel | null 
   memberEdit: !!b.member_edit, canShape: shapes(b, level), labelText: !!b.label_text,
   customerId: b.customer_id || null, customerName: b.customer_id ? b.customer_name || null : null, editorShare: !!b.editor_share, canShare: shares(b, level),
   view: viewIn(b.view), startAt: b.start_at ?? b.created_at ?? null,
-  // The customer's service it is (server/service-boards.ts); one that is none yet asks its admins to choose.
-  projectId: b.project_id || null, needsService: !b.project_id && !personalBoard(b.id),
+  // The brand_service it is (server/service-boards.ts); one that is none yet asks its admins to choose.
+  brandServiceId: b.brand_service_id || null,
+  /** @deprecated Dùng brandServiceId. */
+  projectId: b.brand_service_id || null,
+  needsService: !b.brand_service_id && !personalBoard(b.id),
 });
 /** Boards with the name of the customer they are for. */
 const WITH_CUSTOMER = 'SELECT b.*, k.name customer_name FROM boards b LEFT JOIN customers k ON k.id = b.customer_id';
@@ -305,18 +294,24 @@ async function fronts(boardId: string, archived = 0,userId?:string) {
     group(`SELECT card_id, COUNT(*) n FROM card_attachments WHERE ${IN_BOARD} GROUP BY card_id`),
     group(`SELECT card_id, COUNT(*) n, SUM(done) d FROM checklist_items WHERE ${IN_BOARD} GROUP BY card_id`),
     all<any>('SELECT id, name FROM customers WHERE id IN (SELECT customer_id FROM board_cards WHERE board_id = ?)', boardId).then((rs) => new Map(rs.map((r) => [r.id, r.name]))),
-    all<any>(`SELECT l.card_id, t.project_id, p.name project_name FROM task_board_links l JOIN tasks t ON t.id = l.task_id LEFT JOIN task_projects p ON p.id = t.project_id WHERE ${IN_BOARD}`, boardId).then((rs) => new Map(rs.map((r) => [r.card_id, r]))),
+    all<any>(`SELECT l.card_id, t.brand_service_id, bs.name project_name, bs.catalog_service_id, sc.name cat_name FROM task_board_links l JOIN tasks t ON t.id = l.task_id LEFT JOIN brand_services bs ON bs.id = t.brand_service_id LEFT JOIN service_catalog sc ON sc.id = bs.catalog_service_id WHERE ${IN_BOARD}`, boardId).then((rs) => new Map(rs.map((r) => [r.card_id, r]))),
   ]);
   return cards.map((c) => {
     const lp = linkedTasks.get(c.id);
+    const bsName = lp?.catalog_service_id && lp.catalog_service_id !== 'sv_general' ? (lp.cat_name || lp.project_name) : lp?.project_name || null;
+    const bsId = c.brand_service_id || lp?.brand_service_id || null;
     return {
-      kind: c.card_kind || 'task', projectCardId: c.project_card_id || null,
+      kind: c.card_kind || 'task', serviceCardId: c.service_card_id || null,
+      /** @deprecated Dùng serviceCardId. */
+      projectCardId: c.service_card_id || null,
       id: c.id, listId: c.list_id, title: c.title, cover: c.cover || null, startAt: c.start_at ?? null, dueAt: c.due_at ?? null, done: !!c.done, desc: !!(c.description || '').trim(),
       labels: (labels.get(c.id) || []).map((r) => r.label_id), members: (members.get(c.id) || []).map((r) => r.user_id),
       comments: comments.get(c.id)?.[0]?.n || 0, attachments: files.get(c.id)?.[0]?.n || 0,
       checks: checks.has(c.id) ? [Number(checks.get(c.id)![0].d) || 0, checks.get(c.id)![0].n] : null, createdAt: c.created_at, createdBy: c.created_by || null,
       customerId: c.customer_id || null, customerName: c.customer_id ? names.get(c.customer_id) || null : null,
-      projectId: c.work_project_id || lp?.project_id || null, projectName: c.work_project_id ? c.title : lp?.project_name || null,
+      brandServiceId: bsId,
+      /** @deprecated Dùng brandServiceId. */
+      projectId: bsId, projectName: c.brand_service_id ? c.title : bsName,
     };
   });
 }
@@ -329,18 +324,24 @@ async function cardOut(c: any, u: any) {
   const items = await all<any>('SELECT * FROM checklist_items WHERE card_id = ? ORDER BY pos', c.id);
   const list = await get<any>('SELECT name FROM board_lists WHERE id = ?', c.list_id);
   const customer = c.customer_id ? await get<any>('SELECT id, name FROM customers WHERE id = ?', c.customer_id) : null;
-  const linkedTask: { id: string; projectId?: string | null; projectName?: string | null } | null =
-    (await get<any>('SELECT t.id, t.project_id projectId, p.name projectName FROM task_board_links l JOIN tasks t ON t.id=l.task_id LEFT JOIN task_projects p ON p.id=t.project_id WHERE l.card_id=?', c.id)) || null;
+  const linkedTask: { id: string; brandServiceId?: string | null; projectId?: string | null; projectName?: string | null } | null =
+    (await get<any>('SELECT t.id, t.brand_service_id brandServiceId, t.brand_service_id projectId, COALESCE(CASE WHEN bs.catalog_service_id <> \'sv_general\' THEN sc.name END, bs.name) projectName FROM task_board_links l JOIN tasks t ON t.id=l.task_id LEFT JOIN brand_services bs ON bs.id=t.brand_service_id LEFT JOIN service_catalog sc ON sc.id=bs.catalog_service_id WHERE l.card_id=?', c.id)) || null;
+  const isServiceCard = c.card_kind === 'service' || c.card_kind === 'project';
+  const bsId = c.brand_service_id || linkedTask?.brandServiceId || null;
   return {
-    kind: c.card_kind || 'task', projectCardId: c.project_card_id || null,
+    kind: c.card_kind || 'task', serviceCardId: c.service_card_id || null,
+    /** @deprecated Dùng serviceCardId. */
+    projectCardId: c.service_card_id || null,
     id: c.id, boardId: c.board_id, listId: c.list_id, listName: list?.name || '', title: c.title, description: c.description || '', cover: c.cover || null,
     startAt: c.start_at ?? null, dueAt: c.due_at ?? null, done: !!c.done, archived: !!c.archived, createdAt: c.created_at, createdBy: c.created_by || null,
     customerId: customer?.id || null, customerName: customer?.name || null,
-    projectId: c.work_project_id || linkedTask?.projectId || null,
-    projectName: linkedTask?.projectName || (c.work_project_id ? (await get<any>('SELECT name FROM task_projects WHERE id=?', c.work_project_id))?.name : null) || null,
-    // A service's card (a project's): the work under it on its board, each task with its step, as its list of tasks.
-    projectTasks: c.card_kind === 'project' ? (await all<any>(`SELECT k.id cardId, t.id taskId, t.title, t.stage, t.status, t.due_at dueAt, t.done_at doneAt FROM board_cards k
-      JOIN task_board_links l ON l.card_id=k.id JOIN tasks t ON t.id=l.task_id WHERE k.project_card_id=? AND k.archived=0 ORDER BY t.done_at IS NOT NULL, COALESCE(t.due_at, 9e15), t.created_at`, c.id))
+    brandServiceId: bsId,
+    /** @deprecated Dùng brandServiceId. */
+    projectId: bsId,
+    projectName: linkedTask?.projectName || (c.brand_service_id ? (await get<any>('SELECT name FROM brand_services WHERE id=?', c.brand_service_id))?.name : null) || null,
+    // A service's card: the work under it on its board, each task with its step, as its list of tasks.
+    projectTasks: isServiceCard ? (await all<any>(`SELECT k.id cardId, t.id taskId, t.title, t.stage, t.status, t.due_at dueAt, t.done_at doneAt FROM board_cards k
+      JOIN task_board_links l ON l.card_id=k.id JOIN tasks t ON t.id=l.task_id WHERE k.service_card_id=? AND k.archived=0 ORDER BY t.done_at IS NOT NULL, COALESCE(t.due_at, 9e15), t.created_at`, c.id))
       .map((r) => ({ ...r, dueAt: r.dueAt ?? null, doneAt: r.doneAt ?? null })) : undefined,
     labels: (await all<any>('SELECT label_id FROM card_labels WHERE card_id = ?', c.id)).map((r) => r.label_id),
     members: (await all<any>('SELECT user_id FROM card_members WHERE card_id = ?', c.id)).map((r) => r.user_id),
@@ -364,8 +365,8 @@ async function activityOf(by: 'board_id' | 'card_id', id: string, limit: number)
 async function dropCards(where: string, ...args: any[]) {
   const cards = await all<any>(`SELECT * FROM board_cards WHERE ${where}`, ...args);
   for (const c of cards) {
-    if (c.work_project_id) {
-      await removeProjectRecord(c.work_project_id);
+    if (c.brand_service_id) {
+      await removeBrandServiceRecord(c.brand_service_id);
     } else {
       const link = await get<any>('SELECT l.task_id, t.import_id FROM task_board_links l JOIN tasks t ON t.id = l.task_id WHERE l.card_id = ?', c.id);
       if (link && !link.import_id) {
@@ -479,10 +480,10 @@ export function registerBoards(api: Router) {
       if (!customer) throw new HttpError(400, 'Workspace luôn thuộc một khách hàng');
       if (w.customer_id) await requireCustomer((await me(req)).id, w.customer_id, 'normal');
       // Its boards are its customer's services: only a workspace whose boards are all of the new customer (or none yet) changes.
-      const others = await get<any>("SELECT name FROM boards WHERE workspace_id = ? AND id NOT LIKE 'b_tasks_%' AND COALESCE(customer_id, '') <> ? AND project_id IS NOT NULL LIMIT 1", w.id, customer);
+      const others = await get<any>("SELECT name FROM boards WHERE workspace_id = ? AND id NOT LIKE 'b_tasks_%' AND COALESCE(customer_id, '') <> ? AND brand_service_id IS NOT NULL LIMIT 1", w.id, customer);
       if (others) throw new HttpError(409, `Workspace đang có board “${others.name}” của khách hàng khác: chuyển board đó sang workspace của khách đó trước`);
       await run('UPDATE workspaces SET customer_id = ? WHERE id = ?', customer, w.id);
-      await run("UPDATE boards SET customer_id = ? WHERE workspace_id = ? AND project_id IS NULL AND id NOT LIKE 'b_tasks_%'", customer, w.id);
+      await run("UPDATE boards SET customer_id = ? WHERE workspace_id = ? AND brand_service_id IS NULL AND id NOT LIKE 'b_tasks_%'", customer, w.id);
     }
     await run('UPDATE workspaces SET name = ?, about = ?, visibility = ?, updated_at = ? WHERE id = ?', b.name !== undefined ? text(b.name, 80, 'tên workspace') : w.name,
       b.about !== undefined ? long(b.about, 2000) : w.about, b.visibility !== undefined ? visibilityIn(b.visibility) : w.visibility || 'private', now(), w.id);
@@ -618,10 +619,12 @@ export function registerBoards(api: Router) {
     if (!ws && wsLevel(u, null) === 'observer') throw new HttpError(403, 'Role của bạn trong phòng chỉ được xem, không tạo được board');
     if (roleId) { if (ws) throw new HttpError(400, ROLE_IN_COMPANY); await checkRole(req, roleId); }
     const customer = await boardCustomer(req, ws, b.customerId);
-    const project = await projectForService(u, customer, service, { home: false });
+    const brandId = b.brandId ? String(b.brandId) : null;
+    const project = await projectForService(u, customer, service, { home: false, brandId });
     const taken = await boardOfProject(project.id);
-    if (taken) throw new HttpError(409, `Dịch vụ ${project.name} của khách này đã có board “${taken.name}”: mỗi dịch vụ của một khách chỉ có một board`);
-    const name = b.name ? text(b.name, 80, 'tên board') : (await serviceOf(project.id))?.name || project.name;
+    if (taken) throw new HttpError(409, `Dịch vụ ${project.name} của nhãn hàng này đã có board “${taken.name}”: mỗi dịch vụ của một nhãn hàng chỉ có một board`);
+    const { boardDisplayName } = await import('./project-services');
+    const name = b.name ? text(b.name, 80, 'tên board') : await boardDisplayName(project.id, (await serviceOf(project.id))?.name || project.name);
     const id = await newBoard(name, BGS.includes(b.bg) ? b.bg : 'ocean', roleId, u.id,
       Array.isArray(b.lists) && b.lists.length ? b.lists.slice(0, 20).map((x: any) => text(x, 80, 'tên danh sách')) : BASIC, ws, !!b.private && !roleId);
     // Columns of its own still get one for each workflow step they lack.
@@ -650,26 +653,36 @@ export function registerBoards(api: Router) {
     if (!customer) throw new HttpError(400, 'Hãy chọn khách hàng của board');
     return customer;
   }
-  // A customer's workspaces and, in each, its boards: one per service of the customer (server/service-boards.ts), with
-  // how many of its tasks are open; the ones this account cannot open are named but not opened. Services of the
-  // customer still without a board come last.
+  // A customer's workspaces and, in each, its boards: one per brand_service of the customer (server/service-boards.ts), with
+  // how many of its tasks are open; the ones this account cannot open are named but not opened. Services still without a board come last.
   api.get('/api/customers/:id/workspaces', async (req, res) => {
     const u = await me(req), level = await levels(u), customer = req.params.id;
     const mine = new Map((await all<any>('SELECT workspace_id, role FROM workspace_members WHERE user_id = ?', u.id)).map((r) => [r.workspace_id, r.role]));
-    const boards = await all<any>(`SELECT b.*, s.id service_id, s.name service_name,
-        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = b.project_id AND t.done_at IS NULL) open_tasks,
-        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = b.project_id) all_tasks
-      FROM boards b LEFT JOIN project_services ps ON ps.project_id = b.project_id LEFT JOIN services s ON s.id = ps.service_id
+    const boards = await all<any>(`SELECT b.*, s.id service_id, s.name service_name, br.id brand_id, br.name brand_name,
+        (SELECT COUNT(*) FROM tasks t WHERE t.brand_service_id = b.brand_service_id AND t.done_at IS NULL) open_tasks,
+        (SELECT COUNT(*) FROM tasks t WHERE t.brand_service_id = b.brand_service_id) all_tasks
+      FROM boards b
+      LEFT JOIN brand_services bs ON bs.id = b.brand_service_id
+      LEFT JOIN brands br ON br.id = bs.brand_id AND br.deleted_at IS NULL
+      LEFT JOIN service_catalog s ON s.id = bs.catalog_service_id
       WHERE b.customer_id = ? OR b.workspace_id IN (SELECT id FROM workspaces WHERE customer_id = ?) ORDER BY b.created_at`, customer, customer);
-    const out = (b: any) => ({ id: b.id, name: b.name, bg: bgOf(b), projectId: b.project_id || null, service: b.service_id ? { id: b.service_id, name: b.service_name } : null,
-      openTasks: Number(b.open_tasks || 0), tasks: Number(b.all_tasks || 0), level: level(b), needsService: !b.project_id });
+    const out = (b: any) => ({ id: b.id, name: b.name, bg: bgOf(b), brandServiceId: b.brand_service_id || null, projectId: b.brand_service_id || null, brandId: b.brand_id || null, brandName: b.brand_name || null, service: b.service_id ? { id: b.service_id, name: b.service_name } : null,
+      openTasks: Number(b.open_tasks || 0), tasks: Number(b.all_tasks || 0), level: level(b), needsService: !b.brand_service_id });
     const spaces = (await all<any>('SELECT * FROM workspaces WHERE customer_id = ? ORDER BY created_at, id', customer)).map((w) => ({
       id: w.id, name: w.name, level: wsLevel(u, w, mine.get(w.id)), boards: boards.filter((b) => b.workspace_id === w.id).map(out) }));
     // Its boards kept in the company's workspace.
     const company = boards.filter((b) => !b.workspace_id && !personalBoard(b.id)).map(out);
     if (company.length) spaces.push({ id: COMPANY, name: 'Detailers Movement', level: wsLevel(u, null), boards: company });
-    const unboarded = await all<any>('SELECT p.id, p.name, s.id service_id, s.name service_name FROM task_projects p LEFT JOIN project_services ps ON ps.project_id = p.id LEFT JOIN services s ON s.id = ps.service_id WHERE p.customer_id = ? AND p.id NOT IN (SELECT project_id FROM boards WHERE project_id IS NOT NULL) ORDER BY p.created_at', customer);
-    json(res, 200, { workspaces: spaces, unboarded: unboarded.map((p) => ({ projectId: p.id, name: p.name, service: p.service_id ? { id: p.service_id, name: p.service_name } : null })) });
+    const unboarded = await all<any>(
+      `SELECT bs.id, bs.name, br.id brand_id, br.name brand_name, s.id service_id, s.name service_name
+       FROM brand_services bs
+       JOIN brands br ON br.id = bs.brand_id AND br.deleted_at IS NULL
+       LEFT JOIN service_catalog s ON s.id = bs.catalog_service_id
+       WHERE br.customer_id = ? AND bs.id NOT IN (SELECT brand_service_id FROM boards WHERE brand_service_id IS NOT NULL)
+       ORDER BY bs.created_at`,
+      customer
+    );
+    json(res, 200, { workspaces: spaces, unboarded: unboarded.map((p) => ({ brandServiceId: p.id, projectId: p.id, brandId: p.brand_id, brandName: p.brand_name, name: p.name, service: p.service_id ? { id: p.service_id, name: p.service_name } : null })) });
   });
   api.get('/api/boards/:id', async (req, res) => {
     const u = await me(req), b = await mustBoard(req, req.params.id, 'viewer');
@@ -699,33 +712,32 @@ export function registerBoards(api: Router) {
     const service = b.serviceId !== undefined ? (b.serviceId ? String(b.serviceId) : null) : b.services !== undefined ? (await boardService(b.services))[0] || null : undefined;
     let roleId = bd.role_id, priv = 1, ws = bd.workspace_id || null;
     if ((b.memberEdit !== undefined || b.editorShare !== undefined || b.customerId !== undefined) && bd.level !== 'admin') throw new HttpError(403, DENIED.admin);
-    // Its customer and service are the project it is (server/service-boards.ts). A board of a service changes service (its
-    // project's, with every task on it); its customer is its workspace's and does not change here. A board of none yet
-    // becomes one (its admins choose): the service of the customer, made if new, its tasks with it.
+    // Its customer and service are the brand_service it is (server/service-boards.ts).
     if (service === null && !personalBoard(bd.id)) throw new HttpError(400, 'Board luôn thuộc một dịch vụ');
-    if (bd.project_id) {
+    if (bd.brand_service_id) {
       if (b.customerId !== undefined && (b.customerId || null) !== (bd.customer_id || null)) throw new HttpError(400, 'Khách hàng của board là khách của workspace: chuyển board sang workspace của khách khác, hoặc đổi khách của dịch vụ');
-      if (service && service !== (await serviceOf(bd.project_id))?.id) {
+      if (service && service !== (await serviceOf(bd.brand_service_id))?.id) {
         if (!shapes(bd)) throw new HttpError(403, NO_SHAPE);
-        await checkServiceFree(bd.project_id, service);
-        const old = await serviceOf(bd.project_id);
-        await requireProject(u.id, bd.project_id, 'admin');
-        await (await import('./project-services')).saveProjectServices(bd.project_id, [service], u.id);
-        await log(bd.id, null, u.id, 'board.service', { name: (await serviceOf(bd.project_id))?.name || '', from: old?.name || '' });
+        await checkServiceFree(bd.brand_service_id, service);
+        const old = await serviceOf(bd.brand_service_id);
+        await requireBrandService(u.id, bd.brand_service_id, 'admin');
+        await saveBrandServiceCatalog(bd.brand_service_id, [service], u.id);
+        await log(bd.id, null, u.id, 'board.service', { name: (await serviceOf(bd.brand_service_id))?.name || '', from: old?.name || '' });
       }
     } else if (service || b.customerId !== undefined) {
       if (bd.level !== 'admin') throw new HttpError(403, DENIED.admin);
       if (!service) throw new HttpError(400, 'Hãy chọn dịch vụ của board');
       if (personalBoard(bd.id)) throw new HttpError(400, 'Board việc riêng của bạn không gắn dịch vụ');
       const customer = await boardCustomer(req, bd.workspace_id || null, b.customerId ?? bd.customer_id);
-      const project = await projectForService(u, customer, service, { home: false });
+      const brandId = b.brandId ? String(b.brandId) : null;
+      const project = await projectForService(u, customer, service, { home: false, brandId });
       const taken = await boardOfProject(project.id);
-      if (taken && taken.id !== bd.id) throw new HttpError(409, `Dịch vụ ${project.name} của khách này đã có board “${taken.name}”: mỗi dịch vụ của một khách chỉ có một board`);
+      if (taken && taken.id !== bd.id) throw new HttpError(409, `Dịch vụ ${project.name} của nhãn hàng này đã có board “${taken.name}”: mỗi dịch vụ của một nhãn hàng chỉ có một board`);
       await linkBoard(bd.id, project.id, u.id);
       // The tasks on it of no service are this one's; those of another service go to that service's board; the
       // service's tasks elsewhere come here.
-      await run('UPDATE tasks SET project_id = ?, updated_at = ? WHERE project_id IS NULL AND id IN (SELECT l.task_id FROM task_board_links l JOIN board_cards c ON c.id = l.card_id WHERE c.board_id = ?)', project.id, now(), bd.id);
-      for (const r of await all<any>('SELECT l.task_id FROM task_board_links l JOIN board_cards c ON c.id = l.card_id JOIN tasks t ON t.id = l.task_id WHERE c.board_id = ? AND t.project_id <> ?', bd.id, project.id))
+      await run('UPDATE tasks SET brand_service_id = ?, updated_at = ? WHERE brand_service_id IS NULL AND id IN (SELECT l.task_id FROM task_board_links l JOIN board_cards c ON c.id = l.card_id WHERE c.board_id = ?)', project.id, now(), bd.id);
+      for (const r of await all<any>('SELECT l.task_id FROM task_board_links l JOIN board_cards c ON c.id = l.card_id JOIN tasks t ON t.id = l.task_id WHERE c.board_id = ? AND t.brand_service_id <> ?', bd.id, project.id))
         await (await import('./taskworkspace')).placeTaskCard(r.task_id);
       await gatherProjectCards(project.id);
       await log(bd.id, null, u.id, 'board.customer', { name: (await get<any>('SELECT name FROM customers WHERE id = ?', customer))?.name || '' });
@@ -974,36 +986,44 @@ export function registerBoards(api: Router) {
   // ---------------------------------------------------------------- cards
   api.post('/api/lists/:id/cards', async (req, res) => {
     const l = await mustList(req, req.params.id), b = await readJson(req), title = text(b.title, 500, 'tên thẻ'), u = await me(req);
-    const kind = b.kind === 'customer' ? 'customer' : b.kind === 'project' ? 'project' : 'task';
-    const projectCardId = kind === 'task' && b.projectCardId ? String(b.projectCardId) : null;
-    const customerCardId = (kind === 'project' || kind === 'task') && b.customerCardId ? String(b.customerCardId) : null;
+    const kind = b.kind === 'customer' ? 'customer' : b.kind === 'service' || b.kind === 'project' ? 'service' : 'task';
+    const rawParentCardId = b.serviceCardId ?? b.projectCardId;
+    const projectCardId = kind === 'task' && rawParentCardId ? String(rawParentCardId) : null;
+    const customerCardId = (kind === 'service' || kind === 'task') && b.customerCardId ? String(b.customerCardId) : null;
     let customerId: string | null = b.customerId ? String(b.customerId) : null;
     if (projectCardId) {
       const parent = await mustCard(req, projectCardId, 'viewer');
-      if (parent.board_id !== l.board_id || parent.card_kind !== 'project' || parent.archived) throw new HttpError(400, 'Hãy chọn Project đang hoạt động trong bảng này');
+      if (parent.board_id !== l.board_id || !['service', 'project'].includes(parent.card_kind) || parent.archived) throw new HttpError(400, 'Hãy chọn Dịch vụ đang hoạt động trong bảng này');
     }
     let workProjectId: string | null = null;
-    if (kind === 'project' && title.length > 200) throw new HttpError(400,'Tên Project tối đa 200 ký tự');
+    if (kind === 'service' && title.length > 200) throw new HttpError(400, 'Tên Dịch vụ tối đa 200 ký tự');
     if (projectCardId) {
-      const prjCard = await get<any>('SELECT work_project_id, customer_id FROM board_cards WHERE id=?',projectCardId);
-      workProjectId = prjCard?.work_project_id || null;
+      const prjCard = await get<any>('SELECT brand_service_id, customer_id FROM board_cards WHERE id=?', projectCardId);
+      workProjectId = prjCard?.brand_service_id || null;
       if (!customerId) customerId = prjCard?.customer_id || null;
-      if (workProjectId) await requireProject(u.id,workProjectId,'normal');
+      if (workProjectId) await requireBrandService(u.id, workProjectId, 'normal');
     }
     if (customerCardId && !customerId) {
       const custCard = await get<any>('SELECT customer_id FROM board_cards WHERE id=?', customerCardId);
       if (custCard?.customer_id) customerId = custCard.customer_id;
     }
-    if (b.projectId && !workProjectId && kind === 'task') {
-      const prj = await get<any>('SELECT * FROM task_projects WHERE id=?', String(b.projectId));
+    const rawBsId = b.brandServiceId ?? b.projectId;
+    if (rawBsId && !workProjectId && kind === 'task') {
+      const prj = await get<any>(
+        'SELECT bs.*, br.customer_id FROM brand_services bs LEFT JOIN brands br ON br.id = bs.brand_id AND br.deleted_at IS NULL WHERE bs.id=?',
+        String(rawBsId)
+      );
       if (!prj) throw new HttpError(404, 'Không tìm thấy dịch vụ');
-      await requireProject(u.id, prj.id, 'normal');
+      await requireBrandService(u.id, prj.id, 'normal');
       workProjectId = prj.id;
       if (!customerId) customerId = prj.customer_id || null;
     }
     // A task made on a service's board is that service's, for its customer (server/service-boards.ts).
     if (kind === 'task' && !workProjectId) {
-      const own = await get<any>('SELECT p.id, p.customer_id FROM boards b JOIN task_projects p ON p.id = b.project_id WHERE b.id = ?', l.board_id);
+      const own = await get<any>(
+        'SELECT bs.id, br.customer_id FROM boards b JOIN brand_services bs ON bs.id = b.brand_service_id LEFT JOIN brands br ON br.id = bs.brand_id AND br.deleted_at IS NULL WHERE b.id = ?',
+        l.board_id
+      );
       if (own) { workProjectId = own.id; customerId = own.customer_id || customerId; }
     }
     const id = uid('k_'), t = now();
@@ -1013,28 +1033,41 @@ export function registerBoards(api: Router) {
         if (!cust) {
           const custId = uid('cust_');
           await run('INSERT INTO customers(id, name, created_by, status, created_at, updated_at) VALUES(?,?,?,?,?,?)', custId, title, u.id, await defaultCustomerStatus(), t, t);
+          await ensureDefaultBrand(custId, u.id);
           cust = { id: custId };
         }
         customerId = cust.id;
       }
       await run('INSERT INTO customer_members(customer_id, user_id, role, added_by, created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id, user_id) DO NOTHING', customerId, u.id, 'admin', u.id, t);
-    } else if (kind === 'project') {
+    } else if (kind === 'service') {
       if (!customerId) {
         customerId = (await get<any>('SELECT customer_id FROM boards WHERE id = ?', l.board_id))?.customer_id || null;
       }
+      const brand = customerId ? await ensureDefaultBrand(customerId, u.id) : null;
+      const catId = b.catalogServiceId ? (await oneService([String(b.catalogServiceId)], 'Chỉ chọn một dịch vụ'))[0] : await ensureFallbackCatalogService(u.id);
       workProjectId = uid('tj_');
-      await run('INSERT INTO task_projects(id,name,customer_id,created_by,team_id,created_at) VALUES(?,?,?,?,?,?)',workProjectId,title,customerId,u.id,u.team_role || null,t);
+      await run(
+        'INSERT INTO brand_services(id, brand_id, catalog_service_id, name, created_by, team_id, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)',
+        workProjectId,
+        brand?.id || null,
+        catId,
+        title,
+        u.id,
+        u.team_role || null,
+        t,
+        t
+      );
     }
     const pos = b.top ? ((await get<any>('SELECT MIN(pos) m FROM board_cards WHERE list_id = ?', l.id))?.m ?? 1) - 1 : ((await get<any>('SELECT MAX(pos) m FROM board_cards WHERE list_id = ?', l.id))?.m || 0) + 1;
     await run('INSERT INTO board_cards(id, board_id, list_id, title, pos, created_by, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)', id, l.board_id, l.id, title, pos, u.id, t, t);
-    await run('UPDATE board_cards SET card_kind=?, project_card_id=?, work_project_id=?, customer_id=? WHERE id=?', kind, projectCardId, kind === 'project' ? workProjectId : null, customerId, id);
-    // The people the board is shared with see the new project; its own people are on the board.
-    if (kind === 'project') { await syncBoardGrants(l.board_id); await syncBoardPeople(l.board_id); }
+    await run('UPDATE board_cards SET card_kind=?, service_card_id=?, brand_service_id=?, customer_id=? WHERE id=?', kind, projectCardId, kind === 'service' ? workProjectId : null, customerId, id);
+    // The people the board is shared with see the new service; its own people are on the board.
+    if (kind === 'service') { await syncBoardGrants(l.board_id); await syncBoardPeople(l.board_id); }
     if (workProjectId && kind === 'task') {
-      const prj = await get<any>('SELECT customer_id FROM task_projects WHERE id=?', workProjectId);
+      const prj = await get<any>('SELECT br.customer_id FROM brand_services bs LEFT JOIN brands br ON br.id = bs.brand_id AND br.deleted_at IS NULL WHERE bs.id=?', workProjectId);
       if (prj?.customer_id) await run('UPDATE board_cards SET customer_id=? WHERE id=?', prj.customer_id, id);
-      const parentCard = await get<any>('SELECT id FROM board_cards WHERE board_id=? AND work_project_id=?', l.board_id, workProjectId);
-      if (parentCard) await run('UPDATE board_cards SET project_card_id=? WHERE id=?', parentCard.id, id);
+      const parentCard = await get<any>('SELECT id FROM board_cards WHERE board_id=? AND brand_service_id=?', l.board_id, workProjectId);
+      if (parentCard) await run('UPDATE board_cards SET service_card_id=? WHERE id=?', parentCard.id, id);
     }
     await log(l.board_id, id, u.id, 'card.add', { list: l.name });
     await touch(l.board_id);
@@ -1050,7 +1083,7 @@ export function registerBoards(api: Router) {
       const isDone = ['done', 'done_late'].includes(statusKey(l.name));
       const doneAt = isDone ? t : null;
       if (isDone) await run('UPDATE board_cards SET done=1 WHERE id=?',id);
-      await run('INSERT INTO tasks(id,title,status,start_at,due_at,done_at,project_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      await run('INSERT INTO tasks(id,title,status,start_at,due_at,done_at,brand_service_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
         taskId, title, l.name, null, null, doneAt, workProjectId, null, '', null, creator.id, t, t);
       // Given to no one yet (its maker gives it out), at the step of its column.
       await atColumnStep(taskId, l.name, null, doneAt);
@@ -1064,7 +1097,7 @@ export function registerBoards(api: Router) {
   // (the customer the task is for, or null); or a move to `listId` (same board) at `index`.
   api.put('/api/cards/:id', async (req, res) => {
     const c = await mustCard(req, req.params.id), b = await readJson(req), u = await me(req);
-    if (['title', 'description', 'startAt', 'dueAt', 'done', 'listId', 'projectId'].some((k) => b[k] !== undefined)) await assertLinkedTaskEditable(c.id, u.id);
+    if (['title', 'description', 'startAt', 'dueAt', 'done', 'listId', 'projectId', 'brandServiceId'].some((k) => b[k] !== undefined)) await assertLinkedTaskEditable(c.id, u.id);
     await assertCardFlow(c.id, b, u);
     const set: [string, any][] = [], news: string[] = [];
     if (c.card_kind === 'customer' && c.customer_id && b.title !== undefined) {
@@ -1072,11 +1105,11 @@ export function registerBoards(api: Router) {
       const name = text(b.title, 200, 'tên Khách hàng');
       await run('UPDATE customers SET name=?, updated_at=? WHERE id=?', name, now(), c.customer_id);
     }
-    if (c.work_project_id && b.title !== undefined) {
-      await requireProject(u.id,c.work_project_id,'admin');
-      const name = text(b.title,200,'tên Project');
-      await run('UPDATE task_projects SET name=? WHERE id=?',name,c.work_project_id);
-      await syncProjectCards(c.work_project_id);
+    if (c.brand_service_id && b.title !== undefined) {
+      await requireBrandService(u.id, c.brand_service_id, 'admin');
+      const name = text(b.title, 200, 'tên Dịch vụ');
+      await run('UPDATE brand_services SET name=?, updated_at=? WHERE id=?', name, now(), c.brand_service_id);
+      await syncBrandServiceCards(c.brand_service_id);
     }
     if (b.title !== undefined) set.push(['title', text(b.title, 500, 'tên thẻ')]);
     let described: string | null = null;
@@ -1095,39 +1128,45 @@ export function registerBoards(api: Router) {
     if (b.dueAt !== undefined) { set.push(['due_at', time(b.dueAt)]); if (time(b.dueAt) !== c.due_at) { await log(c.board_id, c.id, u.id, 'card.due', { due: time(b.dueAt) }); news.push('due'); } }
     if (b.done !== undefined && !!b.done !== !!c.done) { set.push(['done', b.done ? 1 : 0]); await log(c.board_id, c.id, u.id, 'card.done', { done: !!b.done }); news.push(b.done ? 'done' : 'undone'); }
     if (b.cover !== undefined) set.push(['cover', COLORS.includes(b.cover) ? b.cover : null]);
-    // A task's customer is its project's: on a project or one of its tasks it is the project's that changes, for all
-    // its tasks (the project moves to the customer's board if it sat on one made for it).
+    // A task's customer is its brand_service's: on a service or one of its tasks it is the service's customer that changes.
     if (b.customerId !== undefined && (b.customerId || null) !== (c.customer_id || null)) {
       const k = b.customerId ? await get<any>('SELECT id, name FROM customers WHERE id = ?', String(b.customerId)) : null;
       if(k)await requireCustomer(u.id,k.id,'normal');
       if (b.customerId && !k) throw new HttpError(404, 'Không tìm thấy khách hàng');
-      const link = await get<any>('SELECT t.id, t.project_id FROM task_board_links l JOIN tasks t ON t.id = l.task_id WHERE l.card_id = ?', c.id);
-      const project = c.work_project_id || link?.project_id || null;
+      const link = await get<any>('SELECT t.id, t.brand_service_id FROM task_board_links l JOIN tasks t ON t.id = l.task_id WHERE l.card_id = ?', c.id);
+      const project = c.brand_service_id || link?.brand_service_id || null;
       set.push(['customer_id', k?.id || null]); await log(c.board_id, c.id, u.id, 'card.customer', { name: k?.name || '' });
       // One task of a service, given to another customer: it becomes that customer's same service (made if new) and its
-      // card goes to that service's board. The service's other tasks stay with their customer.
-      const svc = !c.work_project_id && link?.project_id ? await serviceOf(link.project_id) : null;
+      // card goes to that service's board.
+      const svc = !c.brand_service_id && link?.brand_service_id ? await serviceOf(link.brand_service_id) : null;
       if (svc && k) {
         const to = await projectForService(u, k.id, svc.id);
-        await run('UPDATE tasks SET project_id = ?, campaign_id = NULL, updated_at = ? WHERE id = ?', to.id, now(), link.id);
-        b.projectId = undefined;
+        await run('UPDATE tasks SET brand_service_id = ?, updated_at = ? WHERE id = ?', to.id, now(), link.id);
+        b.projectId = undefined; b.brandServiceId = undefined;
         const { placeTaskCard } = await import('./taskworkspace');
         await run(`UPDATE board_cards SET customer_id = ? WHERE id = ?`, k.id, c.id);
         await placeTaskCard(link.id);
       } else if (svc && !k) throw new HttpError(400, 'Công việc của một dịch vụ luôn có khách hàng của dịch vụ đó');
       else if (project) {
-        await requireProject(u.id, project, 'admin').catch((e) => { throw e instanceof HttpError && e.status === 403 ? new HttpError(403, 'Khách hàng của công việc là của dịch vụ: chỉ quản lý dịch vụ mới đổi được') : e; });
-        await run('UPDATE task_projects SET customer_id = ? WHERE id = ?', k?.id || null, project);
+        await requireBrandService(u.id, project, 'admin').catch((e) => { throw e instanceof HttpError && e.status === 403 ? new HttpError(403, 'Khách hàng của công việc là của dịch vụ: chỉ quản lý dịch vụ mới đổi được') : e; });
+        const targetBrand = k ? await ensureDefaultBrand(k.id, u.id) : null;
+        await run('UPDATE brand_services SET brand_id = ?, updated_at = ? WHERE id = ?', targetBrand?.id || null, now(), project);
         await projectCustomerChanged(project);
       }
     }
-    if (b.projectId !== undefined && c.card_kind !== 'project') {
-      const prj = b.projectId ? await get<any>('SELECT * FROM task_projects WHERE id = ?', String(b.projectId)) : null;
-      if (b.projectId && !prj) throw new HttpError(404, 'Không tìm thấy dịch vụ');
-      if (prj) await requireProject(u.id, prj.id, 'normal');
+    const nextBsInput = b.brandServiceId !== undefined ? b.brandServiceId : b.projectId;
+    if (nextBsInput !== undefined && !['service', 'project'].includes(c.card_kind)) {
+      const prj = nextBsInput
+        ? await get<any>(
+            'SELECT bs.*, br.customer_id FROM brand_services bs LEFT JOIN brands br ON br.id = bs.brand_id AND br.deleted_at IS NULL WHERE bs.id = ?',
+            String(nextBsInput)
+          )
+        : null;
+      if (nextBsInput && !prj) throw new HttpError(404, 'Không tìm thấy dịch vụ');
+      if (prj) await requireBrandService(u.id, prj.id, 'normal');
       const link = await get<any>('SELECT task_id FROM task_board_links WHERE card_id = ?', c.id);
       if (link) {
-        await run('UPDATE tasks SET project_id = ?, campaign_id=NULL, updated_at = ? WHERE id = ?', prj?.id || null, now(), link.task_id);
+        await run('UPDATE tasks SET brand_service_id = ?, updated_at = ? WHERE id = ?', prj?.id || null, now(), link.task_id);
       } else if (prj) {
         let creator: any = await get('SELECT id FROM task_people WHERE user_id=? ORDER BY created_at LIMIT 1', u.id);
         if (!creator) {
@@ -1137,13 +1176,13 @@ export function registerBoards(api: Router) {
         const taskId = uid('tk_'), t = now();
         const list = await get<any>('SELECT name FROM board_lists WHERE id = ?', c.list_id);
         const isDone = ['done', 'done_late'].includes(statusKey(list?.name || ''));
-        await run('INSERT INTO tasks(id,title,status,start_at,due_at,done_at,project_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        await run('INSERT INTO tasks(id,title,status,start_at,due_at,done_at,brand_service_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
           taskId, c.title, list?.name || '', c.start_at, c.due_at, isDone ? t : null, prj.id, null, c.description || '', null, creator.id, t, t);
         await atColumnStep(taskId, list?.name || '', c.due_at, isDone ? t : null);
         await run('INSERT OR IGNORE INTO task_board_links(task_id, card_id) VALUES(?,?)', taskId, c.id);
       }
-      const parentCard = prj ? await get<any>('SELECT id FROM board_cards WHERE board_id=? AND work_project_id=?', c.board_id, prj.id) : null;
-      set.push(['project_card_id', parentCard?.id || null]);
+      const parentCard = prj ? await get<any>('SELECT id FROM board_cards WHERE board_id=? AND brand_service_id=?', c.board_id, prj.id) : null;
+      set.push(['service_card_id', parentCard?.id || null]);
       if (prj?.customer_id && !c.customer_id) {
         set.push(['customer_id', prj.customer_id]);
       }
@@ -1162,8 +1201,8 @@ export function registerBoards(api: Router) {
         // The task starts at the step of its column (with that step's status), in the service its card sits under.
         const step = columnStage(list?.name || ''), doneAt = isDone || step === 'completed' ? t : null;
         const status = step ? await statusFor(step, { id: taskId, due_at: c.due_at }, doneAt, await flowSettings()) : list?.name || '';
-        const project = c.work_project_id || (c.project_card_id ? (await get<any>('SELECT work_project_id FROM board_cards WHERE id=?', c.project_card_id))?.work_project_id : null) || null;
-        await run('INSERT INTO tasks(id,title,status,stage,start_at,due_at,done_at,project_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        const project = c.brand_service_id || (c.service_card_id ? (await get<any>('SELECT brand_service_id FROM board_cards WHERE id=?', c.service_card_id))?.brand_service_id : null) || null;
+        await run('INSERT INTO tasks(id,title,status,stage,start_at,due_at,done_at,brand_service_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
           taskId, c.title, status, step, c.start_at, c.due_at, doneAt, project, null, c.description || '', null, creator.id, t, t);
         await run('INSERT OR IGNORE INTO task_board_links(task_id, card_id) VALUES(?,?)', taskId, c.id);
       }
@@ -1191,7 +1230,7 @@ export function registerBoards(api: Router) {
       await notifyPeople((await all<any>('SELECT user_id FROM card_members WHERE card_id = ?', c.id)).map((r) => r.user_id).filter((id) => !told.has(id)), u.id,
         { title, body: move ? `${c.title} → ${move.slice(5)}` : c.title, link: `#boards/${c.board_id}/c/${c.id}`, cardId: c.id });
     }
-    if (['title', 'description', 'startAt', 'dueAt', 'done', 'listId', 'projectId'].some((k) => b[k] !== undefined)) await syncCardToTask(c.id, b.listId !== undefined && b.listId !== c.list_id, u.id);
+    if (['title', 'description', 'startAt', 'dueAt', 'done', 'listId', 'projectId', 'brandServiceId'].some((k) => b[k] !== undefined)) await syncCardToTask(c.id, b.listId !== undefined && b.listId !== c.list_id, u.id);
     json(res, 200, await cardOut({ ...await get<any>('SELECT * FROM board_cards WHERE id = ?', c.id), level: c.level }, u));
   });
   api.delete('/api/cards/:id', async (req, res) => {
@@ -1260,8 +1299,8 @@ export function registerBoards(api: Router) {
       // project open to them as a member (their level can be changed afterwards in those members dialogs).
       const person = who || await get<any>('SELECT id, name FROM users WHERE id = ? AND disabled = 0', String(b.userId));
       if (!person) throw new HttpError(404, 'Không tìm thấy nhân viên');
-      const task = await get<any>('SELECT t.project_id FROM task_board_links l JOIN tasks t ON t.id = l.task_id WHERE l.card_id = ?', c.id);
-      await grantAccess(person.id, u.id, { customerId: c.customer_id, projectId: c.work_project_id || task?.project_id }, 'normal');
+      const task = await get<any>('SELECT t.brand_service_id FROM task_board_links l JOIN tasks t ON t.id = l.task_id WHERE l.card_id = ?', c.id);
+      await grantAccess(person.id, u.id, { customerId: c.customer_id, brandServiceId: c.brand_service_id || task?.brand_service_id }, 'normal');
       if (!(await visibleCardIds(person.id)).has(c.id)) throw new HttpError(400, `${person.name} chưa xem được thẻ này.`);
       if (!who) {
         await run('INSERT INTO board_members(board_id, user_id, role, added_by, created_at) VALUES(?,?,?,?,?) ON CONFLICT(board_id, user_id) DO NOTHING', board.id, person.id, 'normal', u.id, now());
@@ -1631,7 +1670,7 @@ export function registerBoards(api: Router) {
   api.get('/api/client-work', async (req, res) => {
     // `all`: the cards for no customer too (the workspace's timeline).
     const u = await me(req), level = await levels(u), wsParam = req.query.get('workspace'), isAll = wsParam === 'all', ws = String(wsParam || COMPANY), t0 = now(), every = req.query.get('all') === '1';
-    const [visible, boardRows, projects] = await Promise.all([visibleCardIds(u.id), all<any>(BOARDS_SQL), projectLevels(u.id)]);
+    const [visible, boardRows, projects] = await Promise.all([visibleCardIds(u.id), all<any>(BOARDS_SQL), brandServiceLevels(u.id)]);
     const boards = new Map(boardRows.filter((b) => (isAll || (b.workspace_id || COMPANY) === ws) && level(b)).map((b) => [b.id, b]));
     const cards = (await all<any>(`SELECT c.id, c.title, c.board_id, w.id workspace_id, w.name workspace_name, k.id customer_id, k.name customer_name, c.done, c.start_at, c.due_at, c.updated_at, l.name list, l.pos list_pos, x.task_id, t.parent_id
       FROM board_cards c JOIN board_lists l ON l.id = c.list_id JOIN boards b ON b.id = c.board_id LEFT JOIN workspaces w ON w.id = b.workspace_id
@@ -1643,7 +1682,7 @@ export function registerBoards(api: Router) {
     const onCard = new Set(cards.map((c) => c.task_id).filter(Boolean)), loose: any[] = [];
     for (let level = [...onCard] as string[], n = 0; level.length && n < 20; n++) {
       const kids = (await all<any>(`SELECT t.* FROM tasks t WHERE t.parent_id IN (SELECT value FROM json_each(?))`, JSON.stringify(level)))
-        .filter((t) => !customerOf.has(t.id) && (!t.project_id || projects.has(t.project_id)));
+        .filter((t) => !customerOf.has(t.id) && (!t.brand_service_id || projects.has(t.brand_service_id)));
       for (const t of kids) { customerOf.set(t.id, customerOf.get(t.parent_id)!); if (!onCard.has(t.id)) loose.push(t); }
       level = kids.map((t) => t.id);
     }
@@ -1653,7 +1692,7 @@ export function registerBoards(api: Router) {
       all<any>('SELECT cl.card_id, l.name, l.color FROM card_labels cl JOIN board_labels l ON l.id = cl.label_id ORDER BY l.pos'),
       all<any>('SELECT m.card_id, u.id, u.name, u.avatar_at FROM card_members m JOIN users u ON u.id = m.user_id'),
       all<any>('SELECT a.task_id, u.id, u.name, u.avatar_at FROM task_assignees a JOIN task_people p ON p.id = a.person_id JOIN users u ON u.id = p.user_id'),
-      all<any>('SELECT ts.task_id, s.id, s.name FROM task_services ts JOIN services s ON s.id = ts.service_id AND s.deleted_at IS NULL ORDER BY s.name COLLATE NOCASE'),
+      all<any>('SELECT ts.task_id, s.id, s.name FROM task_services ts JOIN service_catalog s ON s.id = ts.service_id AND s.deleted_at IS NULL ORDER BY s.name COLLATE NOCASE'),
     ]);
     const person = (r: any) => ({ id: r.id, name: r.name, avatarAt: r.avatar_at ?? null });
     const byLabel = of(labels, 'card_id', ids, (r) => ({ name: r.name || '', color: r.color })), byPerson = of(people, 'card_id', ids, person), byAssignee = of(assignees, 'task_id', tasks, person);
