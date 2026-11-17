@@ -26,7 +26,7 @@
 | `update_task` | ghi | **task_id**, title, description, result, due, start, service_id, assignee_user_id | `PUT /api/tasks/:id` | `writable()`; người viết mô tả |
 | `comment_task` | ghi | **task_id**, **text** | `POST /api/tasks/:id/comments` | guard công việc |
 | `task_workflow` | ghi | **task_id**, **action** (`start/submit/pass/redo/fail/reopen/back`), note, feedback, reason | `POST /api/tasks/:id/flow` | `applyFlow` (người duyệt mới PASS/REDO/FAIL) |
-| `list_services` | đọc | query | `GET /api/tasks/meta` (`projects`) | dịch vụ được xem |
+| `list_services` | đọc | query | `GET /api/tasks/meta` (`services`) | dịch vụ được xem |
 | `list_users` | đọc | query | `GET /api/tasks/meta` (`users`) | mọi người đăng nhập (xem rủi ro R-07) |
 | `list_customers` | đọc | query | `GET /api/customers/directory` | khách được xem (`customerLevels`) |
 | `get_customer` | đọc | **customer_id** | `GET /api/customers/:id/record`, `GET /api/customers/:id/tasks` | `requireCustomer(observer)` |
@@ -35,15 +35,15 @@
 
 | Công cụ | Loại | Input | Gọi API |
 |---|---|---|---|
-| `list_video_projects` | đọc | query | `GET /api/projects` |
-| `get_video_project` | đọc | **project_id** | `GET /api/projects/:id`, `/hyperframes`, `/renders` |
-| `view_footage` | đọc (ảnh) | **project_id**, labels (≤16) | `GET /api/projects/:id` rồi ảnh thu nhỏ Drive (ngoại lệ 1) |
-| `prepare_hyperframes` | ghi (đĩa Mac) | **project_id**, labels | `POST /api/projects/:id/hyperframes/prepare` |
-| `publish_render` | ghi | **project_id**, **file** | `POST /api/projects/:id/hyperframes/publish` (file phải nằm trong thư mục dự án) |
+| `list_video_projects` | đọc | query | `GET /api/services` |
+| `get_video_project` | đọc | **project_id** | `GET /api/services/:id`, `/hyperframes`, `/renders` |
+| `view_footage` | đọc (ảnh) | **project_id**, labels (≤16) | `GET /api/services/:id` rồi ảnh thu nhỏ Drive (ngoại lệ 1) |
+| `prepare_hyperframes` | ghi (đĩa Mac) | **project_id**, labels | `POST /api/services/:id/hyperframes/prepare` |
+| `publish_render` | ghi | **project_id**, **file** | `POST /api/services/:id/hyperframes/publish` (file phải nằm trong thư mục dịch vụ) |
 
 ## 3. Ngoại lệ đọc trực tiếp [Hiện có]
 
-1. `view_footage` lấy ảnh thu nhỏ bằng `G.thumbBuffer` **sau khi** `GET /api/projects/:id` xác nhận quyền xem dự án. Danh sách footage là dữ liệu server đã ký khi quét.
+1. `view_footage` lấy ảnh thu nhỏ bằng `G.thumbBuffer` **sau khi** `GET /api/services/:id` xác nhận quyền xem dịch vụ. Danh sách footage là dữ liệu server đã ký khi quét.
 2. Xác thực token MCP đọc `mcp_tokens` và `users` để biết người dùng (tầng auth, không phải nghiệp vụ).
 
 ## 4. Công cụ đề xuất theo nhóm [Đề xuất]
@@ -86,9 +86,9 @@ Ký hiệu: **A** = cần duyệt của người dùng trong DMI (xem [AI_AGENT_
 
 | Công cụ | Gọi route | Quyền |
 |---|---|---|
-| `create_customer_service` (I) | `POST /api/task-projects/for-service` ([tasks.ts:429](../../server/tasks.ts#L429)) hoặc `POST /api/customers/:id/projects` ([workspace.ts:830](../../server/workspace.ts#L830)) | quyền khách hàng |
-| `set_service_member` | `PUT /api/task-projects/:project/members/:userId` ([tasks.ts:499](../../server/tasks.ts#L499)) | quản lý dịch vụ |
-| `list_campaigns`, `create_campaign` | `GET/POST /api/task-projects/:project/campaigns` | quyền dịch vụ |
+| `create_customer_service` (I) | `POST /api/task-services/for-service` ([tasks.ts:429](../../server/tasks.ts#L429)) hoặc `POST /api/customers/:id/services` ([workspace.ts:830](../../server/workspace.ts#L830)) | quyền khách hàng |
+| `set_service_member` | `PUT /api/task-services/:service/members/:userId` ([tasks.ts:499](../../server/tasks.ts#L499)) | quản lý dịch vụ |
+| `list_campaigns`, `create_campaign` | `GET/POST /api/task-services/:service/campaigns` | quyền dịch vụ |
 
 ### 4.5 Báo cáo và phân tích
 

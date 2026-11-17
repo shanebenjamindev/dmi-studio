@@ -4,10 +4,10 @@
 
 ## 0. Ràng buộc quyết định
 
-Chủ dự án đã đặt yêu cầu **không dùng API AI trả phí** (14/11/2026: "free càng tốt do tôi chỉ có gói pro và gói team"). Gói Claude Pro/Team **không** cho một ứng dụng web (DMI) gọi Claude thay người dùng. Vì vậy:
+Chủ dịch vụ đã đặt yêu cầu **không dùng API AI trả phí** (14/11/2026: "free càng tốt do tôi chỉ có gói pro và gói team"). Gói Claude Pro/Team **không** cho một ứng dụng web (DMI) gọi Claude thay người dùng. Vì vậy:
 
 - **Phương án A** (miễn phí, **đang có**): trợ lý chạy trong app Claude của từng người (claude.ai, Claude Desktop, điện thoại, Claude Code); DMI là **MCP server** cung cấp công cụ.
-- **Phương án B** (khung chat **bên trong** DMI): server DMI gọi **Claude API**, tính phí theo token. Chỉ làm khi chủ dự án chấp nhận chi phí này.
+- **Phương án B** (khung chat **bên trong** DMI): server DMI gọi **Claude API**, tính phí theo token. Chỉ làm khi chủ dịch vụ chấp nhận chi phí này.
 
 Cả hai dùng **chung một bộ công cụ** ([MCP_TOOL_REGISTRY.md](MCP_TOOL_REGISTRY.md)) và chung lớp an toàn ([SECURITY_AUDIT.md](SECURITY_AUDIT.md)). AI **không bao giờ** truy cập database trực tiếp: mọi thao tác đi qua API của DMI với quyền của người dùng.
 
@@ -35,7 +35,7 @@ Người dùng ──chat──▶ Claude (claude.ai / Desktop / Code)
 
 ## 2. Phương án B: Agent trong DMI [Đã làm bản đầu 14/11/2026, cần API trả phí]
 
-> Chủ dự án chấp nhận chi phí token ngày 14/11/2026. Bản đầu: [server/assistant.ts](../../server/assistant.ts), [web/src/components/Assistant.tsx](../../web/src/components/Assistant.tsx), test [tests/assistant.test.mjs](../../tests/assistant.test.mjs). Có: streaming SSE, lưu hội thoại, công cụ chung với MCP, duyệt trong khung chat cho mọi công cụ ghi, hạn mức token theo tháng, fallback phía server. Chưa có: tóm tắt hội thoại dài, trang chi phí trong Quản trị, gắn ngữ cảnh trang đang mở.
+> Chủ dịch vụ chấp nhận chi phí token ngày 14/11/2026. Bản đầu: [server/assistant.ts](../../server/assistant.ts), [web/src/components/Assistant.tsx](../../web/src/components/Assistant.tsx), test [tests/assistant.test.mjs](../../tests/assistant.test.mjs). Có: streaming SSE, lưu hội thoại, công cụ chung với MCP, duyệt trong khung chat cho mọi công cụ ghi, hạn mức token theo tháng, fallback phía server. Chưa có: tóm tắt hội thoại dài, trang chi phí trong Quản trị, gắn ngữ cảnh trang đang mở.
 
 ### 2.1 Kiến trúc
 
@@ -121,4 +121,4 @@ Theo hệ thiết kế hiện có: token màu trong [web/src/styles.css](../../w
 
 ## 6. Khuyến nghị
 
-Làm tiếp **phương án A** (bổ sung M1, M2, M3, M4 và các công cụ ở [MCP_TOOL_REGISTRY.md](MCP_TOOL_REGISTRY.md)). Chỉ làm phương án B khi chủ dự án đồng ý trả phí API. Vì B dùng lại toàn bộ công cụ và luồng duyệt của A, công làm A không bị bỏ phí.
+Làm tiếp **phương án A** (bổ sung M1, M2, M3, M4 và các công cụ ở [MCP_TOOL_REGISTRY.md](MCP_TOOL_REGISTRY.md)). Chỉ làm phương án B khi chủ dịch vụ đồng ý trả phí API. Vì B dùng lại toàn bộ công cụ và luồng duyệt của A, công làm A không bị bỏ phí.

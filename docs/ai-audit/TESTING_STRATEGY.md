@@ -43,7 +43,7 @@
 | T4 | Thay đổi được ghi `audit_logs` với `agent = 'Claude (MCP)'` và đúng người | có bản ghi |
 | T5 | `tools/list` trên cloud không có công cụ trình dựng; trên Mac có | đúng danh sách |
 | T6 | `view_footage` trả khối `image` | content có `type: image` |
-| T7 | `publish_render` với đường dẫn ngoài thư mục dự án (tương đối `../`, tuyệt đối, symlink) | 400 |
+| T7 | `publish_render` với đường dẫn ngoài thư mục dịch vụ (tương đối `../`, tuyệt đối, symlink) | 400 |
 
 ### 3.3 Phân quyền
 

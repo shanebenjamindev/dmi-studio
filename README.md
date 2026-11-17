@@ -1,6 +1,6 @@
 # DMI Workspace — Detailers Movement
 
-Ứng dụng làm việc của Detailers Movement: board, công việc theo quy trình, khách hàng, báo cáo và công cụ chuyển đổi file. Bản cloud chạy trên Cloudflare Workers, dùng Cloudflare D1 và lưu video khách hàng trên Google Drive; xem [DEPLOY.md](DEPLOY.md). Chạy local thì dùng SQLite.
+Ứng dụng làm việc của Detailers Movement: phân cấp **Khách hàng ▸ Nhãn hàng ▸ Dịch vụ ▸ Công việc (`ACCOUNT › EXECUTION › REVIEW › COMPLETED`) ▸ Công việc con**, Workspace board, hộp thư Gmail, báo cáo Meta Ads và công cụ chuyển đổi file. Bản cloud chạy trên Cloudflare Workers + Cloudflare D1; mỗi tài khoản DMI tự liên kết Gmail để duyệt Google Drive của chính mình (`user_google_accounts`). Xem [DEPLOY.md](DEPLOY.md). Chạy local dùng SQLite.
 
 App không tự gọi model AI nào và không dùng API trả phí. Claude làm việc **trên** DMI qua connector MCP, bằng gói Claude của từng người.
 
@@ -23,7 +23,7 @@ npm start                   # build giao diện + chạy server → http://local
 - **claude.ai / app Claude:** Settings → Connectors → Add custom connector → `https://dmi-workspace.detailersmovement.workers.dev/api/mcp`. Gói Team: Owner thêm một lần cho tổ chức.
 - **Claude Code:** `claude mcp add --transport http dmi https://dmi-workspace.detailersmovement.workers.dev/api/mcp`, rồi `/mcp` để đăng nhập.
 
-Công cụ: tìm kiếm, công việc (xem, tạo, sửa, bình luận, chuyển bước quy trình), dịch vụ, nhân sự, khách hàng. Mỗi người kết nối từ **Hồ sơ → Kết nối Claude** và thu hồi được ở đó.
+Công cụ: tìm kiếm, khách hàng, nhãn hàng (`list_brands`), dịch vụ của nhãn hàng (`list_services`), công việc (xem, tạo, sửa, bình luận, chuyển bước quy trình), nhân sự. Mỗi người kết nối từ **Hồ sơ → Kết nối Claude** và thu hồi được ở đó.
 
 ## Trợ lý AI trong DMI
 
@@ -37,8 +37,9 @@ server/                 Node + TypeScript (chạy bằng tsx), không framework
   worker.ts             Cloudflare Workers: static assets + API, dùng D1 và Google Drive
   app.ts / routes.ts    Pipeline API (guard, nhật ký) và đăng ký các module
   mcp.ts, mcp-kit.ts    Connector Claude: OAuth (đăng ký app, cho phép, token, thu hồi) và công cụ MCP
-  drive-links.ts        Link Google Drive dán vào DMI: id và tài khoản Google mở được
-  tasks.ts, boards.ts…  Công việc, board, khách hàng, báo cáo, thông báo, quản trị
+  drive-links.ts        Link Google Drive dán vào DMI: id và tài khoản Google theo từng người dùng
+  brands.ts             CRUD Nhãn hàng (br_…) thuộc Khách hàng và thư mục Drive theo nhãn hàng
+  tasks.ts, boards.ts…  Dịch vụ của nhãn hàng (tj_…), công việc, board, khách hàng, báo cáo, thông báo, quản trị
 web/                    React 19, đóng gói bằng esbuild → web/dist
 data/                   studio.db + assets/ (tự tạo, đã nằm trong .gitignore)
 ```

@@ -6,10 +6,10 @@
 
 - **Tầng guard**: kết quả của `guard()` ([server/auth.ts](../../server/auth.ts)) áp cho đường dẫn, trước handler:
   - `public`: không cần đăng nhập (đăng nhập, OAuth, MCP tự kiểm token, health).
-  - `signed-in`: cần phiên đăng nhập (cookie `dms_sid`, hoặc token MCP qua `ACTING`); guard còn tự kiểm quyền theo bản ghi khi đường dẫn chứa id khách hàng, báo cáo, dịch vụ (`task-projects`), công việc (`tasks/tk_…`).
+  - `signed-in`: cần phiên đăng nhập (cookie `dms_sid`, hoặc token MCP qua `ACTING`); guard còn tự kiểm quyền theo bản ghi khi đường dẫn chứa id khách hàng, báo cáo, dịch vụ (`task-services`), công việc (`tasks/tk_…`).
   - `company-admin`: chỉ `users.role = 'admin'`; `(delegable)`: một vai trò có quyền tương ứng trong Phân quyền cũng được (`DELEGATED`).
 - **Trang**: quyền vào trang (`PAGE_OF` / `CRM`): `workspace` (Drive khách hàng), `editor` (trình dựng), `ads`; `crm` = trang Khách hàng (ai cũng vào, lọc theo bản ghi).
-- **Kiểm tra trong handler**: dấu hiệu tìm thấy trong thân handler: `perm:x.y` (RBAC phạm vi, `need()`), `customer-level`, `project-level`, `board:<mức>`, `task-writable`, `admin-role-check`, `403-path` (có nhánh trả 403), `turnstile`, `rate-limit`, `custom-audit`.
+- **Kiểm tra trong handler**: dấu hiệu tìm thấy trong thân handler: `perm:x.y` (RBAC phạm vi, `need()`), `customer-level`, `service-level`, `board:<mức>`, `task-writable`, `admin-role-check`, `403-path` (có nhánh trả 403), `turnstile`, `rate-limit`, `custom-audit`.
 - **Input**: các trường `b.<x>` đọc trực tiếp từ JSON body; **cận dưới**, vì nhiều route đọc thêm qua hàm phụ (ví dụ `taskInput` của `POST/PUT /api/tasks` đọc `title, status, startAt, dueAt, projectId, parentId, campaignId, assigneeIds, assigneeUserIds, followerUserIds, labels, description, result`, [server/tasks.ts:290](../../server/tasks.ts#L290)). **Query**: `req.query.get()`; **Status**: mã trả về ghi rõ trong handler (200 là mặc định khi trống).
 - **Bảng**: các bảng xuất hiện trong SQL của handler (FROM/INTO/UPDATE/JOIN). Hàm phụ ở module khác có thể đụng thêm bảng: đây là cận dưới.
 - **Phản hồi**: JSON (`json(res, status, body)`, [server/http.ts](../../server/http.ts)); lỗi luôn là `{ "error": "<tiếng Việt>", "need"?: "<trường thiếu>" }` với mã 4xx/5xx ([server/app.ts](../../server/app.ts)). Hình dạng body thành công: xem handler tại file:dòng.
@@ -92,7 +92,7 @@ Tổng: **382 route**.
 | GET | `/api/customers/:id/files/:key` | [workspace.ts:1111](../../server/workspace.ts#L1111) | signed-in | workspace |  |  |  |  |
 | POST | `/api/customers/:id/files/:key/share` | [workspace.ts:1123](../../server/workspace.ts#L1123) | signed-in | workspace |  |  |  | 200 |
 | GET | `/api/customers/:id/files/:key/thumb` | [workspace.ts:1116](../../server/workspace.ts#L1116) | signed-in | workspace |  |  |  |  |
-| DELETE | `/api/customers/:id/folder` | [workspace.ts:950](../../server/workspace.ts#L950) | signed-in | workspace | guard:MANAGE (admin công ty / admin phòng / quản lý khách) |  | customers, projects, task_projects, reports, board_cards, boards, card_attachments, customer_tags, customer_needs, customer_members | 200 |
+| DELETE | `/api/customers/:id/folder` | [workspace.ts:950](../../server/workspace.ts#L950) | signed-in | workspace | guard:MANAGE (admin công ty / admin phòng / quản lý khách) |  | customers, services, task_projects, reports, board_cards, boards, card_attachments, customer_tags, customer_needs, customer_members | 200 |
 | PUT | `/api/customers/:id/folder` | [workspace.ts:930](../../server/workspace.ts#L930) | signed-in | workspace | guard:MANAGE (admin công ty / admin phòng / quản lý khách) | body: link, loc | customers | 200 |
 | POST | `/api/customers/:id/folders` | [workspace.ts:1000](../../server/workspace.ts#L1000) | signed-in | workspace | guard:MANAGE (admin công ty / admin phòng / quản lý khách) |  |  | 201 |
 | DELETE | `/api/customers/:id/folders/:fkey` | [workspace.ts:1043](../../server/workspace.ts#L1043) | signed-in | workspace | guard:MANAGE (admin công ty / admin phòng / quản lý khách) |  |  | 200 |
@@ -101,9 +101,9 @@ Tổng: **382 route**.
 | GET | `/api/customers/:id/members` | [workspace.ts:779](../../server/workspace.ts#L779) | signed-in | crm | customer-level |  | users, customer_members | 200 |
 | DELETE | `/api/customers/:id/members/:userId` | [workspace.ts:797](../../server/workspace.ts#L797) | signed-in | crm | customer-level |  | customer_members | 200 |
 | PUT | `/api/customers/:id/members/:userId` | [workspace.ts:786](../../server/workspace.ts#L786) | signed-in | crm | customer-level |  | users, customer_members | 200 |
-| GET | `/api/customers/:id/projects` | [workspace.ts:823](../../server/workspace.ts#L823) | signed-in | crm |  |  | task_campaigns, tasks, task_projects | 200 |
-| POST | `/api/customers/:id/projects` | [workspace.ts:830](../../server/workspace.ts#L830) | signed-in | crm | customer-level, project-level | body: name, projectId, services | task_projects, services, customer_needs | 200, 201 |
-| PUT | `/api/customers/:id/projects/:project` | [workspace.ts:856](../../server/workspace.ts#L856) | signed-in | crm | customer-level, project-level | body: unlink, name | task_projects | 200 |
+| GET | `/api/customers/:id/services` | [workspace.ts:823](../../server/workspace.ts#L823) | signed-in | crm |  |  | task_campaigns, tasks, task_projects | 200 |
+| POST | `/api/customers/:id/services` | [workspace.ts:830](../../server/workspace.ts#L830) | signed-in | crm | customer-level, service-level | body: name, projectId, services | task_projects, services, customer_needs | 200, 201 |
+| PUT | `/api/customers/:id/services/:service` | [workspace.ts:856](../../server/workspace.ts#L856) | signed-in | crm | customer-level, service-level | body: unlink, name | task_projects | 200 |
 | GET | `/api/customers/:id/record` | [workspace.ts:900](../../server/workspace.ts#L900) | signed-in | crm |  |  |  | 200 |
 | PUT | `/api/customers/:id/record` | [workspace.ts:901](../../server/workspace.ts#L901) | signed-in | crm | customer-level |  | customers, customer_members, boards | 200 |
 | POST | `/api/customers/:id/reveal` | [workspace.ts:991](../../server/workspace.ts#L991) | signed-in | workspace |  |  |  | 200 |
@@ -137,19 +137,19 @@ Tổng: **382 route**.
 |---|---|---|---|---|---|---|---|---|
 | POST | `/api/task-people` | [tasks.ts:875](../../server/tasks.ts#L875) | signed-in |  | admin-role-check, 403-path |  | task_people | 201 |
 | PUT | `/api/task-people/:id` | [tasks.ts:887](../../server/tasks.ts#L887) | signed-in |  | admin-role-check, 403-path |  | task_people, users | 200 |
-| POST | `/api/task-projects` | [tasks.ts:408](../../server/tasks.ts#L408) | signed-in |  | customer-level |  | services, team_roles, task_projects, customer_needs | 201 |
-| DELETE | `/api/task-projects/:project` | [tasks.ts:469](../../server/tasks.ts#L469) | signed-in |  | project-level |  |  | 200 |
-| PUT | `/api/task-projects/:project` | [tasks.ts:434](../../server/tasks.ts#L434) | signed-in |  | customer-level, project-level |  | task_projects, team_roles | 200 |
-| GET | `/api/task-projects/:project/campaigns` | [tasks.ts:523](../../server/tasks.ts#L523) | signed-in |  |  |  | task_projects, tasks, task_campaigns | 200 |
-| POST | `/api/task-projects/:project/campaigns` | [tasks.ts:527](../../server/tasks.ts#L527) | signed-in |  | 403-path | body: name | task_projects, task_campaigns | 201 |
-| DELETE | `/api/task-projects/:project/campaigns/:id` | [tasks.ts:538](../../server/tasks.ts#L538) | signed-in |  | 403-path |  | tasks, task_campaigns | 200 |
-| PUT | `/api/task-projects/:project/campaigns/:id` | [tasks.ts:533](../../server/tasks.ts#L533) | signed-in |  | 403-path | body: name | task_campaigns | 200 |
-| GET | `/api/task-projects/:project/members` | [tasks.ts:487](../../server/tasks.ts#L487) | signed-in |  | project-level |  | task_projects, users, task_project_members, team_roles | 200 |
-| DELETE | `/api/task-projects/:project/members/:userId` | [tasks.ts:516](../../server/tasks.ts#L516) | signed-in |  | project-level |  | task_projects, task_project_members | 200 |
-| PUT | `/api/task-projects/:project/members/:userId` | [tasks.ts:499](../../server/tasks.ts#L499) | signed-in |  | project-level, admin-role-check |  | task_projects, users, task_project_members | 200 |
-| PUT | `/api/task-projects/:project/team` | [tasks.ts:493](../../server/tasks.ts#L493) | signed-in |  | project-level |  | team_roles, task_projects | 200 |
-| POST | `/api/task-projects/bulk-delete` | [tasks.ts:474](../../server/tasks.ts#L474) | signed-in |  | admin-role-check | body: ids |  | 200 |
-| POST | `/api/task-projects/for-service` | [tasks.ts:429](../../server/tasks.ts#L429) | signed-in |  |  | body: customerId, serviceId |  |  |
+| POST | `/api/task-services` | [tasks.ts:408](../../server/tasks.ts#L408) | signed-in |  | customer-level |  | services, team_roles, task_projects, customer_needs | 201 |
+| DELETE | `/api/task-services/:service` | [tasks.ts:469](../../server/tasks.ts#L469) | signed-in |  | service-level |  |  | 200 |
+| PUT | `/api/task-services/:service` | [tasks.ts:434](../../server/tasks.ts#L434) | signed-in |  | customer-level, service-level |  | task_projects, team_roles | 200 |
+| GET | `/api/task-services/:service/campaigns` | [tasks.ts:523](../../server/tasks.ts#L523) | signed-in |  |  |  | task_projects, tasks, task_campaigns | 200 |
+| POST | `/api/task-services/:service/campaigns` | [tasks.ts:527](../../server/tasks.ts#L527) | signed-in |  | 403-path | body: name | task_projects, task_campaigns | 201 |
+| DELETE | `/api/task-services/:service/campaigns/:id` | [tasks.ts:538](../../server/tasks.ts#L538) | signed-in |  | 403-path |  | tasks, task_campaigns | 200 |
+| PUT | `/api/task-services/:service/campaigns/:id` | [tasks.ts:533](../../server/tasks.ts#L533) | signed-in |  | 403-path | body: name | task_campaigns | 200 |
+| GET | `/api/task-services/:service/members` | [tasks.ts:487](../../server/tasks.ts#L487) | signed-in |  | service-level |  | task_projects, users, task_project_members, team_roles | 200 |
+| DELETE | `/api/task-services/:service/members/:userId` | [tasks.ts:516](../../server/tasks.ts#L516) | signed-in |  | service-level |  | task_projects, task_project_members | 200 |
+| PUT | `/api/task-services/:service/members/:userId` | [tasks.ts:499](../../server/tasks.ts#L499) | signed-in |  | service-level, admin-role-check |  | task_projects, users, task_project_members | 200 |
+| PUT | `/api/task-services/:service/team` | [tasks.ts:493](../../server/tasks.ts#L493) | signed-in |  | service-level |  | team_roles, task_projects | 200 |
+| POST | `/api/task-services/bulk-delete` | [tasks.ts:474](../../server/tasks.ts#L474) | signed-in |  | admin-role-check | body: ids |  | 200 |
+| POST | `/api/task-services/for-service` | [tasks.ts:429](../../server/tasks.ts#L429) | signed-in |  |  | body: customerId, serviceId |  |  |
 | GET | `/api/tasks` | [tasks.ts:572](../../server/tasks.ts#L572) | signed-in |  | admin-role-check, 403-path |  | team_members, teams, users, task_board_links, card_members | 200 |
 | POST | `/api/tasks` | [tasks.ts:743](../../server/tasks.ts#L743) | signed-in |  |  | body: services, reviewerUserId | task_people, users, tasks | 201 |
 | DELETE | `/api/tasks/:id` | [tasks.ts:791](../../server/tasks.ts#L791) | signed-in |  | task-writable, 403-path |  |  | 200 |
@@ -192,7 +192,7 @@ Tổng: **382 route**.
 | POST | `/api/boards/:id/transfer-owner` | [boards.ts:733](../../server/boards.ts#L733) | signed-in |  | board:admin, admin-role-check, 403-path | body: created_by, level, id, name | users, board_members, boards | 200 |
 | DELETE | `/api/cards/:id` | [boards.ts:1091](../../server/boards.ts#L1091) | signed-in |  |  |  |  | 200 |
 | GET | `/api/cards/:id` | [boards.ts:968](../../server/boards.ts#L968) | signed-in |  |  |  |  | 200 |
-| PUT | `/api/cards/:id` | [boards.ts:971](../../server/boards.ts#L971) | signed-in |  | customer-level, project-level, 403-path | body: title, description, result, startAt, dueAt, done, cover, customerId, projectId, linkTask, archived, listId, index | customers, task_projects, task_board_links, tasks, task_people, board_lists, board_cards, task_assignees, task_followers, card_members | 200 |
+| PUT | `/api/cards/:id` | [boards.ts:971](../../server/boards.ts#L971) | signed-in |  | customer-level, service-level, 403-path | body: title, description, result, startAt, dueAt, done, cover, customerId, projectId, linkTask, archived, listId, index | customers, task_projects, task_board_links, tasks, task_people, board_lists, board_cards, task_assignees, task_followers, card_members | 200 |
 | POST | `/api/cards/:id/attachments` | [boards.ts:1270](../../server/boards.ts#L1270) | signed-in |  |  | body: url, name | card_attachments | 201 |
 | POST | `/api/cards/:id/checklists` | [boards.ts:1195](../../server/boards.ts#L1195) | signed-in |  |  |  | card_checklists | 201 |
 | POST | `/api/cards/:id/comments` | [boards.ts:1240](../../server/boards.ts#L1240) | signed-in |  |  | body: text, replyToId | card_comments, card_members | 201 |
@@ -219,7 +219,7 @@ Tổng: **382 route**.
 | DELETE | `/api/lists/:id` | [boards.ts:822](../../server/boards.ts#L822) | signed-in |  | 403-path |  | board_cards, board_lists | 200 |
 | PUT | `/api/lists/:id` | [boards.ts:803](../../server/boards.ts#L803) | signed-in |  |  | body: folded, color, name, index, archived | board_lists, board_cards | 200 |
 | POST | `/api/lists/:id/archive-cards` | [boards.ts:860](../../server/boards.ts#L860) | signed-in |  |  |  | board_cards | 200 |
-| POST | `/api/lists/:id/cards` | [boards.ts:886](../../server/boards.ts#L886) | signed-in |  | project-level | body: title, kind, projectCardId, customerCardId, customerId, projectId, top, syncTask | board_cards, task_projects, customers, customer_members, boards, task_people, tasks, task_board_links | 201 |
+| POST | `/api/lists/:id/cards` | [boards.ts:886](../../server/boards.ts#L886) | signed-in |  | service-level | body: title, kind, projectCardId, customerCardId, customerId, projectId, top, syncTask | board_cards, task_projects, customers, customer_members, boards, task_people, tasks, task_board_links | 201 |
 | POST | `/api/lists/:id/copy` | [boards.ts:870](../../server/boards.ts#L870) | signed-in |  |  |  | board_lists, board_cards, card_labels | 201 |
 | POST | `/api/lists/:id/move-cards` | [boards.ts:845](../../server/boards.ts#L845) | signed-in |  |  |  | board_cards | 200 |
 | POST | `/api/lists/:id/sort` | [boards.ts:832](../../server/boards.ts#L832) | signed-in |  |  | body: created_at, title, due_at | board_cards | 200 |
@@ -254,8 +254,8 @@ Tổng: **382 route**.
 | DELETE | `/api/ads/services/:id` | [ads-summary.ts:38](../../server/ads-summary.ts#L38) | signed-in | ads |  |  | ads_services | 200 |
 | PUT | `/api/ads/services/:id` | [ads-summary.ts:32](../../server/ads-summary.ts#L32) | signed-in | ads |  |  | ads_services | 200 |
 | GET | `/api/ads/summary` | [ads-summary.ts:39](../../server/ads-summary.ts#L39) | signed-in | ads |  | query: until, fresh |  | 200 |
-| GET | `/api/reports` | [reports.ts:614](../../server/reports.ts#L614) | signed-in | editor/ads |  | query: customer, project | reports, customers | 200 |
-| POST | `/api/reports` | [reports.ts:627](../../server/reports.ts#L627) | signed-in | editor/ads | customer-level, admin-role-check, 403-path | body: meta, projectId, customerId | projects, customers, reports | 201 |
+| GET | `/api/reports` | [reports.ts:614](../../server/reports.ts#L614) | signed-in | editor/ads |  | query: customer, service | reports, customers | 200 |
+| POST | `/api/reports` | [reports.ts:627](../../server/reports.ts#L627) | signed-in | editor/ads | customer-level, admin-role-check, 403-path | body: meta, projectId, customerId | services, customers, reports | 201 |
 | DELETE | `/api/reports/:id` | [reports.ts:681](../../server/reports.ts#L681) | signed-in | editor/ads |  |  | reports, report_images | 200 |
 | GET | `/api/reports/:id` | [reports.ts:654](../../server/reports.ts#L654) | signed-in | editor/ads |  |  |  | 200 |
 | PUT | `/api/reports/:id` | [reports.ts:655](../../server/reports.ts#L655) | signed-in | editor/ads |  | body: title, data | reports | 200 |
@@ -278,21 +278,21 @@ Tổng: **382 route**.
 |---|---|---|---|---|---|---|---|---|
 | GET | `/api/editor-link` | [routes.ts:74](../../server/routes.ts#L74) | signed-in | editor |  |  |  | 200 |
 | GET | `/api/health` | [routes.ts:61](../../server/routes.ts#L61) | public |  |  |  |  | 200 |
-| GET | `/api/projects` | [routes.ts:92](../../server/routes.ts#L92) | signed-in | editor |  |  | customers, projects | 200 |
-| POST | `/api/projects` | [routes.ts:100](../../server/routes.ts#L100) | signed-in | editor | customer-level | body: customerId, title, aspect, sources, sheet | customers, projects | 201 |
-| DELETE | `/api/projects/:id` | [routes.ts:160](../../server/routes.ts#L160) | signed-in | editor |  |  | assets, projects, renders, jobs | 200 |
-| GET | `/api/projects/:id` | [routes.ts:110](../../server/routes.ts#L110) | signed-in | editor |  |  |  | 200 |
-| PUT | `/api/projects/:id` | [routes.ts:111](../../server/routes.ts#L111) | signed-in | editor | customer-level | body: sources, sheet, status, note, customerId, title, aspect | customers, projects | 200 |
-| POST | `/api/projects/:id/customer/auto` | [routes.ts:150](../../server/routes.ts#L150) | signed-in | editor |  |  |  | 200 |
-| POST | `/api/projects/:id/drive` | [routes.ts:133](../../server/routes.ts#L133) | signed-in | editor |  |  | projects | 200 |
-| POST | `/api/projects/:id/duplicate` | [routes.ts:154](../../server/routes.ts#L154) | signed-in | editor |  |  | projects | 201 |
-| GET | `/api/projects/:id/hyperframes` | [hyperframes.ts:124](../../server/hyperframes.ts#L124) | signed-in | editor |  |  |  | 200 |
-| POST | `/api/projects/:id/hyperframes/prepare` | [hyperframes.ts:125](../../server/hyperframes.ts#L125) | signed-in | editor |  | body: sources |  | 200 |
-| POST | `/api/projects/:id/hyperframes/preview` | [hyperframes.ts:130](../../server/hyperframes.ts#L130) | signed-in | editor |  |  |  | 200 |
-| POST | `/api/projects/:id/hyperframes/publish` | [hyperframes.ts:136](../../server/hyperframes.ts#L136) | signed-in | editor |  |  |  | 201 |
-| GET | `/api/projects/:id/renders` | [routes.ts:180](../../server/routes.ts#L180) | signed-in | editor |  |  | renders, assets | 200 |
+| GET | `/api/services` | [routes.ts:92](../../server/routes.ts#L92) | signed-in | editor |  |  | customers, services | 200 |
+| POST | `/api/services` | [routes.ts:100](../../server/routes.ts#L100) | signed-in | editor | customer-level | body: customerId, title, aspect, sources, sheet | customers, services | 201 |
+| DELETE | `/api/services/:id` | [routes.ts:160](../../server/routes.ts#L160) | signed-in | editor |  |  | assets, services, renders, jobs | 200 |
+| GET | `/api/services/:id` | [routes.ts:110](../../server/routes.ts#L110) | signed-in | editor |  |  |  | 200 |
+| PUT | `/api/services/:id` | [routes.ts:111](../../server/routes.ts#L111) | signed-in | editor | customer-level | body: sources, sheet, status, note, customerId, title, aspect | customers, services | 200 |
+| POST | `/api/services/:id/customer/auto` | [routes.ts:150](../../server/routes.ts#L150) | signed-in | editor |  |  |  | 200 |
+| POST | `/api/services/:id/drive` | [routes.ts:133](../../server/routes.ts#L133) | signed-in | editor |  |  | services | 200 |
+| POST | `/api/services/:id/duplicate` | [routes.ts:154](../../server/routes.ts#L154) | signed-in | editor |  |  | services | 201 |
+| GET | `/api/services/:id/hyperframes` | [hyperframes.ts:124](../../server/hyperframes.ts#L124) | signed-in | editor |  |  |  | 200 |
+| POST | `/api/services/:id/hyperframes/prepare` | [hyperframes.ts:125](../../server/hyperframes.ts#L125) | signed-in | editor |  | body: sources |  | 200 |
+| POST | `/api/services/:id/hyperframes/preview` | [hyperframes.ts:130](../../server/hyperframes.ts#L130) | signed-in | editor |  |  |  | 200 |
+| POST | `/api/services/:id/hyperframes/publish` | [hyperframes.ts:136](../../server/hyperframes.ts#L136) | signed-in | editor |  |  |  | 201 |
+| GET | `/api/services/:id/renders` | [routes.ts:180](../../server/routes.ts#L180) | signed-in | editor |  |  | renders, assets | 200 |
 | DELETE | `/api/renders/:id` | [routes.ts:191](../../server/routes.ts#L191) | signed-in | editor |  |  | renders, assets | 200 |
-| GET | `/api/renders/:id/download` | [routes.ts:185](../../server/routes.ts#L185) | signed-in | editor |  |  | renders, assets, projects |  |
+| GET | `/api/renders/:id/download` | [routes.ts:185](../../server/routes.ts#L185) | signed-in | editor |  |  | renders, assets, services |  |
 | GET | `/api/sheets/progress/:token` | [sheets.ts:367](../../server/sheets.ts#L367) | signed-in | editor |  |  |  | 200 |
 | POST | `/api/sheets/read` | [sheets.ts:355](../../server/sheets.ts#L355) | signed-in | editor |  |  |  | 200 |
 | POST | `/api/sheets/tabs` | [sheets.ts:362](../../server/sheets.ts#L362) | signed-in | editor |  |  |  | 200 |
@@ -360,7 +360,7 @@ Tổng: **382 route**.
 | DELETE | `/api/admin/customers/:id` | [admin/customers.ts:160](../../server/admin/customers.ts#L160) | signed-in |  | perm:customers.delete |  |  | 200 |
 | GET | `/api/admin/customers/:id` | [admin/customers.ts:105](../../server/admin/customers.ts#L105) | signed-in |  | perm:customers.view |  | customers, customer_members, users | 200 |
 | PUT | `/api/admin/customers/:id` | [admin/customers.ts:126](../../server/admin/customers.ts#L126) | signed-in |  | perm:customers.update | body: managerId, categoryId | customers, customer_tags | 200 |
-| POST | `/api/admin/customers/:id/archive` | [admin/customers.ts:141](../../server/admin/customers.ts#L141) | signed-in |  | perm:customers.delete |  | customers, projects, task_projects, reports, board_cards, boards, card_attachments, customer_tags, customer_needs, customer_members | 200 |
+| POST | `/api/admin/customers/:id/archive` | [admin/customers.ts:141](../../server/admin/customers.ts#L141) | signed-in |  | perm:customers.delete |  | customers, services, task_projects, reports, board_cards, boards, card_attachments, customer_tags, customer_needs, customer_members | 200 |
 | POST | `/api/admin/customers/bulk-delete` | [admin/customers.ts:165](../../server/admin/customers.ts#L165) | signed-in |  | perm:customers.delete | body: ids |  | 200 |
 | GET | `/api/admin/customers/export` | [admin/customers.ts:98](../../server/admin/customers.ts#L98) | signed-in |  | perm:customers.export, perm:customers.view | body: name |  |  |
 | GET | `/api/admin/departments` | [admin/staff.ts:215](../../server/admin/staff.ts#L215) | signed-in |  | perm:org.view | body: role_id, name, about, color, departmentId | users, dept_roles, teams, boards, team_roles, team_members | 200 |

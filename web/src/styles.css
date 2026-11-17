@@ -4473,7 +4473,7 @@ a.rail-item { text-decoration: none; }
 .bd-customer-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
 .bd-customer-actions .bd-add-card{margin-top:0;flex:1;min-width:120px;font-size:12px;padding:6px 8px}
 
-/* Board level filter tabs: Tất cả | Khách hàng | Dự án | Task */
+/* Board level filter tabs: Tất cả | Khách hàng | Dịch vụ | Task */
 
 .bd-badge-kind{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:600}
 .bd-badge-kind-cust{background:#e0f2fe;color:#0369a1}

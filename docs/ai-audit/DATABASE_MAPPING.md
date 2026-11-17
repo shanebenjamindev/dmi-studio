@@ -20,7 +20,7 @@ customers 1─n customer_members n─1 users            tasks 1─n task_comment
 tasks 1─1 task_board_links 1─1 board_cards n─1 board_lists n─1 boards n─1 workspaces
 boards 1─n board_members n─1 users                   board_cards 1─n card_comments / card_members / card_labels / card_checklists
 users n─1 team_roles (phòng ban) · users n─1 dept_roles (vai trò trong phòng) · users n─n roles (user_roles) · role_permissions
-reports n─1 customers · projects (video) n─1 customers · renders n─1 projects · assets n─1 projects
+reports n─1 customers · services (video) n─1 customers · renders n─1 services · assets n─1 services
 mcp_tokens n─1 users · mcp_tokens n─1 mcp_clients · mcp_codes n─1 users
 ```
 
@@ -160,7 +160,7 @@ Route dùng trực tiếp (4): `GET /api/admin/departments`, `PUT /api/admin/tea
 | `pos` | REAL NOT NULL |
 | `created_at` | INTEGER NOT NULL |
 
-Route dùng trực tiếp (15): `GET /api/admin/departments`, `GET /api/admin/system`, `GET /api/profiles/:id`, `GET /api/roles`, `POST /api/roles`, `PUT /api/roles/:id`, `DELETE /api/roles/:id`, `POST /api/roles/:id/positions`, `GET /api/boards`, `GET /api/search`, `POST /api/task-projects`, `PUT /api/task-projects/:project` … (+3)
+Route dùng trực tiếp (15): `GET /api/admin/departments`, `GET /api/admin/system`, `GET /api/profiles/:id`, `GET /api/roles`, `POST /api/roles`, `PUT /api/roles/:id`, `DELETE /api/roles/:id`, `POST /api/roles/:id/positions`, `GET /api/boards`, `GET /api/search`, `POST /api/task-services`, `PUT /api/task-services/:service` … (+3)
 
 ### `teams`
 
@@ -307,7 +307,7 @@ Ràng buộc: `PRIMARY KEY(customer_id,service_id)`
 
 Index: `customer_needs_service`(service_id)
 
-Route dùng trực tiếp (4): `POST /api/admin/customers/:id/archive`, `POST /api/task-projects`, `POST /api/customers/:id/projects`, `DELETE /api/customers/:id/folder`
+Route dùng trực tiếp (4): `POST /api/admin/customers/:id/archive`, `POST /api/task-services`, `POST /api/customers/:id/services`, `DELETE /api/customers/:id/folder`
 
 ### `customer_sources`
 
@@ -474,7 +474,7 @@ Route dùng trực tiếp (3): `POST /api/admin/service-packages`, `PUT /api/adm
 | `updated_at` | INTEGER NOT NULL |
 | `deleted_at` | INTEGER |
 
-Route dùng trực tiếp (8): `POST /api/admin/services`, `PUT /api/admin/services/:id`, `DELETE /api/admin/services/:id`, `GET /api/admin/system`, `GET /api/client-work`, `POST /api/task-projects`, `POST /api/customers/:id/projects`, `GET /api/services`
+Route dùng trực tiếp (8): `POST /api/admin/services`, `PUT /api/admin/services/:id`, `DELETE /api/admin/services/:id`, `GET /api/admin/system`, `GET /api/client-work`, `POST /api/task-services`, `POST /api/customers/:id/services`, `GET /api/services`
 
 ## Công việc
 
@@ -524,7 +524,7 @@ Route dùng trực tiếp (12): `POST /api/lists/:id/cards`, `PUT /api/cards/:id
 
 Index: `task_campaigns_project`(project_id)
 
-Route dùng trực tiếp (7): `GET /api/task-projects/:project/campaigns`, `POST /api/task-projects/:project/campaigns`, `PUT /api/task-projects/:project/campaigns/:id`, `DELETE /api/task-projects/:project/campaigns/:id`, `GET /api/tasks/meta`, `GET /api/customers/directory`, `GET /api/customers/:id/projects`
+Route dùng trực tiếp (7): `GET /api/task-services/:service/campaigns`, `POST /api/task-services/:service/campaigns`, `PUT /api/task-services/:service/campaigns/:id`, `DELETE /api/task-services/:service/campaigns/:id`, `GET /api/tasks/meta`, `GET /api/customers/directory`, `GET /api/customers/:id/services`
 
 ### `task_comments`
 
@@ -649,7 +649,7 @@ Route dùng trực tiếp (5): `GET /api/admin/task-priorities`, `POST /api/admi
 
 Ràng buộc: `PRIMARY KEY(project_id,user_id)`
 
-Route dùng trực tiếp (3): `GET /api/task-projects/:project/members`, `PUT /api/task-projects/:project/members/:userId`, `DELETE /api/task-projects/:project/members/:userId`
+Route dùng trực tiếp (3): `GET /api/task-services/:service/members`, `PUT /api/task-services/:service/members/:userId`, `DELETE /api/task-services/:service/members/:userId`
 
 ### `task_projects`
 
@@ -663,7 +663,7 @@ Route dùng trực tiếp (3): `GET /api/task-projects/:project/members`, `PUT /
 | `created_at` | INTEGER NOT NULL |
 | `hold` | TEXT  /* thêm bằng nâng cấp (db.ts) */ |
 
-Route dùng trực tiếp (25): `POST /api/admin/customers/:id/archive`, `GET /api/admin/staff/:id`, `GET /api/admin/system`, `GET /api/admin/storage`, `POST /api/lists/:id/cards`, `PUT /api/cards/:id`, `GET /api/notifications/inbox`, `GET /api/search`, `POST /api/task-projects`, `PUT /api/task-projects/:project`, `GET /api/task-projects/:project/members`, `PUT /api/task-projects/:project/team` … (+13)
+Route dùng trực tiếp (25): `POST /api/admin/customers/:id/archive`, `GET /api/admin/staff/:id`, `GET /api/admin/system`, `GET /api/admin/storage`, `POST /api/lists/:id/cards`, `PUT /api/cards/:id`, `GET /api/notifications/inbox`, `GET /api/search`, `POST /api/task-services`, `PUT /api/task-services/:service`, `GET /api/task-services/:service/members`, `PUT /api/task-services/:service/team` … (+13)
 
 ### `task_reminders`
 
@@ -1281,7 +1281,7 @@ Route dùng trực tiếp (0): _chỉ qua hàm phụ, cron hoặc không còn ro
 | `meta` | TEXT |
 | `created_at` | INTEGER NOT NULL |
 
-Route dùng trực tiếp (5): `GET /api/admin/storage`, `DELETE /api/projects/:id`, `GET /api/projects/:id/renders`, `GET /api/renders/:id/download`, `DELETE /api/renders/:id`
+Route dùng trực tiếp (5): `GET /api/admin/storage`, `DELETE /api/services/:id`, `GET /api/services/:id/renders`, `GET /api/renders/:id/download`, `DELETE /api/renders/:id`
 
 ### `jobs`
 
@@ -1305,9 +1305,9 @@ Route dùng trực tiếp (5): `GET /api/admin/storage`, `DELETE /api/projects/:
 
 Index: `jobs_project`(project_id, created_at)
 
-Route dùng trực tiếp (1): `DELETE /api/projects/:id`
+Route dùng trực tiếp (1): `DELETE /api/services/:id`
 
-### `projects`
+### `services`
 
 | Cột | Định nghĩa |
 |---|---|
@@ -1319,7 +1319,7 @@ Route dùng trực tiếp (1): `DELETE /api/projects/:id`
 | `created_at` | INTEGER NOT NULL |
 | `updated_at` | INTEGER NOT NULL |
 
-Route dùng trực tiếp (10): `POST /api/admin/customers/:id/archive`, `POST /api/reports`, `GET /api/projects`, `POST /api/projects`, `PUT /api/projects/:id`, `POST /api/projects/:id/drive`, `POST /api/projects/:id/duplicate`, `DELETE /api/projects/:id`, `GET /api/renders/:id/download`, `DELETE /api/customers/:id/folder`
+Route dùng trực tiếp (10): `POST /api/admin/customers/:id/archive`, `POST /api/reports`, `GET /api/services`, `POST /api/services`, `PUT /api/services/:id`, `POST /api/services/:id/drive`, `POST /api/services/:id/duplicate`, `DELETE /api/services/:id`, `GET /api/renders/:id/download`, `DELETE /api/customers/:id/folder`
 
 ### `renders`
 
@@ -1331,7 +1331,7 @@ Route dùng trực tiếp (10): `POST /api/admin/customers/:id/archive`, `POST /
 | `status` | TEXT NOT NULL DEFAULT 'ready' |
 | `created_at` | INTEGER NOT NULL |
 
-Route dùng trực tiếp (5): `GET /api/admin/storage`, `DELETE /api/projects/:id`, `GET /api/projects/:id/renders`, `GET /api/renders/:id/download`, `DELETE /api/renders/:id`
+Route dùng trực tiếp (5): `GET /api/admin/storage`, `DELETE /api/services/:id`, `GET /api/services/:id/renders`, `GET /api/renders/:id/download`, `DELETE /api/renders/:id`
 
 ## Connector Claude (MCP)
 

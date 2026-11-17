@@ -48,16 +48,16 @@ Chi tiết: [DATABASE_MAPPING.md](DATABASE_MAPPING.md). Không có ORM; SQL vi�
 | Khái niệm nghiệp vụ | Bảng | Ghi chú |
 |---|---|---|
 | Khách hàng | `customers` (+ `customer_members`, `customer_statuses`, `customer_categories`, `customer_sources`, `customer_tags`, `customer_needs`, `customer_interactions`) | Có thư mục Drive (`gloc`), người phụ trách (`manager_id`), người tạo (`created_by`), lưu trữ (`archived_at`) |
-| Dịch vụ của khách (trước đây "Dự án") | `task_projects` (+ `task_project_members`, `task_campaigns`, `project_services`) | Mỗi dịch vụ thuộc một khách; quyền `admin/normal/observer` ([server/project-access.ts](../../server/project-access.ts)) |
+| Dịch vụ của khách (trước đây "Dịch vụ") | `task_projects` (+ `task_project_members`, `task_campaigns`, `project_services`) | Mỗi dịch vụ thuộc một khách; quyền `admin/normal/observer` ([server/service-access.ts](../../server/service-access.ts)) |
 | Danh mục dịch vụ | `services`, `service_categories`, `service_packages`, `service_package_items` | Quản trị › Dịch vụ |
 | Công việc | `tasks` (+ `task_assignees`, `task_people`, `task_followers`, `task_comments`, `task_activity`, `task_reviews`, `task_labels`, `task_label_links`, `task_services`, `task_board_links`) | Quy trình duyệt: `stage`, `reviewer_id`, `revision` ([shared/task-flow.ts](../../shared/task-flow.ts), [server/task-flow.ts](../../server/task-flow.ts)); một người được giao |
 | Nhân viên | `users` (+ `team_roles` = phòng ban, `dept_roles` = vai trò trong phòng, `teams`/`team_members` = nhóm, `user_roles`/`roles`/`role_permissions` = RBAC) | `users.role` là `admin` hoặc `member`; `manager_id` là quản lý trực tiếp |
 | Board | `boards`, `board_lists`, `board_cards`, `card_*`, `workspaces` | Thẻ có thể là một công việc (`task_board_links`) |
 | Báo cáo | `reports`, `report_images`, `ads_services` | Meta Ads lấy trực tiếp từ Graph API |
-| Dự án video (trình dựng) | `projects`, `assets`, `renders` | **Khác** với "Dự án/Dịch vụ" ở trên; chỉ dùng trên Mac |
+| Dịch vụ video (trình dựng) | `services`, `assets`, `renders` | **Khác** với "Dịch vụ/Dịch vụ" ở trên; chỉ dùng trên Mac |
 | Connector Claude | `mcp_clients`, `mcp_codes`, `mcp_tokens` | Token lưu dạng hash |
 
-> Lưu ý thuật ngữ: chữ "project" trong code có **hai nghĩa**. `task_projects` (route `/api/task-projects`) là dịch vụ của khách. `projects` (route `/api/projects`) là dự án video của trình dựng. Công cụ AI phải đặt tên rõ để không nhầm.
+> Lưu ý thuật ngữ: chữ "service" trong code có **hai nghĩa**. `task_projects` (route `/api/task-services`) là dịch vụ của khách. `services` (route `/api/services`) là dịch vụ video của trình dựng. Công cụ AI phải đặt tên rõ để không nhầm.
 
 ## 5. Xác thực và phân quyền [Hiện có]
 
@@ -67,7 +67,7 @@ Chi tiết và rủi ro: [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
 - **Ba tầng quyền**:
   1. **Admin công ty** (`users.role = 'admin'`): danh sách `ADMIN` trong guard.
   2. **RBAC có phạm vi** cho Quản trị: 10 nhóm quyền × hành động, phạm vi `personal/team/department/organization` ([shared/permissions.ts](../../shared/permissions.ts), [server/rbac.ts](../../server/rbac.ts), `need(req, 'perm')` trong [server/admin/common.ts](../../server/admin/common.ts)). Vai trò mặc định: Super Admin, Admin, Manager, Leader, Member.
-  3. **Quyền theo bản ghi**: khách hàng ([server/customer-access.ts](../../server/customer-access.ts)), dịch vụ ([server/project-access.ts](../../server/project-access.ts)), board (`mustBoard`, [server/boards.ts](../../server/boards.ts)), công việc (`writable`, `mine`, [server/tasks.ts](../../server/tasks.ts)), mức `admin/normal/observer`.
+  3. **Quyền theo bản ghi**: khách hàng ([server/customer-access.ts](../../server/customer-access.ts)), dịch vụ ([server/service-access.ts](../../server/service-access.ts)), board (`mustBoard`, [server/boards.ts](../../server/boards.ts)), công việc (`writable`, `mine`, [server/tasks.ts](../../server/tasks.ts)), mức `admin/normal/observer`.
 - **Quyền trang** (`PAGE_OF`): `workspace` (Drive khách), `editor`, `ads`; vai trò phòng ở mức `observer` chỉ được xem.
 
 ## 6. Tích hợp bên ngoài [Hiện có]

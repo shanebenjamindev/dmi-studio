@@ -13,14 +13,14 @@
 | R-05 | **Prompt injection** từ dữ liệu người dùng viết | TB | Cao khi có công cụ ghi nhạy cảm | S-05 | Duyệt phía server (M2), danh sách công cụ theo vai trò |
 | R-06 | **Tạo trùng** khi client AI thử lại | TB | TB | Không có idempotency | M1 |
 | R-07 | **Lộ thông tin nhân sự**: `GET /api/tasks/meta` trả email mọi người cho mọi thành viên; AI làm việc tra cứu dễ hơn | TB | Thấp–TB | S-07 | Thu hẹp trường hoặc quyền |
-| R-08 | **Nhầm hai nghĩa "project"**: `task_projects` (dịch vụ khách) và `projects` (dự án video) | TB | TB (AI thao tác sai bảng) | [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md#4-dữ-liệu-hiện-có) | Tên công cụ tách bạch (`*_service` và `*_video_project`), đã áp dụng |
+| R-08 | **Nhầm hai nghĩa "service"**: `task_projects` (dịch vụ khách) và `services` (dịch vụ video) | TB | TB (AI thao tác sai bảng) | [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md#4-dữ-liệu-hiện-có) | Tên công cụ tách bạch (`*_service` và `*_video_project`), đã áp dụng |
 | R-09 | **Giới hạn D1**: khoảng 100 tham số mỗi câu, `GET /api/tasks` đọc toàn bảng rồi lọc trong bộ nhớ | Tăng theo dữ liệu | TB (chậm, timeout) | [server/tasks.ts](../../server/tasks.ts) `GET /api/tasks` | Đo với dữ liệu lớn (R3); thêm lọc SQL và phân trang trước khi AI gọi thường xuyên |
 | R-10 | **Phụ thuộc client Claude**: hành vi xác nhận công cụ ghi, cách hiện kết quả tuỳ client và có thể đổi | TB | TB | | Không dựa vào client cho an toàn: kiểm quyền và duyệt ở server |
 | R-11 | **Gói Team**: Owner phải thêm connector; người dùng không phải Owner không tự thêm được | Chắc chắn | Thấp | | Hướng dẫn trong trang "Kết nối Claude" |
 | R-12 | **Trình dựng phụ thuộc máy Mac** (ffmpeg, HyperFrames, RAM 8 GB); preview nhúng chỉ khi mở DMI trên chính Mac | Chắc chắn | TB | `npx hyperframes doctor` cảnh báo RAM | Render bản nháp, đóng app khác khi render; xem bản render ở máy khác |
 | R-13 | **Bí mật dạng thường** trong `settings` và bản sao lưu | Thấp | Cao | S-01 | Mã hoá (P1) |
 | R-14 | **Không có giới hạn tần suất** | Thấp–TB | TB (lạm dụng, chi phí D1) | S-03 | M4 |
-| R-15 | **Thư mục Drive có file trùng** làm phí giới hạn 150 footage | Đã xảy ra | Thấp | Dự án "PPF - NewVer" | Đã lọc trùng khi quét (chưa deploy); người dùng bấm "Đọc lại sheet" cho dự án cũ |
+| R-15 | **Thư mục Drive có file trùng** làm phí giới hạn 150 footage | Đã xảy ra | Thấp | Dịch vụ "PPF - NewVer" | Đã lọc trùng khi quét (chưa deploy); người dùng bấm "Đọc lại sheet" cho dịch vụ cũ |
 
 ## Khuyến nghị (ưu tiên)
 

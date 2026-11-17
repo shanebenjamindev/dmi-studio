@@ -61,7 +61,7 @@ P0 Ổn định ──▶ P1 An toàn connector ──▶ P2 Cơ chế an toàn 
 
 ## P5: Agent trong DMI (tuỳ chọn, cần API trả phí)
 
-Chỉ làm khi chủ dự án đồng ý chi phí ([AI_AGENT_DESIGN.md](AI_AGENT_DESIGN.md#2-phương-án-b-agent-trong-dmi-đề-xuất-cần-api-trả-phí)).
+Chỉ làm khi chủ dịch vụ đồng ý chi phí ([AI_AGENT_DESIGN.md](AI_AGENT_DESIGN.md#2-phương-án-b-agent-trong-dmi-đề-xuất-cần-api-trả-phí)).
 
 | Việc | Độ khó | Phụ thuộc |
 |---|---|---|
