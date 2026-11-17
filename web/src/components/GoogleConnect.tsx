@@ -2,7 +2,7 @@
 // The same OAuth client also enables "Đăng nhập bằng Google" on the sign-in page.
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { toast } from '../store';
+import { toast, useStore } from '../store';
 import { Sheet } from './Dialogs';
 import { Icon, IconButton } from './ui';
 import type { GoogleStatus } from '../types';
@@ -11,27 +11,29 @@ import { askConfirm } from './AskDialog';
 export const googleLogin = () => { location.href = '/api/google/login'; };
 
 export function GoogleConnect({ open, onClose, onChanged,mode='drive' }: { mode?:'drive'|'mail'; open: boolean; onClose: () => void; onChanged: () => void }) {
+  const user = useStore((s) => s.user);
+  const admin = user?.role === 'admin';
   const [st, setSt] = useState<GoogleStatus | null>(null);
   const [id, setId] = useState('');
   const [secret, setSecret] = useState('');
   const [editing, setEditing] = useState(false);
-  const load = () => api.googleStatus().then((s) => { setSt(s); setId(s.clientId); setEditing(!s.configured); }).catch((e) => toast(e.message, true));
+  const load = () => api.googleStatus().then((s) => { setSt(s); setId(s.clientId); setEditing(admin && !s.configured); }).catch((e) => toast(e.message, true));
   useEffect(() => { if (open) { setSecret(''); load(); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
-    try { await api.setGoogleConfig(id, secret); toast('Đã lưu. Giờ bấm "Kết nối tài khoản Google".'); await load(); }
+    try { await api.setGoogleConfig(id, secret); toast('Đã lưu. Giờ bấm "Liên kết Gmail".'); await load(); }
     catch (e: any) { toast(e.message, true); }
   };
   const remove = async (email: string) => {
-    if (!await askConfirm(`Ngắt kết nối ${email}? Khách hàng đang lưu video trên tài khoản này sẽ tạm không xem được video cho tới khi đăng nhập lại.`)) return;
+    if (!await askConfirm(`Ngắt kết nối ${email}?`)) return;
     try { await api.removeGoogleAccount(email); await load(); onChanged(); } catch (e: any) { toast(e.message, true); }
   };
   const copy = (t: string) => navigator.clipboard.writeText(t).then(() => toast('Đã sao chép'), () => {});
 
   return (
-    <Sheet open={open} onClose={onClose} title={mode==='mail'?'Cấu hình Google cho Gmail':'Tài khoản Google Drive'} wide footer={<>
+    <Sheet open={open} onClose={onClose} title={mode==='mail'?'Cấu hình Google cho Gmail':'Liên kết Google Drive của bạn'} wide footer={<>
       <button className="btn btn-gray" onClick={onClose}>Đóng</button>
-      <button className="btn btn-primary" disabled={!st?.configured} onClick={()=>mode==='mail'?location.assign('/api/notifications/mail/connect'):googleLogin()}><Icon name="plus" size={15} />Kết nối tài khoản Google</button>
+      <button className="btn btn-primary" disabled={!st?.configured} onClick={()=>mode==='mail'?location.assign('/api/notifications/mail/connect'):googleLogin()}><Icon name="plus" size={15} />Liên kết Gmail</button>
     </>}>
       {mode==='drive'&&!!st?.accounts.length && (
         <div className="list">
@@ -44,9 +46,10 @@ export function GoogleConnect({ open, onClose, onChanged,mode='drive' }: { mode?
           ))}
         </div>
       )}
-      {mode==='drive'&&st && !st.accounts.length && st.configured && <p className="sheet-lead">Chưa có tài khoản nào. Bấm “Kết nối tài khoản Google”, chọn tài khoản và cho phép truy cập Google Drive.</p>}
+      {mode==='drive'&&st && !st.accounts.length && st.configured && <p className="sheet-lead">Bạn chưa liên kết Gmail nào. Bấm “Liên kết Gmail” để chọn Drive cá nhân của bạn.</p>}
+      {mode==='drive'&&st && !st.configured && !admin && <p className="note">Quản trị viên chưa cấu hình Google OAuth cho hệ thống.</p>}
 
-      {st && (editing ? (
+      {st && admin && (editing ? (
         <div className="gc-setup">
           <p className="sheet-lead">Google yêu cầu mỗi ứng dụng có một <b>OAuth Client ID</b> riêng. Chỉ cần làm một lần, miễn phí:</p>
           <ol className="gc-steps">

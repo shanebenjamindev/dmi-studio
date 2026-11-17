@@ -5,6 +5,7 @@ import { currentUser } from './auth';
 import { customerLevels, requireCustomer } from './customer-access';
 import { brandServiceLevels } from './project-access';
 import { boardDisplayName, brandCatalogServices } from './project-services';
+import * as G from './google';
 import { brandServiceStage } from '../shared/projects';
 export interface DriveFolderRef {
   kind?: 'gdrive';
@@ -26,14 +27,14 @@ export function parseDriveFolder(raw: string | null | undefined): DriveFolderRef
   return null;
 }
 
-async function normalizeDriveFolder(body: any): Promise<string | null | undefined> {
+async function normalizeDriveFolder(body: any, userId: string): Promise<string | null | undefined> {
   if (body.driveLink !== undefined) {
     const raw = String(body.driveLink || '').trim();
     if (!raw) return null;
     const { driveId, locate } = await import('./drive-links');
     const id = driveId(raw);
     if (!id) throw new HttpError(400, 'Link Google Drive không hợp lệ');
-    const found = await locate(id);
+    const found = await locate(id, userId);
     if (found.file.mimeType !== 'application/vnd.google-apps.folder') {
       throw new HttpError(400, 'Link này là một file, không phải thư mục Google Drive');
     }
@@ -41,20 +42,23 @@ async function normalizeDriveFolder(body: any): Promise<string | null | undefine
   }
   if (body.driveFolder === undefined) return undefined;
   if (body.driveFolder === null || body.driveFolder === '') return null;
+  let parsed: DriveFolderRef | null = null;
   if (typeof body.driveFolder === 'string') {
-    const parsed = parseDriveFolder(body.driveFolder);
+    parsed = parseDriveFolder(body.driveFolder);
     if (!parsed) throw new HttpError(400, 'Thông tin thư mục Google Drive không hợp lệ');
-    return JSON.stringify(parsed);
-  }
-  if (typeof body.driveFolder === 'object' && typeof body.driveFolder.id === 'string' && typeof body.driveFolder.account === 'string') {
-    return JSON.stringify({
+  } else if (typeof body.driveFolder === 'object' && typeof body.driveFolder.id === 'string' && typeof body.driveFolder.account === 'string') {
+    parsed = {
       kind: 'gdrive',
       account: String(body.driveFolder.account).trim(),
       id: String(body.driveFolder.id).trim(),
       label: String(body.driveFolder.label || body.driveFolder.id).trim(),
-    });
+    };
   }
-  throw new HttpError(400, 'Thông tin thư mục Google Drive không hợp lệ');
+  if (!parsed) throw new HttpError(400, 'Thông tin thư mục Google Drive không hợp lệ');
+  if (!(await G.hasUserAccount(userId, parsed.account)) && (await G.anyUserHasAccount(parsed.account))) {
+    throw new HttpError(403, 'Bạn chỉ dùng được Google Drive từ Gmail bạn đã liên kết');
+  }
+  return JSON.stringify(parsed);
 }
 
 /** Return the customer's first active brand, creating a default one matching customer name if none exists. */
@@ -212,7 +216,7 @@ export function registerBrands(api: Router) {
     if (!name || name.length > 120) throw new HttpError(400, 'Tên nhãn hàng cần từ 1 đến 120 ký tự');
     const dup = await get<any>('SELECT 1 FROM brands WHERE customer_id = ? AND deleted_at IS NULL AND LOWER(name) = LOWER(?)', c.id, name);
     if (dup) throw new HttpError(409, `Khách hàng đã có nhãn hàng “${name}”`);
-    const driveFolder = await normalizeDriveFolder(body);
+    const driveFolder = await normalizeDriveFolder(body, user.id);
     const maxPos = Number((await get<any>('SELECT MAX(pos) m FROM brands WHERE customer_id = ? AND deleted_at IS NULL', c.id))?.m ?? -1);
     const pos = body.pos !== undefined && Number.isFinite(Number(body.pos)) ? Number(body.pos) : maxPos + 1;
     const notes = body.notes !== undefined ? String(body.notes || '').slice(0, 5000) : '';
@@ -262,7 +266,7 @@ export function registerBrands(api: Router) {
       const dup = await get<any>('SELECT 1 FROM brands WHERE customer_id = ? AND id <> ? AND deleted_at IS NULL AND LOWER(name) = LOWER(?)', b.customer_id, b.id, nextName);
       if (dup) throw new HttpError(409, `Khách hàng đã có nhãn hàng “${nextName}”`);
     }
-    const driveFolder = await normalizeDriveFolder(body);
+    const driveFolder = await normalizeDriveFolder(body, user.id);
     const nextLogo = body.logo === undefined ? b.logo : body.logo ? String(body.logo).slice(0, 50000) : null;
     const nextNotes = body.notes === undefined ? b.notes : String(body.notes || '').slice(0, 5000);
     const nextPos = body.pos !== undefined && Number.isFinite(Number(body.pos)) ? Number(body.pos) : b.pos;

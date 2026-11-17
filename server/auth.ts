@@ -88,7 +88,7 @@ const LOCK_OPEN = /^\/api\/(auth\/(me|config|login|logout|google|setup|forgot|re
 // accounts and root folder the workspace uses, AI keys.
 const ADMIN: [string, RegExp][] = [
   ['*', /^\/api\/users/], ['PUT', /^\/api\/access$/], ['POST', /^\/api\/roles/], ['PUT', /^\/api\/roles\//], ['DELETE', /^\/api\/roles\//], ['*', /^\/api\/positions\//],
-  ['PUT', /^\/api\/google\/config$/], ['GET', /^\/api\/google\/login$/], ['DELETE', /^\/api\/google\/accounts\//],
+  ['PUT', /^\/api\/google\/config$/],
   ['PUT', /^\/api\/workspace$/], ['PUT', /^\/api\/settings\//], ['POST', /^\/api\/settings\//],
 ];
 // Members browse, upload and keep links/notes; creating, renaming and deleting folders, customers and files is for

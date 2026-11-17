@@ -689,16 +689,17 @@ export function registerReports(api: Router) {
   });
   api.get('/api/reports/:id/video-library',async(req,res)=>{
     await mustReport(req.params.id);
+    const user=(await currentUser(req))!;
     const query=String(req.query.get('q')||'').trim().slice(0,150), folder=String(req.query.get('folder')||'').trim();
-    const accounts=await G.publicAccounts();if(!accounts.length)throw new HttpError(400,'Chưa kết nối tài khoản Google Drive. Kết nối trong Quản trị trước khi tìm video.');
+    const accounts=await G.publicUserAccounts(user.id);if(!accounts.length)throw new HttpError(400,'Bạn chưa kết nối Gmail để dùng Google Drive. Hãy liên kết Gmail trước.');
     let found:{account:string;file:G.GFile}[]=[];const warnings:string[]=[];
     if(folder){
       const fid=driveId(folder);if(!fid)throw new HttpError(400,'Link thư mục Drive không hợp lệ');
-      const located=await locate(fid);if(located.file.mimeType!==G.FOLDER_MIME)throw new HttpError(400,'Hãy chọn một thư mục Drive');
-      const subs=await G.listFolders(located.account,fid);
-      found=(await G.listMediaIn(located.account,[fid,...subs.slice(0,100).map(f=>f.id)])).filter(f=>f.mimeType.startsWith('video/')&&(!query||f.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()))).map(file=>({account:located.account,file}));
+      const located=await locate(fid,user.id);if(located.file.mimeType!==G.FOLDER_MIME)throw new HttpError(400,'Hãy chọn một thư mục Drive');
+      const subs=await G.listFolders(located.account,fid,user.id);
+      found=(await G.listMediaIn(located.account,[fid,...subs.slice(0,100).map(f=>f.id)],user.id)).filter(f=>f.mimeType.startsWith('video/')&&(!query||f.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()))).map(file=>({account:located.account,file}));
     }else{
-      const batches=await pool(accounts,2,async(a)=>{try{return(await G.searchVideos(a.email,query)).map(file=>({account:a.email,file}));}catch{warnings.push(`Không đọc được video từ ${a.email}`);return [];}});
+      const batches=await pool(accounts,2,async(a)=>{try{return(await G.searchVideos(a.email,query,60,user.id)).map(file=>({account:a.email,file}));}catch{warnings.push(`Không đọc được video từ ${a.email}`);return [];}});
       found=batches.flat();if(warnings.length===accounts.length)throw new HttpError(502,'Không đọc được Drive. Hãy kết nối lại tài khoản Google.');
     }
     const seen=new Set<string>();
@@ -709,30 +710,34 @@ export function registerReports(api: Router) {
   // account's My Drive; `places=1` adds the connected accounts' drives for the picker's side list.
   api.get('/api/reports/:id/drive-browse',async(req,res)=>{
     await mustReport(req.params.id);
-    const accounts=await G.publicAccounts();if(!accounts.length)throw new HttpError(400,'Chưa kết nối tài khoản Google Drive. Kết nối trong Quản trị trước khi chọn video.');
+    const user=(await currentUser(req))!;
+    const accounts=await G.publicUserAccounts(user.id);
     const q=req.query;let account=String(q.get('account')||''),id=String(q.get('id')||'');
-    if(!id&&q.get('folder')){const fid=driveId(String(q.get('folder')));if(fid)try{const l=await locate(fid);if(l.file.mimeType===G.FOLDER_MIME){account=l.account;id=l.file.id;}}catch{/* not reachable: start at My Drive */}}
+    if(account&&!await G.hasUserAccount(user.id,account))throw new HttpError(403,'Bạn chỉ dùng được Google Drive từ Gmail bạn đã liên kết');
+    if(!accounts.length)throw new HttpError(400,'Bạn chưa kết nối Gmail để chọn video từ Google Drive. Hãy liên kết Gmail trước.');
+    if(!id&&q.get('folder')){const fid=driveId(String(q.get('folder')));if(fid)try{const l=await locate(fid,user.id);if(l.file.mimeType===G.FOLDER_MIME){account=l.account;id=l.file.id;}}catch{/* not reachable: start at My Drive */}}
     if(!id){account=accounts[0].email;id='root';}
-    if(!accounts.some(a=>a.email===account))throw new HttpError(400,'Tài khoản Google này chưa được kết nối');
-    const places=q.get('places')==='1'?(await pool(accounts,2,async(a)=>[{account:a.email,id:'root',label:'My Drive'},...(await G.sharedDrives(a.email).catch(()=>[])).map(d=>({account:a.email,id:d.id,label:d.name}))])).flat():undefined;
-    const chain=await G.crumbs(account,id),here=chain[chain.length-1];
-    const [dirs,media]=await Promise.all([G.listFoldersDeep(account,here.id),G.listMediaIn(account,[here.id])]);
+    if(!account||!await G.hasUserAccount(user.id,account))throw new HttpError(403,'Bạn chỉ dùng được Google Drive từ Gmail bạn đã liên kết');
+    const places=q.get('places')==='1'?(await pool(accounts,2,async(a)=>[{account:a.email,id:'root',label:'My Drive'},...(await G.sharedDrives(a.email,user.id).catch(()=>[])).map(d=>({account:a.email,id:d.id,label:d.name}))])).flat():undefined;
+    const chain=await G.crumbs(account,id,user.id),here=chain[chain.length-1];
+    const [dirs,media]=await Promise.all([G.listFoldersDeep(account,here.id,user.id),G.listMediaIn(account,[here.id],user.id)]);
     json(res,200,{places,account,id:here.id,crumbs:chain,dirs:dirs.map(d=>({id:d.id,name:d.name})).sort((a,b)=>a.name.localeCompare(b.name,'vi',{numeric:true})),
       videos:media.filter(f=>f.mimeType.startsWith('video/')).sort((a,b)=>String(b.modifiedTime||'').localeCompare(String(a.modifiedTime||''))).map(f=>videoOut(req.params.id,account,f))});
   });
   api.get('/api/reports/:id/video-thumbnail/:file',async(req,res)=>{
-    await mustReport(req.params.id);const account=String(req.query.get('account')||'');
-    if(!(await G.publicAccounts()).some(a=>a.email===account))throw new HttpError(404,'Không có tài khoản Drive');
+    await mustReport(req.params.id);const user=(await currentUser(req))!;const account=String(req.query.get('account')||'');
+    if(!account||!await G.hasUserAccount(user.id,account))throw new HttpError(403,'Bạn chỉ dùng được Google Drive từ Gmail bạn đã liên kết');
     if(!/^[a-zA-Z0-9_-]{5,200}$/.test(req.params.file))throw new HttpError(400,'Video không hợp lệ');
-    const thumb=await G.thumbBuffer(account,req.params.file);res.writeHead(200,{'content-type':thumb.type,'cache-control':'private,max-age=300'});res.end(thumb.body);
+    const thumb=await G.thumbBuffer(account,req.params.file,user.id);res.writeHead(200,{'content-type':thumb.type,'cache-control':'private,max-age=300'});res.end(thumb.body);
   });
   api.post('/api/reports/:id/link-videos',async(req,res)=>{
-    const r=await mustReport(req.params.id),b=await readJson(req);
+    const r=await mustReport(req.params.id),b=await readJson(req),user=(await currentUser(req))!;
     if(!Array.isArray(b.videos)||!b.videos.length||b.videos.length>30)throw new HttpError(400,'Chọn từ 1 đến 30 video');
-    const accounts=new Set((await G.publicAccounts()).map(a=>a.email));
+    const accounts=new Set((await G.publicUserAccounts(user.id)).map(a=>a.email.toLowerCase()));
     const picks=b.videos as {id:string;account:string}[];
-    if(picks.some(v=>!v||!accounts.has(v.account)||!/^[-_a-zA-Z0-9]{5,200}$/.test(v.id)))throw new HttpError(400,'Video hoặc tài khoản Drive không hợp lệ');
-    const files=await pool(picks,3,async(v)=>{const file=await G.meta(v.account,v.id,'id,name,mimeType');if(!file.mimeType.startsWith('video/'))throw new HttpError(400,`${file.name} không phải video`);return {...v,file};});
+    if(picks.some(v=>!v||!/^[-_a-zA-Z0-9]{5,200}$/.test(v.id)))throw new HttpError(400,'Video không hợp lệ');
+    if(picks.some(v=>!accounts.has(String(v.account||'').toLowerCase())))throw new HttpError(403,'Bạn chỉ dùng được Google Drive từ Gmail bạn đã liên kết');
+    const files=await pool(picks,3,async(v)=>{const file=await G.meta(v.account,v.id,'id,name,mimeType',user.id);if(!file.mimeType.startsWith('video/'))throw new HttpError(400,`${file.name} không phải video`);return {...v,file};});
     const d=clean(JSON.parse(r.data));let added=0;
     const targetIndex=typeof b.targetIndex==='number'&&Number.isInteger(b.targetIndex)?b.targetIndex:null;
     if(targetIndex!==null){

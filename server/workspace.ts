@@ -126,13 +126,22 @@ const storageOf = (l: Loc) => (l.kind === 'gdrive' ? 'google' : onDesktopDrive(l
 function locLabel(l: Loc) { return l.kind === 'gdrive' ? l.label || 'Google Drive' : fsLabel(l.dir); }
 function locAccount(l: Loc) { return l.kind === 'gdrive' ? l.account : fsCrumbs(l.dir).account; }
 
-async function gLabel(account: string, id: string) { return (await G.crumbs(account, id)).map((c) => c.name).join(' › '); }
-async function mustLoc(raw: any): Promise<Loc> {
+async function requireOwnedDrive(userId: string, account: string) {
+  if (!account || !(await G.hasUserAccount(userId, account))) {
+    throw new HttpError(403, 'Bạn chỉ dùng được Google Drive từ Gmail bạn đã liên kết');
+  }
+}
+
+async function gLabel(account: string, id: string, userId?: string) {
+  return (await G.crumbs(account, id, userId)).map((c) => c.name).join(' › ');
+}
+async function mustLoc(raw: any, userId?: string): Promise<Loc> {
   if (raw?.kind === 'gdrive') {
     const account = String(raw.account || ''), id = String(raw.id || '');
-    const f = await G.meta(account, id, 'id,mimeType,trashed');
+    if (userId) await requireOwnedDrive(userId, account);
+    const f = await G.meta(account, id, 'id,mimeType,trashed', userId);
     if (f.mimeType !== G.FOLDER_MIME) throw new HttpError(400, 'Đây không phải thư mục');
-    return { kind: 'gdrive', account, id: f.id, label: await gLabel(account, f.id) };
+    return { kind: 'gdrive', account, id: f.id, label: await gLabel(account, f.id, userId) };
   }
   return { kind: 'fs', dir: mustDir(raw?.dir) };
 }
@@ -425,11 +434,11 @@ export async function clientCustomers(){return all<any>('SELECT * FROM customers
 // Everyone browses on their own (the `at` query, kept by the browser); the root is shared and set by admins.
 // Members only see the root and what is inside it.
 const crumbCache = new Map<string, { name: string; loc: Loc }[]>();
-async function crumbsOf(l: Loc): Promise<{ name: string; loc: Loc }[]> {
+async function crumbsOf(l: Loc, userId?: string): Promise<{ name: string; loc: Loc }[]> {
   if (l.kind === 'fs') return fsCrumbs(l.dir).crumbs;
   const k = `${l.account}|${l.id}`;
   if (!crumbCache.has(k)) {
-    const chain = await G.crumbs(l.account, l.id).catch(() => { throw new HttpError(404, 'Không mở được thư mục này trên Drive'); });
+    const chain = await G.crumbs(l.account, l.id, userId).catch(() => { throw new HttpError(404, 'Không mở được thư mục này trên Drive'); });
     crumbCache.set(k, chain.map((c) => ({ name: c.name, loc: { kind: 'gdrive', account: l.account, id: c.id } as Loc })));
   }
   return crumbCache.get(k)!;
@@ -437,14 +446,24 @@ async function crumbsOf(l: Loc): Promise<{ name: string; loc: Loc }[]> {
 const sameLoc = (a: Loc, b: Loc) => (a.kind === 'fs' && b.kind === 'fs' ? path.resolve(a.dir) === path.resolve(b.dir) : a.kind === 'gdrive' && b.kind === 'gdrive' && a.account === b.account && a.id === b.id);
 async function viewOf(req: Req) {
   const root = await rootLoc(), raw = req.query.get('at');
+  const user = await currentUser(req);
   let l: Loc = root;
+  let sameRootAcc = root.kind === 'gdrive';
   if (raw) {
     let x: any; try { x = JSON.parse(raw); } catch { throw new HttpError(400, 'Thư mục không hợp lệ'); }
     l = x?.kind === 'gdrive' ? { kind: 'gdrive', account: String(x.account || ''), id: String(x.id || '') } : { kind: 'fs', dir: mustDir(x?.dir) };
-    if (l.kind === 'gdrive' && !(await G.accounts()).some((a) => a.email === (l as any).account)) throw new HttpError(404, 'Tài khoản Google này chưa được kết nối');
+    if (l.kind === 'gdrive') {
+      sameRootAcc = root.kind === 'gdrive' && l.account.toLowerCase() === root.account.toLowerCase();
+      if (!sameRootAcc) {
+        if (!user || !(await G.hasUserAccount(user.id, l.account))) {
+          throw new HttpError(403, 'Bạn chỉ dùng được Google Drive từ Gmail bạn đã liên kết');
+        }
+      }
+    }
   }
-  let crumbs = await crumbsOf(l);
-  if ((await currentUser(req))?.role !== 'admin') {
+  const tokenOwner = l.kind === 'gdrive' && !sameRootAcc ? user?.id : undefined;
+  let crumbs = await crumbsOf(l, tokenOwner);
+  if (user?.role !== 'admin') {
     if (l.kind === 'fs' && root.kind === 'fs') {
       const rel = path.relative(path.resolve(root.dir), path.resolve(l.dir));
       if (rel.startsWith('..') || path.isAbsolute(rel)) throw new HttpError(403, 'Bạn chỉ xem được các thư mục bên trong thư mục gốc');
@@ -457,7 +476,7 @@ async function viewOf(req: Req) {
       crumbs = crumbs.slice(i);
     }
   }
-  return { loc: l, crumbs, label: (await crumbsOf(l)).map((c) => c.name).join(' › '), isRoot: sameLoc(l, root) };
+  return { loc: l, crumbs, label: crumbs.map((c) => c.name).join(' › '), isRoot: sameLoc(l, root) };
 }
 
 // Links about the customer: their Google Sheet, Docs, Facebook page… Only http(s) URLs are kept.
@@ -505,32 +524,42 @@ export function registerWorkspace(api: Router) {
   // ---------------------------------------------------------------- Google sign-in
   api.get('/api/google/status', async (req, res) => {
     const c = await G.oauthConfig();
-    json(res, 200, { configured: !!(c.clientId && c.clientSecret), clientId: c.clientId, redirectUri: redirectUri(req), accounts: await G.publicAccounts() });
+    const user = (await currentUser(req))!;
+    json(res, 200, { configured: !!(c.clientId && c.clientSecret), clientId: c.clientId, redirectUri: redirectUri(req), accounts: await G.publicUserAccounts(user.id) });
   });
   api.put('/api/google/config', async (req, res) => {
     const b = await readJson(req);
     await G.setOauthConfig(String(b.clientId || ''), String(b.clientSecret || ''));
     json(res, 200, { ok: true });
   });
-  api.get('/api/google/login', async (req, res) => redirect(res, await G.authUrl(redirectUri(req))));
-  // Shared by both Google flows: connecting a Drive account, and signing in to DMI Workspace.
+  api.get('/api/google/login', async (req, res) => {
+    const user = (await currentUser(req))!;
+    redirect(res, await G.authUrl(redirectUri(req), 'drive', user.id));
+  });
+  // Shared by Google OAuth flows: connecting a Drive account, signing in to DMI Workspace, notification mail, and mailbox.
   api.get('/api/google/callback', async (req, res) => {
     const err = req.query.get('error'), state = req.query.get('state') || '';
-    const purpose=await G.purposeOf(state);
-    const signin=purpose==='signin';
+    const purpose = await G.purposeOf(state);
+    const signin = purpose === 'signin';
+    const me = await currentUser(req);
     try {
       if (err) throw new Error(err === 'access_denied' ? 'Bạn đã huỷ đăng nhập' : err);
       const a = await G.finishLogin(req.query.get('code') || '', state);
       if (a.purpose === 'signin') { await finishGoogleSignin(req, res, a.email); return redirect(res, '/'); }
-      if(a.purpose==='mail')return redirect(res,`/#admin?mail=${encodeURIComponent(a.email)}`);
-      if(a.purpose==='mailbox')return redirect(res,'/#mail');
-      if (!await currentUser(req)) throw new Error('Hãy đăng nhập DMI Workspace trước');
-      redirect(res, `/#admin?google=${encodeURIComponent(a.email)}`);
+      if (a.purpose === 'mail') return redirect(res, `/#admin?mail=${encodeURIComponent(a.email)}`);
+      if (a.purpose === 'mailbox') return redirect(res, '/#mail');
+      if (!me) throw new Error('Hãy đăng nhập DMI Workspace trước');
+      redirect(res, me.role === 'admin' ? `/#admin?google=${encodeURIComponent(a.email)}` : `/#customers?google=${encodeURIComponent(a.email)}`);
     } catch (e: any) {
-      redirect(res, signin ? `/?auth_error=${encodeURIComponent(e.message)}` : purpose==='mailbox'?`/#mail?error=${encodeURIComponent(e.message)}`:purpose==='mail'?`/#admin?mail_error=${encodeURIComponent(e.message)}`:`/#admin?google_error=${encodeURIComponent(e.message)}`);
+      const target = me?.role === 'admin' ? 'admin' : 'customers';
+      redirect(res, signin ? `/?auth_error=${encodeURIComponent(e.message)}` : purpose === 'mailbox' ? `/#mail?error=${encodeURIComponent(e.message)}` : purpose === 'mail' ? `/#admin?mail_error=${encodeURIComponent(e.message)}` : `/#${target}?google_error=${encodeURIComponent(e.message)}`);
     }
   });
-  api.delete('/api/google/accounts/:email', async (req, res) => { await G.removeAccount(req.params.email); json(res, 200, { accounts: await G.publicAccounts() }); });
+  api.delete('/api/google/accounts/:email', async (req, res) => {
+    const user = (await currentUser(req))!;
+    await G.removeUserAccount(user.id, req.params.email);
+    json(res, 200, { accounts: await G.publicUserAccounts(user.id) });
+  });
 
   // ---------------------------------------------------------------- workspace root & folder browsing
   const wsOut = async (req: Req) => {
@@ -540,7 +569,8 @@ export function registerWorkspace(api: Router) {
   api.get('/api/workspace', async (req, res) => json(res, 200, await wsOut(req)));
   // Change the root. Existing customers keep their current folders; new customers go to the new root.
   api.put('/api/workspace', async (req, res) => {
-    const l = await mustLoc((await readJson(req)).loc);
+    const user = (await currentUser(req))!;
+    const l = await mustLoc((await readJson(req)).loc, user.id);
     const old = await rootLoc();
     if (old.kind === 'fs') {
       for (const c of await all<any>('SELECT id, folder, gloc FROM customers')) {
@@ -551,21 +581,25 @@ export function registerWorkspace(api: Router) {
     req.query.delete('at');
     json(res, 200, await wsOut(req));
   });
-  api.get('/api/workspace/places', async (_q, res) => {
+  api.get('/api/workspace/places', async (req, res) => {
+    const user = (await currentUser(req))!;
     const out: { label: string; account: string | null; kind: string; via: string; loc: Loc }[] = [];
-    for (const a of await G.accounts()) {
+    for (const a of await G.userAccounts(user.id)) {
       out.push({ label: 'My Drive', account: a.email, kind: 'my', via: 'google', loc: { kind: 'gdrive', account: a.email, id: 'root' } });
-      for (const d of await G.sharedDrives(a.email).catch(() => [])) out.push({ label: d.name, account: a.email, kind: 'shared', via: 'google', loc: { kind: 'gdrive', account: a.email, id: d.id } });
+      for (const d of await G.sharedDrives(a.email, user.id).catch(() => [])) out.push({ label: d.name, account: a.email, kind: 'shared', via: 'google', loc: { kind: 'gdrive', account: a.email, id: d.id } });
     }
     for (const p of fsPlaces()) out.push({ label: p.label, account: p.account, kind: p.kind, via: p.kind === 'local' ? 'local' : 'desktop', loc: { kind: 'fs', dir: p.dir } });
     json(res, 200, out);
   });
   api.post('/api/workspace/browse', async (req, res) => {
+    const user = (await currentUser(req))!;
     const raw = (await readJson(req)).loc;
     if (raw?.kind === 'gdrive') {
-      const account = String(raw.account), chain = await G.crumbs(account, String(raw.id));
+      const account = String(raw.account || '');
+      await requireOwnedDrive(user.id, account);
+      const chain = await G.crumbs(account, String(raw.id), user.id);
       const here = chain[chain.length - 1];
-      const dirs = (await G.listFolders(account, here.id)).map((f) => ({ name: f.name, loc: { kind: 'gdrive', account, id: f.id } }));
+      const dirs = (await G.listFolders(account, here.id, user.id)).map((f) => ({ name: f.name, loc: { kind: 'gdrive', account, id: f.id } }));
       return json(res, 200, { loc: { kind: 'gdrive', account, id: here.id }, account, crumbs: chain.map((c) => ({ name: c.name, loc: { kind: 'gdrive', account, id: c.id } })), dirs });
     }
     const dir = mustDir(raw?.dir);
@@ -577,13 +611,15 @@ export function registerWorkspace(api: Router) {
     json(res, 200, { loc: { kind: 'fs', dir }, ...fsCrumbs(dir), dirs });
   });
   api.post('/api/workspace/folders', async (req, res) => {
+    const user = (await currentUser(req))!;
     const b = await readJson(req);
     const name = safeName(String(b.name || ''));
     if (!name) throw new HttpError(400, 'Hãy nhập tên thư mục');
     if (b.loc?.kind === 'gdrive') {
-      const account = String(b.loc.account);
-      if (await G.findChildFolder(account, String(b.loc.id), name)) throw new HttpError(409, 'Đã có thư mục cùng tên');
-      const f = await G.createFolder(account, String(b.loc.id), name);
+      const account = String(b.loc.account || '');
+      await requireOwnedDrive(user.id, account);
+      if (await G.findChildFolder(account, String(b.loc.id), name, user.id)) throw new HttpError(409, 'Đã có thư mục cùng tên');
+      const f = await G.createFolder(account, String(b.loc.id), name, user.id);
       return json(res, 201, { name, loc: { kind: 'gdrive', account, id: f.id } });
     }
     const p = path.join(mustDir(b.loc?.dir), name);
@@ -628,7 +664,7 @@ export function registerWorkspace(api: Router) {
     const name = safeName(fields.name);
     if (!name) throw new HttpError(400, 'Hãy nhập tên khách hàng');
     if (b.existingFolder) {
-      const l = await mustLoc(b.existingFolder);
+      const l = await mustLoc(b.existingFolder, creator);
       const id = uid('c_');
       const gloc = l.kind === 'gdrive' ? JSON.stringify({ account: l.account, id: l.id, label: l.label }) : null;
       await run('INSERT INTO customers(id,name,links,notes,folder,gloc,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)', id, name, '[]', String(b.notes || ''), l.kind === 'gdrive' ? name : l.dir, gloc, now(), now());
@@ -919,15 +955,16 @@ export function registerWorkspace(api: Router) {
   // Link the customer to any existing folder (e.g. an old project folder on Drive): one picked, or a pasted Drive link
   // that a connected Google account can open.
   api.put('/api/customers/:id/folder', async (req, res) => {
+    const user = (await currentUser(req))!;
     const c = await mustCustomer(req.params.id), b = await readJson(req);
     let l: Loc;
     if (b.link !== undefined) {
       const id = driveId(String(b.link));
       if (!id) throw new HttpError(400, 'Link Google Drive không hợp lệ. Hãy dán link thư mục (drive.google.com/drive/folders/…)');
-      const found = await locate(id);
+      const found = await locate(id, user.id);
       if (found.file.mimeType !== G.FOLDER_MIME) throw new HttpError(400, 'Link này là một file, không phải thư mục. Hãy dán link thư mục của khách hàng');
-      l = await mustLoc({ kind: 'gdrive', account: found.account, id: found.file.id });
-    } else l = await mustLoc(b.loc);
+      l = await mustLoc({ kind: 'gdrive', account: found.account, id: found.file.id }, user.id);
+    } else l = await mustLoc(b.loc, user.id);
     const other = (await all<any>('SELECT id, name, folder, gloc FROM customers WHERE id <> ? AND (gloc IS NOT NULL OR folder <> \'\')', c.id)).find((x) => { try { return x.gloc ? `g:${JSON.parse(x.gloc).id}` === folderKey(l) : false; } catch { return false; } });
     if (other) throw new HttpError(409, `Thư mục này đang liên kết với khách hàng “${other.name}”`);
     await setHidden(folderKey(l), false);

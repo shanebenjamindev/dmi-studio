@@ -86,7 +86,7 @@ export function FolderPicker({ open, title, start, confirmLabel, onClose, onPick
           ))}
           {onAddAccount && (
             <div className="fp-group fp-add">
-              <button className="fp-place" onClick={onAddAccount}><Icon name="plus" size={15} />Kết nối tài khoản Google</button>
+              <button className="fp-place" onClick={onAddAccount}><Icon name="plus" size={15} />Liên kết Gmail</button>
             </div>
           )}
         </nav>

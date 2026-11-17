@@ -11,17 +11,19 @@ export function driveId(link: string) {
   return /^[\w-]{10,}$/.test(s) ? s : '';
 }
 
-export async function locate(id: string) {
-  const accounts = await G.accounts();
-  if (!accounts.length) throw new HttpError(400, 'Chưa kết nối tài khoản Google Drive nào. Quản trị viên hãy kết nối trong trang Khách hàng.');
+export async function locate(id: string, userId?: string) {
+  const accounts = userId ? await G.userAccounts(userId) : await G.accounts();
+  if (!accounts.length) {
+    throw new HttpError(400, userId ? 'Bạn chưa kết nối tài khoản Google Drive nào. Hãy liên kết Gmail trước.' : 'Chưa kết nối tài khoản Google Drive nào.');
+  }
   const fields = 'id,name,mimeType,videoMediaMetadata(durationMillis),thumbnailLink,shortcutDetails(targetId,targetMimeType)';
   for (const a of accounts) {
     let file: G.GFile;
-    try { file = await G.meta(a.email, id, fields) as G.GFile; }
+    try { file = await G.meta(a.email, id, fields, userId) as G.GFile; }
     catch { continue; } // not visible to this account
     // A link to a shortcut opens what it points at (folder, clip, photo or sheet).
     if (file.mimeType === G.SHORTCUT_MIME && file.shortcutDetails) {
-      try { file = { ...await G.meta(a.email, file.shortcutDetails.targetId, fields) as G.GFile, name: file.name }; }
+      try { file = { ...await G.meta(a.email, file.shortcutDetails.targetId, fields, userId) as G.GFile, name: file.name }; }
       catch { throw new HttpError(404, 'Lối tắt này trỏ tới file đã bị xoá hoặc chưa được chia sẻ'); }
     }
     return { account: a.email, file };

@@ -8,27 +8,91 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type http from 'node:http';
 import { HttpError, untrustedHeaders } from './http';
-import { get, run, getSetting, setSetting } from './db';
+import { all, get, run, getSetting, setSetting, now, uid } from './db';
 
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/drive';
 const DRIVE = 'https://www.googleapis.com/drive/v3';
 export const FOLDER_MIME = 'application/vnd.google-apps.folder';
 export const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
 
-export interface GAccount { email: string; name: string; picture: string; refresh: string; access?: string; expiry?: number }
+export interface GAccount { email: string; name: string; picture: string; refresh: string; scopes?: string; access?: string; expiry?: number }
 export async function oauthConfig() {
   const c = await getSetting<{ clientId?: string; clientSecret?: string }>('google_oauth', {});
   return { clientId: c.clientId || process.env.GOOGLE_CLIENT_ID || '', clientSecret: c.clientSecret || process.env.GOOGLE_CLIENT_SECRET || '' };
 }
 export const setOauthConfig = async (clientId: string, clientSecret: string) =>
   await setSetting('google_oauth', clientId || clientSecret ? { clientId: clientId.trim(), clientSecret: clientSecret.trim() } : null);
-export const accounts = async () => await getSetting<GAccount[]>('google_accounts', []);
-const saveAccounts = async (a: GAccount[]) => await setSetting('google_accounts', a.length ? a : null);
+
+// Short-lived access tokens stay in process memory (refresh tokens remain server-side in user_google_accounts).
+const tokenCache = new Map<string, { access: string; expiry: number }>();
+const tokenKey = (email: string, userId?: string) => `${userId || '*'}|${email.toLowerCase()}`;
+
+export async function userAccounts(userId: string): Promise<GAccount[]> {
+  return (
+    await all<any>(
+      'SELECT email, name, picture, refresh, scopes FROM user_google_accounts WHERE user_id = ? ORDER BY created_at ASC, email ASC',
+      userId
+    )
+  ).map((r) => ({ email: r.email, name: r.name || r.email, picture: r.picture || '', refresh: r.refresh, scopes: r.scopes || 'drive' }));
+}
+
+export async function publicUserAccounts(userId: string) {
+  return (
+    await all<any>(
+      'SELECT id, email, name, picture, scopes, created_at FROM user_google_accounts WHERE user_id = ? ORDER BY created_at ASC, email ASC',
+      userId
+    )
+  ).map((r) => ({ id: r.id, email: r.email, name: r.name || r.email, picture: r.picture || '', scopes: r.scopes || 'drive', createdAt: r.created_at }));
+}
+
+export async function hasUserAccount(userId: string, email: string): Promise<boolean> {
+  if (!email) return false;
+  return !!(await get('SELECT 1 FROM user_google_accounts WHERE user_id = ? AND LOWER(email) = LOWER(?) LIMIT 1', userId, email));
+}
+
+export async function anyUserHasAccount(email: string): Promise<boolean> {
+  if (!email) return false;
+  return !!(await get('SELECT 1 FROM user_google_accounts WHERE LOWER(email) = LOWER(?) LIMIT 1', email));
+}
+
+/** Server-wide connected Drive accounts (internal audit & bound-folder fallback; never expose directly to users). */
+export async function accounts(): Promise<GAccount[]> {
+  const rows = await all<any>('SELECT email, name, picture, refresh, scopes, updated_at FROM user_google_accounts ORDER BY updated_at DESC, email ASC');
+  const seen = new Map<string, GAccount>();
+  for (const r of rows) {
+    const k = String(r.email || '').toLowerCase();
+    if (!k || seen.has(k)) continue;
+    seen.set(k, { email: r.email, name: r.name || r.email, picture: r.picture || '', refresh: r.refresh, scopes: r.scopes || 'drive' });
+  }
+  const legacy = await getSetting<GAccount[]>('google_accounts', []);
+  for (const a of legacy) {
+    const k = String(a.email || '').toLowerCase();
+    if (!k || seen.has(k)) continue;
+    seen.set(k, { email: a.email, name: a.name || a.email, picture: a.picture || '', refresh: a.refresh, scopes: 'drive' });
+  }
+  return [...seen.values()];
+}
+
 export const publicAccounts = async () => (await accounts()).map(({ email, name, picture }) => ({ email, name, picture }));
-export async function removeAccount(email: string) {
-  const a = (await accounts()).find((x) => x.email === email);
-  await saveAccounts((await accounts()).filter((x) => x.email !== email));
-  if (a) fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(a.refresh)}`, { method: 'POST' }).catch(() => {});
+
+export async function removeUserAccount(userId: string, emailOrId: string) {
+  const target = await get<any>(
+    'SELECT id, email, refresh FROM user_google_accounts WHERE user_id = ? AND (LOWER(email) = LOWER(?) OR id = ?) LIMIT 1',
+    userId,
+    emailOrId,
+    emailOrId
+  );
+  if (!target) return;
+  await run('DELETE FROM user_google_accounts WHERE id = ? AND user_id = ?', target.id, userId);
+  tokenCache.delete(tokenKey(target.email, userId));
+  tokenCache.delete(tokenKey(target.email));
+  const stillUsed =
+    (await get('SELECT 1 FROM user_google_accounts WHERE refresh = ? LIMIT 1', target.refresh)) ||
+    (await get('SELECT 1 FROM user_gmail WHERE refresh = ? LIMIT 1', target.refresh)) ||
+    (await getSetting<GAccount | null>('notification_mail', null))?.refresh === target.refresh;
+  if (!stillUsed) {
+    fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(target.refresh)}`, { method: 'POST' }).catch(() => {});
+  }
 }
 
 // ---------------------------------------------------------------- OAuth
@@ -94,35 +158,66 @@ export async function finishLogin(code: string, state: string) {
       p.owner_id,email,me.name||email,me.picture||'',refresh,t.access_token,Date.now()+((t.expires_in||3600)-60)*1000,Date.now());
     return {purpose:p.purpose,email,name:me.name||email,picture:me.picture||''};
   }
-  const prev = (await accounts()).find((a) => a.email === me.email);
-  const acc: GAccount = {
-    email: me.email, name: me.name || me.email, picture: me.picture || '',
-    refresh: t.refresh_token || prev?.refresh || '', access: t.access_token, expiry: Date.now() + (t.expires_in - 60) * 1000,
-  };
-  if (!acc.refresh) throw new HttpError(400, 'Google không cấp quyền truy cập lâu dài, hãy đăng nhập lại');
-  await saveAccounts([...(await accounts()).filter((a) => a.email !== acc.email), acc]);
-  return { purpose: p.purpose, email: acc.email, name: acc.name, picture: acc.picture };
+  if (!p.owner_id || !(await get('SELECT 1 FROM users WHERE id=? AND disabled=0', p.owner_id))) {
+    throw new HttpError(403, 'Hãy đăng nhập DMI Workspace trước');
+  }
+  const email = String(me.email).toLowerCase();
+  const prev = await get<any>('SELECT id, refresh FROM user_google_accounts WHERE user_id=? AND LOWER(email)=LOWER(?)', p.owner_id, email);
+  const refresh = t.refresh_token || prev?.refresh || '';
+  if (!refresh) throw new HttpError(400, 'Google không cấp quyền truy cập lâu dài, hãy đăng nhập lại');
+  const timestamp = now();
+  await run(
+    `INSERT INTO user_google_accounts(id, user_id, email, name, picture, refresh, scopes, created_at, updated_at)
+     VALUES(?,?,?,?,?,?, 'drive', ?,?)
+     ON CONFLICT(user_id, email) DO UPDATE SET name=excluded.name, picture=excluded.picture, refresh=excluded.refresh, scopes=excluded.scopes, updated_at=excluded.updated_at`,
+    uid('ga_'),
+    p.owner_id,
+    email,
+    me.name || email,
+    me.picture || '',
+    refresh,
+    timestamp,
+    timestamp
+  );
+  const cached = { access: t.access_token as string, expiry: Date.now() + ((t.expires_in || 3600) - 60) * 1000 };
+  tokenCache.set(tokenKey(email, p.owner_id), cached);
+  tokenCache.set(tokenKey(email), cached);
+  return { purpose: p.purpose, email, name: me.name || email, picture: me.picture || '' };
 }
-export async function accessToken(email: string, force = false) {
-  const list = await accounts();
-  const a = list.find((x) => x.email === email);
-  if (!a) throw new HttpError(401, `Tài khoản Google ${email} chưa được kết nối, hãy đăng nhập lại`);
-  if (!force && a.access && (a.expiry || 0) > Date.now()) return a.access;
-  const t = await tokenCall({ refresh_token: a.refresh, grant_type: 'refresh_token' }).catch(() => {
+
+export async function accessToken(email: string, force = false, userId?: string) {
+  const targetEmail = String(email || '').trim().toLowerCase();
+  let row = userId
+    ? await get<any>('SELECT email, refresh FROM user_google_accounts WHERE user_id = ? AND LOWER(email) = LOWER(?) LIMIT 1', userId, targetEmail)
+    : await get<any>('SELECT email, refresh FROM user_google_accounts WHERE LOWER(email) = LOWER(?) ORDER BY updated_at DESC LIMIT 1', targetEmail);
+  if (userId && !row) {
+    throw new HttpError(403, 'Bạn chỉ dùng được Google Drive từ Gmail bạn đã liên kết');
+  }
+  if (!row && !userId) {
+    const legacy = (await getSetting<GAccount[]>('google_accounts', [])).find((x) => String(x.email || '').toLowerCase() === targetEmail);
+    if (legacy) row = legacy;
+  }
+  if (!row) throw new HttpError(401, `Tài khoản Google ${email} chưa được kết nối, hãy đăng nhập lại`);
+  const key = tokenKey(targetEmail, userId);
+  const hit = tokenCache.get(key);
+  if (!force && hit && hit.expiry > Date.now()) return hit.access;
+  const t = await tokenCall({ refresh_token: row.refresh, grant_type: 'refresh_token' }).catch(() => {
+    tokenCache.delete(key);
     throw new HttpError(401, `Phiên Google của ${email} đã hết hạn, hãy đăng nhập lại`);
   });
-  a.access = t.access_token; a.expiry = Date.now() + (t.expires_in - 60) * 1000;
-  await saveAccounts(list);
-  return a.access!;
+  const entry = { access: t.access_token as string, expiry: Date.now() + ((t.expires_in || 3600) - 60) * 1000 };
+  tokenCache.set(key, entry);
+  tokenCache.set(tokenKey(targetEmail), entry);
+  return entry.access;
 }
 /** Authorised request to a Google API; retries once with a fresh token on 401. */
-export async function gfetch(email: string, url: string, init: RequestInit = {}, retry = true): Promise<Response> {
-  const res = await fetch(url, { ...init, headers: { ...(init.headers as any), authorization: `Bearer ${await accessToken(email, !retry)}` } });
-  if (res.status === 401 && retry) return await gfetch(email, url, init, false);
+export async function gfetch(email: string, url: string, init: RequestInit = {}, retry = true, userId?: string): Promise<Response> {
+  const res = await fetch(url, { ...init, headers: { ...(init.headers as any), authorization: `Bearer ${await accessToken(email, !retry, userId)}` } });
+  if (res.status === 401 && retry) return await gfetch(email, url, init, false, userId);
   return res;
 }
-async function gjson<T = any>(email: string, url: string, init: RequestInit = {}): Promise<T> {
-  const res = await gfetch(email, url, init);
+async function gjson<T = any>(email: string, url: string, init: RequestInit = {}, userId?: string): Promise<T> {
+  const res = await gfetch(email, url, init, true, userId);
   const j: any = await res.json().catch(() => ({}));
   if (!res.ok) throw new HttpError(res.status === 404 ? 404 : 502, `Google Drive: ${j.error?.message || res.status}`);
   return j;
@@ -133,29 +228,29 @@ const ALL = 'supportsAllDrives=true&includeItemsFromAllDrives=true';
 const q = (s: string) => encodeURIComponent(s);
 export interface GFile { id: string; name: string; mimeType: string; size?: string; modifiedTime?: string; webViewLink?: string; thumbnailLink?: string; parents?: string[]; driveId?: string; shared?: boolean; videoMediaMetadata?: { durationMillis?: string }; shortcutDetails?: { targetId: string; targetMimeType: string } }
 
-export async function sharedDrives(email: string) {
-  const j = await gjson<{ drives: { id: string; name: string }[] }>(email, `${DRIVE}/drives?pageSize=100`);
+export async function sharedDrives(email: string, userId?: string) {
+  const j = await gjson<{ drives: { id: string; name: string }[] }>(email, `${DRIVE}/drives?pageSize=100`, {}, userId);
   return j.drives || [];
 }
-async function listAll(email: string, query: string, fields: string, corpora = '') {
+async function listAll(email: string, query: string, fields: string, corpora = '', userId?: string) {
   const out: GFile[] = [];
   let page = '';
   do {
     const j = await gjson<{ files: GFile[]; nextPageToken?: string }>(email,
-      `${DRIVE}/files?q=${q(query)}&fields=${q(`nextPageToken,files(${fields})`)}&orderBy=${q('folder,name')}&pageSize=200&${ALL}${corpora ? `&corpora=${corpora}` : ''}${page ? `&pageToken=${page}` : ''}`);
+      `${DRIVE}/files?q=${q(query)}&fields=${q(`nextPageToken,files(${fields})`)}&orderBy=${q('folder,name')}&pageSize=200&${ALL}${corpora ? `&corpora=${corpora}` : ''}${page ? `&pageToken=${page}` : ''}`, {}, userId);
     out.push(...j.files); page = j.nextPageToken || '';
   } while (page && out.length < 2000);
   return out;
 }
-export const listFolders = async (email: string, parent: string) =>
-  await listAll(email, `'${parent}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`, 'id,name');
+export const listFolders = async (email: string, parent: string, userId?: string) =>
+  await listAll(email, `'${parent}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`, 'id,name', '', userId);
 /** Everything (files, folders, shortcuts) directly inside any of `parents`, chunked so the query stays short; each item carries its `parents`. */
-export async function listChildrenIn(email: string, parents: string[]) {
+export async function listChildrenIn(email: string, parents: string[], userId?: string) {
   const out: GFile[] = [];
   for (let i = 0; i < parents.length; i += 40) {
     const q = parents.slice(i, i + 40).map((p) => `'${p}' in parents`).join(' or ');
     out.push(...await listAll(email, `(${q}) and trashed=false`,
-      'id,name,size,mimeType,modifiedTime,webViewLink,thumbnailLink,shared,parents,shortcutDetails(targetId,targetMimeType)', 'allDrives'));
+      'id,name,size,mimeType,modifiedTime,webViewLink,thumbnailLink,shared,parents,shortcutDetails(targetId,targetMimeType)', 'allDrives', userId));
   }
   return out;
 }
@@ -163,7 +258,7 @@ export async function listChildrenIn(email: string, parents: string[]) {
 // the shortcut's name is kept because that is what people see in the folder.
 const MEDIA_FIELDS = 'id,name,mimeType,size,modifiedTime,thumbnailLink,parents,videoMediaMetadata(durationMillis),shortcutDetails(targetId,targetMimeType)';
 const isMedia = (mime = '') => /^(video|image)\//.test(mime);
-export async function resolveShortcuts(email: string, files: GFile[]) {
+export async function resolveShortcuts(email: string, files: GFile[], userId?: string) {
   const out: GFile[] = [];
   for (const f of files) {
     if (f.mimeType !== SHORTCUT_MIME) { out.push(f); continue; }
@@ -171,25 +266,25 @@ export async function resolveShortcuts(email: string, files: GFile[]) {
     if (!t) continue;
     if (t.targetMimeType === FOLDER_MIME) { out.push({ id: t.targetId, name: f.name, mimeType: FOLDER_MIME, parents: f.parents }); continue; }
     if (!isMedia(t.targetMimeType)) continue;
-    try { out.push({ ...await meta(email, t.targetId, MEDIA_FIELDS) as GFile, name: f.name, parents: f.parents }); } catch { /* target deleted or not shared */ }
+    try { out.push({ ...await meta(email, t.targetId, MEDIA_FIELDS, userId) as GFile, name: f.name, parents: f.parents }); } catch { /* target deleted or not shared */ }
   }
   return out;
 }
 /** Sub-folders of `parent`, including shortcuts to folders (as their target). */
-export async function listFoldersDeep(email: string, parent: string) {
+export async function listFoldersDeep(email: string, parent: string, userId?: string) {
   return await resolveShortcuts(email, await listAll(email,
-    `'${parent}' in parents and (mimeType='${FOLDER_MIME}' or mimeType='${SHORTCUT_MIME}') and trashed=false`, 'id,name,mimeType,shortcutDetails(targetId,targetMimeType)', 'allDrives'))
+    `'${parent}' in parents and (mimeType='${FOLDER_MIME}' or mimeType='${SHORTCUT_MIME}') and trashed=false`, 'id,name,mimeType,shortcutDetails(targetId,targetMimeType)', 'allDrives', userId), userId)
     .then((l) => l.filter((f) => f.mimeType === FOLDER_MIME));
 }
 /** Videos and images directly inside any of `parents` (shortcuts followed), with what a source picker needs (duration, thumbnail). */
-export async function listMediaIn(email: string, parents: string[]) {
+export async function listMediaIn(email: string, parents: string[], userId?: string) {
   const out: GFile[] = [];
   for (let i = 0; i < parents.length; i += 40) {
     const q = parents.slice(i, i + 40).map((p) => `'${p}' in parents`).join(' or ');
     // Parents may sit in different shared drives; Drive returns nothing for such a query unless corpora=allDrives.
-    out.push(...await listAll(email, `(${q}) and (mimeType contains 'video/' or mimeType contains 'image/' or mimeType='${SHORTCUT_MIME}') and trashed=false`, MEDIA_FIELDS, 'allDrives'));
+    out.push(...await listAll(email, `(${q}) and (mimeType contains 'video/' or mimeType contains 'image/' or mimeType='${SHORTCUT_MIME}') and trashed=false`, MEDIA_FIELDS, 'allDrives', userId));
   }
-  return (await resolveShortcuts(email, out)).filter((f) => isMedia(f.mimeType));
+  return (await resolveShortcuts(email, out, userId)).filter((f) => isMedia(f.mimeType));
 }
 /** Files and folders whose name contains `term`, across My Drive, shared items and shared drives (shortcuts followed). */
 export async function searchByName(email: string, term: string, limit = 20) {
@@ -199,10 +294,10 @@ export async function searchByName(email: string, term: string, limit = 20) {
   return await resolveShortcuts(email, j.files || []);
 }
 /** Video library for report selection. Read-only; no permissions or files are changed. */
-export async function searchVideos(email: string, term: string, limit=60) {
+export async function searchVideos(email: string, term: string, limit=60, userId?: string) {
   const escaped=term.replace(/['\\]/g,'\\$&');
   const query=`trashed=false and mimeType contains 'video/'${term?` and name contains '${escaped}'`:''}`;
-  const j=await gjson<{files:GFile[]}>(email,`${DRIVE}/files?q=${q(query)}&fields=${q(`files(${MEDIA_FIELDS})`)}&pageSize=${Math.min(limit,100)}&orderBy=${q('modifiedTime desc')}&corpora=allDrives&${ALL}`);
+  const j=await gjson<{files:GFile[]}>(email,`${DRIVE}/files?q=${q(query)}&fields=${q(`files(${MEDIA_FIELDS})`)}&pageSize=${Math.min(limit,100)}&orderBy=${q('modifiedTime desc')}&corpora=allDrives&${ALL}`, {}, userId);
   return j.files || [];
 }
 /** One tab of a Google Sheet as CSV or XLSX (works with the Drive scope; the Sheets API need not be enabled). */
@@ -211,15 +306,15 @@ export async function sheetExport(email: string, id: string, gid: string, format
   if (!r.ok) throw new HttpError(r.status === 404 ? 404 : 502, `Google Sheets: không đọc được sheet (${r.status})`);
   return Buffer.from(await r.arrayBuffer());
 }
-export const meta = async (email: string, id: string, fields = 'id,name,mimeType,parents,driveId,webViewLink') =>
-  await gjson<GFile>(email, `${DRIVE}/files/${q(id)}?fields=${q(fields)}&supportsAllDrives=true`);
-export async function createFolder(email: string, parent: string, name: string) {
+export const meta = async (email: string, id: string, fields = 'id,name,mimeType,parents,driveId,webViewLink', userId?: string) =>
+  await gjson<GFile>(email, `${DRIVE}/files/${q(id)}?fields=${q(fields)}&supportsAllDrives=true`, {}, userId);
+export async function createFolder(email: string, parent: string, name: string, userId?: string) {
   return await gjson<GFile>(email, `${DRIVE}/files?fields=id,name&supportsAllDrives=true`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, mimeType: FOLDER_MIME, parents: [parent] }),
-  });
+  }, userId);
 }
-export async function findChildFolder(email: string, parent: string, name: string) {
-  const f = await listAll(email, `'${parent}' in parents and mimeType='${FOLDER_MIME}' and name='${name.replace(/['\\]/g, '\\$&')}' and trashed=false`, 'id,name');
+export async function findChildFolder(email: string, parent: string, name: string, userId?: string) {
+  const f = await listAll(email, `'${parent}' in parents and mimeType='${FOLDER_MIME}' and name='${name.replace(/['\\]/g, '\\$&')}' and trashed=false`, 'id,name', '', userId);
   return f[0] || null;
 }
 export const rename = async (email: string, id: string, name: string) =>
@@ -230,14 +325,14 @@ export const shareAnyone = async (email: string, id: string) =>
   await gjson(email, `${DRIVE}/files/${q(id)}/permissions?supportsAllDrives=true`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) });
 
 /** Breadcrumb from the drive root down to `id` (My Drive or a shared drive). */
-export async function crumbs(email: string, id: string) {
+export async function crumbs(email: string, id: string, userId?: string) {
   const chain: { id: string; name: string }[] = [];
   let cur: string | undefined = id;
   for (let k = 0; cur && k < 25; k++) {
-    const f: GFile = await meta(email, cur, 'id,name,parents,driveId');
+    const f: GFile = await meta(email, cur, 'id,name,parents,driveId', userId);
     const isSharedRoot = f.driveId && f.id === f.driveId;
     if (!f.parents?.length || isSharedRoot) {
-      if (isSharedRoot) chain.unshift({ id: f.id, name: (await sharedDrives(email)).find((d) => d.id === f.id)?.name || f.name });
+      if (isSharedRoot) chain.unshift({ id: f.id, name: (await sharedDrives(email, userId)).find((d) => d.id === f.id)?.name || f.name });
       else chain.unshift({ id: f.id, name: 'My Drive' });
       break;
     }
@@ -319,16 +414,19 @@ const thumbLinks = new Map<string, string>();
 export const rememberThumb = (id: string, link?: string) => { if (link) thumbLinks.set(id, link.replace(/=s\d+$/, '=s480')); };
 const thumbBytes = new Map<string, { type: string; body: Buffer }>();
 /** Thumbnail bytes (480 px), cached in memory. */
-export async function thumbBuffer(email: string, id: string) {
+export async function thumbBuffer(email: string, id: string, userId?: string) {
+  if (userId && !(await hasUserAccount(userId, email))) {
+    throw new HttpError(403, 'Bạn chỉ dùng được Google Drive từ Gmail bạn đã liên kết');
+  }
   let hit = thumbBytes.get(id);
   if (!hit) {
     let link = thumbLinks.get(id);
-    if (!link) { link = (await meta(email, id, 'thumbnailLink')).thumbnailLink?.replace(/=s\d+$/, '=s480'); if (link) thumbLinks.set(id, link); }
+    if (!link) { link = (await meta(email, id, 'thumbnailLink', userId)).thumbnailLink?.replace(/=s\d+$/, '=s480'); if (link) thumbLinks.set(id, link); }
     if (!link) throw new HttpError(404, 'Chưa có ảnh thu nhỏ');
-    let r = await gfetch(email, link);
+    let r = await gfetch(email, link, {}, true, userId);
     if (!r.ok) { // links expire after a few hours: ask Drive for a fresh one once
-      link = (await meta(email, id, 'thumbnailLink')).thumbnailLink?.replace(/=s\d+$/, '=s480');
-      if (link) { thumbLinks.set(id, link); r = await gfetch(email, link); }
+      link = (await meta(email, id, 'thumbnailLink', userId)).thumbnailLink?.replace(/=s\d+$/, '=s480');
+      if (link) { thumbLinks.set(id, link); r = await gfetch(email, link, {}, true, userId); }
     }
     if (!r.ok) throw new HttpError(404, 'Chưa có ảnh thu nhỏ');
     hit = { type: r.headers.get('content-type') || 'image/jpeg', body: Buffer.from(await r.arrayBuffer()) };
