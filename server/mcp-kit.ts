@@ -1,4 +1,4 @@
-// What the Claude connector's tools share (server/mcp.ts, server/video-mcp.ts): the tool shape, the API call made as the
+// What the Claude connector's tools share (server/mcp.ts): the tool shape, the API call made as the
 // connected person, and how dates and ids are read and shown.
 import { HttpError } from './http';
 
@@ -22,7 +22,9 @@ export const need = (v: any, what: string) => { const s = String(v ?? '').trim()
 export const seg = (v: any, what: string) => encodeURIComponent(need(v, what));
 export const brief = (t: any) => ({
   id: t.id, title: t.title, stage: t.stage, status: t.status, state: t.state, due: vn(t.dueAt), start: vn(t.startAt), done: vn(t.doneAt),
-  service: t.project?.name || null, serviceId: t.project?.id || null, assignees: (t.assignees || []).map((a: any) => a.name),
+  customer: t.customer?.name || null, customerId: t.customer?.id || null,
+  brand: t.brand?.name || null, brandId: t.brand?.id || null,
+  service: (t.brandService || t.project)?.name || null, serviceId: (t.brandService || t.project)?.id || null, assignees: (t.assignees || []).map((a: any) => a.name),
   followers: (t.followers || []).map((f: any) => f.name), labels: t.labels || [],
   createdBy: t.createdBy?.name || null, parent: t.parent?.title || null, updated: vn(t.updatedAt),
 });

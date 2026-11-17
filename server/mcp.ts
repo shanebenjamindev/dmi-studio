@@ -70,7 +70,7 @@ button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:9px 18p
 <body><main><img src="/brand/logo.png" alt="Detailers Movement"><h1>Cho phép ${esc(o.client.name || 'Claude')} truy cập DMI Workspace?</h1>
 <div class="who">Tài khoản: <b>${esc(o.user.name)}</b> (${esc(o.user.email)})<br>Trả về: ${esc(host)}</div>
 <p>Ứng dụng này sẽ làm việc thay bạn, với đúng quyền của tài khoản bạn:</p>
-<ul><li>Xem và tìm công việc, dịch vụ, khách hàng bạn được xem</li><li>Tạo, sửa, bình luận và chuyển bước công việc bạn được sửa</li></ul>
+<ul><li>Xem và tìm công việc, nhãn hàng, dịch vụ, khách hàng bạn được xem</li><li>Tạo, sửa, bình luận và chuyển bước công việc bạn được sửa</li></ul>
 <form method="post" action="/api/oauth/authorize">${fields}<input type="hidden" name="csrf" value="${esc(o.csrf)}">
 <div class="row"><button class="no" name="decision" value="deny">Từ chối</button><button class="ok" name="decision" value="allow">Cho phép</button></div></form>
 <p style="margin:16px 0 0;font-size:12.5px">Chỉ cho phép nếu bạn vừa bấm kết nối DMI từ Claude hoặc ChatGPT.</p></main></body></html>`);
@@ -214,7 +214,7 @@ async function answer(req: Req, user: User, m: any, agent: string) {
       const asked = String(m.params?.protocolVersion || '');
       return ok({
         protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0], capabilities: { tools: {} }, serverInfo: { name: 'dmi-workspace', title: 'DMI Workspace', version: '1.0.0' },
-        instructions: 'DMI Workspace của Detailers Movement: khách hàng → dịch vụ → công việc, mỗi công việc đi qua ACCOUNT › EXECUTION › REVIEW › COMPLETED. Mọi thao tác chạy bằng tài khoản và quyền của người đã kết nối. Thời gian theo giờ Việt Nam (UTC+7). Trả lời người dùng bằng tiếng Việt.',
+        instructions: 'DMI Workspace của Detailers Movement: khách hàng → nhãn hàng → dịch vụ của nhãn hàng → công việc (và việc con), mỗi công việc đi qua ACCOUNT › EXECUTION › REVIEW › COMPLETED. Mọi thao tác chạy bằng tài khoản và quyền của người đã kết nối. Thời gian theo giờ Việt Nam (UTC+7). Trả lời người dùng bằng tiếng Việt.',
       });
     }
     case 'ping': return ok({});
@@ -271,24 +271,30 @@ export const WORK_TOOLS: Tool[] = [
     run: async (call) => { const r = await call('GET', '/api/auth/me'); return { name: r.user?.name, email: r.user?.email, role: r.user?.role, id: r.user?.id }; },
   },
   {
-    name: 'search', title: 'Tìm kiếm', description: 'Tìm khắp DMI Workspace (khách hàng, công việc, dịch vụ, board, thẻ…) theo từ khoá, không cần dấu.', annotations: read,
-    inputSchema: { type: 'object', properties: { query: str('Từ khoá'), type: str('Chỉ một loại (tuỳ chọn), như customers, tasks, projects, boards, cards') }, required: ['query'] },
+    name: 'search', title: 'Tìm kiếm', description: 'Tìm khắp DMI Workspace (khách hàng, nhãn hàng, dịch vụ, công việc, board, thẻ…) theo từ khoá, không cần dấu.', annotations: read,
+    inputSchema: { type: 'object', properties: { query: str('Từ khoá'), type: str('Chỉ một loại (tuỳ chọn), như customers, brands, brandServices, tasks, boards, cards') }, required: ['query'] },
     run: (call, a) => call('GET', `/api/search?q=${encodeURIComponent(need(a.query, 'từ khoá'))}${a.type ? `&type=${encodeURIComponent(a.type)}` : ''}`),
   },
   {
     name: 'list_tasks', title: 'Danh sách công việc', annotations: read,
-    description: 'Công việc của tôi (mặc định), của team, hoặc mọi công việc của một dịch vụ. Lọc theo trạng thái và từ khoá. Thời gian theo giờ Việt Nam.',
+    description: 'Công việc của tôi (mặc định), của team, hoặc mọi công việc theo khách hàng / nhãn hàng / dịch vụ. Lọc theo trạng thái và từ khoá. Thời gian theo giờ Việt Nam.',
     inputSchema: {
       type: 'object', properties: {
-        scope: { type: 'string', enum: ['mine', 'team', 'all'], description: 'mine: của tôi; team: của team tôi lãnh đạo; all: mọi công việc của service_id' },
+        scope: { type: 'string', enum: ['mine', 'team', 'all'], description: 'mine: của tôi; team: của team tôi lãnh đạo; all: mọi công việc của service_id, brand_id hoặc customer_id' },
         relation: { type: 'string', enum: ['assigned', 'created', 'following'], description: 'Với scope mine: được giao, tôi tạo, hay tôi theo dõi (bỏ trống: cả ba)' },
-        state: str('open (chưa xong), done, overdue, todo, doing, cancelled'), query: str('Từ khoá'), service_id: str('Id dịch vụ (từ list_services)'),
+        state: str('open (chưa xong), done, overdue, todo, doing, cancelled'), query: str('Từ khoá'),
+        service_id: str('Id dịch vụ của nhãn hàng (tj_…, từ list_services)'),
+        brand_id: str('Id nhãn hàng (br_…, từ list_brands)'),
+        customer_id: str('Id khách hàng (từ list_customers)'),
         limit: { type: 'number', description: 'Tối đa (mặc định 50, tối đa 200)' },
       },
     },
     run: async (call, a) => {
       const q = new URLSearchParams({ scope: a.scope || 'mine' });
-      if (a.relation) q.set('rel', a.relation); if (a.state) q.set('state', a.state); if (a.query) q.set('q', a.query); if (a.service_id) q.set('project', a.service_id);
+      if (a.relation) q.set('rel', a.relation); if (a.state) q.set('state', a.state); if (a.query) q.set('q', a.query);
+      if (a.service_id) q.set('brandService', a.service_id);
+      if (a.brand_id) q.set('brand', a.brand_id);
+      if (a.customer_id) q.set('customer', a.customer_id);
       const r = await call('GET', `/api/tasks?${q}`), limit = Math.min(Math.max(Number(a.limit) || 50, 1), 200);
       return { total: r.tasks.length, shown: Math.min(limit, r.tasks.length), tasks: r.tasks.slice(0, limit).map(brief) };
     },
@@ -311,43 +317,47 @@ export const WORK_TOOLS: Tool[] = [
   },
   {
     name: 'create_task', title: 'Tạo công việc', annotations: write,
-    description: 'Tạo công việc mới. Giao cho người khác bằng assignee_user_id (từ list_users; không tự giao cho mình); thêm người theo dõi bằng follower_user_ids; để trống thì công việc chờ ở ACCOUNT để giao.',
+    description: 'Tạo công việc mới trong một dịch vụ của nhãn hàng (service_id). Giao cho người khác bằng assignee_user_id (từ list_users; không tự giao cho mình); thêm người theo dõi bằng follower_user_ids; gắn nhãn bằng labels; để trống thì công việc chờ ở ACCOUNT để giao.',
     inputSchema: {
       type: 'object', properties: {
-        title: str('Tên công việc'), service_id: str('Id dịch vụ (từ list_services)'), description: str('Mô tả'),
+        title: str('Tên công việc'), service_id: str('Id dịch vụ của nhãn hàng (tj_…, từ list_services)'), description: str('Mô tả'),
         due: str('Hạn chót: YYYY-MM-DD (cuối ngày) hoặc ISO 8601'), start: str('Ngày bắt đầu'), assignee_user_id: str('Id tài khoản được giao'),
         follower_user_ids: { type: 'array', items: { type: 'string' }, description: 'Danh sách ID tài khoản người theo dõi (tuỳ chọn)' },
+        labels: { type: 'array', items: { type: 'string' }, description: 'Danh sách nhãn công việc (tuỳ chọn)' },
         reviewer_user_id: str('Id tài khoản người duyệt (tuỳ chọn)'), parent_task_id: str('Id công việc cha, để tạo việc con'),
       }, required: ['title'],
     },
     run: async (call, a) => {
       const r = await call('POST', '/api/tasks', {
-        title: need(a.title, 'tên công việc'), projectId: a.service_id || null, description: a.description, dueAt: when(a.due, 'due'), startAt: when(a.start, 'start'),
+        title: need(a.title, 'tên công việc'), brandServiceId: a.service_id || null, description: a.description, dueAt: when(a.due, 'due'), startAt: when(a.start, 'start'),
         parentId: a.parent_task_id || null, reviewerUserId: a.reviewer_user_id || undefined,
         ...(a.assignee_user_id ? { assigneeUserIds: [String(a.assignee_user_id)] } : {}),
         ...(a.follower_user_ids ? { followerUserIds: (Array.isArray(a.follower_user_ids) ? a.follower_user_ids : [a.follower_user_ids]).map(String) } : {}),
+        ...(a.labels ? { labels: (Array.isArray(a.labels) ? a.labels : [a.labels]).map(String) } : {}),
       });
       return { id: r.id, created: true };
     },
   },
   {
     name: 'update_task', title: 'Sửa công việc', annotations: write,
-    description: 'Sửa tên, mô tả, kết quả, hạn, ngày bắt đầu, dịch vụ, người được giao hoặc người theo dõi (follower_user_ids, add_follower_user_id, remove_follower_user_id) của một công việc. Chỉ gửi trường cần đổi. Chuyển bước quy trình thì dùng task_workflow.',
+    description: 'Sửa tên, mô tả, kết quả, hạn, ngày bắt đầu, dịch vụ của nhãn hàng, nhãn (labels), người được giao hoặc người theo dõi của một công việc. Chỉ gửi trường cần đổi. Chuyển bước quy trình thì dùng task_workflow.',
     inputSchema: {
       type: 'object', properties: {
         task_id: str('Id công việc'), title: str('Tên mới'), description: str('Mô tả mới'), result: str('Kết quả công việc (link, ghi chú bàn giao…)'),
-        due: str('Hạn chót mới; "" để gỡ'), start: str('Ngày bắt đầu mới; "" để gỡ'), service_id: str('Id dịch vụ mới'), assignee_user_id: str('Id tài khoản được giao (thay người cũ)'),
+        due: str('Hạn chót mới; "" để gỡ'), start: str('Ngày bắt đầu mới; "" để gỡ'), service_id: str('Id dịch vụ mới của nhãn hàng (tj_…)'), assignee_user_id: str('Id tài khoản được giao (thay người cũ)'),
         follower_user_ids: { type: 'array', items: { type: 'string' }, description: 'Danh sách ID người theo dõi mới (thay thế toàn bộ danh sách cũ)' },
         add_follower_user_id: str('Id tài khoản muốn thêm vào danh sách người theo dõi'),
         remove_follower_user_id: str('Id tài khoản muốn xoá khỏi danh sách người theo dõi'),
+        labels: { type: 'array', items: { type: 'string' }, description: 'Danh sách nhãn công việc mới (tuỳ chọn)' },
       }, required: ['task_id'],
     },
     run: async (call, a) => {
       const b: any = {};
-      for (const [k, f] of [['title', 'title'], ['description', 'description'], ['result', 'result'], ['service_id', 'projectId']] as const) if (a[k] !== undefined) b[f] = a[k];
+      for (const [k, f] of [['title', 'title'], ['description', 'description'], ['result', 'result'], ['service_id', 'brandServiceId']] as const) if (a[k] !== undefined) b[f] = a[k];
       if (a.due !== undefined) b.dueAt = when(a.due, 'due');
       if (a.start !== undefined) b.startAt = when(a.start, 'start');
       if (a.assignee_user_id !== undefined) b.assigneeUserIds = a.assignee_user_id ? [String(a.assignee_user_id)] : [];
+      if (a.labels !== undefined) b.labels = (Array.isArray(a.labels) ? a.labels : [a.labels]).map(String);
       if (a.follower_user_ids !== undefined) {
         b.followerUserIds = (Array.isArray(a.follower_user_ids) ? a.follower_user_ids : [a.follower_user_ids]).map(String);
       } else if (a.add_follower_user_id || a.remove_follower_user_id) {
@@ -415,13 +425,60 @@ export const WORK_TOOLS: Tool[] = [
     run: async (call, a) => { await call('POST', `/api/tasks/${seg(a.task_id, 'task_id')}/flow`, { action: a.action, note: a.note, feedback: a.feedback, reason: a.reason }); return { done: a.action }; },
   },
   {
-    name: 'list_services', title: 'Danh sách dịch vụ', annotations: read,
-    description: 'Các dịch vụ (của khách hàng) bạn được xem, với số công việc, số đã xong và quá hạn. Lọc theo tên dịch vụ hoặc khách hàng.',
-    inputSchema: { type: 'object', properties: { query: str('Tên dịch vụ hoặc khách hàng') } },
+    name: 'list_brands', title: 'Danh sách nhãn hàng', annotations: read,
+    description: 'Các nhãn hàng (thuộc một khách hàng) bạn được xem, với danh sách dịch vụ đang chạy và tiến độ. Lọc theo customer_id hoặc tên.',
+    inputSchema: { type: 'object', properties: { customer_id: str('Id khách hàng (tuỳ chọn)'), query: str('Tên nhãn hàng hoặc khách hàng') } },
     run: async (call, a) => {
-      const m = await call('GET', '/api/tasks/meta'), q = String(a.query || '').toLowerCase();
-      return m.projects.filter((p: any) => !q || `${p.name} ${p.customerName || ''}`.toLowerCase().includes(q))
-        .map((p: any) => ({ id: p.id, name: p.name, customer: p.customerName, customerId: p.customerId, stage: p.stage, tasks: p.tasks, completed: p.completed, overdue: p.overdue }));
+      const q = new URLSearchParams();
+      if (a.customer_id) q.set('customerId', String(a.customer_id));
+      const rows = await call('GET', `/api/brands${q.toString() ? `?${q}` : ''}`);
+      const s = String(a.query || '').toLowerCase();
+      return rows
+        .filter((b: any) => !s || `${b.name} ${b.customerName || ''}`.toLowerCase().includes(s))
+        .map((b: any) => ({
+          id: b.id,
+          name: b.name,
+          customer: b.customerName,
+          customerId: b.customerId,
+          servicesCount: b.servicesCount,
+          tasks: b.tasksCount,
+          completed: b.completedCount,
+          services: (b.brandServices || []).map((x: any) => ({ id: x.id, name: x.name, catalogServiceId: x.catalogServiceId, stage: x.stage, tasks: x.tasks, completed: x.completed })),
+        }));
+    },
+  },
+  {
+    name: 'list_services', title: 'Danh sách dịch vụ của nhãn hàng', annotations: read,
+    description: 'Các dịch vụ đang triển khai cho từng nhãn hàng (thuộc khách hàng) mà bạn được xem, với nhãn hàng, giai đoạn, số công việc, đã xong và quá hạn. Lọc theo brand_id, customer_id hoặc tên.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        brand_id: str('Id nhãn hàng (br_…, tuỳ chọn)'),
+        customer_id: str('Id khách hàng (tuỳ chọn)'),
+        query: str('Tên dịch vụ, nhãn hàng hoặc khách hàng'),
+      },
+    },
+    run: async (call, a) => {
+      const params = new URLSearchParams();
+      if (a.brand_id) params.set('brandId', String(a.brand_id));
+      if (a.customer_id) params.set('customerId', String(a.customer_id));
+      const rows = await call('GET', `/api/brand-services${params.toString() ? `?${params}` : ''}`);
+      const q = String(a.query || '').toLowerCase();
+      return rows
+        .filter((p: any) => !q || `${p.name} ${p.brandName || ''} ${p.customerName || ''}`.toLowerCase().includes(q))
+        .map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          brand: p.brandName || null,
+          brandId: p.brandId || null,
+          customer: p.customerName || null,
+          customerId: p.customerId || null,
+          catalogServiceId: p.catalogServiceId || null,
+          stage: p.stage,
+          tasks: p.tasks,
+          completed: p.completed,
+          overdue: p.overdue,
+        }));
     },
   },
   {
@@ -432,24 +489,38 @@ export const WORK_TOOLS: Tool[] = [
   },
   {
     name: 'list_customers', title: 'Danh sách khách hàng', annotations: read,
-    description: 'Khách hàng bạn được xem: trạng thái, phân loại, người phụ trách, số dịch vụ và công việc. Lọc theo tên.',
+    description: 'Khách hàng bạn được xem: trạng thái, phân loại, người phụ trách, số nhãn hàng, dịch vụ và công việc. Lọc theo tên.',
     inputSchema: { type: 'object', properties: { query: str('Tên khách hàng') } },
     run: async (call, a) => {
       const rows = await call('GET', '/api/customers/directory'), q = String(a.query || '').toLowerCase();
       return rows.filter((c: any) => !q || String(c.name).toLowerCase().includes(q)).map((c: any) => ({
         id: c.id, name: c.name, status: c.status, category: c.category?.name || null, source: c.source?.name || null, manager: c.manager?.name || null, owner: c.owner?.name || null,
-        contact: c.contact || null, phone: c.phone || null, email: c.email || null, services: c.projects, tasks: c.tasks, completed: c.completed,
+        contact: c.contact || null, phone: c.phone || null, email: c.email || null,
+        brandsCount: c.brandCount ?? (c.brands?.length || 0),
+        brands: (c.brands || []).map((b: any) => ({ id: b.id, name: b.name })),
+        services: c.brandServices ?? c.projects, tasks: c.tasks, completed: c.completed,
       }));
     },
   },
   {
     name: 'get_customer', title: 'Chi tiết khách hàng', annotations: read,
-    description: 'Hồ sơ một khách hàng (liên hệ, ghi chú, phân loại) và các công việc của khách.',
+    description: 'Hồ sơ một khách hàng (liên hệ, ghi chú, phân loại), danh sách nhãn hàng và các công việc của khách.',
     inputSchema: { type: 'object', properties: { customer_id: str('Id khách hàng (c_… hoặc cust_…)') }, required: ['customer_id'] },
     run: async (call, a) => {
       const id = seg(a.customer_id, 'customer_id');
-      const [record, tasks] = await Promise.all([call('GET', `/api/customers/${id}/record`), call('GET', `/api/customers/${id}/tasks`)]);
-      return { ...record, tasks: (tasks || []).map(brief) };
+      const [record, brands, tasks] = await Promise.all([
+        call('GET', `/api/customers/${id}/record`),
+        call('GET', `/api/customers/${id}/brands`),
+        call('GET', `/api/customers/${id}/tasks`),
+      ]);
+      return {
+        ...record,
+        brands: (brands || []).map((b: any) => ({
+          id: b.id, name: b.name, servicesCount: b.servicesCount, tasksCount: b.tasksCount,
+          services: (b.brandServices || []).map((s: any) => ({ id: s.id, name: s.name, stage: s.stage })),
+        })),
+        tasks: (tasks || []).map(brief),
+      };
     },
   },
 ];

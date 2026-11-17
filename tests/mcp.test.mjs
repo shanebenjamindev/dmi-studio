@@ -117,13 +117,30 @@ test('Claude connector: OAuth, tools, rights and safety', async () => {
     assert.equal((await rpc(A, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } })).result.protocolVersion, '2025-06-18');
     assert.equal((await json('POST', '/api/mcp', { jsonrpc: '2.0', method: 'notifications/initialized' }, { authorization: 'Bearer ' + A })).status, 202);
     const names = (await rpc(A, 'tools/list')).result.tools.map((t) => t.name);
-    for (const n of ['whoami', 'list_tasks', 'create_task', 'task_workflow', 'list_customers', 'get_customer']) assert.ok(names.includes(n), n);
+    for (const n of ['whoami', 'list_tasks', 'create_task', 'task_workflow', 'list_brands', 'list_services', 'list_customers', 'get_customer']) assert.ok(names.includes(n), n);
+    // No tool schema/description should expose legacy "dự án" terminology.
+    const toolDefs = (await rpc(A, 'tools/list')).result.tools;
+    assert.ok(!toolDefs.some((t) => /dự án/i.test(`${t.name} ${t.title} ${t.description} ${JSON.stringify(t.inputSchema)}`)));
     assert.ok(!names.some((n) => /video|render|hyperframes/.test(n)), 'the video editor is gone');
     // P6: nothing reaches SQL, accounts or locking
     assert.ok(!names.some((n) => /sql|delete|lock|role|password/.test(n)));
 
     assert.equal((await call(A, 'whoami')).v.email, 'boss@example.test');
-    const made = await call(A, 'create_task', { title: 'Viết kịch bản', due: '2026-12-01', description: 'mô tả' });
+    // Hierarchy in MCP: customer -> brand -> brand_service -> task
+    const cust = await (await json('POST', '/api/customers', { name: 'MCP Garage', databaseOnly: true }, { cookie: admin })).json();
+    const brand2 = await (await json('POST', `/api/customers/${cust.id}/brands`, { name: 'MCP Detailing Pro' }, { cookie: admin })).json();
+    const svcCat = await (await json('POST', '/api/admin/services', { name: 'PPF Wrap' }, { cookie: admin })).json();
+    const bs = await (await json('POST', '/api/brand-services', { brandId: brand2.id, catalogServiceId: svcCat.id }, { cookie: admin })).json();
+
+    const brandsListed = (await call(A, 'list_brands', { customer_id: cust.id })).v;
+    assert.ok(brandsListed.some((b) => b.id === brand2.id && b.customer === 'MCP Garage'));
+    const svcsListed = (await call(A, 'list_services', { brand_id: brand2.id })).v;
+    assert.equal(svcsListed.length, 1);
+    assert.equal(svcsListed[0].id, bs.id);
+    assert.equal(svcsListed[0].brand, 'MCP Detailing Pro');
+    assert.equal(svcsListed[0].brandId, brand2.id);
+
+    const made = await call(A, 'create_task', { title: 'Viết kịch bản', service_id: bs.id, due: '2026-12-01', description: 'mô tả', labels: ['Q4'] });
     assert.equal(made.err, false);
     const tid = made.v.id;
     assert.equal((await call(A, 'update_task', { task_id: tid, title: 'Viết kịch bản (sửa)' })).err, false);
@@ -131,8 +148,14 @@ test('Claude connector: OAuth, tools, rights and safety', async () => {
     const got = (await call(A, 'get_task', { task_id: tid })).v;
     assert.equal(got.title, 'Viết kịch bản (sửa)');
     assert.equal(got.due, '2026-12-01 23:59');
+    assert.equal(got.brand, 'MCP Detailing Pro');
+    assert.equal(got.service, 'PPF Wrap');
+    assert.deepEqual(got.labels, ['Q4']);
     assert.equal(got.comments.length, 1);
     assert.ok((await call(A, 'list_tasks', { relation: 'created' })).v.tasks.some((t) => t.id === tid));
+    assert.equal((await call(A, 'list_tasks', { scope: 'all', brand_id: brand2.id })).v.tasks.length, 1);
+    const custDetail = (await call(A, 'get_customer', { customer_id: cust.id })).v;
+    assert.ok(custDetail.brands.some((b) => b.id === brand2.id));
     // T2, T3: bad input and missing records answer as tool errors
     assert.equal((await call(A, 'create_task', { title: 'x', due: 'hôm nay' })).err, true);
     assert.equal((await call(A, 'get_task', { task_id: 'tk_missing' })).err, true);
