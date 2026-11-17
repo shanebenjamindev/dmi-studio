@@ -31,7 +31,12 @@ export interface SidebarTreeProps {
   onSelectCustomer?: (customerId: string) => void;
   header?: ReactNode;
   storageKey?: string;
+  externalQuery?: string;
+  embedded?: boolean;
 }
+
+const norm = (s: string) =>
+  s.toLocaleLowerCase('vi').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
 
 /** Clean 3-level sidebar tree: Khách hàng ▸ Nhãn hàng ▸ Dịch vụ with grey open-task counts. */
 export function SidebarTree({
@@ -44,6 +49,8 @@ export function SidebarTree({
   onSelectCustomer,
   header,
   storageKey = 'dms.treeOpen',
+  externalQuery,
+  embedded = false,
 }: SidebarTreeProps) {
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
@@ -66,15 +73,16 @@ export function SidebarTree({
     });
   };
 
-  const q = query.trim().toLocaleLowerCase('vi');
+  const activeQuery = externalQuery !== undefined ? externalQuery : query;
+  const q = norm(activeQuery.trim());
   const filteredCustomers = customers
     .map((c) => {
       if (!q) return c;
-      const cMatch = c.name.toLocaleLowerCase('vi').includes(q);
+      const cMatch = norm(c.name).includes(q);
       const brands = c.brands
         .map((b) => {
-          const bMatch = cMatch || b.name.toLocaleLowerCase('vi').includes(q);
-          const services = b.services.filter((s) => bMatch || s.name.toLocaleLowerCase('vi').includes(q));
+          const bMatch = cMatch || norm(b.name).includes(q);
+          const services = b.services.filter((s) => bMatch || norm(s.name).includes(q));
           return bMatch || services.length > 0 ? { ...b, services } : null;
         })
         .filter(Boolean) as TreeBrandNode[];
@@ -83,25 +91,27 @@ export function SidebarTree({
     .filter(Boolean) as TreeCustomerNode[];
 
   return (
-    <div className="ui-tree" aria-label="Cây khách hàng, nhãn hàng và dịch vụ">
+    <div className={`ui-tree${embedded ? ' is-embedded' : ''}`} aria-label="Cây khách hàng, nhãn hàng và dịch vụ">
       {header}
-      <label className="ui-tree-search">
-        <Icon name="search" size={13} />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Tìm khách, nhãn hàng, dịch vụ…"
-          aria-label="Tìm trong cây điều hướng"
-        />
-      </label>
+      {externalQuery === undefined && (
+        <label className="ui-tree-search">
+          <Icon name="search" size={13} />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Tìm khách, nhãn hàng, dịch vụ…"
+            aria-label="Tìm trong cây điều hướng"
+          />
+        </label>
+      )}
       <div className="ui-tree-list">
         {!filteredCustomers.length ? (
           <p className="ui-tree-empty">Không có mục phù hợp</p>
         ) : (
           filteredCustomers.map((c) => {
             const cActive = selectedCustomerId === c.id && !selectedBrandId && !selectedServiceId;
-            const cContains = selectedCustomerId === c.id;
-            const cOpen = q ? true : expanded[`c:${c.id}`] ?? cContains;
+            const cContains = selectedCustomerId === c.id || c.brands.some((b) => b.id === selectedBrandId || b.services.some((s) => s.id === selectedServiceId));
+            const cOpen = q ? true : expanded[`c:${c.id}`] ?? (cContains || customers.length <= 3);
             return (
               <div key={c.id} className="ui-tree-node">
                 <div className={`ui-tree-row${cActive ? ' is-active' : ''}`}>
@@ -130,7 +140,7 @@ export function SidebarTree({
                     {c.brands.map((b) => {
                       const bActive = selectedBrandId === b.id && !selectedServiceId;
                       const bContains = selectedBrandId === b.id || b.services.some((s) => s.id === selectedServiceId);
-                      const bOpen = q ? true : expanded[`b:${b.id}`] ?? bContains;
+                      const bOpen = q ? true : expanded[`b:${b.id}`] ?? (bContains || c.brands.length <= 3);
                       return (
                         <div key={b.id} className="ui-tree-node">
                           <div className={`ui-tree-row ui-tree-brand${bActive ? ' is-active' : ''}`}>

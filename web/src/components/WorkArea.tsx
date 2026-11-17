@@ -6,6 +6,7 @@ import { openSub, sectionOf, sectionPages } from './TopBar';
 import type { TaskMeta } from '../types';
 import { Avatar } from './boardkit';
 import { toggleMessenger } from './Messenger';
+import { SidebarTree, type TreeBrandNode, type TreeCustomerNode } from './kit';
 
 // The column beside the navigation rail for a section with pages of its own (Công việc, Báo cáo, Tools): its pages, and
 // for Công việc the projects by team, found by name. It folds away (« or the section's rail item again), remembered.
@@ -91,7 +92,7 @@ export function WorkArea({ children }: { children: ReactNode }) {
           </div>
 
           <div className="wework-nav-sec">
-            <h4>TỔNG HỢP</h4>
+            <h4>Tổng hợp</h4>
             <nav>
               {pages.includes('tasks') && (
                 <button
@@ -117,7 +118,7 @@ export function WorkArea({ children }: { children: ReactNode }) {
                   onClick={() => openSub('projects')}
                 >
                   <Icon name="folder" size={16} />
-                  <span>Dịch vụ & phòng ban</span>
+                  <span>Dịch vụ</span>
                 </button>
               )}
             </nav>
@@ -126,7 +127,7 @@ export function WorkArea({ children }: { children: ReactNode }) {
           <ProjectList isWework={true} query={searchQuery} />
 
           <div className="wework-nav-sec" style={{ marginTop: 'auto', paddingBottom: 16 }}>
-            <h4>TÙY CHỈNH</h4>
+            <h4>Hướng dẫn</h4>
             <nav>
               <button className="wework-nav-btn" onClick={() => toast('Video hướng dẫn sử dụng')}>
                 <Icon name="play" size={14} />
@@ -163,80 +164,103 @@ export function WorkArea({ children }: { children: ReactNode }) {
   );
 }
 
-/** The projects this account may open, grouped by customer; projects without a customer go under "Chưa phân loại". */
+/** Cây 3 cấp Khách hàng ▸ Nhãn hàng ▸ Dịch vụ, kèm số task đang mở (chữ xám). */
+function readTreeSelection() {
+  const h = location.hash;
+  const serviceId = h.match(/^#projects\/(tj_\w+)/)?.[1] || null;
+  const qStr = h.includes('?') ? h.slice(h.indexOf('?') + 1) : '';
+  const qp = new URLSearchParams(qStr);
+  const brandId = qp.get('brand') || null;
+  const customerId = qp.get('customer') || h.match(/^#customers\/(cu_\w+)/)?.[1] || null;
+  return { serviceId, brandId, customerId };
+}
+
 function ProjectList({ isWework = false, query = '' }: { isWework?: boolean; query?: string }) {
-  const [meta, setMeta] = useState<TaskMeta | null>(null), [q, setQ] = useState('');
+  const [meta, setMeta] = useState<TaskMeta | null>(null);
+  const [sel, setSel] = useState(readTreeSelection);
+
   useEffect(() => {
     const load = () => api.taskMeta().then(setMeta, () => {});
     void load();
     window.addEventListener('dms:entities-changed', load);
     return () => window.removeEventListener('dms:entities-changed', load);
   }, []);
-  const readProject=()=>location.hash.match(/^#projects\/(tj_\w+)/)?.[1];
-  const [current,setCurrent]=useState(readProject);
-  useEffect(()=>{const changed=()=>setCurrent(readProject());window.addEventListener('hashchange',changed);return()=>window.removeEventListener('hashchange',changed);},[]);
-  const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
-  const effectiveQ = isWework ? query : q;
-  const projects = (meta?.projects || []).filter((p) => !effectiveQ || fold(p.name).includes(fold(effectiveQ)));
-  if (!meta?.projects.length) return null;
 
-  const custMap = new Map<string, { id: string; name: string; projects: typeof projects }>();
-  const unclassified: typeof projects = [];
-  for (const p of projects) {
-    if (p.customerId && p.customerName) {
-      if (!custMap.has(p.customerId)) custMap.set(p.customerId, { id: p.customerId, name: p.customerName, projects: [] });
-      custMap.get(p.customerId)!.projects.push(p);
-    } else {
-      unclassified.push(p);
+  useEffect(() => {
+    const onHash = () => setSel(readTreeSelection());
+    window.addEventListener('hashchange', onHash);
+    window.addEventListener('popstate', onHash);
+    return () => {
+      window.removeEventListener('hashchange', onHash);
+      window.removeEventListener('popstate', onHash);
+    };
+  }, []);
+
+  const services = meta?.brandServices || meta?.projects || [];
+  if (!services.length && !(meta?.brands || []).length) return null;
+
+  const custMap = new Map<string, { id: string; name: string; brands: Map<string, TreeBrandNode> }>();
+  const ensureCust = (id: string, name: string) => {
+    if (!custMap.has(id)) custMap.set(id, { id, name, brands: new Map() });
+    return custMap.get(id)!;
+  };
+  const ensureBrand = (c: { brands: Map<string, TreeBrandNode> }, id: string, name: string) => {
+    if (!c.brands.has(id)) c.brands.set(id, { id, name, openTasks: 0, services: [] });
+    return c.brands.get(id)!;
+  };
+
+  for (const s of services) {
+    const cid = s.customerId || '_none';
+    const cname = s.customerName || 'Dịch vụ nội bộ';
+    const cust = ensureCust(cid, cname);
+    const bid = s.brandId || `_legacy_${cid}`;
+    const bname = s.brandName || (s.customerName ? s.customerName : 'Mặc định');
+    const brand = ensureBrand(cust, bid, bname);
+    const open = Math.max(0, (s.tasks || 0) - (s.completed || 0));
+    brand.services.push({ id: s.id, name: s.name, openTasks: open });
+    brand.openTasks += open;
+  }
+
+  for (const b of meta?.brands || []) {
+    const cust = custMap.get(b.customerId);
+    if (cust && !cust.brands.has(b.id)) {
+      cust.brands.set(b.id, { id: b.id, name: b.name, openTasks: 0, services: [] });
     }
   }
-  const groups = [...custMap.values()];
-  if (unclassified.length) groups.push({ id: '', name: 'Chưa phân loại', projects: unclassified });
 
-  if (isWework) {
-    return (
-      <div className="wework-projects-sec">
-        {groups.map((g) => {
-          const isCustomer = !!g.id;
-          const groupTitle = isCustomer ? (g.name.toUpperCase().includes('TEAM') ? g.name.toUpperCase() : 'ACCOUNT TEAM') : 'CHƯA PHÂN LOẠI';
-          return (
-            <div key={g.id || 'none'} className="wework-nav-sec">
-              <h4>{groupTitle}</h4>
-              <nav>
-                {g.projects.map((p) => {
-                  const initial = p.name.replace(/^\[.*?\]\s*/, '').charAt(0).toUpperCase() || 'P';
-                  return (
-                    <button
-                      key={p.id}
-                      className={'wework-nav-btn' + (current === p.id ? ' active' : '')}
-                      onClick={() => {
-                        window.dispatchEvent(new CustomEvent('dms:task-filter', { detail: { project: p.id } }));
-                        openLink(`#projects/${p.id}`);
-                      }}
-                      title={p.name}
-                    >
-                      <span className="wework-proj-badge" style={{ background: isCustomer ? '#10b981' : '#0284c7' }}>{initial}</span>
-                      <span className="wework-proj-label">{p.name}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
+  const tree: TreeCustomerNode[] = [...custMap.values()]
+    .map((c) => {
+      const brands = [...c.brands.values()].sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+      return {
+        id: c.id,
+        name: c.name,
+        openTasks: brands.reduce((sum, b) => sum + b.openTasks, 0),
+        brands,
+      };
+    })
+    .filter((c) => c.brands.some((b) => b.services.length > 0))
+    .sort((a, b) => (a.id === '_none' ? 1 : b.id === '_none' ? -1 : a.name.localeCompare(b.name, 'vi')));
 
-  return <>
-    <label className="sec-find"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm nhanh dịch vụ" aria-label="Tìm nhanh dịch vụ" /></label>
-    {groups.map((g) => (
-      <div key={g.id || 'none'} className="sec-group"><h3>{g.name}</h3><nav>{g.projects.map((p) => (
-        <button key={p.id} aria-current={current === p.id ? 'page' : undefined} onClick={() => openLink(`#projects/${p.id}`)} title={p.name}>
-          <span className="sec-dot" style={{ background: '#3b82f6', display: 'inline-grid', placeItems: 'center', color: '#fff' }}><Icon name="folder" size={10} /></span><span className="sec-label">{p.name}</span>
-        </button>
-      ))}</nav></div>
-    ))}
-    {q && !projects.length && <p className="sec-none">Không có dịch vụ nào khớp</p>}
-  </>;
+  if (!tree.length) return null;
+
+  const content = (
+    <div className={isWework ? 'wework-projects-sec' : 'sec-tree-sec'}>
+      {isWework && <div className="wework-nav-sec" style={{ marginBottom: 4 }}><h4>Khách hàng · Nhãn hàng</h4></div>}
+      <SidebarTree
+        embedded
+        externalQuery={isWework ? query : undefined}
+        customers={tree}
+        selectedServiceId={sel.serviceId}
+        selectedBrandId={sel.brandId}
+        selectedCustomerId={sel.customerId}
+        onSelectService={(serviceId) => openLink(`#projects/${serviceId}`)}
+        onSelectBrand={(brandId) => openLink(`#projects?brand=${encodeURIComponent(brandId)}`)}
+        onSelectCustomer={(customerId) =>
+          openLink(customerId !== '_none' ? `#projects?customer=${encodeURIComponent(customerId)}` : '#projects')
+        }
+      />
+    </div>
+  );
+
+  return content;
 }

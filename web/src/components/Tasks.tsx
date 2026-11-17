@@ -16,7 +16,7 @@ import { ClientServiceFields, ClientServicePop, placeOf } from './ClientServiceP
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { admin as adminApi, type TaskRow as AdminTaskRow, type TaskDetail as AdminTaskDetail } from '../admin/api';
-import { useStore, toast, getState, goto } from '../store';
+import { useStore, toast, getState, goto, openLink } from '../store';
 import { Icon, Menu } from './ui';
 import { GroupedList, byDueDate, byKey } from './GroupedList';
 import { SheetGrid } from './SheetGrid';
@@ -27,7 +27,8 @@ import type { Board, BoardItem, TaskWrite, TaskDetail, TaskImportResult, TaskIte
 import { Badge, STEP_ORDER, stepCode, stepGroup, when } from './taskkit';
 import { SubtaskTree, addSubtask } from './Subtasks';
 import { ServicePicker } from './ServicePicker';
-import { FlowBadge, FlowPop, FlowSteps, TaskFlow } from './TaskFlow';
+import { FlowPop, FlowSteps, TaskFlow } from './TaskFlow';
+import { Breadcrumb, StageStepper, type CrumbItem } from './kit';
 import { SpanField, SpanPop, fromLocal, toLocal } from './DateRange';
 import { FlowOverview } from './FlowOverview';
 import { DateFilterBar, byRecent, filterByDate, useDateFilter } from './DateFilter';
@@ -605,14 +606,30 @@ function WeworkTaskView({
     void act(() => api.updateTask(t.id, { assigneeUserIds: picked ? [userId] : [], assigneeIds: picked ? [] : legacyIds }));
   };
 
+  const taskCrumbs: CrumbItem[] = [];
+  if (t.customer?.id && t.customer?.name) {
+    taskCrumbs.push({ label: t.customer.name, onClick: () => { onClose(); openLink(`#customers/${t.customer!.id}`); } });
+  }
+  if (t.brand?.id && t.brand?.name) {
+    taskCrumbs.push({ label: t.brand.name, onClick: () => { onClose(); openLink(`#projects?brand=${encodeURIComponent(t.brand!.id)}`); } });
+  }
+  const bsRef = t.brandService || t.project;
+  if (bsRef?.id && bsRef?.name) {
+    taskCrumbs.push({ label: bsRef.name, onClick: () => { onClose(); openLink(`#projects/${bsRef.id}`); } });
+  }
+  for (const p of t.path || []) {
+    taskCrumbs.push({ label: p.title, onClick: () => onOpen(p.id) });
+  }
+  taskCrumbs.push({ label: t.title });
+
   return (
-    <div className="wework-task-view" aria-label="Chi tiết công việc Base Wework">
+    <div className="wework-task-view" aria-label="Chi tiết công việc">
       {/* Column 3: Main Detail Pane */}
       <main className="wework-main">
         {/* Bento Box 1: Header, Title & Controls */}
         <section className="wework-bento-card wework-header-card">
           <header className="wework-top-bar">
-            <span className="wework-top-label">CHI TIẾT CÔNG VIỆC</span>
+            {taskCrumbs.length > 1 ? <Breadcrumb items={taskCrumbs} /> : <span className="wework-top-label">Chi tiết công việc</span>}
             <div className="wework-top-actions">
               {onUnfoldList && (
                 <button
@@ -660,9 +677,11 @@ function WeworkTaskView({
           />
 
           <div className="wework-controls-bar">
-            {t.flow ? <button type="button" className={'wework-pill-btn tf-toggle' + (flowOpen ? ' on' : '')} aria-expanded={flowOpen} aria-controls="task-flow" title={flowOpen ? 'Ẩn quy trình duyệt' : 'Mở quy trình duyệt'} onClick={() => setFlowOpen(!flowOpen)}>
-              <FlowBadge stage={t.flow.stage} /><Icon name={flowOpen ? 'up' : 'chevron'} size={11} />
-            </button> : <Badge t={t} />}
+            {t.flow ? (
+              <StageStepper stage={t.flow.stage} onSelect={() => setFlowOpen((v) => !v)} />
+            ) : (
+              <Badge t={t} />
+            )}
             {hasAssignee ? (
               <button className="wework-pill-btn" onClick={(e) => setPop({ kind: 'members', el: e.currentTarget })} title="Người thực hiện">
                 <Avatar m={{ id: assignee.id, userId: assignee.userId, avatarAt: assignee.avatarAt, name: assigneeName }} size={20} />
@@ -686,7 +705,7 @@ function WeworkTaskView({
         <section className="wework-bento-card wework-desc-card">
           <div className="wework-bento-title">
             <Icon name="lines" size={14} />
-            <span>MÔ TẢ CÔNG VIỆC</span>
+            <span>Mô tả công việc</span>
           </div>
 
           {editingDesc ? (
@@ -709,7 +728,7 @@ function WeworkTaskView({
           <section className="wework-bento-card wework-desc-card wework-result-card">
             <div className="wework-bento-title">
               <Icon name="check" size={14} />
-              <span>KẾT QUẢ CÔNG VIỆC</span>
+              <span>Kết quả công việc</span>
             </div>
             {editingResult ? (
               <div className="wework-desc-edit">
@@ -727,7 +746,7 @@ function WeworkTaskView({
           </section>
         ) : t.resultHidden && (
           <section className="wework-bento-card wework-desc-card">
-            <div className="wework-bento-title"><Icon name="check" size={14} /><span>KẾT QUẢ CÔNG VIỆC</span></div>
+            <div className="wework-bento-title"><Icon name="check" size={14} /><span>Kết quả công việc</span></div>
             <p className="note" style={{ margin: 0 }}>Chỉ người làm, người tạo và quản lý công việc xem được kết quả.</p>
           </section>
         )}
@@ -737,7 +756,7 @@ function WeworkTaskView({
           <section className="wework-bento-card wework-subtasks-card">
             <div className="wework-bento-title">
               <Icon name="checklist" size={14} />
-              <span>CÔNG VIỆC CON {t.childTasks.length > 0 ? `(${t.childTasks.length})` : ''}</span>
+              <span>Công việc con {t.childTasks.length > 0 ? `(${t.childTasks.length})` : ''}</span>
             </div>
             <SubtaskTree
               task={t}
@@ -779,7 +798,7 @@ function WeworkTaskView({
         <section className="wework-sidebar-card wework-info-card">
           <div className="wework-bento-title">
             <Icon name="folder" size={14} />
-            <span>THÔNG TIN CHUNG</span>
+            <span>Thông tin chung</span>
           </div>
           <div className="wework-meta-list">
             <div className="wework-meta-row">
@@ -790,6 +809,13 @@ function WeworkTaskView({
                 {t.canEdit && <Icon name="chevron" size={11} />}
               </button>
             </div>
+            {t.brand?.name && (
+              <div className="wework-meta-row">
+                <span className="wework-meta-ico"><Icon name="tag" size={15} /></span>
+                <span className="wework-meta-label">Nhãn hàng</span>
+                <span className="wework-meta-val">{t.brand.name}</span>
+              </div>
+            )}
             <div className="wework-meta-row">
               <span className="wework-meta-ico"><Icon name="layers" size={15} /></span>
               <span className="wework-meta-label">Dịch vụ</span>
@@ -860,7 +886,7 @@ function WeworkTaskView({
         <div className="wework-sidebar-card">
           <div className="wework-sec-block">
             <button className="wework-sec-h" onClick={() => setFoldAssignor(!foldAssignor)}>
-              <span>NGƯỜI GIAO VIỆC</span>
+              <span>Người giao việc</span>
               <Icon name={foldAssignor ? 'chevron' : 'up'} size={12} />
             </button>
             {!foldAssignor && (
@@ -878,7 +904,7 @@ function WeworkTaskView({
 
           <div className="wework-sec-block">
             <button className="wework-sec-h" onClick={() => setFoldFollowers(!foldFollowers)}>
-              <span>NGƯỜI THEO DÕI</span>
+              <span>Người theo dõi</span>
               <Icon name={foldFollowers ? 'chevron' : 'up'} size={12} />
             </button>
             {!foldFollowers && (
@@ -891,7 +917,7 @@ function WeworkTaskView({
                   )}
                 </div>
                 <div className="wework-follower-btns">
-                  <button className="wework-follower-btn" onClick={(e) => setPop({ kind: 'members', el: e.currentTarget })}>+ NGƯỜI THEO DÕI</button>
+                  <button className="wework-follower-btn" onClick={(e) => setPop({ kind: 'members', el: e.currentTarget })}>+ Người theo dõi</button>
                 </div>
               </>
             )}
@@ -1097,7 +1123,7 @@ function WeworkTaskView({
         </div>
 
         <button className="wework-add-subtask-btn" onClick={() => setSubtaskParent({ id: t.id, task: t })}>
-          + CÔNG VIỆC CON
+          + Thêm công việc con
         </button>
       </aside>
 

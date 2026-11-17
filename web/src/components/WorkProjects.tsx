@@ -1,15 +1,14 @@
-import { ReadingTabs, ReadingHeader } from './ReadingLayout';
-import { ResizeHandle } from './ResizeHandle';
+import { ReadingTabs } from './ReadingLayout';
 import { BrandLoading } from './BrandLoading';
+import { BrandServiceView } from './BrandServiceView';
 import { GroupedList, byKey } from './GroupedList';
 import { QuickCreateDialog } from './QuickCreate';
 import { EmployeeAvatars } from './EmployeePicker';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { goto, toast, useStore } from '../store';
+import { goto, openLink, toast, useStore } from '../store';
 import { Icon, IconButton, Menu } from './ui';
-import { ProjectCampaigns } from './ProjectCampaigns';
-import { ServicePicker } from './ServicePicker';
+import { Breadcrumb, Button, EmptyState } from './kit';
 import { ProjectEditDialog } from './ProjectEditDialog';
 import type { TaskMeta } from '../types';
 import { PROJECT_STAGES, type ProjectStage } from '../../../shared/projects';
@@ -22,6 +21,11 @@ const LS_VIEW = 'dms.projectView', LS_GROUP = 'dms.projectGroup';
 const read = <T extends string>(k: string, ok: readonly T[], d: T): T => { try { const v = localStorage.getItem(k) as T; return ok.includes(v) ? v : d; } catch { return d; } };
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
 const fromHash = () => location.hash.match(/^#projects\/(tj_\w+)/)?.[1] || null;
+const filterFromHash = () => {
+  const qStr = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?') + 1) : '';
+  const qp = new URLSearchParams(qStr);
+  return { customer: qp.get('customer') || '', brand: qp.get('brand') || '' };
+};
 
 type ProjectRow = TaskMeta['projects'][number];
 
@@ -36,28 +40,8 @@ function ProjectStateBadge({ p }: { p: ProjectRow }) {
   </>;
 }
 /** Managers set a project on hold or cancel it; otherwise it follows its tasks. */
-function ProjectStageControl({ p, onChanged }: { p: ProjectRow; onChanged: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const set = async (hold: 'paused' | 'cancelled' | null) => { setBusy(true); try { await api.updateTaskProject(p.id, { hold }); onChanged(); } catch (e: any) { toast(e.message, true); } finally { setBusy(false); } };
-  return <label className="tk-pick" title="Trạng thái dịch vụ"><Icon name="activity" size={14} /><select aria-label="Trạng thái dịch vụ" disabled={busy} value={p.hold || ''} onChange={(e) => void set((e.target.value || null) as 'paused' | 'cancelled' | null)}>
-    <option value="">Theo tiến độ công việc</option><option value="paused">Tạm dừng</option><option value="cancelled">Đã huỷ</option>
-  </select></label>;
-}
 /** The services a project is for, as chips. */
 const ServiceChips = ({ p }: { p: ProjectRow }) => (p.services?.length ? <span className="crm-need-chips">{p.services.map((s) => <span key={s.id} className="crm-need-chip plain">{s.name}</span>)}</span> : <>—</>);
-/** What the project is for, from Quản trị › Dịch vụ: its managers choose, others see. Its customer's services are those
- *  of its projects. */
-function ProjectServices({ p, canEdit, onChanged }: { p: ProjectRow; canEdit: boolean; onChanged: () => void }) {
-  const [ids, setIds] = useState<string[]>([]);
-  useEffect(() => setIds((p.services || []).map((s) => s.id)), [p.id, p.services]);
-  const save = async (next: string[]) => {
-    const before = ids;
-    setIds(next);
-    try { await api.updateTaskProject(p.id, { services: next }); onChanged(); } catch (e: any) { setIds(before); toast(e.message, true); }
-  };
-  if (!canEdit && !ids.length) return null;
-  return <section className="project-services inline"><h3>Dịch vụ</h3><ServicePicker single value={ids} onChange={(next) => void save(next)} known={p.services} disabled={!canEdit} /></section>;
-}
 
 /** Work projects and their tasks. Video projects live in the editor under Tools. */
 export function WorkProjects() {
@@ -73,6 +57,7 @@ export function WorkProjects() {
   // Services made or changed within a span of days.
   const [dates, setDates] = useDateFilter();
   const [selected, setSelected] = useState<string | null>(fromHash);
+  const [scopeFilter, setScopeFilter] = useState(filterFromHash);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -85,9 +70,10 @@ export function WorkProjects() {
     return () => { active = false; };
   }, []);
   useEffect(() => {
-    const changed = () => setSelected(fromHash());
+    const changed = () => { setSelected(fromHash()); setScopeFilter(filterFromHash()); };
     window.addEventListener('hashchange', changed);
-    return () => window.removeEventListener('hashchange', changed);
+    window.addEventListener('popstate', changed);
+    return () => { window.removeEventListener('hashchange', changed); window.removeEventListener('popstate', changed); };
   }, []);
   useEffect(() => {
     window.addEventListener('dms:entities-changed', refresh);
@@ -134,7 +120,38 @@ export function WorkProjects() {
 
   const current = meta?.projects.find((p) => p.id === selected);
   const matches = (s: string) => s.toLocaleLowerCase('vi').includes(query.trim().toLocaleLowerCase('vi'));
-  const tasks = filterByDate(meta?.projects.filter((p) => matches(p.name) || (p.customerName && matches(p.customerName))) || [], dates);
+  const scoped = (meta?.projects || []).filter((p) =>
+    (!scopeFilter.customer || p.customerId === scopeFilter.customer) &&
+    (!scopeFilter.brand || p.brandId === scopeFilter.brand)
+  );
+  const tasks = filterByDate(scoped.filter((p) => matches(p.name) || (p.brandName && matches(p.brandName)) || (p.customerName && matches(p.customerName))), dates);
+
+  if (selected) {
+    return (
+      <div className="bsv-host">
+        {!meta ? (
+          <BrandLoading label="Đang tải dịch vụ…" />
+        ) : current ? (
+          <BrandServiceView
+            key={current.id}
+            id={current.id}
+            service={current}
+            meta={meta}
+            onMetaChanged={refresh}
+            onDeleted={() => { select(null); refresh(); window.dispatchEvent(new Event('dms:entities-changed')); }}
+            onBack={() => select(null)}
+          />
+        ) : (
+          <EmptyState
+            icon="folder"
+            title="Không tìm thấy dịch vụ này"
+            description="Dịch vụ có thể đã bị xoá hoặc bạn không có quyền truy cập."
+            action={<Button variant="secondary" size="sm" onClick={() => select(null)}>Quay lại danh sách dịch vụ</Button>}
+          />
+        )}
+      </div>
+    );
+  }
   const deletableRows = tasks.filter(canManage);
   const allChecked = deletableRows.length > 0 && deletableRows.every((p) => selectedIds.includes(p.id));
   const toggleAll = (checked: boolean) => setSelectedIds(checked ? Array.from(new Set([...selectedIds, ...deletableRows.map((p) => p.id)])) : selectedIds.filter((id) => !deletableRows.some((p) => p.id === id)));
@@ -149,9 +166,30 @@ export function WorkProjects() {
   const ordered = groups.flatMap((g) => g.rows);
   const totals = `${tasks.length} dịch vụ · ${tasks.reduce((n, p) => n + p.tasks, 0)} công việc`;
 
+  const scopeBrand = scopeFilter.brand ? meta?.brands?.find((b) => b.id === scopeFilter.brand) : null;
+  const scopeCustomerName =
+    scopeBrand?.customerName ||
+    (scopeFilter.customer ? meta?.projects.find((p) => p.customerId === scopeFilter.customer)?.customerName : null);
+
   return (
-    <div className={'ad-page tk-page tk-mailbox project-page' + (selected ? ' has-selection' : '')}>
+    <div className="ad-page tk-page tk-mailbox project-page">
       <section className="tk-list-pane" aria-label="Danh sách dịch vụ">
+        {(scopeFilter.customer || scopeFilter.brand) && (
+          <div style={{ padding: '12px 16px 0' }}>
+            <Breadcrumb
+              items={[
+                { label: 'Dịch vụ', onClick: () => openLink('#projects') },
+                ...(scopeCustomerName
+                  ? [{
+                      label: scopeCustomerName,
+                      onClick: scopeBrand ? () => openLink(`#projects?customer=${encodeURIComponent(scopeBrand.customerId)}`) : undefined,
+                    }]
+                  : []),
+                ...(scopeBrand ? [{ label: scopeBrand.name }] : []),
+              ]}
+            />
+          </div>
+        )}
         <header className="tk-head">
           <span className="tk-head-ico"><Icon name="folder" size={20} /></span>
           <div className="tk-head-main">
@@ -283,23 +321,6 @@ export function WorkProjects() {
             </div>
           )}
       </section>
-      {selected && meta && <ResizeHandle cssVar="--rd-list-w" storage="projects" min={220} max={640} label="Đổi độ rộng danh sách dịch vụ" />}
-      {selected && meta && (
-        <article className="tk-reading-pane project-reading-pane" aria-label="Chi tiết dịch vụ">
-          <ReadingHeader label="Chi tiết dịch vụ" onClose={() => select(null)} actions={current && <>{current.stage && <ProjectStateBadge p={current} />}{current.level === 'admin' && <ProjectStageControl p={current} onChanged={refresh} />}</>} />
-          {current ? (<>
-            <ProjectCampaigns
-              headerExtra={<ProjectServices p={current} canEdit={canManage(current)} onChanged={refresh} />}
-              key={current.id}
-              id={current.id}
-              name={current.name}
-              displayView={view}
-              onEdited={refresh}
-              onDeleted={() => { select(null); refresh(); }}
-            />
-          </>) : <p className="note">Không tìm thấy dịch vụ này.</p>}
-        </article>
-      )}
       {editing && <ProjectEditDialog project={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); window.dispatchEvent(new Event('dms:entities-changed')); }} />}
       {creating && <QuickCreateDialog kind="project" onClose={() => setCreating(false)} onCreated={(r) => { setCreating(false); refresh(); select(r.id); }} />}
     </div>
