@@ -95,8 +95,8 @@ export const api = {
   deletePosition: (id: string) => req('DELETE', `/api/positions/${id}`),
   boards: () => req<BoardItem[]>('GET', '/api/boards'),
   board: (id: string) => req<Board>('GET', `/api/boards/${id}`),
-  createBoard: (b: { name: string; bg: string; roleId: string | null; workspaceId?: string; private?: boolean; lists?: string[]; customerId?: string | null; view?: BoardViewKind; startAt?: number | null; services?: string[]; serviceId?: string }) => req<BoardItem>('POST', '/api/boards', b),
-  updateBoard: (id: string, b: Partial<{ name: string; bg: string; roleId: string | null; private: boolean; workspaceId: string; about: string; memberEdit: boolean; labelText: boolean; customerId: string | null; view: BoardViewKind; startAt: number | null; services: string[]; serviceId: string }>) => req('PUT', `/api/boards/${id}`, b),
+  createBoard: (b: { name: string; bg: string; roleId: string | null; workspaceId?: string; private?: boolean; lists?: string[]; customerId?: string | null; brandId?: string | null; view?: BoardViewKind; startAt?: number | null; services?: string[]; serviceId?: string; standalone?: boolean }) => req<BoardItem>('POST', '/api/boards', b),
+  updateBoard: (id: string, b: Partial<{ name: string; bg: string; roleId: string | null; private: boolean; workspaceId: string; about: string; memberEdit: boolean; labelText: boolean; customerId: string | null; brandId: string | null; brandServiceId: string | null; view: BoardViewKind; startAt: number | null; services: string[]; serviceId: string; manualLink: boolean; unlink: boolean }>) => req('PUT', `/api/boards/${id}`, b),
   customerSpaces: (customerId: string) => req<CustomerSpaces>('GET', `/api/customers/${encodeURIComponent(customerId)}/workspaces`),
   boardMembers: (id: string) => req<{ members: BoardMember[]; people: Person[] }>('GET', `/api/boards/${id}/members`),
   setBoardMember: (id: string, userId: string, level: Level) => req<{ members: BoardMember[] }>('PUT', `/api/boards/${id}/members/${userId}`, { level }),
@@ -168,10 +168,16 @@ export const api = {
   updateInbox: (id: string, c: Partial<{ title: string; done: boolean; index: number }>) => req<InboxItem>('PUT', `/api/inbox/${id}`, c),
   deleteInbox: (id: string) => req('DELETE', `/api/inbox/${id}`),
   inboxToList: (id: string, listId: string, index: number) => req<BoardCard>('POST', `/api/inbox/${id}/to-list`, { listId, index }),
-  chatMessages: (channel: 'general' | 'dm' = 'general', recipientId?: string, since = 0) =>
-    req<ChatMessage[]>('GET', `/api/chat/messages?channel=${channel}${recipientId ? `&recipientId=${recipientId}` : ''}${since ? `&since=${since}` : ''}`),
-  sendChatMessage: (message: string, channel: 'general' | 'dm' = 'general', recipientId?: string) =>
-    req<ChatMessage>('POST', '/api/chat/messages', { message, channel, recipientId }),
+  chatChannels: () => req<import('./types').ChatChannel[]>('GET', '/api/chat/channels'),
+  createChatChannel: (b: { serverId?: string; category?: string; name: string; topic?: string }) =>
+    req<import('./types').ChatChannel>('POST', '/api/chat/channels', b),
+  deleteChatChannel: (id: string) => req('DELETE', `/api/chat/channels/${id}`),
+  chatMessages: (channel: string = 'general', recipientId?: string, since = 0) =>
+    req<ChatMessage[]>('GET', `/api/chat/messages?channel=${encodeURIComponent(channel)}${recipientId ? `&recipientId=${encodeURIComponent(recipientId)}` : ''}${since ? `&since=${since}` : ''}`),
+  sendChatMessage: (message: string, channel: string = 'general', recipientId?: string, replyToId?: string | null) =>
+    req<ChatMessage>('POST', '/api/chat/messages', { message, channel, recipientId, replyToId }),
+  updateChatMessage: (id: string, b: { message?: string; pinned?: boolean; reaction?: string }) =>
+    req<{ ok: true; pinned: boolean; reactions: Record<string, string[]>; message: string }>('PUT', `/api/chat/messages/${id}`, b),
   chatMembers: () => req<ChatMember[]>('GET', '/api/chat/members'),
   chatUnread: (since = 0) =>
     req<{
@@ -180,8 +186,8 @@ export const api = {
       dms: Array<{ senderId: string; count: number; lastAt: number; senderName: string; senderEmail: string }>;
     }>('GET', `/api/chat/unread${since ? `?since=${since}` : ''}`),
   deleteChatMessage: (id: string) => req('DELETE', `/api/chat/messages/${id}`),
-  clearChatMessages: (channel: 'general' | 'dm' = 'general', recipientId?: string) =>
-    req('DELETE', `/api/chat/messages?channel=${channel}${recipientId ? `&recipientId=${recipientId}` : ''}`),
+  clearChatMessages: (channel: string = 'general', recipientId?: string) =>
+    req('DELETE', `/api/chat/messages?channel=${encodeURIComponent(channel)}${recipientId ? `&recipientId=${encodeURIComponent(recipientId)}` : ''}`),
   planner: (from: number, to: number) => req<PlannerCard[]>('GET', `/api/planner?from=${from}&to=${to}`),
   syncTasksToBoard:()=>req<{total:number;created:number;linked:number;remaining:number}>('POST','/api/tasks/sync-board',{}),
   tasks: (q: { scope?: 'mine' | 'team' | 'all'; rel?: string; team?: string; person?: string; employee?: string; customer?: string; brand?: string; brandService?: string; service?: string; project?: string; campaign?: string; state?: string; q?: string }) =>
@@ -223,7 +229,7 @@ export const api = {
   renameTaskProject:(id:string,name:string)=>req<{ok:true;id:string;name:string}>('PUT',`/api/brand-services/${id}`,{name}),
   updateTaskProject:(id:string,b:{name?:string;customerId?:string|null;teamId?:string|null;hold?:'paused'|'cancelled'|null;services?:string[]})=>req<{ok:true;id:string;name:string;customerId:string|null;teamId:string|null}>('PUT',`/api/brand-services/${id}`,b),
   createTaskProject:(b:{name:string;customerId?:string|null;teamId?:string|null;services?:string[]})=>req<{id:string;name:string;customerId:string|null;teamId:string|null}>('POST','/api/task-projects',b),
-  projectForService:(customerId:string,serviceId:string)=>req<{id:string;name:string;created:boolean}>('POST','/api/task-projects/for-service',{customerId,serviceId}),
+  projectForService:(customerId:string,serviceId?:string,opts?:{brandId?:string|null})=>req<{id:string;name:string;created:boolean}>('POST','/api/brand-services/for-service',{customerId,serviceId:serviceId||'',...(opts?.brandId?{brandId:opts.brandId}:{})}),
   deleteTaskProject:(id:string)=>req<{ok:true}>('DELETE',`/api/brand-services/${id}`),
   bulkDeleteTaskProjects:(ids:string[])=>req<{ok:true;deleted:number}>('POST','/api/brand-services/bulk-delete',{ids}),
   taskMeta: () => req<TaskMeta>('GET', '/api/tasks/meta'),

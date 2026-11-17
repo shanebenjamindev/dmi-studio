@@ -5,6 +5,7 @@ import { currentUser } from './auth';
 import { customerLevels, requireCustomer } from './customer-access';
 import { brandServiceLevels } from './project-access';
 import { boardDisplayName, brandCatalogServices } from './project-services';
+import { brandWorkspace } from './service-boards';
 import * as G from './google';
 import { brandServiceStage } from '../shared/projects';
 export interface DriveFolderRef {
@@ -220,7 +221,7 @@ export function registerBrands(api: Router) {
     const maxPos = Number((await get<any>('SELECT MAX(pos) m FROM brands WHERE customer_id = ? AND deleted_at IS NULL', c.id))?.m ?? -1);
     const pos = body.pos !== undefined && Number.isFinite(Number(body.pos)) ? Number(body.pos) : maxPos + 1;
     const notes = body.notes !== undefined ? String(body.notes || '').slice(0, 5000) : '';
-    const logo = body.logo ? String(body.logo).slice(0, 50000) : null;
+    const logo = body.logo ? String(body.logo).slice(0, 410000) : null;
     const id = uid('br_'), t = now();
     await run(
       'INSERT INTO brands(id, customer_id, name, logo, notes, pos, drive_folder, created_by, created_at, updated_at, deleted_at) VALUES(?,?,?,?,?,?,?,?,?,?,NULL)',
@@ -235,6 +236,11 @@ export function registerBrands(api: Router) {
       t,
       t
     );
+    if (driveFolder) {
+      const parsed = parseDriveFolder(driveFolder);
+      await run('UPDATE customers SET gloc = COALESCE(gloc, ?), folder = CASE WHEN COALESCE(folder, \'\') = \'\' THEN ? ELSE folder END, updated_at = ? WHERE id = ?', driveFolder, parsed?.label || name, t, c.id).catch(() => {});
+    }
+    await brandWorkspace(id, c.id).catch(() => {});
     await syncCustomerBrandBoardNames(c.id);
     const visibleBs = await brandServiceLevels(user.id);
     const created = await get<any>('SELECT b.*, c.name customer_name, c.gloc customer_gloc FROM brands b JOIN customers c ON c.id = b.customer_id WHERE b.id = ?', id);
@@ -267,7 +273,7 @@ export function registerBrands(api: Router) {
       if (dup) throw new HttpError(409, `Khách hàng đã có nhãn hàng “${nextName}”`);
     }
     const driveFolder = await normalizeDriveFolder(body, user.id);
-    const nextLogo = body.logo === undefined ? b.logo : body.logo ? String(body.logo).slice(0, 50000) : null;
+    const nextLogo = body.logo === undefined ? b.logo : body.logo ? String(body.logo).slice(0, 410000) : null;
     const nextNotes = body.notes === undefined ? b.notes : String(body.notes || '').slice(0, 5000);
     const nextPos = body.pos !== undefined && Number.isFinite(Number(body.pos)) ? Number(body.pos) : b.pos;
     const nextDrive = driveFolder === undefined ? b.drive_folder : driveFolder;
@@ -281,6 +287,21 @@ export function registerBrands(api: Router) {
       now(),
       b.id
     );
+    if (nextDrive) {
+      const parsed = parseDriveFolder(nextDrive);
+      await run('UPDATE customers SET gloc = ?, folder = ?, updated_at = ? WHERE id = ?', nextDrive, parsed?.label || nextName, now(), b.customer_id).catch(() => {});
+    }
+    const linkedWs = await brandWorkspace(b.id, b.customer_id).catch(() => null);
+    if (linkedWs) {
+      await run('UPDATE workspaces SET name = ?, about = ?, updated_at = ? WHERE id = ?', nextName, nextNotes, now(), linkedWs.id);
+      if (body.logo !== undefined) {
+        if (nextLogo) {
+          await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', 'workspace-avatar:' + linkedWs.id, nextLogo);
+        } else {
+          await run('DELETE FROM settings WHERE key=?', 'workspace-avatar:' + linkedWs.id);
+        }
+      }
+    }
     if (nextName !== b.name) await syncCustomerBrandBoardNames(b.customer_id);
     const updated = await get<any>('SELECT b.*, c.name customer_name, c.gloc customer_gloc FROM brands b JOIN customers c ON c.id = b.customer_id WHERE b.id = ?', b.id);
     const visibleBs = await brandServiceLevels(user.id);

@@ -162,7 +162,18 @@ export function registerMailbox(api: Router) {
     }
     const body = Buffer.from(String(data).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
     const name = (req.query.get('name') || 'tep-dinh-kem').replace(/[\r\n\0]/g, ' ').slice(0, 200);
-    const type = (req.query.get('type') || 'application/octet-stream').split(';')[0].trim();
+    let type = (req.query.get('type') || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+    if (type === 'image/jpg' || type === 'image/pjpeg') type = 'image/jpeg';
+    else if (type === 'image/x-png') type = 'image/png';
+    else if (type === 'application/octet-stream' || !type) {
+      if (body.length >= 4 && body[0] === 0x89 && body[1] === 0x50 && body[2] === 0x4e && body[3] === 0x47) type = 'image/png';
+      else if (body.length >= 3 && body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff) type = 'image/jpeg';
+      else if (body.length >= 4 && body[0] === 0x47 && body[1] === 0x49 && body[2] === 0x46 && body[3] === 0x38) type = 'image/gif';
+      else if (/\.png$/i.test(name)) type = 'image/png';
+      else if (/\.jpe?g$/i.test(name)) type = 'image/jpeg';
+      else if (/\.gif$/i.test(name)) type = 'image/gif';
+      else if (/\.webp$/i.test(name)) type = 'image/webp';
+    }
     // Someone else's file: never shown as a page of this site.
     res.writeHead(200, { 'content-type': /^[\w.+-]+\/[\w.+-]+$/.test(type) ? type : 'application/octet-stream', 'content-length': body.length, 'cache-control': 'private, no-store', ...untrustedHeaders(type, name),
       ...(req.query.get('download') ? { 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}` } : {}) });

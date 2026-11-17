@@ -20,7 +20,7 @@ import { useStore, toast, getState, goto, openLink } from '../store';
 import { Icon, Menu } from './ui';
 import { GroupedList, byDueDate, byKey } from './GroupedList';
 import { SheetGrid } from './SheetGrid';
-import { RichEditor, RichView } from './RichText';
+import { MentionPeople, RichEditor, RichView, type Mentionable } from './RichText';
 import { normName, readTaskExport, readTaskSheet } from '../../../server/taskimport';
 import { CardModal } from './CardModal';
 import type { Board, BoardItem, TaskWrite, TaskDetail, TaskImportResult, TaskItem, TaskMeta, TaskState } from '../types';
@@ -88,7 +88,7 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   const [overview, setOverviewState] = useState(() => { try { return localStorage.getItem('dms.taskOverview') === '1'; } catch { return false; } });
   const setOverview = (on: boolean) => { setOverviewState(on); try { localStorage.setItem('dms.taskOverview', on ? '1' : '0'); } catch { /* private mode */ } };
   const [full, setFull] = useState(onTaskPage);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<{ projectId?: string; customerId?: string; brandId?: string } | null>(null);
   const[syncing,setSyncing]=useState(false);
   const [error, setError] = useState('');
   // "Của tôi" in tabs (all of mine, given to me, made by me, followed), grouped by due date by default; the full table or flat list on request.
@@ -259,7 +259,7 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
         ]} />
       </header>}
       <div className="tk-toolbar">
-        <button className="tk-new" disabled={!meta} onClick={() => setCreating(true)}><Icon name="plus" size={15} />Thêm mới</button>
+        <button className="tk-new" disabled={!meta} onClick={() => setCreating({})}><Icon name="plus" size={15} />Thêm mới</button>
         {selectedIds.length > 0 && (
           <div className="tk-bulk-bar">
             <span>Đã chọn <b>{selectedIds.length}</b></span>
@@ -322,10 +322,20 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
       ) : overview ? <FlowOverview rows={listed_.map((t) => { const p = meta?.projects.find((x) => x.id === t.project?.id); return { ...t, customer: t.customer || (p?.customerId ? { id: p.customerId, name: p.customerName || '' } : null) }; })}
           onOpenTask={(id) => showTask(id)} onPick={(f) => { setData(null); setState(f); setOverview(false); }} />
         : effectiveView === 'table' ? <TaskTable tasks={listed_} selected={open} onOpen={showTask} selection={selection} />
-        : <TaskGroups tasks={listed_} groupBy={groupBy} selected={open} onOpen={showTask} onNew={() => setCreating(true)} onChanged={load} selection={selection} />}
+        : <TaskGroups tasks={listed_} groupBy={groupBy} selected={open} onOpen={showTask} onNew={(ctx) => setCreating(ctx || {})} onChanged={load} selection={selection} />}
       </section>
       {open && !full && <TaskPanel id={open} meta={meta} statuses={meta?.statuses || []} onOpen={(id) => showTask(id)} onClose={() => showTask(null)} onExpand={() => showTask(open, true)} onChanged={refresh} />}
-      {creating && meta && <TaskEditor meta={meta} projectId={initialProject || project} campaignId={initialCampaign || campaign} onClose={() => setCreating(false)} onSaved={(id) => { setCreating(false); refresh(); showTask(id); }} />}
+      {creating && meta && (
+        <TaskEditor
+          meta={meta}
+          projectId={creating.projectId || initialProject || project}
+          customerId={creating.customerId}
+          brandId={creating.brandId}
+          campaignId={initialCampaign || campaign}
+          onClose={() => setCreating(null)}
+          onSaved={(id) => { setCreating(null); refresh(); showTask(id); }}
+        />
+      )}
       {dialog === 'import' && <ImportDialog meta={meta} onClose={() => setDialog(null)} onDone={imported} />}
     </div>
   );
@@ -358,20 +368,20 @@ function FlowFilterOptions() {
 }
 
 /** The tasks in groups (flat, due date, status, project, customer or assignee), each with a tick box to finish it or open it again. */
-function TaskGroups({ tasks, groupBy, selected, onOpen, onNew, onChanged, selection }: { tasks: TaskItem[]; groupBy: string; selected: string | null; onOpen: (id: string) => void; onNew: () => void; onChanged: () => void; selection?: { selected: string[]; toggle: (id: string) => void; all?: boolean; toggleAll?: (checked: boolean) => void } }) {
+function TaskGroups({ tasks, groupBy, selected, onOpen, onNew, onChanged, selection }: { tasks: TaskItem[]; groupBy: string; selected: string | null; onOpen: (id: string) => void; onNew: (ctx?: { projectId?: string; customerId?: string; brandId?: string }) => void; onChanged: () => void; selection?: { selected: string[]; toggle: (id: string) => void; all?: boolean; toggleAll?: (checked: boolean) => void } }) {
   const finished = (t: TaskItem) => t.state === 'done' || t.state === 'done_late';
   const toggle = async (t: TaskItem) => {
     try { await api.updateTask(t.id, { status: finished(t) ? 'Chưa thực hiện' : 'Hoàn thành' }); onChanged(); }
     catch (e: any) { toast(e.message, true); }
   };
-  const groups = groupBy === 'none' ? [{ key: 'all', label: 'Tất cả công việc', rows: tasks, onAdd: onNew }]
-    : groupBy === 'created' || groupBy === 'updated' ? byRecent(tasks, groupBy).map((g) => ({ ...g, onAdd: onNew }))
-    : groupBy === 'status' ? byKey(tasks, stepGroup, 'Khác', STEP_ORDER).map((g) => ({ ...g, onAdd: onNew }))
-    : groupBy === 'project' ? byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dịch vụ').map((g) => ({ ...g, onAdd: onNew }))
-    : groupBy === 'brand' ? byKey(tasks, (t) => (t.brand ? { key: t.brand.id, label: t.brand.name } : null), 'Chưa có nhãn hàng').map((g) => ({ ...g, onAdd: onNew }))
-    : groupBy === 'customer' ? byKey(tasks, (t) => (t.customer ? { key: t.customer.id, label: t.customer.name } : null), 'Không có khách hàng').map((g) => ({ ...g, onAdd: onNew }))
-    : groupBy === 'assignee' ? byKey(tasks, (t) => (t.assignees[0] ? { key: t.assignees[0].userId || t.assignees[0].id, label: t.assignees[0].name } : null), 'Chưa giao').map((g) => ({ ...g, onAdd: onNew }))
-    : byDueDate(tasks, onNew);
+  const groups = groupBy === 'none' ? [{ key: 'all', label: 'Tất cả công việc', rows: tasks, onAdd: () => onNew() }]
+    : groupBy === 'created' || groupBy === 'updated' ? byRecent(tasks, groupBy).map((g) => ({ ...g, onAdd: () => onNew() }))
+    : groupBy === 'status' ? byKey(tasks, stepGroup, 'Khác', STEP_ORDER).map((g) => ({ ...g, onAdd: () => onNew() }))
+    : groupBy === 'project' ? byKey(tasks, (t) => (t.project ? { key: t.project.id, label: t.project.name } : null), 'Không thuộc dịch vụ').map((g) => ({ ...g, onAdd: () => onNew(g.key !== '_' ? { projectId: g.key } : undefined) }))
+    : groupBy === 'brand' ? byKey(tasks, (t) => (t.brand ? { key: t.brand.id, label: t.brand.name } : null), 'Chưa có nhãn hàng').map((g) => ({ ...g, onAdd: () => onNew(g.key !== '_' ? { brandId: g.key } : undefined) }))
+    : groupBy === 'customer' ? byKey(tasks, (t) => (t.customer ? { key: t.customer.id, label: t.customer.name } : null), 'Không có khách hàng').map((g) => ({ ...g, onAdd: () => onNew(g.key !== '_' ? { customerId: g.key } : undefined) }))
+    : groupBy === 'assignee' ? byKey(tasks, (t) => (t.assignees[0] ? { key: t.assignees[0].userId || t.assignees[0].id, label: t.assignees[0].name } : null), 'Chưa giao').map((g) => ({ ...g, onAdd: () => onNew() }))
+    : byDueDate(tasks, () => onNew());
   return <GroupedList foldKey={`dms.taskFold.${groupBy}`} groups={groups} nameLabel="Tên công việc" addLabel="Tạo công việc" onOpen={(t) => onOpen(t.id)} selected={selected}
     selection={selection}
     check={{ done: finished, toggle: (t) => void toggle(t), canCheck: (t) => !t.readOnly, label: (t) => (finished(t) ? `Mở lại “${t.title}”` : `Hoàn thành “${t.title}”`) }}
@@ -531,12 +541,13 @@ function WeworkTaskView({
   const creatorRole = creatorDept || (t.createdBy ? 'Thành viên' : '');
 
   const projObj = t.project?.id ? meta?.projects.find((p) => p.id === t.project!.id) : null;
-  const customerName = projObj?.customerName || null;
+  const customerName = t.customer?.name || projObj?.customerName || null;
   const place = placeOf(meta?.projects, t.project?.id);
-  const placeService = place.service || t.services?.[0] || null;
-  // Picking a customer and a service puts the task in that pair's project, and the service among the task's own.
+  const placeService = (place.service && place.service.id !== 'sv_general' ? place.service : null) || t.services?.[0] || null;
+  // Picking a customer (and optional service) puts the task in that pair's project, and the service (if chosen) among the task's own.
   const pickPlace = async (projectId: string, serviceId: string) => act(() => api.updateTask(t.id, {
-    projectId, services: [...new Set([serviceId, ...(t.services || []).map((s) => s.id)])],
+    projectId,
+    ...(serviceId && serviceId !== 'sv_general' ? { services: [...new Set([serviceId, ...(t.services || []).map((s) => s.id)])] } : {}),
   }));
 
   const closePop = () => setPop(null);
@@ -627,8 +638,13 @@ function WeworkTaskView({
     taskCrumbs.push({ label: p.title, onClick: () => onOpen(p.id) });
   }
   taskCrumbs.push({ label: t.title });
+  const mentionOthers = useMemo<Mentionable[]>(
+    () => (meta?.users || []).filter((u) => u.id !== me.id).map((u) => ({ id: u.id, name: u.name })),
+    [meta?.users, me.id],
+  );
 
   return (
+    <MentionPeople.Provider value={mentionOthers}>
     <div className="wework-task-view" aria-label="Chi tiết công việc">
       {/* Column 3: Main Detail Pane */}
       <main className="wework-main">
@@ -1051,12 +1067,14 @@ function WeworkTaskView({
                                 <Icon name="x" size={11} />
                               </button>
                             </div>
-                            <textarea
+                            <MentionTextarea
                               autoFocus
-                              placeholder={`Trả lời @${replyingTo.userName}...`}
+                              placeholder={`Trả lời @${replyingTo.userName}... (gõ @ để nhắc tên)`}
                               value={replyText}
-                              onChange={(e) => setReplyText(e.target.value)}
+                              onChange={setReplyText}
+                              people={mentionOthers}
                               rows={2}
+                              onSubmit={() => void handlePostReply(c.id)}
                             />
                             <div className="wework-reply-btns">
                               <button
@@ -1082,15 +1100,17 @@ function WeworkTaskView({
                   })}
                 </div>
               ) : (
-                <p className="note" style={{ fontSize: 12, margin: '8px 0' }}>Chưa có bình luận nào. Bạn có thể trao đổi công việc bên dưới.</p>
+                <p className="note" style={{ fontSize: 12, margin: '8px 0' }}>Chưa có bình luận nào. Bạn có thể trao đổi công việc bên dưới (gõ @ để nhắc tên thành viên).</p>
               )}
 
               <div className="wework-comment-input-wrap">
-                <textarea
-                  placeholder="Viết bình luận..."
+                <MentionTextarea
+                  placeholder="Viết bình luận… (gõ @ để nhắc tên người khác)"
                   value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
+                  onChange={setCommentText}
+                  people={mentionOthers}
                   rows={2}
+                  onSubmit={() => void handlePostComment()}
                 />
                 <button
                   type="button"
@@ -1182,6 +1202,129 @@ function WeworkTaskView({
             )}
           </div>
         </Pop>
+      )}
+    </div>
+    </MentionPeople.Provider>
+  );
+}
+
+/** Textarea with `@` mention autocomplete (excludes the current user via `people`). */
+function MentionTextarea({
+  value,
+  onChange,
+  people,
+  placeholder,
+  rows = 2,
+  autoFocus,
+  onSubmit,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  people: Mentionable[];
+  placeholder?: string;
+  rows?: number;
+  autoFocus?: boolean;
+  onSubmit?: () => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const [mention, setMention] = useState<{ q: string; start: number; end: number } | null>(null);
+  const [pick, setPick] = useState(0);
+  const foldText = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase();
+  const matches = mention && people.length
+    ? people.filter((p) => foldText(p.name).includes(foldText(mention.q.trim()))).slice(0, 6)
+    : [];
+
+  const checkMention = (text: string, caret: number) => {
+    const before = text.slice(0, caret);
+    const m = /(^|[\s(])@([^\s@]*(?: [^\s@]*){0,2})$/.exec(before);
+    if (!m) {
+      setMention(null);
+      return;
+    }
+    const start = caret - m[2].length - 1;
+    setMention((prev) => {
+      if (!prev || prev.q !== m[2]) setPick(0);
+      return { q: m[2], start, end: caret };
+    });
+  };
+
+  const insertMention = (p: Mentionable) => {
+    if (!mention) return;
+    const next = `${value.slice(0, mention.start)}@${p.name} ${value.slice(mention.end)}`;
+    onChange(next);
+    setMention(null);
+    requestAnimationFrame(() => {
+      const el = ref.current;
+      if (el) {
+        const pos = mention.start + p.name.length + 2;
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      }
+    });
+  };
+
+  return (
+    <div className="tk-mention-ta-wrap">
+      <textarea
+        ref={ref}
+        autoFocus={autoFocus}
+        placeholder={placeholder}
+        value={value}
+        rows={rows}
+        onChange={(e) => {
+          onChange(e.target.value);
+          checkMention(e.target.value, e.target.selectionStart || 0);
+        }}
+        onClick={(e) => checkMention(e.currentTarget.value, e.currentTarget.selectionStart || 0)}
+        onKeyUp={(e) => {
+          if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+            checkMention(e.currentTarget.value, e.currentTarget.selectionStart || 0);
+          }
+        }}
+        onBlur={() => setTimeout(() => setMention(null), 150)}
+        onKeyDown={(e) => {
+          if (mention && matches.length > 0) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault();
+              setPick((pick + (e.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length);
+              return;
+            }
+            if (e.key === 'Enter' || e.key === 'Tab') {
+              e.preventDefault();
+              insertMention(matches[Math.min(pick, matches.length - 1)]);
+              return;
+            }
+          }
+          if (mention && e.key === 'Escape') {
+            e.preventDefault();
+            setMention(null);
+            return;
+          }
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && onSubmit) {
+            e.preventDefault();
+            onSubmit();
+          }
+        }}
+      />
+      {mention && matches.length > 0 && (
+        <ul className="tk-mention-pop" role="listbox" aria-label="Nhắc tên thành viên">
+          {matches.map((p, i) => (
+            <li
+              key={p.id}
+              role="option"
+              aria-selected={i === pick}
+              className={i === pick ? 'on' : ''}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                insertMention(p);
+              }}
+              onMouseEnter={() => setPick(i)}
+            >
+              <Avatar m={p} size={22} />
+              <span>{p.name}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -1530,7 +1673,7 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
                 {t.labels.length === 0 && <button className="cm-chip" onClick={openPop('labels')}><Icon name="tag" size={14} />Nhãn</button>}
                 {!t.dueAt && !t.startAt && <button className="cm-chip" onClick={openPop('dates')}><Icon name="clock" size={14} />Ngày</button>}
                 <button className="cm-chip" onClick={() => addSubtask(t.id)}><Icon name="checklist" size={14} />Việc cần làm</button>
-                {t.assignees.length === 0 && <button className="cm-chip" onClick={openPop('members')}><Icon name="user" size={14} />Thành viên</button>}
+                {t.assignees.length === 0 && <button className="cm-chip" onClick={openPop('members')}><Icon name="user" size={14} />Người thực hiện</button>}
               </div>
             ) : <p className="cm-readonly"><Icon name="info" size={15} />Bạn đang xem công việc ở chế độ chỉ đọc.</p>}
 
@@ -1538,7 +1681,7 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
               <div className="cm-meta">
                 {t.assignees.length > 0 && (
                   <div>
-                    <h4>Thành viên</h4>
+                    <h4>Người thực hiện</h4>
                     <div className="cm-row">
                       {t.assignees.map((m) => (
                         <MemberAvatar
@@ -1716,7 +1859,6 @@ function StandaloneTaskCard({ task: t, meta, statuses, embedded, extra, topActio
   );
 }
 
-
 const localDateTime = (ms: number | null | undefined) => ms == null ? '' : new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString().slice(0,16);
 
 /** A task on a board card opens as that card, as the board shows it: one piece of work, one window. When the board
@@ -1752,7 +1894,7 @@ function TaskInlineFollowers({task,meta,onSaved}:{task:TaskDetail;meta:TaskMeta;
  return <div className="tk-inline-members" aria-busy={busy}><fieldset disabled={busy}><EmployeePicker label="Người theo dõi" exclude={me ? [me.id] : []} users={meta.users} selected={ids} onChange={next=>void save(next)}/></fieldset>{busy&&<small>Đang lưu…</small>}{error&&<p className="note err" role="alert">{error}</p>}</div>;
 }
 
-export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, campaignId, parentId, parentTask, onClose, onSaved }: { inline?:boolean; task?: TaskDetail; meta?: TaskMeta; projectId?: string; campaignId?:string; parentId?: string; parentTask?: TaskDetail | TaskItem; onClose: () => void; onSaved: (id: string) => void }) {
+export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, customerId, brandId, campaignId, parentId, parentTask, onClose, onSaved }: { inline?:boolean; task?: TaskDetail; meta?: TaskMeta; projectId?: string; customerId?: string; brandId?: string; campaignId?:string; parentId?: string; parentTask?: TaskDetail | TaskItem; onClose: () => void; onSaved: (id: string) => void }) {
   const[meta,setMeta]=useState<TaskMeta | null>(initialMeta || null);
   // Whoever gives a task out is not offered to do it, follow it or review it (they review it by default).
   const me=useStore((s)=>s.user);
@@ -1764,6 +1906,8 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
   const [result,setResult] = useState(task?.result || '');
   const [status] = useState(task?.status || 'Chưa thực hiện');
   const [project,setProject] = useState(task?.project?.id || projectId || parentTask?.project?.id || '');
+  const [chosenCustomer, setChosenCustomer] = useState(task?.customer?.id || customerId || parentTask?.customer?.id || '');
+  const [chosenBrand, setChosenBrand] = useState(task?.brand?.id || brandId || parentTask?.brand?.id || '');
   const [campaign,setCampaign] = useState(task?.campaign?.id || campaignId || '');
   const [parent,setParent] = useState(task?.parent?.id || parentId || '');
   const [start,setStart] = useState(localDateTime(task?.startAt));
@@ -1797,7 +1941,17 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
     e.preventDefault(); if(busy)return;
     setBusy(true);setError('');
     try {
-      const body: TaskWrite={title:title.trim(),description,campaignId:campaign||null,projectId:project||null,parentId:parent||null,startAt:start?new Date(start).getTime():null,dueAt:due?new Date(due).getTime():null,labels:labels.split(',').map(x=>x.trim()).filter(Boolean)};
+      const body: TaskWrite={
+        title:title.trim(),
+        description,
+        campaignId:campaign||null,
+        projectId:project||null,
+        ...(!project && (chosenCustomer || chosenBrand) ? { customerId: chosenCustomer || null, brandId: chosenBrand || null } : {}),
+        parentId:parent||null,
+        startAt:start?new Date(start).getTime():null,
+        dueAt:due?new Date(due).getTime():null,
+        labels:labels.split(',').map(x=>x.trim()).filter(Boolean),
+      };
       if(!task || task.result !== null)body.result=result;
       // The workflow sets a task's status (TaskFlow); a new one starts at ACCOUNT, or EXECUTION when it is given out.
       if(!task)body.status=status;
@@ -1829,7 +1983,21 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
       ];
 
   const currentLabelList = labels.split(',').map((s) => s.trim()).filter(Boolean);
-  const place = placeOf(meta.projects, project);
+  const rawPlace = placeOf(meta.projects, project);
+  const fallbackBrandObj = chosenBrand ? meta.brands?.find((b) => b.id === chosenBrand) : null;
+  const fallbackCustName =
+    rawPlace.customerName ||
+    fallbackBrandObj?.customerName ||
+    (chosenCustomer ? meta.projects.find((p) => p.customerId === chosenCustomer)?.customerName || meta.brands?.find((b) => b.customerId === chosenCustomer)?.customerName : null) ||
+    null;
+  const place = {
+    customerId: rawPlace.customerId || chosenCustomer || fallbackBrandObj?.customerId || null,
+    customerName: fallbackCustName,
+    brandId: rawPlace.brandId || chosenBrand || null,
+    brandName: rawPlace.brandName || fallbackBrandObj?.name || null,
+    service: rawPlace.service && rawPlace.service.id !== 'sv_general' ? rawPlace.service : null,
+  };
+  const editorMentionOthers = (meta.users || []).filter((u) => u.id !== me?.id).map((u) => ({ id: u.id, name: u.name }));
 
   const toggleTag = (tagName: string) => {
     const norm = tagName.trim();
@@ -1889,14 +2057,15 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
         <div className="cm-actions">
           {!place.customerId && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'place', el: e.currentTarget })}><Icon name="folder" size={14} />Khách hàng</button>}
           {!place.service && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'place', el: e.currentTarget })}><Icon name="layers" size={14} />Dịch vụ</button>}
-          {!users.length && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'members', el: e.currentTarget })}><Icon name="user" size={14} />Thành viên</button>}
+          {!users.length && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'members', el: e.currentTarget })}><Icon name="user" size={14} />Người thực hiện</button>}
           {!currentLabelList.length && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'labels', el: e.currentTarget })}><Icon name="tag" size={14} />Nhãn</button>}
           {!due && !start && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'dates', el: e.currentTarget })}><Icon name="clock" size={14} />Ngày</button>}
           {!reviewer && <button type="button" className="cm-chip" onClick={(e) => setPick({ kind: 'reviewer', el: e.currentTarget })}><Icon name="eye" size={14} />Người duyệt</button>}
         </div>
-        {(place.customerId || place.service || users.length > 0 || currentLabelList.length > 0 || due || start || reviewer) && (
+        {(place.customerId || place.brandName || place.service || users.length > 0 || currentLabelList.length > 0 || due || start || reviewer) && (
           <div className="cm-meta">
-            {place.customerId && <div><h4>Khách hàng</h4><div className="cm-row"><button type="button" className="cm-date" onClick={(e) => setPick({ kind: 'place', el: e.currentTarget })}><Icon name="folder" size={14} />{place.customerName}<Icon name="chevron" size={12} /></button></div></div>}
+            {place.customerId && <div><h4>Khách hàng</h4><div className="cm-row"><button type="button" className="cm-date" onClick={(e) => setPick({ kind: 'place', el: e.currentTarget })}><Icon name="folder" size={14} />{place.customerName || 'Đã chọn khách hàng'}<Icon name="chevron" size={12} /></button></div></div>}
+            {place.brandName && <div><h4>Nhãn hàng</h4><div className="cm-row"><button type="button" className="cm-date" onClick={(e) => setPick({ kind: 'place', el: e.currentTarget })}><Icon name="tag" size={14} />{place.brandName}<Icon name="chevron" size={12} /></button></div></div>}
             {place.service && <div><h4>Dịch vụ</h4><div className="cm-row"><button type="button" className="cm-date" onClick={(e) => setPick({ kind: 'place', el: e.currentTarget })}><Icon name="layers" size={14} />{place.service.name}<Icon name="chevron" size={12} /></button></div></div>}
             {users.length > 0 && <div><h4>Người thực hiện</h4><div className="cm-row">{users.map((id) => { const u = meta.users.find((x) => x.id === id); return u ? <Avatar key={id} m={{ id: u.id, name: u.name }} size={30} /> : null; })}<button type="button" className="cm-plus" onClick={(e) => setPick({ kind: 'members', el: e.currentTarget })} aria-label="Thêm người thực hiện"><Icon name="plus" size={15} /></button></div></div>}
             {currentLabelList.length > 0 && <div><h4>Nhãn</h4><div className="cm-row">{currentLabelList.map((l) => <button type="button" key={l} className={'tk-tag-chip active' + (/khẩn|gấp/i.test(l) ? ' urgent' : '')} onClick={(e) => setPick({ kind: 'labels', el: e.currentTarget })}>{l}</button>)}<button type="button" className="cm-plus" onClick={(e) => setPick({ kind: 'labels', el: e.currentTarget })} aria-label="Thêm nhãn"><Icon name="plus" size={15} /></button></div></div>}
@@ -1916,9 +2085,9 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
           {(parent||project)&&<p className="note">Người theo dõi {parent?'công việc cha':'dịch vụ'} được tự động thêm khi lưu.</p>}
         </div>
       </details>
-      {pick?.kind === 'place' && <ClientServicePop anchor={pick.el} customerId={place.customerId} serviceId={place.service?.id || null} onClose={() => setPick(null)}
-        onPick={async (projectId) => { await reloadMeta(); setProject(projectId); setCampaign(''); setParent(''); setPick(null); }}
-        onClear={project ? () => { setProject(''); setPick(null); } : undefined} />}
+      {pick?.kind === 'place' && <ClientServicePop anchor={pick.el} customerId={place.customerId} brandId={place.brandId} serviceId={place.service?.id || null} onClose={() => setPick(null)}
+        onPick={async (projectId, _svcId, custId, brId) => { await reloadMeta(); setProject(projectId); setChosenCustomer(custId || ''); setChosenBrand(brId || ''); setCampaign(''); setParent(''); setPick(null); }}
+        onClear={(project || chosenCustomer || chosenBrand) ? () => { setProject(''); setChosenCustomer(''); setChosenBrand(''); setPick(null); } : undefined} />}
       {pick?.kind === 'members' && <Pop anchor={pick.el} title="Người thực hiện" onClose={() => setPick(null)}><MemberChoices people={meta.users} exclude={me ? [me.id] : []} chosenLabel="Người thực hiện" selected={users} onToggle={(id) => { setUsers(users.includes(id) ? [] : [id]); setPick(null); }} /></Pop>}
       {pick?.kind === 'labels' && <Pop anchor={pick.el} title="Nhãn" onClose={() => setPick(null)}>
         <div className="tk-tag-chips">{availableLabels.map((lbl) => { const active = currentLabelList.some((l) => l.toLowerCase() === lbl.name.toLowerCase()); return <button key={lbl.id || lbl.name} type="button" className={'tk-tag-chip' + (active ? ' active' : '') + (/khẩn|gấp/i.test(lbl.name) ? ' urgent' : '')} onClick={() => toggleTag(lbl.name)}>{lbl.name}{active && <span className="tk-tag-check">✔</span>}</button>; })}</div>
@@ -1935,7 +2104,8 @@ export function TaskEditor({ task, meta:initialMeta, inline=false, projectId, ca
     {error&&<p className="note err" role="alert">{error}</p>}
     <div className="tk-action-row"><button className="btn btn-primary btn-sm" disabled={busy||!title.trim()}>{busy?'Đang lưu…':task?'Lưu công việc':isSubtask?'Tạo việc con':'Tạo công việc'}</button><button type="button" className="btn btn-gray btn-sm" disabled={busy} onClick={onClose}>Huỷ</button></div>
   </form>;
-  return inline?content:createPortal(<div className="bd-modal task-editor-back" onMouseDown={e=>e.target===e.currentTarget&&!busy&&onClose()}>{content}</div>,document.body);
+  const wrapped = <MentionPeople.Provider value={editorMentionOthers}>{content}</MentionPeople.Provider>;
+  return inline?wrapped:createPortal(<div className="bd-modal task-editor-back" onMouseDown={e=>e.target===e.currentTarget&&!busy&&onClose()}>{wrapped}</div>,document.body);
 }
 
 function TaskBoardLink({task,onClose,onLinked}:{task:TaskDetail;onClose:()=>void;onLinked:()=>void}) {

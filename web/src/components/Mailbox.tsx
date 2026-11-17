@@ -196,21 +196,36 @@ function ThreadView({ id, me, sig, onBack, onSent, onGone }: { id: string; me: s
 function htmlToText(html: string) { return new DOMParser().parseFromString(html, 'text/html').body.innerText || ''; }
 
 function MessageView({ m, startOpen }: { m: MailMessage; startOpen: boolean }) {
-  const [open, setOpen] = useState(startOpen), [images, setImages] = useState(false);
+  const [open, setOpen] = useState(startOpen), [images, setImages] = useState(true);
   const frame = useRef<HTMLIFrameElement>(null);
   const atts = m.attachments || [];
   const fileUrl = (a: MailMessage['attachments'][number], download = false) => `/api/mailbox/messages/${encodeURIComponent(m.id)}/attachments/${encodeURIComponent(a.id)}?${new URLSearchParams({ name: a.name, type: a.type, ...(download ? { download: '1' } : {}) })}`;
-  const htmlWithCid = m.html && atts.some((a) => a.cid)
-    ? m.html.replace(/cid:([^"'\s>]+)/gi, (match, cid) => {
-        const hit = atts.find((a) => a.cid && a.cid.toLowerCase() === String(cid).toLowerCase());
+  const htmlWithCid = m.html && atts.length
+    ? m.html.replace(/cid:([^"'\s>)]+)/gi, (match, rawCid) => {
+        const clean = (() => { try { return decodeURIComponent(String(rawCid)); } catch { return String(rawCid); } })().replace(/^<|>$/g, '').trim().toLowerCase();
+        const hit = atts.find((a) => {
+          const c = (a.cid || '').replace(/^<|>$/g, '').trim().toLowerCase();
+          return (c && (c === clean || c.split('@')[0] === clean)) || a.name.toLowerCase() === clean;
+        });
         return hit ? fileUrl(hit) : match;
       })
     : m.html;
   const remote = /<img[^>]+src=["']?https?:/i.test(m.html || '');
-  // Someone else's HTML: in a frame that runs no script and cannot reach this page; pictures from other sites (which
-  // tell the sender the mail was opened) only when asked for.
-  const doc = htmlWithCid && `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src ${location.origin} data:${images ? ' https: http:' : ''}"><base target="_blank"><style>body{margin:0;font:14px/1.5 -apple-system,system-ui,sans-serif;color:#1d1d1f;background:#fff;overflow-wrap:anywhere}img{max-width:100%;height:auto}</style>${htmlWithCid}`;
-  const fit = () => { const d = frame.current?.contentDocument; if (d && frame.current) frame.current.style.height = d.documentElement.scrollHeight + 4 + 'px'; };
+  // Someone else's HTML: in a frame that runs no script and cannot reach this page; external images load with no-referrer.
+  const doc = htmlWithCid && `<!doctype html><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' https:; font-src data: https:; img-src ${location.origin} data: blob:${images ? ' https: http:' : ''}"><base target="_blank"><style>body{margin:0;font:14px/1.5 -apple-system,system-ui,sans-serif;color:#1d1d1f;background:#fff;overflow-wrap:anywhere}img{max-width:100%;height:auto}</style>${htmlWithCid}`;
+  const fit = () => {
+    const d = frame.current?.contentDocument;
+    if (!d || !frame.current) return;
+    const updateHeight = () => {
+      if (frame.current && d.documentElement) {
+        frame.current.style.height = Math.max(d.documentElement.scrollHeight, d.body?.scrollHeight || 0) + 8 + 'px';
+      }
+    };
+    updateHeight();
+    for (const img of d.querySelectorAll('img')) {
+      if (!img.complete) img.addEventListener('load', updateHeight, { once: true });
+    }
+  };
   return (
     <article className={'mb-msg' + (open ? ' open' : '')}>
       <button className="mb-msg-head" onClick={() => setOpen(!open)} aria-expanded={open}>

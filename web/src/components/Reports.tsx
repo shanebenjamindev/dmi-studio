@@ -14,7 +14,7 @@ import { setDriveView, useDriveView } from '../driveView';
 import type { AdAccount, Report, ReportData, ReportDriveFolder, ReportItem, ReportKV, ReportShot, ReportVideo } from '../types';
 import { DayRangeField } from './DateRange';
 import { askConfirm } from './AskDialog';
-import { Button, EmptyState, PageShell } from './kit';
+import { Breadcrumb, Button, EmptyState, PageShell } from './kit';
 
 const two = (n: number) => String(n).padStart(2, '0');
 const day = (ms: number) => { const d = new Date(ms); return `${two(d.getHours())}:${two(d.getMinutes())} · ${two(d.getDate())}/${two(d.getMonth() + 1)}`; };
@@ -584,9 +584,14 @@ function DriveVideoPicker({ r, folderLink, single, linkedIds, busy, title, onClo
             {found ? (
               <p className="rp-picker-crumbs"><button className="link" onClick={() => { setFound(null); setQ(''); }}><Icon name="left" size={12} />Quay lại thư mục</button><span>Kết quả cho “{q}”</span></p>
             ) : folder && (
-              <p className="rp-picker-crumbs">{folder.crumbs.map((c, i) => (
-                <span key={c.id}>{i > 0 && <i>›</i>}{i < folder.crumbs.length - 1 ? <button className="link" onClick={() => go({ account: folder.account, id: c.id })}>{c.name}</button> : <b>{c.name}</b>}</span>
-              ))}</p>
+              <div className="rp-picker-crumbs">
+                <Breadcrumb
+                  items={folder.crumbs.map((c, i) => ({
+                    label: c.name,
+                    onClick: i < folder.crumbs.length - 1 ? () => go({ account: folder.account, id: c.id }) : undefined,
+                  }))}
+                />
+              </div>
             )}
             {err ? <p className="note err" role="alert">{err}</p> : loading ? <BrandLoading label="Đang mở Drive…" compact /> : (
               <div className={'rp-picker-list' + (view === 'grid' ? ' grid' : '')}>

@@ -1197,30 +1197,33 @@ test('notification preferences and mail connection are private, opt in, and admi
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
-test('personal boards require direct membership even for system admins and workspace owners',async()=>{
+test('personal boards require direct membership for non-admins while super admins see all boards',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-private-boards-'));let server;
  try{
   server=await start(dir);const root=await server.call('POST','/api/auth/setup',{code:'test-setup-only',email:'root-private@example.test',password:'test-password'});const ac=root.cookie;
   const makeUser=async(name,role='member')=>{const created=await server.call('POST','/api/users',{name,email:`${name}@example.test`,password:'test-password',role},ac);assert.equal(created.status,201);const login=await server.call('POST','/api/auth/login',{email:created.data.email,password:'test-password'});return {...created.data,cookie:login.cookie};};
-  const owner=await makeUser('private-owner'),otherAdmin=await makeUser('private-admin','admin'),guest=await makeUser('private-guest');
+  const owner=await makeUser('private-owner'),otherAdmin=await makeUser('private-admin','admin'),guest=await makeUser('private-guest'),viewer=await makeUser('private-viewer');
   const space=(await server.call('POST','/api/workspaces',{name:'Owner workspace',visibility:'company'},ac)).data;
   await server.call('PUT',`/api/workspaces/${space.id}/members/${owner.id}`,{level:'normal'},ac);
   const board=(await server.call('POST','/api/boards',{name:'Private board',workspaceId:space.id,private:false},owner.cookie)).data;
   assert.equal(board.private,true);assert.equal(board.createdBy,owner.id);
-  for(const cookie of [ac,otherAdmin.cookie,guest.cookie]){
-    assert.equal((await server.call('GET',`/api/boards/${board.id}`,undefined,cookie)).status,404);
-    assert.equal((await server.call('GET','/api/boards',undefined,cookie)).data.some(b=>b.id===board.id),false);
+  for(const cookie of [ac,otherAdmin.cookie]){
+    assert.equal((await server.call('GET',`/api/boards/${board.id}`,undefined,cookie)).status,200);
+    assert.equal((await server.call('GET','/api/boards',undefined,cookie)).data.some(b=>b.id===board.id),true);
   }
+  assert.equal((await server.call('GET',`/api/boards/${board.id}`,undefined,guest.cookie)).status,404);
+  assert.equal((await server.call('GET','/api/boards',undefined,guest.cookie)).data.some(b=>b.id===board.id),false);
   assert.equal((await server.call('DELETE',`/api/workspaces/${space.id}`,undefined,guest.cookie)).status,403);
   const detail=(await server.call('GET',`/api/boards/${board.id}`,undefined,owner.cookie)).data;
   assert.deepEqual(detail.members.map(m=>m.id),[owner.id]);
   const card=(await server.call('POST',`/api/lists/${detail.lists[0].id}/cards`,{title:'Private visibility marker'},owner.cookie)).data;
-  assert.equal((await server.call('GET',`/api/cards/${card.id}`,undefined,ac)).status,404);
-  const search=(await server.call('GET','/api/boards-search?q=Private',undefined,ac)).data;
+  assert.equal((await server.call('GET',`/api/cards/${card.id}`,undefined,guest.cookie)).status,404);
+  assert.equal((await server.call('GET',`/api/cards/${card.id}`,undefined,ac)).status,200);
+  const search=(await server.call('GET','/api/boards-search?q=Private',undefined,guest.cookie)).data;
   assert.equal(JSON.stringify(search).includes(card.id),false);
-  await server.call('PUT',`/api/boards/${board.id}/members/${otherAdmin.id}`,{level:'observer'},owner.cookie);
-  assert.equal((await server.call('GET',`/api/boards/${board.id}`,undefined,otherAdmin.cookie)).data.level,'observer');
-  assert.equal((await server.call('POST',`/api/lists/${detail.lists[0].id}/cards`,{title:'Denied'},otherAdmin.cookie)).status,403);
+  await server.call('PUT',`/api/boards/${board.id}/members/${viewer.id}`,{level:'observer'},owner.cookie);
+  assert.equal((await server.call('GET',`/api/boards/${board.id}`,undefined,viewer.cookie)).data.level,'observer');
+  assert.equal((await server.call('POST',`/api/lists/${detail.lists[0].id}/cards`,{title:'Denied'},viewer.cookie)).status,403);
   await server.call('PUT',`/api/boards/${board.id}/members/${guest.id}`,{level:'normal'},owner.cookie);
   assert.equal((await server.call('GET',`/api/boards/${board.id}`,undefined,guest.cookie)).status,200);
   await server.call('DELETE',`/api/boards/${board.id}/members/${guest.id}`,undefined,owner.cookie);
@@ -1243,13 +1246,15 @@ test('brand services require explicit members, retain team classification and re
   const task=(await server.call('POST','/api/tasks',{title:'Project secret task',brandServiceId:project.id,labels:['Private Campaign']},cookie)).data;
   await server.call('PUT',`/api/customers/${customer.id}/members/${member.id}`,{level:'normal'},cookie);
   await server.call('PUT',`/api/customers/${customer.id}/members/${stranger.id}`,{level:'admin'},cookie);
-  for(const who of [member,stranger]){
+  for(const who of [member]){
    assert.equal((await server.call('GET',`/api/brand-services/${project.id}/members`,undefined,who.cookie)).status,404);
    assert.equal((await server.call('GET',`/api/tasks/${task.id}`,undefined,who.cookie)).status,404);
    assert.equal((await server.call('GET','/api/tasks/meta',undefined,who.cookie)).data.brandServices.some(p=>p.id===project.id),false);
    assert.equal((await server.call('GET',`/api/customers/${customer.id}/projects`,undefined,who.cookie)).data.some(p=>p.id===project.id),false);
    assert.equal((await server.call('GET','/api/tasks?scope=all',undefined,who.cookie)).data.tasks.some(t=>t.id===task.id),false);
   }
+  assert.equal((await server.call('GET',`/api/brand-services/${project.id}/members`,undefined,stranger.cookie)).status,200);
+  assert.equal((await server.call('GET',`/api/tasks/${task.id}`,undefined,stranger.cookie)).status,200);
   assert.equal((await server.call('PUT',`/api/brand-services/${project.id}/members/${member.id}`,{level:'observer'},cookie)).status,200);
   assert.equal((await server.call('GET',`/api/brand-services/${project.id}/members`,undefined,member.cookie)).status,200);
   const visible=(await server.call('GET','/api/tasks/meta',undefined,member.cookie)).data.brandServices.find(p=>p.id===project.id);assert.equal(visible.teamId,team.id);assert.equal(visible.level,'observer');

@@ -27,6 +27,7 @@ import { openConversation } from './Messenger';
 import type { Board, BoardActivity, BoardCard, BoardItem, BoardLabel, BoardMember, Level, Person, TeamRole, User, Workspace, WorkspaceMember } from '../types';
 import { SpanField, fromLocal, toLocal } from './DateRange';
 import { askConfirm } from './AskDialog';
+import { Breadcrumb, type CrumbItem } from './kit';
 
 /** Board backgrounds (kept in boardkit, shared with the customer page). */
 export { BG };
@@ -257,7 +258,7 @@ function WorkspaceTreeTable({
                     (b.services && b.services.some((s) => fold(s.name).includes(q)));
                 })
               : rawBoards;
-            const isOwner = w.ownerId === me.id;
+            const isOwner = w.ownerId === me.id || me.role === 'admin' || w.level === 'admin';
             const isOpen = effectiveOpenWs.has(w.id);
             const latestUpdate = rawBoards.length ? Math.max(...rawBoards.map((x) => x.updatedAt)) : null;
 
@@ -584,9 +585,9 @@ export function BoardsPage() {
     if (!await askConfirm(`Xoá vĩnh viễn board “${b.name}” cùng mọi danh sách và thẻ trong đó? Không khôi phục được.`)) return;
     try { await api.deleteBoard(b.id); toast(`Đã xoá board “${b.name}”`); if (open.board === b.id) go(null); else load(); } catch (e: any) { toast(e.message, true); }
   };
-  // Workspaces ticked to delete together: only personal ones this account may delete (their owner, or an admin).
+  // Workspaces ticked to delete together: any workspace this account owns or administers (including company for admins).
   const [pickedWs, setPickedWs] = useState<string[]>([]);
-  const canRemoveWs = (w: Workspace) => w.kind === 'personal' && (w.ownerId === me.id || me.role === 'admin');
+  const canRemoveWs = (w: Workspace) => w.ownerId === me.id || me.role === 'admin' || w.level === 'admin';
   const pickWs = (id: string) => setPickedWs((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const removeWorkspaces = async () => {
     const chosen = spaces.filter((w) => pickedWs.includes(w.id) && canRemoveWs(w));
@@ -646,10 +647,72 @@ export function BoardsPage() {
   const spacesByCustomer = useMemo(() => byCustomer(filteredSpaces, (w) => w.id === COMPANY_WS ? COMPANY_WS : w.customerId, (w) => w.customerName), [filteredSpaces]);
   const boardsByCustomer = useMemo(() => byCustomer(filteredBoards, (b) => b.customerId, (b) => b.customerName), [filteredBoards]);
 
+  const activeCustName = custOn ? customersShown.find((c) => c.id === custFilter)?.name : undefined;
+  const navCrumbs = useMemo<CrumbItem[]>(() => {
+    const list: CrumbItem[] = [
+      {
+        label: 'Không gian làm việc',
+        onClick: (open.board || open.people || custOn) ? () => { if (open.board || open.people) goHome(); else setCustFilter(''); } : undefined,
+      },
+    ];
+    if (open.people) {
+      const pWs = spaces.find((w) => w.id === open.people);
+      if (pWs?.customerName && pWs.customerId) {
+        list.push({
+          label: pWs.customerName,
+          onClick: () => { setCustFilter(pWs.customerId!); goHome(); },
+        });
+      }
+      if (pWs) {
+        list.push({
+          label: pWs.name,
+          onClick: () => goHome(pWs.id),
+        });
+      }
+      list.push({ label: 'Thành viên workspace' });
+    } else if (open.board) {
+      const b = byId.get(open.board);
+      const bWs = spaces.find((w) => w.id === b?.workspaceId);
+      const cId = b?.customerId || bWs?.customerId;
+      const cName = b?.customerName || bWs?.customerName;
+      if (cName && cId) {
+        list.push({
+          label: cName,
+          onClick: () => { setCustFilter(cId); goHome(); },
+        });
+      }
+      if (bWs) {
+        list.push({
+          label: bWs.name,
+          onClick: () => goPeople(bWs.id),
+        });
+      }
+      list.push({
+        label: b?.name || 'Board',
+        onClick: open.card ? () => go(open.board) : undefined,
+      });
+      if (open.card) {
+        list.push({ label: 'Chi tiết thẻ' });
+      }
+    } else if (activeCustName) {
+      list.push({ label: activeCustName });
+    }
+    return list;
+  }, [open.board, open.people, open.card, custOn, activeCustName, spaces, boards]);
+
   return (
     <div className="bd-page">
-      <TopNav ws={ws} me={me} onOpen={go} onCreate={() => setCreating(ws?.level === 'observer' ? 'company' : ws?.id || 'company')}
-        onWorkspaces={(el) => setWsMenu(wsMenu ? null : el)} wsOpen={!!wsMenu} navigation={<nav className="bd-route-nav" aria-label="Điều hướng board"><button disabled={trail.current.at===0} onClick={()=>step(-1)} title="Quay lại" aria-label="Quay lại"><Icon name="left" size={16}/></button><button disabled={trail.current.at>=trail.current.items.length-1} onClick={()=>step(1)} title="Đi tới" aria-label="Đi tới"><Icon name="right" size={16}/></button><button onClick={()=>goHome()} title="Tất cả board" aria-label="Tất cả board"><Icon name="boards" size={15}/><span>Tất cả board</span></button>{open.people?<><Icon name="right" size={12}/><span>Thành viên workspace</span></>:open.board?<><Icon name="right" size={12}/><button onClick={()=>go(open.board)}>{byId.get(open.board)?.name||'Board'}</button>{open.card&&<><Icon name="right" size={12}/><span>Chi tiết thẻ</span><button onClick={()=>go(open.board)}>Về board</button></>}</>:null}</nav>} />
+      {(open.board || open.people) && (
+        <TopNav ws={openWs || ws} me={me} onOpen={go} onCreate={() => setCreating((openWs || ws)?.level === 'observer' ? 'company' : (openWs || ws)?.id || 'company')}
+          onWorkspaces={(el) => setWsMenu(wsMenu ? null : el)} wsOpen={!!wsMenu}
+          navigation={
+            <div className="bd-route-nav" aria-label="Điều hướng board">
+              <button disabled={trail.current.at === 0} onClick={() => step(-1)} title="Quay lại" aria-label="Quay lại"><Icon name="left" size={16} /></button>
+              <button disabled={trail.current.at >= trail.current.items.length - 1} onClick={() => step(1)} title="Đi tới" aria-label="Đi tới"><Icon name="right" size={16} /></button>
+              <Breadcrumb items={navCrumbs} className="bd-top-crumbs" />
+            </div>
+          } />
+      )}
 
       <div className="bd-main">
         {panels.mail && <MailPanel onHide={() => toggle('mail', false)} onUnread={setMailUnread} />}
@@ -672,10 +735,12 @@ export function BoardsPage() {
               {boards === null ? <BrandLoading label="Đang tải…"/> : <>
                 <div className="bd-home-toolbar">
                   <div className="bd-home-toolbar-left">
-                    <h2 className="bd-home-title">
-                      <Icon name="boards" size={20} />
-                      <span>Không gian làm việc</span>
-                    </h2>
+                    <div className="bd-route-nav bd-home-nav">
+                      <button disabled={trail.current.at === 0} onClick={() => step(-1)} title="Quay lại" aria-label="Quay lại"><Icon name="left" size={15} /></button>
+                      <button disabled={trail.current.at >= trail.current.items.length - 1} onClick={() => step(1)} title="Đi tới" aria-label="Đi tới"><Icon name="right" size={15} /></button>
+                    </div>
+                    <Icon name="boards" size={18} />
+                    <Breadcrumb items={navCrumbs} className="bd-home-crumbs" />
                     <span className="bd-home-count-chip">{spaces.length} workspace · {boards.length} board</span>
                   </div>
                   <div className="bd-home-toolbar-right">
@@ -745,7 +810,7 @@ export function BoardsPage() {
                           <CustomerHead group={g} count={`${g.items.length} workspace · ${filteredBoards.filter((b) => g.items.some((w) => w.id === b.workspaceId)).length} board`} />
                           {g.items.map((w) => (
                             <WorkspaceSection key={w.id} ws={w} me={me} roles={roles} boards={filteredBoards.filter((b) => b.workspaceId === w.id)} onOpen={go} onCard={peekCard} onTask={setPeekTask} onStar={star} onMore={moreOf}
-                              onSettings={w.kind === 'personal' && w.ownerId === me.id ? (el) => setWsAct(wsAct?.w.id === w.id ? null : { w, el }) : undefined}
+                              onSettings={(w.ownerId === me.id || me.role === 'admin' || w.level === 'admin') ? (el) => setWsAct(wsAct?.w.id === w.id ? null : { w, el }) : undefined}
                               onCreate={w.level !== 'observer' ? () => setCreating(w.id) : undefined} onPeople={() => goPeople(w.id)}
                               picked={pickedWs.includes(w.id)} onPick={canRemoveWs(w) ? () => pickWs(w.id) : undefined} />
                           ))}
@@ -841,9 +906,9 @@ export function BoardsPage() {
             ))}
             <hr />
             <button onClick={() => { setWsMenu(null); setNewWs(true); }}><Icon name="plus" size={16} /><span><b>Tạo workspace mới</b><small>Riêng tư; chia sẻ với ai tuỳ bạn.</small></span></button>
-            {ws && (ws.level === 'admin') && <>
+            {ws && (ws.level === 'admin' || me.role === 'admin') && <>
               <button onClick={() => { setWsMenu(null); goPeople(ws.id); }}><Icon name="users" size={16} /><span><b>Thành viên và cài đặt</b><small>{ws.name}</small></span></button>
-              {ws.kind === 'personal' && (ws.ownerId === me.id || me.role === 'admin') && <button className="bk-danger" onClick={() => removeWorkspace(ws)}><Icon name="trash" size={16} /><span><b>Xoá workspace này</b><small>{ws.name}</small></span></button>}
+              {(ws.ownerId === me.id || me.role === 'admin') && <button className="bk-danger" onClick={() => removeWorkspace(ws)}><Icon name="trash" size={16} /><span><b>Xoá workspace này</b><small>{ws.name}</small></span></button>}
             </>}
           </div>
         </Pop>
@@ -902,11 +967,11 @@ export function BoardsPage() {
           </div>
         </Pop>
       )}
-      {creating && <CreateBoard me={me} roles={roles} spaces={spaces} wsId={creating} onClose={() => setCreating(null)} onCreated={(b) => { setCreating(null); go(b.id); }} />}
+      {creating && <CreateBoard me={me} roles={roles} spaces={spaces} wsId={creating} initialCustomerId={custOn ? custFilter : undefined} onClose={() => setCreating(null)} onCreated={(b) => { setCreating(null); go(b.id); }} />}
       {peek && <CardModal key={peek.card} id={peek.card} board={peek.board} me={me} onClose={() => setPeek(null)}
         onChanged={() => { void load(); api.board(peek.board.id).then((b) => setPeek((p) => p && { ...p, board: b }), () => {}); }} />}
       {peekTask && <TaskPanel key={peekTask} id={peekTask} meta={null} statuses={[]} onOpen={setPeekTask} onClose={() => setPeekTask(null)} onChanged={() => void load()} />}
-      {newWs && <CreateWorkspace onClose={() => setNewWs(false)} onCreated={(w) => { setNewWs(false); setSpaces((x) => [...x, w]); goPeople(w.id); }} />}
+      {newWs && <CreateWorkspace initialCustomerId={custOn ? custFilter : undefined} onClose={() => setNewWs(false)} onCreated={(w) => { setNewWs(false); setSpaces((x) => [...x, w]); goPeople(w.id); }} />}
     </div>
   );
 }
@@ -920,26 +985,42 @@ function WorkspaceSection({ ws, me, roles, boards, onOpen, onCard, onTask, onSta
   /** Ticked for deleting with others (`onPick` only on a workspace this account may delete). */
   picked?: boolean; onPick?: () => void;
 }) {
-  const myRole = roles.find((r) => r.id === me.teamRole);
-  const mine = boards.filter((b) => b.roleId && b.roleId === me.teamRole), byRole = boards.filter((b) => b.roleId && b.roleId !== me.teamRole), rest = boards.filter((b) => !b.roleId);
+  const [folded, setFolded] = useState(false);
   const [view, setViewState] = useState<WsView>(savedWsView), [viewEl, setViewEl] = useState<HTMLElement | null>(null);
   const setView = (v: WsView) => { setViewState(v); saveWsView(v); setViewEl(null); };
   const current = WS_VIEWS.find((v) => v.value === view)!;
   return (
-    <section className="bd-wsec">
+    <section className={'bd-wsec' + (folded ? ' is-folded' : '')}>
       <div className={'bd-wsec-h' + (picked ? ' picked' : '')}>
         {onPick && <input type="checkbox" className="bd-ws-pick" checked={!!picked} onChange={onPick} aria-label={`Chọn workspace ${ws.name}`} />}
+        <button
+          type="button"
+          className={'bd-tree-arrow bd-wsec-fold' + (!folded ? ' open' : '')}
+          onClick={() => setFolded((f) => !f)}
+          aria-expanded={!folded}
+          aria-label={folded ? `Mở rộng workspace ${ws.name}` : `Thu gọn workspace ${ws.name}`}
+          title={folded ? 'Mở rộng workspace' : 'Thu gọn thành 1 dòng'}
+        >
+          <Icon name="right" size={14} />
+        </button>
         <WsMark ws={ws} size={30} />
-        <div><b>{ws.name}</b><span>{wsKind(ws, me)}{ws.customerName && <> · <button className="bd-ws-client" onClick={() => openLink(`#customers/${ws.customerId}`)} title="Mở trang khách hàng"><Icon name="users" size={12} />{ws.customerName}</button></>}</span></div>
+        <div className="bd-wsec-title" onClick={() => setFolded((f) => !f)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFolded((f) => !f); } }}>
+          <b>{ws.name}</b>
+          <span>
+            {ws.kind === 'company' ? 'Workspace công ty' : 'Nhãn hàng'} · {wsKind(ws, me)} · {boards.length} board
+          </span>
+        </div>
         <span className="bd-gap" />
         <button className={'bd-wsec-b' + (viewEl ? ' on' : '')} onClick={(e) => setViewEl(viewEl ? null : e.currentTarget)} aria-expanded={!!viewEl} aria-label="Chọn chế độ xem" title="Chọn chế độ xem"><Icon name={current.icon} size={14} />{current.label}<Icon name="chevron" size={12} /></button>
         <button className="bd-wsec-b" onClick={onPeople}><Icon name="users" size={14} />Thành viên ({ws.members})</button>
         {onSettings && <button className="bd-wsec-b bd-wsec-more" onClick={(e) => onSettings(e.currentTarget)} aria-label={`Thao tác với workspace ${ws.name}`} title="Cài đặt, xoá workspace"><Icon name="more" size={15} /></button>}
       </div>
-      {view === 'tiles' ? <Tiles title="Board của bạn" list={boards} roles={roles} onOpen={onOpen} onStar={onStar} onMore={onMore} onCreate={onCreate} small />
-        : view === 'list' ? <><BoardList boards={boards} bgOf={bg} onOpen={onOpen} onCard={onCard} />{onCreate && <button className="bd-wsec-b ws-new" onClick={onCreate}><Icon name="plus" size={14} />Tạo board mới</button>}</>
-        : view === 'timeline' ? <WorkspaceTimeline wsId={ws.id} boards={boards} onCard={onCard} onTask={onTask} />
-        : <ClientWork wsId={ws.id} client={ws.customerId ? { id: ws.customerId, name: ws.customerName || '' } : undefined} boards={boards} onCard={onCard} onTask={onTask} />}
+      {!folded && (
+        view === 'tiles' ? <Tiles title="Board của bạn" list={boards} roles={roles} onOpen={onOpen} onStar={onStar} onMore={onMore} onCreate={onCreate} small />
+          : view === 'list' ? <><BoardList boards={boards} bgOf={bg} onOpen={onOpen} onCard={onCard} />{onCreate && <button className="bd-wsec-b ws-new" onClick={onCreate}><Icon name="plus" size={14} />Tạo board mới</button>}</>
+          : view === 'timeline' ? <WorkspaceTimeline wsId={ws.id} boards={boards} onCard={onCard} onTask={onTask} />
+          : <ClientWork wsId={ws.id} client={ws.customerId ? { id: ws.customerId, name: ws.customerName || '' } : undefined} boards={boards} onCard={onCard} onTask={onTask} />
+      )}
       {viewEl && <Pop anchor={viewEl} title="Chế độ xem" onClose={() => setViewEl(null)}><div className="bk-menu">
         {WS_VIEWS.map((v) => <button key={v.value} onClick={() => setView(v.value)}><Icon name={v.icon} size={16} />{v.label}{view === v.value && <Icon name="check" size={15} />}</button>)}
       </div></Pop>}
@@ -962,9 +1043,6 @@ function TopNav({ ws, me, onOpen, onCreate, onWorkspaces, wsOpen, navigation }: 
   }, [q]);
   return (
     <div className="bd-top">
-      <button className={'bd-top-ws' + (wsOpen ? ' on' : '')} onClick={(e) => onWorkspaces(e.currentTarget)} aria-label="Đổi workspace" title={ws ? wsKind(ws, me) : 'Workspace'}>
-        {ws && <WsMark ws={ws} size={26} />}<b>{ws?.name || 'Workspace'}</b><Icon name="chevron" size={12} />
-      </button>
       {navigation}
       <div className="bd-top-mid">
         <div className="bd-search">
@@ -1052,35 +1130,44 @@ const PREVIEW: Record<BoardViewKind, number> = { board: 3, table: 4, calendar: 1
 /** Background, its type (the one service it is for, which names it), the day it starts, its workspace (the customer it
  *  is for is the workspace's) (picked, or added on the spot), and who sees it: the workspace, one role (company only, members: their own) or
  *  only the people added. */
-function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User; roles: TeamRole[]; spaces: Workspace[]; wsId: string; onClose: () => void; onCreated: (b: BoardItem) => void }) {
+function CreateBoard({ me, roles, spaces, wsId, initialCustomerId, onClose, onCreated }: { me: User; roles: TeamRole[]; spaces: Workspace[]; wsId: string; initialCustomerId?: string; onClose: () => void; onCreated: (b: BoardItem) => void }) {
   const[ownSpaces,setOwnSpaces]=useState(spaces);
   const targets = ownSpaces.filter((w) => w.level !== 'observer');
+  const [boardName, setBoardName] = useState('');
   const [b, setB] = useState('ocean');
   const [space, setSpace] = useState(targets.some((w) => w.id === wsId) ? wsId : targets[0]?.id || 'company');
-  // 'ws' (a person's workspace), 'private', or a department (company role): a company board belongs to one, or is private.
   const vis='private';
-  // The customer is the workspace's: a workspace is for one customer (or none), and so are its boards.
   const chosen = ownSpaces.find((x) => x.id === space);
-  // Its type (the one service it is for, its name too; it opens as a board) and the day it starts: now unless changed
-  // (emptied: now as well).
   const [services, setServices] = useState<string[]>([]);
   const [start, setStart] = useState(() => `${dateIn(Date.now())}T${timeIn(Date.now())}`);
   const [busy, setBusy] = useState(false);
-  // A board is one service of one customer: the workspace's, or in the company's workspace one chosen here.
   const companySpace = chosen?.kind === 'company';
-  const [customer, setCustomer] = useState(''), [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const [customer, setCustomer] = useState(chosen?.customerId || initialCustomerId || ''), [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
   const loadCustomers = () => api.customersAll().then(setCustomers, () => {});
   useEffect(() => { if (companySpace && !customers.length) void loadCustomers(); }, [companySpace]); // eslint-disable-line react-hooks/exhaustive-deps
-  const noCustomer = !companySpace && !chosen?.customerId;
-  const ready = services.length > 0 && (companySpace ? !!customer : !noCustomer);
+  const hasService = services.length > 0;
+  const ready = !busy && (boardName.trim().length > 0 || hasService);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ready || busy) return;
     setBusy(true);
     const roleId = null, startAt = start ? new Date(start).getTime() : null;
     try {
-      const name = (await serviceCatalogue()).find((s) => s.id === services[0])?.name || 'Board';
-      onCreated(await api.createBoard({ name, bg: b, workspaceId: space, roleId, private: vis === 'private', customerId: companySpace ? customer : chosen?.customerId || null, view: 'board', startAt: Number.isFinite(startAt) ? startAt : null, services }));
+      const catName = hasService ? (await serviceCatalogue()).find((s) => s.id === services[0])?.name : '';
+      const name = boardName.trim() || catName || 'Board mới';
+      const targetCustomer = companySpace ? (customer || null) : (chosen?.customerId || null);
+      const isStandalone = !hasService || !targetCustomer;
+      onCreated(await api.createBoard({
+        name,
+        bg: b,
+        workspaceId: space,
+        roleId,
+        private: vis === 'private',
+        customerId: targetCustomer,
+        view: 'board',
+        startAt: Number.isFinite(startAt) ? startAt : null,
+        ...(isStandalone ? { standalone: true } : { services }),
+      }));
     } catch (err: any) { toast(err.message, true); setBusy(false); }
   };
   return (
@@ -1090,24 +1177,26 @@ function CreateBoard({ me, roles, spaces, wsId, onClose, onCreated }: { me: User
         <div className="bd-create-prev v-board" style={{ background: bg(b) }}>{Array.from({ length: PREVIEW.board }, (_, i) => <span key={i} />)}</div>
         <span className="bd-label">Phông nền</span>
         <div className="bd-swatches">{Object.keys(BG).map((k) => <button type="button" key={k} className={k === b ? 'on' : ''} style={{ background: BG[k] }} onClick={() => setB(k)} aria-label={`Nền ${k}`} />)}</div>
-        <span className="bd-label">Loại board (dịch vụ) <em>*</em></span>
+        <label className="bd-label" htmlFor="bd-name">Tên board</label>
+        <input id="bd-name" autoFocus value={boardName} onChange={(e) => setBoardName(e.target.value)} placeholder="Nhập tên board (hoặc để trống lấy theo tên dịch vụ)" />
+        <span className="bd-label">Loại board / Dịch vụ (tuỳ chọn — có thể tự liên kết sau)</span>
         <ServicePicker single value={services} onChange={setServices} />
-        <p className="bd-create-hint">Tên board là tên dịch vụ; đổi được sau khi tạo.</p>
         <span className="bd-label">Ngày bắt đầu</span>
         <SpanField single endLabel="Ngày bắt đầu" placeholder="Chọn ngày bắt đầu" value={{ start: null, end: fromLocal(start) }} onChange={(v) => setStart(toLocal(v.end))} />
         <p className="bd-create-hint">Để trống thì lấy thời điểm tạo board.</p>
-        <label className="bd-label" htmlFor="bd-ws">Workspace</label>
+        <label className="bd-label" htmlFor="bd-ws">Workspace (Nhãn hàng)</label>
         <EntitySelect kind="workspace" onCreated={async()=>setOwnSpaces(await api.workspaces())} id="bd-ws" value={space} onChange={setSpace}>
           {targets.map(w=><option key={w.id} value={w.id}>{w.customerName ? `${w.name} · ${w.customerName}` : w.name}</option>)}
         </EntitySelect>
         {companySpace ? <>
-          <label className="bd-label" htmlFor="bd-cust">Khách hàng <em>*</em></label>
+          <label className="bd-label" htmlFor="bd-cust">Khách hàng (tuỳ chọn)</label>
           <EntitySelect kind="customer" id="bd-cust" value={customer} onChange={setCustomer} onCreated={loadCustomers}>
-            <option value="">Chọn khách hàng</option>
+            <option value="">Chưa gắn khách hàng (tự liên kết sau)</option>
             {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </EntitySelect>
-        </> : noCustomer ? <p className="note err">Workspace này chưa gắn khách hàng: chọn khách hàng cho workspace (Thành viên › Khách hàng) rồi tạo board.</p>
-          : <p className="bd-create-hint">Khách hàng: <b>{chosen?.customerName}</b> (của workspace). Mỗi dịch vụ của một khách chỉ có một board.</p>}
+        </> : chosen?.customerName ? (
+          <p className="bd-create-hint">Khách hàng: <b>{chosen.customerName}</b> · Nhãn hàng: <b>{chosen.name}</b></p>
+        ) : null}
         <p className="note"><Icon name="lock" size={14}/> Board cá nhân. Chỉ bạn và thành viên được thêm vào board mới xem được.</p>
         <button className="btn btn-primary" disabled={!ready || busy}>{busy ? 'Đang tạo…' : 'Tạo mới'}</button>
       </form>
@@ -1155,11 +1244,11 @@ function WorkspaceClient({ ws, onPick }: { ws: Workspace; onPick: (id: string) =
 }
 
 /** A workspace of one's own: private until its owner shares it; for a customer (picked, or added on the spot) or none. */
-function CreateWorkspace({ onClose, onCreated }: { onClose: () => void; onCreated: (w: Workspace) => void }) {
+function CreateWorkspace({ initialCustomerId, onClose, onCreated }: { initialCustomerId?: string; onClose: () => void; onCreated: (w: Workspace) => void }) {
   const [name, setName] = useState('');
   const [about, setAbout] = useState('');
   const [visibility, setVisibility] = useState<'private' | 'company'>('private');
-  const [customer, setCustomer] = useState(''), [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const [customer, setCustomer] = useState(initialCustomerId || ''), [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
   const loadCustomers = () => api.customersAll().then(setCustomers, () => {});
   useEffect(() => { void loadCustomers(); }, []);
   const [busy, setBusy] = useState(false);
@@ -1306,13 +1395,13 @@ function WorkspacePeople({ ws, me, boards, onChanged, onGone, onOpenBoard, onCre
             {ws.avatar && <button className="link" disabled={avatarBusy} onClick={() => void changeAvatar(null)}>Xoá ảnh</button>}</>}
         </div>
         <div>
-          {admin && !company
+          {admin
             ? <input className="bd-people-name" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() && name.trim() !== ws.name && save({ name: name.trim() })} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} aria-label="Tên workspace" />
             : <h1>{ws.name}</h1>}
           <span>{wsKind(ws, me)}</span>
         </div>
       </header>
-      {!company && admin && (
+      {admin && (
         <label className="bd-people-vis"><span>Quyền xem</span>
           <select className="bd-level-sel" value={ws.visibility} onChange={(e) => save({ visibility: e.target.value as 'private' | 'company' })}>
             <option value="private">Riêng tư: chỉ người được mời</option>
@@ -1320,11 +1409,11 @@ function WorkspacePeople({ ws, me, boards, onChanged, onGone, onOpenBoard, onCre
           </select>
         </label>
       )}
-      {!company && (admin ? <WorkspaceClient ws={ws} onPick={(id) => save({ customerId: id || null })} />
-        : ws.customerName && <p className="bd-people-about-t">Khách hàng: <button className="link" onClick={() => openLink(`#customers/${ws.customerId}`)}>{ws.customerName}</button></p>)}
-      {!company && (admin
+      {admin ? <WorkspaceClient ws={ws} onPick={(id) => save({ customerId: id || null })} />
+        : ws.customerName && <p className="bd-people-about-t">Khách hàng: <button className="link" onClick={() => openLink(`#customers/${ws.customerId}`)}>{ws.customerName}</button></p>}
+      {admin
         ? <textarea className="bd-people-about" rows={2} value={about} onChange={(e) => setAbout(e.target.value)} onBlur={() => about !== ws.about && save({ about })} placeholder="Mô tả workspace (không bắt buộc)" />
-        : ws.about && <p className="bd-people-about-t">{ws.about}</p>)}
+        : ws.about && <p className="bd-people-about-t">{ws.about}</p>}
       <section className="bd-people-sec bd-ws-boards">
         <div className="bd-ws-boards-head">
           <h3>{`Board trong workspace (${boards.length})`}</h3>
@@ -1385,7 +1474,7 @@ function WorkspacePeople({ ws, me, boards, onChanged, onGone, onOpenBoard, onCre
                       <Icon name="messenger" size={13} />
                     </button>
                   )}
-                  {admin && !company && !m.owner ? (
+                  {admin && !m.owner ? (
                     <>
                       <LevelSelect value={m.level} onChange={(l) => set(m.id, l)} label={`Quyền của ${m.name}`} />
                       {canTransfer && (
@@ -1408,7 +1497,7 @@ function WorkspacePeople({ ws, me, boards, onChanged, onGone, onOpenBoard, onCre
           </ul>
         )}
       </section>
-      {!company && ws.ownerId === me.id && (
+      {(ws.ownerId === me.id || me.role === 'admin') && (
         <section className="bd-people-sec bd-danger-zone">
           <h3>Xoá workspace</h3>
           <p className="note">Xoá vĩnh viễn workspace này cùng mọi board, danh sách và thẻ trong đó. Không khôi phục được.</p>
@@ -1719,6 +1808,17 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
         {isAdmin
           ? <button className={'bd-bar-btn bd-vis' + (visEl ? ' on' : '')} onClick={(e) => setVisEl(visEl ? null : e.currentTarget)} title={visTip}><Icon name={role || priv ? 'lock' : 'users'} size={15} />{visText}</button>
           : <span className="bd-bar-btn bd-vis" title={visTip}><Icon name={role || priv ? 'lock' : 'users'} size={15} />{visText}</span>}
+        {b.level === 'admin' && (
+          <button
+            type="button"
+            className="bd-bar-btn"
+            onClick={() => setDrawer(true)}
+            title="Tự liên kết hoặc đổi khách hàng / dịch vụ cho board này"
+          >
+            <Icon name="layers" size={14} />
+            <span>{b.customerName ? `${b.customerName}${b.services?.[0] ? ` · ${b.services[0].name}` : ''}` : 'Liên kết khách hàng / dịch vụ'}</span>
+          </button>
+        )}
         {!canEdit && <span className="bd-ro" title="Bạn chỉ xem và bình luận được trên board này">Chỉ xem</span>}
         <span className="bd-gap" />
         <button className={'bd-bar-btn bd-filter-b' + (on ? ' bd-filter-on' : '')} onClick={(e) => setFilterEl(filterEl ? null : e.currentTarget)} aria-label="Bộ lọc"><Icon name="filter" size={15} />Bộ lọc{on && <em className="bd-filter-n">{shown}</em>}</button>
@@ -1727,7 +1827,6 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
         <button className="bd-bar-btn bd-share-b" onClick={() => setSharing(true)} aria-label="Chia sẻ"><Icon name="users" size={15} />Chia sẻ</button>
         <button className="bd-bar-btn" onClick={() => setDrawer(!drawer)} aria-label="Menu board" aria-expanded={drawer}><Icon name="more" size={16} /></button>
       </header>
-      {b.needsService && b.level === 'admin' && <div className="bd-needs-svc"><BoardServiceLink board={b} onDone={() => { void load(); onChanged(); }} /></div>}
       <div className="bd-body">
         {view !== 'board' ? <BoardAlternative board={b} view={view} filter={(c) => !on || matches(c, filter, me.id)} onOpen={onCard} onAdd={canEdit ? addCard : undefined} /> : <div className="bd-canvas" onDragOver={overCanvas} onDrop={dropList}>
           {cols}
@@ -1991,39 +2090,79 @@ function CardFront({ card, board, canEdit, hidden, labelText, onLabels, onDragSt
 /** The customer and service a board is: its service's customer (its workspace's), shown with a way to the customer. A
  *  board of none yet asks its admins to choose (BoardServiceLink). */
 function BoardClient({ board, onChanged }: { board: Board; onChanged: () => void }) {
-  if (board.needsService) return board.level === 'admin' ? <BoardServiceLink board={board} onDone={onChanged} /> : <p className="bd-about">Board này chưa gắn khách hàng và dịch vụ; quản lý board sẽ chọn.</p>;
   return <>
-    <p className="bd-about"><Icon name="users" size={14} /> {board.customerName || '—'}{board.services?.[0] && <> · {board.services[0].name}</>}</p>
-    <p className="note">Board là một dịch vụ của khách hàng: khách hàng theo workspace và dịch vụ, đổi dịch vụ ở “Về board này”, đổi khách bằng cách chuyển dịch vụ sang khách khác.</p>
+    {board.customerName && (
+      <p className="bd-about"><Icon name="users" size={14} /> {board.customerName}{board.services?.[0] && <> · {board.services[0].name}</>}</p>
+    )}
     {board.customerId && <button type="button" className="link" onClick={() => openLink(`#customers/${board.customerId}`)}>Mở khách hàng</button>}
+    {board.level === 'admin' ? (
+      <BoardServiceLink board={board} onDone={onChanged} />
+    ) : (
+      !board.customerName && <p className="bd-about">Board này chưa gắn khách hàng / dịch vụ.</p>
+    )}
   </>;
 }
 
-/** A board from before services, made one: its customer (the workspace's, or chosen in the company's) and its service.
- *  Its tasks of no service become this one's; those of another go to that service's board. */
+/** Manual link / unlink between a board and a customer, brand, or service. */
 function BoardServiceLink({ board, onDone }: { board: Board; onDone: () => void }) {
-  const company = board.workspaceId === 'company';
-  const [customer, setCustomer] = useState(board.customerId || ''), [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
-  const [services, setServices] = useState<string[]>([]), [busy, setBusy] = useState(false);
+  const [customer, setCustomer] = useState(board.customerId || '');
+  const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const [brands, setBrands] = useState<{ id: string; name: string }[]>([]);
+  const [brandId, setBrandId] = useState('');
+  const [services, setServices] = useState<string[]>((board.services || []).map((s) => s.id));
+  const [busy, setBusy] = useState(false);
   const loadCustomers = () => api.customersAll().then(setCustomers, () => {});
-  useEffect(() => { if (company) void loadCustomers(); }, [company]);
+  useEffect(() => { void loadCustomers(); }, []);
+  useEffect(() => {
+    if (!customer) { setBrands([]); setBrandId(''); return; }
+    api.customerBrands(customer).then((bs) => {
+      setBrands(bs);
+      if (bs.length === 1) setBrandId(bs[0].id);
+    }, () => setBrands([]));
+  }, [customer]);
   const save = async () => {
-    if (busy || !services[0] || (company && !customer)) return;
+    if (busy || !customer) return;
     setBusy(true);
-    try { await api.updateBoard(board.id, { serviceId: services[0], ...(company ? { customerId: customer } : {}) }); toast('Đã gắn board vào dịch vụ của khách hàng'); onDone(); }
-    catch (e: any) { toast(e.message, true); } finally { setBusy(false); }
+    try {
+      await api.updateBoard(board.id, {
+        manualLink: true,
+        customerId: customer,
+        brandId: brandId || null,
+        ...(services[0] ? { serviceId: services[0] } : {}),
+      });
+      toast('Đã liên kết board với khách hàng / dịch vụ');
+      onDone();
+    } catch (e: any) { toast(e.message, true); } finally { setBusy(false); }
+  };
+  const unlink = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api.updateBoard(board.id, { unlink: true });
+      toast('Đã gỡ liên kết khách hàng / dịch vụ khỏi board');
+      onDone();
+    } catch (e: any) { toast(e.message, true); } finally { setBusy(false); }
   };
   return (
     <div className="bd-link-svc">
-      <p><b>Board này chưa là dịch vụ của khách hàng nào.</b> Mỗi board là một dịch vụ của một khách hàng: chọn để công việc trên board đi theo khách và dịch vụ đó.</p>
-      {company ? <EntitySelect kind="customer" className="bk-in" aria-label="Khách hàng của board" value={customer} onChange={setCustomer} onCreated={loadCustomers}>
-          <option value="">Chọn khách hàng</option>
-          {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </EntitySelect>
-        : board.customerName ? <p className="note">Khách hàng: <b>{board.customerName}</b> (của workspace)</p>
-        : <p className="note err">Workspace của board chưa gắn khách hàng: chọn khách hàng cho workspace trước (Thành viên › Khách hàng).</p>}
+      <p><b>Liên kết khách hàng & dịch vụ</b> (tuỳ chọn): chọn khách hàng, nhãn hàng hoặc dịch vụ bạn muốn gắn với board này.</p>
+      <EntitySelect kind="customer" className="bk-in" aria-label="Khách hàng của board" value={customer} onChange={(v) => { setCustomer(v); setBrandId(''); }} onCreated={loadCustomers}>
+        <option value="">Chọn khách hàng</option>
+        {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </EntitySelect>
+      {customer && brands.length > 0 && (
+        <select className="bk-in" aria-label="Nhãn hàng" value={brandId} onChange={(e) => setBrandId(e.target.value)}>
+          <option value="">Tất cả / Nhãn hàng mặc định</option>
+          {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+      )}
       <ServicePicker single value={services} onChange={setServices} />
-      <button type="button" className="btn btn-primary btn-sm" disabled={busy || !services[0] || (company ? !customer : !board.customerId)} onClick={save}>{busy ? 'Đang gắn…' : 'Gắn dịch vụ'}</button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button type="button" className="btn btn-primary btn-sm" disabled={busy || !customer} onClick={save}>{busy ? 'Đang lưu…' : 'Lưu liên kết'}</button>
+        {(board.customerId || (board.services && board.services.length > 0)) && (
+          <button type="button" className="btn btn-gray btn-sm" disabled={busy} onClick={unlink}>Gỡ liên kết</button>
+        )}
+      </div>
     </div>
   );
 }

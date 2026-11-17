@@ -72,11 +72,13 @@ export function readParts(root: GPart) {
     const type = (p.mimeType || '').toLowerCase();
     const disp = header(p, 'content-disposition');
     const cid = header(p, 'content-id').replace(/^<|>$/g, '').trim();
-    const isAtt = !!p.filename || /^attachment/i.test(disp.trim());
+    const isInlineMedia = !!cid || (/^(image|audio|video|application)\//i.test(type) && !/^multipart\//i.test(type));
+    const isAtt = !!p.filename || /^attachment/i.test(disp.trim()) || isInlineMedia;
     if (isAtt && (p.body?.attachmentId || p.body?.data)) {
       const id = p.body.attachmentId || `part-${p.partId || path}`;
       const size = p.body.size || (p.body.data ? Math.floor((p.body.data.length * 3) / 4) : 0);
-      attachments.push({ id, name: p.filename || 'tep-dinh-kem', type: type || 'application/octet-stream', size, ...(cid ? { cid } : {}) });
+      const ext = type.split('/')[1]?.split(';')[0]?.trim() || 'bin';
+      attachments.push({ id, name: p.filename || (cid ? `inline.${ext}` : 'tep-dinh-kem'), type: type || 'application/octet-stream', size, ...(cid ? { cid } : {}) });
     } else if (!inAttachment && !isAtt) {
       if (type === 'text/html' && !html && p.body?.data) html = decode(p.body.data, header(p, 'content-type'));
       else if (type === 'text/plain' && !text && p.body?.data) text = decode(p.body.data, header(p, 'content-type'));

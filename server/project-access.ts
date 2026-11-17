@@ -1,9 +1,13 @@
 import { all, get, run, now } from './db';
 import { HttpError } from './http';
-import { customerLevel, customerLevels, requireCustomer, type CustomerLevel } from './customer-access';
+import { customerLevel, customerLevels, isSuperAdminUser, requireCustomer, type CustomerLevel } from './customer-access';
 
 /** Visibility and role levels across brand_services (`tj_...`). */
 export async function brandServiceLevels(userId: string, customers?: Map<string, CustomerLevel>) {
+  if (await isSuperAdminUser(userId)) {
+    const allBs = await all<any>('SELECT id FROM brand_services');
+    return new Map<string, CustomerLevel>(allBs.map((r) => [r.id as string, 'admin']));
+  }
   customers ||= await customerLevels(userId);
   const levels = new Map<string, CustomerLevel>();
   // The brand services they work in (given or following a task, or on a card), in one look.
@@ -44,6 +48,7 @@ export async function requireBrandService(userId: string, id: string, need: Cust
     id
   );
   if (!bs) throw new HttpError(404, 'Không tìm thấy dịch vụ');
+  if (await isSuperAdminUser(userId)) return 'admin';
   let level =
     bs.created_by === userId
       ? 'admin'

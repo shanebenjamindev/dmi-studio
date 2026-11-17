@@ -29,7 +29,7 @@ export function CustomerSpaces({ id, name, manage, catalog, onChanged }: { id: s
     try {
       // In the workspace chosen; with none chosen, the customer's first (made for it if it has none).
       const svcName = catalog.find((s) => s.id === service)?.name || '';
-      if (space) await api.createBoard({ name: svcName, bg: 'ocean', roleId: null, workspaceId: space, serviceId: service });
+      if (space) await api.createBoard({ name: svcName, bg: 'ocean', roleId: null, workspaceId: space, customerId: id, serviceId: service });
       else await api.projectForService(id, service);
       setService(''); toast(`Đã thêm dịch vụ ${svcName}`); await load(); onChanged();
     } catch (err: any) { toast(err.message, true); } finally { setBusy(false); }

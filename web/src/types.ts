@@ -204,6 +204,7 @@ export interface TaskMeta {
 }
 export interface TaskWrite {
   title?: string; description?: string; result?: string; status?: string; startAt?: number | null; dueAt?: number | null;
+  customerId?: string | null; brandId?: string | null;
   campaignId?: string | null; brandServiceId?: string | null; projectId?: string | null; parentId?: string | null; assigneeIds?: string[]; assigneeUserIds?: string[]; followerUserIds?: string[]; labels?: string[]; services?: string[];
   /** On a new task only: who reviews it (none: whoever makes it). */
   reviewerUserId?: string;
@@ -236,11 +237,25 @@ export interface ChatMessage {
   senderId: string;
   senderName: string;
   senderEmail: string;
+  senderAvatarAt?: number | null;
+  senderRole?: string | null;
   recipientId: string | null;
-  channel: 'general' | 'dm';
+  channel: string;
   message: string;
+  replyToId?: string | null;
+  pinned?: boolean;
+  reactions?: Record<string, string[]>;
   createdAt: number;
   isMe: boolean;
+}
+export interface ChatChannel {
+  id: string;
+  serverId: string;
+  category: string;
+  name: string;
+  topic: string;
+  createdBy?: string | null;
+  createdAt: number;
 }
 export interface ChatMember {
   id: string;

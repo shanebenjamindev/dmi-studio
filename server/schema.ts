@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS board_members (
   board_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (board_id, user_id)
 );
 CREATE TABLE IF NOT EXISTS workspaces (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, about TEXT, owner_id TEXT NOT NULL, visibility TEXT NOT NULL DEFAULT 'private', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, about TEXT, owner_id TEXT NOT NULL, visibility TEXT NOT NULL DEFAULT 'private', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, customer_id TEXT, brand_id TEXT
 );
 CREATE TABLE IF NOT EXISTS workspace_members (
   workspace_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL, added_by TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (workspace_id, user_id)
@@ -271,10 +271,23 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   recipient_id TEXT REFERENCES users(id) ON DELETE CASCADE,
   channel TEXT NOT NULL DEFAULT 'general',
   message TEXT NOT NULL,
+  reply_to_id TEXT,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  reactions TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS chat_messages_channel ON chat_messages(channel, created_at);
 CREATE INDEX IF NOT EXISTS chat_messages_dm ON chat_messages(sender_id, recipient_id, created_at);
+CREATE TABLE IF NOT EXISTS chat_channels (
+  id TEXT PRIMARY KEY,
+  server_id TEXT NOT NULL DEFAULT 'company',
+  category TEXT NOT NULL DEFAULT 'KÊNH CHUNG',
+  name TEXT NOT NULL,
+  topic TEXT NOT NULL DEFAULT '',
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_channels_server ON chat_channels(server_id, created_at);
 -- When each person last read each conversation (general, or the other person of a direct chat), kept on the server so
 -- unread counts agree on every device. No semicolons in these notes: D1 runs the schema split at each one.
 CREATE TABLE IF NOT EXISTS chat_reads (

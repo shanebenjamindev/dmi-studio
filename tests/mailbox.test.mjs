@@ -67,6 +67,18 @@ test('addresses as typed, and a message as Gmail returns it', () => {
   assert.deepEqual(parsed.attachments[0], { id: 'part-0', name: 'note.txt', type: 'text/plain', size: 9 });
   assert.deepEqual(parsed.attachments[1], { id: 'A'.repeat(380), name: 'pic.png', type: 'image/png', size: 512, cid: 'img_1' });
   assert.equal(findPart(complex, 'part-0')?.filename, 'note.txt');
+
+  // Inline Content-ID image without filename (Content-Disposition: inline) is still extracted for cid: rendering.
+  const inlineNoFilename = readParts({
+    mimeType: 'multipart/related',
+    parts: [
+      { mimeType: 'text/html', body: { data: b64('<img src="cid:logo_cid">') } },
+      { partId: '2', mimeType: 'image/png', filename: '', headers: [{ name: 'Content-ID', value: '<logo_cid>' }, { name: 'Content-Disposition', value: 'inline' }], body: { attachmentId: 'att_inline', size: 256 } },
+    ],
+  });
+  assert.equal(inlineNoFilename.attachments.length, 1);
+  assert.equal(inlineNoFilename.attachments[0].cid, 'logo_cid');
+  assert.equal(inlineNoFilename.attachments[0].name, 'inline.png');
 });
 
 test('each person connects their own Gmail; nothing is sent without one', async () => {

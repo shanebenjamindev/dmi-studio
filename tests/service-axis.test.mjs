@@ -40,8 +40,11 @@ test('Khách → Nhãn hàng → Dịch vụ → Công việc: one brand_service
   const ads2=await projectForService(owner,'c_one','sv_ads',{brandId:'br_second'});
   assert.equal(ads2.created,true);assert.notEqual(ads2.id,ads.id);assert.equal(ads2.brandId,'br_second');
 
-  // Refused: a missing pair, a service out of the catalogue, someone who cannot work on the customer.
-  await assert.rejects(projectForService(owner,'c_one',''),(e)=>e.status===400);
+  // Refused: a missing customer, a service out of the catalogue, someone who cannot work on the customer.
+  // An omitted serviceId resolves to the general brand_service ('sv_general') so tasks under a client/brand need no service.
+  const gen=await projectForService(owner,'c_one','');
+  assert.ok(gen.id);
+  await assert.rejects(projectForService(owner,'','sv_ads'),(e)=>e.status===400);
   await assert.rejects(projectForService(owner,'c_one','sv_gone'),(e)=>e.status===404);
   await assert.rejects(projectForService(stranger,'c_one','sv_ads'),(e)=>e.status===403||e.status===404);
 

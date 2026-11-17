@@ -3,6 +3,16 @@ import { HttpError } from './http';
 
 export type CustomerLevel = 'admin' | 'normal' | 'observer';
 
+/** Super Admin (`users.role = 'admin'` or assigned `role_super_admin`) has full visibility & control over all data. */
+export async function isSuperAdminUser(userId: string): Promise<boolean> {
+  if (!userId) return false;
+  const row = await get<any>(
+    "SELECT 1 FROM users u LEFT JOIN user_roles ur ON ur.user_id = u.id AND ur.role_id = 'role_super_admin' WHERE u.id = ? AND (u.role = 'admin' OR ur.role_id IS NOT NULL)",
+    userId
+  );
+  return !!row;
+}
+
 /** The department a user heads (their role there is at the 'admin' level), or null. */
 export async function headedDepartment(userId: string): Promise<string | null> {
   return (await get<any>(
@@ -19,13 +29,17 @@ async function headsOwner(userId: string, ownerId: string | null) {
 
 /** A customer is deleted by its owner, the head of the owner's department, or a company admin; one nobody owns, by its managers. */
 export async function canDeleteCustomer(userId: string, customer: { id: string; created_by: string | null; manager_id?: string | null }) {
-  if ((await get<any>('SELECT role FROM users WHERE id=?', userId))?.role === 'admin') return true;
+  if (await isSuperAdminUser(userId)) return true;
   const owner = customer.created_by || customer.manager_id || null;
   if (owner) return owner === userId || await headsOwner(userId, owner);
   return await customerLevel(userId, customer.id) === 'admin';
 }
 
 export async function customerLevels(userId: string) {
+  if (await isSuperAdminUser(userId)) {
+    const allRows = await all<any>('SELECT id FROM customers');
+    return new Map<string, CustomerLevel>(allRows.map((r) => [r.id as string, 'admin']));
+  }
   // All at once (each is a round trip to D1), then applied in this order: membership, head of the owner's department,
   // owner or manager, and only then what working on its brands' services and cards opens.
   const [members, headed, owned, viaBrandServices, viaCards] = await Promise.all([
@@ -71,6 +85,7 @@ export async function customerLevels(userId: string) {
 export async function customerLevel(userId: string, id: string): Promise<CustomerLevel | null> {
   const row = await get<any>('SELECT created_by,manager_id FROM customers WHERE id=?', id);
   if (!row) return null;
+  if (await isSuperAdminUser(userId)) return 'admin';
   if (row.created_by === userId || row.manager_id === userId || await headsOwner(userId, row.created_by) || await headsOwner(userId, row.manager_id)) return 'admin';
   const direct = (await get<any>('SELECT role FROM customer_members WHERE customer_id=? AND user_id=?', id, userId))?.role;
   if (direct) return direct;
@@ -108,11 +123,14 @@ export async function requireCustomer(userId: string, id: string, need: Customer
   return level;
 }
 
-/** Takes the user's id three times: owner/manager, member, head of the owner's/manager's department. */
+/** Takes the user's id three times: owner/manager/super-admin, member, head of the owner's/manager's department. */
 export const customerAccessSql = (alias = 'c') =>
-  `(EXISTS(SELECT 1 FROM users me WHERE me.id=? AND (me.id=${alias}.created_by OR me.id=${alias}.manager_id)) OR EXISTS(SELECT 1 FROM customer_members cm WHERE cm.customer_id=${alias}.id AND cm.user_id=?) OR EXISTS(SELECT 1 FROM users head JOIN dept_roles d ON d.id=head.dept_role AND d.team_role_id=head.team_role JOIN users owner ON owner.team_role=head.team_role WHERE head.id=? AND d.level='admin' AND (owner.id=${alias}.created_by OR owner.id=${alias}.manager_id)))`;
+  `(EXISTS(SELECT 1 FROM users me LEFT JOIN user_roles ur ON ur.user_id=me.id AND ur.role_id='role_super_admin' WHERE me.id=? AND (me.role='admin' OR ur.role_id IS NOT NULL OR me.id=${alias}.created_by OR me.id=${alias}.manager_id)) OR EXISTS(SELECT 1 FROM customer_members cm WHERE cm.customer_id=${alias}.id AND cm.user_id=?) OR EXISTS(SELECT 1 FROM users head JOIN dept_roles d ON d.id=head.dept_role AND d.team_role_id=head.team_role JOIN users owner ON owner.team_role=head.team_role WHERE head.id=? AND d.level='admin' AND (owner.id=${alias}.created_by OR owner.id=${alias}.manager_id)))`;
 
 export async function visibleCardIds(userId: string) {
+  if (await isSuperAdminUser(userId)) {
+    return new Set((await all<any>('SELECT id FROM board_cards')).map((c) => c.id as string));
+  }
   const allowed = await customerLevels(userId);
   return new Set(
     (

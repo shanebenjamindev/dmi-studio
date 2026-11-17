@@ -727,10 +727,10 @@ export function BrandServiceView({
           ) : (
             <div className="bsv-kanban" role="region" aria-label="Bảng Kanban theo giai đoạn">
               {stageGroups.map((grp) => (
-                <section key={grp.key} className="bsv-kcol" aria-label={grp.label}>
+                <section key={grp.key} className={`bsv-kcol tf-${grp.key}`} aria-label={grp.label}>
                   <header className="bsv-kcol-head">
                     <span className={`bsv-kcol-dot tf-${grp.key}`} />
-                    <h3>{FLOW_STAGES.find((x) => x.key === grp.key)?.code || grp.key}</h3>
+                    <StageBadge stage={grp.key as FlowStage} />
                     <span className="bsv-kcol-count">{grp.rows.length}</span>
                   </header>
                   <div className="bsv-kcol-list">
@@ -744,7 +744,7 @@ export function BrandServiceView({
                           <button
                             key={t.id}
                             type="button"
-                            className={`bsv-kcard${t.depth > 0 ? ' is-sub' : ''}${openTaskId === t.id ? ' is-active' : ''}`}
+                            className={`bsv-kcard tf-${t.stage || grp.key}${t.depth > 0 ? ' is-sub' : ''}${openTaskId === t.id ? ' is-active' : ''}`}
                             onClick={() => setOpenTaskId(t.id)}
                           >
                             {t.parent?.title && (
@@ -763,6 +763,9 @@ export function BrandServiceView({
                                 {who.length > 0 ? <EmployeeAvatars people={who} /> : <span className="ui-muted">Chưa giao</span>}
                               </span>
                               <span className="bsv-kcard-meta">
+                                {t.state && (
+                                  <StageBadge stage={t.stage || (grp.key as FlowStage)} state={t.state} />
+                                )}
                                 {t.childCount > 0 && <span>{t.childCount} con</span>}
                                 {t.dueAt && <span className={late ? 'is-late' : ''}>{fmtShortDate(t.dueAt)}</span>}
                               </span>

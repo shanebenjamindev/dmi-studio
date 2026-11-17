@@ -12,7 +12,8 @@ import { MemberChoices } from './EmployeePicker';
 import { BrandLoading } from './BrandLoading';
 import { FLOW_STAGES, isClosedStage, type FlowStage } from '../../../shared/task-flow';
 import { stepCode } from './taskkit';
-import type { CustomerMembersData, CustomerRecord, CustomerTag, CustomerTaskRow, RecordChange } from '../types';
+import { TaskEditor } from './Tasks';
+import type { Brand, CustomerMembersData, CustomerRecord, CustomerTag, CustomerTaskRow, RecordChange } from '../types';
 import type { CustomerView } from './CustomerDashboard';
 
 const TZ = { timeZone: 'Asia/Ho_Chi_Minh' } as const;
@@ -140,8 +141,10 @@ export function CustomerOverview({ c, view = 'list', onTab, onChanged }: { c: Cu
 
 export function CustomerContext({c,onTab,onChanged}:{c:CustomerRecord;onTab:(tab:string)=>void;onChanged?:()=>void}) {
   const rec=useData(()=>api.customerRecord(c.id),[c]);
+  const brandsLoad=useData<Brand[]>(()=>api.customerBrands(c.id),[c.id]);
   const membersLoad=useData<CustomerMembersData>(()=>api.customerMembers(c.id),[c.id]);
   const r=rec.data,drive=r?.drive,d=membersLoad.data,mayDrive=useStore(s=>s.pages).includes('workspace');
+  const brandDrives = (brandsLoad.data || []).filter((b) => b.driveFolder?.id || b.effectiveDriveFolder?.id);
   const contact = (r?.contact ?? c.contact) || '';
   const phone = (r?.phone ?? c.phone) || '';
   const email = (r?.email ?? c.email) || '';
@@ -311,13 +314,38 @@ export function CustomerContext({c,onTab,onChanged}:{c:CustomerRecord;onTab:(tab
         )}
       </section>
       <section className="crm-ov-card">
-        <header><h3>Drive</h3>{mayDrive && <button className="btn btn-gray btn-sm" onClick={() => onTab('drive')}><Icon name="folder" size={13} />Mở Drive</button>}</header>
-        {rec.error ? <p className="note err" role="alert">{rec.error}</p> : !r ? <BrandLoading compact /> : <>
-          {drive ? <p className="crm-ov-drive"><Icon name="folder" size={16} /><b>{drive.label}</b>{drive.url && <a href={drive.url} target="_blank" rel="noreferrer">Mở trên Google Drive ↗</a>}</p> : <p className="note">Chưa liên kết thư mục Drive.</p>}
-          {mayDrive && c.canManage && (!drive || relink
-            ? <form className="crm-inline-add" onSubmit={linkDrive}><input className="bk-in" value={driveLink} onChange={(e) => setDriveLink(e.target.value)} placeholder="Dán link thư mục Google Drive" aria-label="Link thư mục Google Drive" /><button className="btn btn-primary btn-sm" disabled={linking || !driveLink.trim()}><Icon name="link" size={13} />{linking ? 'Đang liên kết…' : 'Liên kết'}</button>{relink && <button type="button" className="btn btn-gray btn-sm" onClick={() => { setRelink(false); setDriveLink(''); }}>Huỷ</button>}</form>
-            : <button type="button" className="btn btn-gray btn-sm crm-ov-relink" onClick={() => setRelink(true)}><Icon name="link" size={13} />Đổi thư mục</button>)}
-        </>}
+        <header>
+          <h3>Drive theo nhãn hàng</h3>
+          {mayDrive && (brandDrives.length > 0 || drive) && (
+            <button className="btn btn-gray btn-sm" onClick={() => onTab('drive')}><Icon name="folder" size={13} />Mở Drive</button>
+          )}
+        </header>
+        {brandsLoad.error ? <p className="note err" role="alert">{brandsLoad.error}</p> : !brandsLoad.data ? <BrandLoading compact /> : brandDrives.length > 0 ? (
+          <ul className="crm-brand-drive-list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {brandDrives.map((b) => {
+              const df = b.driveFolder || b.effectiveDriveFolder!;
+              return (
+                <li key={b.id} className="crm-ov-drive" style={{ margin: 0, justifyContent: 'space-between' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <Icon name="folder" size={15} />
+                    <b style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</b>
+                    <small className="ax-muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>({df.label || df.id})</small>
+                  </span>
+                  <a href={`https://drive.google.com/drive/folders/${df.id}`} target="_blank" rel="noreferrer">Mở Drive ↗</a>
+                </li>
+              );
+            })}
+          </ul>
+        ) : drive ? (
+          <p className="crm-ov-drive"><Icon name="folder" size={16} /><b>{drive.label}</b>{drive.url && <a href={drive.url} target="_blank" rel="noreferrer">Mở trên Google Drive ↗</a>}</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+            <p className="note" style={{ margin: 0 }}>Chưa có nhãn hàng nào gắn thư mục Drive.</p>
+            <button type="button" className="btn btn-gray btn-sm" onClick={() => onTab('campaigns')}>
+              <Icon name="layers" size={13} /> Gắn Drive trong Nhãn hàng
+            </button>
+          </div>
+        )}
       </section>
       <section className="crm-ov-card" aria-label="Thành viên khách hàng">
         <header>
@@ -369,16 +397,28 @@ export function CustomerContext({c,onTab,onChanged}:{c:CustomerRecord;onTab:(tab
 export function CustomerTasks({ id, view = 'list' }: { id: string; view?: CustomerView }) {
   const load = useData(() => api.customerTaskList(id), [id]);
   const [show, setShow] = useState<'open' | 'done' | 'all'>('open'), [q, setQ] = useState('');
+  const [creating, setCreating] = useState(false);
   const rows = (load.data || []).filter((t) => (view === 'kanban' || show === 'all' || (show === 'done' ? ['done', 'done_late'].includes(t.category) : !['done', 'done_late', 'cancelled'].includes(t.category))) && (!q || `${t.title} ${t.project?.name} ${t.assignees.map((a) => a.name).join(' ')}`.toLowerCase().includes(q.toLowerCase())));
   return (
     <section className="crm-tab-pane">
       {view !== 'kanban' && <ReadingTabs label="Trạng thái công việc" value={show} items={[{ value: 'open' as const, label: 'Đang làm', icon: 'play' }, { value: 'done' as const, label: 'Đã xong', icon: 'check' }, { value: 'all' as const, label: 'Tất cả', icon: 'checklist' }]} onChange={setShow} />}
       <div className="tk-toolbar">
+        <button type="button" className="tk-new" onClick={() => setCreating(true)}><Icon name="plus" size={15} />Tạo công việc</button>
         <label className="tk-find"><Icon name="search" size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm công việc, dịch vụ, người làm…" aria-label="Tìm công việc" /></label>
       </div>
       {!load.data && !load.error ? <BrandLoading compact /> : <State error={load.error} icon="checklist" empty={rows.length ? '' : show === 'open' && view !== 'kanban' ? 'Không có công việc đang làm.' : 'Chưa có công việc nào.'}>
         <CustomerTaskViews rows={rows} view={view} />
       </State>}
+      {creating && (
+        <TaskEditor
+          customerId={id}
+          onClose={() => setCreating(false)}
+          onSaved={() => {
+            setCreating(false);
+            void load.reload();
+          }}
+        />
+      )}
     </section>
   );
 }

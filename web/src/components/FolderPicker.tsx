@@ -4,6 +4,7 @@ import { api } from '../api';
 import { toast } from '../store';
 import { Sheet } from './Dialogs';
 import { Icon, IconButton } from './ui';
+import { Breadcrumb } from './kit';
 import type { DrivePlace, FolderListing, Loc } from '../types';
 
 /** Lowercase without Vietnamese marks, so “edward”, “OCD” or “dong” find their folders. */
@@ -92,9 +93,14 @@ export function FolderPicker({ open, title, start, confirmLabel, onClose, onPick
         </nav>
         <section className="fp-main">
           <div className="fp-crumbs">
-            {cur?.crumbs.map((c, i) => (
-              <span key={JSON.stringify(c.loc)}>{i > 0 && <em>›</em>}<button className="link" onClick={() => go(c.loc)}>{c.name}</button></span>
-            ))}
+            {cur && (
+              <Breadcrumb
+                items={cur.crumbs.map((c) => ({
+                  label: c.name,
+                  onClick: () => go(c.loc),
+                }))}
+              />
+            )}
             <IconButton icon="plus" label="Thư mục mới" size={15} onClick={() => setNewName('')} />
           </div>
           {newName !== null && (

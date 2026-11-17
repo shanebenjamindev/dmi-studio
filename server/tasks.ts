@@ -322,7 +322,20 @@ async function taskInput(b: any, old?: any,userId?:string) {
   const due = b.dueAt === undefined ? old?.due_at ?? null : date(b.dueAt);
   if (start !== null && due !== null && start > due) throw new HttpError(400, 'Thời hạn phải sau ngày bắt đầu');
   const rawProject = b.brandServiceId !== undefined ? b.brandServiceId : b.projectId;
-  const project = b.brandServiceId === undefined && b.projectId === undefined ? old?.brand_service_id ?? null : rawProject || null;
+  let project = b.brandServiceId === undefined && b.projectId === undefined ? old?.brand_service_id ?? null : rawProject || null;
+  if (!project && (b.brandId || b.customerId)) {
+    let cid = b.customerId ? String(b.customerId) : '';
+    const bid = b.brandId ? String(b.brandId) : null;
+    if (!cid && bid) {
+      const br = await get<any>('SELECT customer_id FROM brands WHERE id = ? AND deleted_at IS NULL', bid);
+      if (!br) throw new HttpError(404, 'Không tìm thấy nhãn hàng');
+      cid = br.customer_id;
+    }
+    if (cid) {
+      const resolved = await projectForService({ id: userId || '' }, cid, '', { brandId: bid });
+      project = resolved.id;
+    }
+  }
   if (project && !await get('SELECT 1 FROM brand_services WHERE id=?', String(project))) throw new HttpError(400, 'Không tìm thấy dịch vụ');
   if(project&&userId&&project!==old?.brand_service_id){await requireBrandService(userId,String(project),'normal');const p=await get<any>('SELECT br.customer_id FROM brand_services bs LEFT JOIN brands br ON br.id=bs.brand_id AND br.deleted_at IS NULL WHERE bs.id=?',project);if(p?.customer_id)await requireCustomer(userId,p.customer_id,'normal');}
   const parent = b.parentId === undefined ? old?.parent_id ?? null : b.parentId || null;
@@ -416,22 +429,30 @@ async function inheritFollowers(id: string, project: string | null, parent: stri
 }
 
 /** The brand_service behind a brand (or customer)'s service: the existing one carrying that catalog service on the target brand
- *  (or oldest across customer's active brands when no brandId), else a new one created on that brand (or default brand). */
-export async function projectForService(user:{id:string;team_role?:string|null},customerId:string,serviceId:string,{home=true,brandId}:{home?:boolean;brandId?:string|null}={}){
-  if(!customerId||!serviceId)throw new HttpError(400,'Cần chọn khách hàng và dịch vụ');
+ *  (or oldest across customer's active brands when no brandId), else a new one created on that brand (or default brand).
+ *  When `serviceId` is omitted/empty, uses the general fallback container (`sv_general`) so tasks can follow a customer/brand directly without requiring a service. */
+export async function projectForService(user:{id:string;team_role?:string|null},customerId:string,serviceId?:string|null,{home=true,brandId}:{home?:boolean;brandId?:string|null}={}){
+  if(!customerId)throw new HttpError(400,'Cần chọn khách hàng');
   await requireCustomer(user.id,customerId,'normal');
-  const svc=await get<any>('SELECT id,name FROM service_catalog WHERE id=? AND deleted_at IS NULL',serviceId);
-  if(!svc)throw new HttpError(404,'Không tìm thấy dịch vụ trong danh mục');
+  let svc: any = null;
+  if (serviceId) {
+    svc = await get<any>('SELECT id,name FROM service_catalog WHERE id=? AND deleted_at IS NULL', serviceId);
+    if (!svc) throw new HttpError(404, 'Không tìm thấy dịch vụ trong danh mục');
+  } else {
+    const fallbackId = await ensureFallbackCatalogService(user.id);
+    svc = await get<any>('SELECT id,name FROM service_catalog WHERE id=?', fallbackId) || { id: fallbackId, name: 'Công việc chung' };
+  }
+  const effectiveServiceId = svc.id as string;
   let targetBrandId: string;
   if (brandId) {
     const br = await get<any>('SELECT id FROM brands WHERE id=? AND customer_id=? AND deleted_at IS NULL', brandId, customerId);
     if (!br) throw new HttpError(404, 'Không tìm thấy nhãn hàng thuộc khách hàng này');
     targetBrandId = br.id;
-    const found = await brandServiceFor(targetBrandId, serviceId);
-    if (found) return { id: found.id as string, name: found.name as string, brandId: targetBrandId, catalogServiceId: svc.id as string, created: false };
+    const found = await brandServiceFor(targetBrandId, effectiveServiceId);
+    if (found) return { id: found.id as string, name: found.name as string, brandId: targetBrandId, catalogServiceId: effectiveServiceId, created: false };
   } else {
-    const found = await projectOf(customerId, serviceId);
-    if (found) return { id: found.id as string, name: found.name as string, brandId: found.brand_id as string, catalogServiceId: svc.id as string, created: false };
+    const found = await projectOf(customerId, effectiveServiceId);
+    if (found) return { id: found.id as string, name: found.name as string, brandId: found.brand_id as string, catalogServiceId: effectiveServiceId, created: false };
     const defBrand = await ensureDefaultBrand(customerId, user.id);
     targetBrandId = defBrand.id;
   }
@@ -1168,6 +1189,28 @@ export function registerTasks(api: Router) {
       }
     }
     await run('INSERT INTO task_activity(id, task_id, user_id, action, data, created_at) VALUES (?,?,?,?,?,?)', uid('ac_'), t.id, u.id, 'comment', JSON.stringify({ text }), nowTs).catch(() => {});
+
+    // Notify @mentioned users (excluding the sender `u.id` — "trừ bản thân").
+    const mentionedIds = new Set<string>(
+      [...text.matchAll(/data-mention="([\w-]{1,64})"/g)].map((m) => m[1])
+    );
+    const allUsers = await all<any>('SELECT id, name FROM users WHERE disabled = 0 AND id != ?', u.id);
+    for (const usr of allUsers) {
+      if (usr.name && text.includes(`@${usr.name}`)) mentionedIds.add(usr.id);
+    }
+    mentionedIds.delete(u.id);
+    if (mentionedIds.size > 0) {
+      for (const targetId of mentionedIds) {
+        if (t.brand_service_id) await grantAccess(targetId, u.id, { brandServiceId: t.brand_service_id }, 'observer').catch(() => {});
+      }
+      await notifyPeople([...mentionedIds], u.id, {
+        title: 'Bạn được nhắc đến',
+        body: `${u.name} · ${t.title}`,
+        link: `#tasks/${t.id}`,
+        commentId,
+      }).catch(() => {});
+    }
+
     json(res, 201, { id: commentId });
   });
 

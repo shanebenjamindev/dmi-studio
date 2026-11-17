@@ -64,8 +64,48 @@ async function brandServiceContext(brandServiceId: string) {
   );
 }
 
+/** The workspace a brand's boards go to: one workspace per brand under its customer (or adopts an existing unbranded/default customer workspace). */
+export async function brandWorkspace(brandId: string, customerId?: string | null) {
+  const br = await get<any>('SELECT * FROM brands WHERE id = ? AND deleted_at IS NULL', brandId);
+  const cid = customerId || br?.customer_id;
+  if (!br || !cid) return cid ? customerWorkspace(cid) : null;
+  let w = await get<any>('SELECT * FROM workspaces WHERE brand_id = ? LIMIT 1', br.id);
+  if (w) return w;
+  const k = await get<any>('SELECT id, name, created_by, manager_id FROM customers WHERE id = ?', cid);
+  if (!k) throw new HttpError(404, 'Không tìm thấy khách hàng');
+  const isDefaultBrand = br.id.startsWith('br_default_') || br.name === 'Mặc định';
+  const adoptable = await get<any>(
+    isDefaultBrand
+      ? 'SELECT * FROM workspaces WHERE customer_id = ? AND brand_id IS NULL ORDER BY created_at, id LIMIT 1'
+      : `SELECT * FROM workspaces w
+         WHERE w.customer_id = ?
+           AND (w.brand_id IS NULL OR (w.brand_id LIKE 'br_default_%' AND NOT EXISTS(SELECT 1 FROM boards b WHERE b.workspace_id = w.id AND b.id NOT LIKE 'b_tasks_%')))
+         ORDER BY CASE WHEN w.brand_id IS NULL THEN 0 ELSE 1 END, w.created_at, w.id LIMIT 1`,
+    cid
+  );
+  if (adoptable) {
+    const nextName = !isDefaultBrand && br.name ? br.name : (adoptable.name || br.name);
+    await run('UPDATE workspaces SET brand_id = ?, name = ?, about = COALESCE(NULLIF(?, \'\'), about), updated_at = ? WHERE id = ?', br.id, nextName, br.notes || '', now(), adoptable.id);
+    if (br.logo) {
+      await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', 'workspace-avatar:' + adoptable.id, br.logo);
+    }
+    return get<any>('SELECT * FROM workspaces WHERE id = ?', adoptable.id);
+  }
+  const owner = br.created_by || k.manager_id || k.created_by || (await get<any>("SELECT id FROM users WHERE role = 'admin' AND disabled = 0 ORDER BY created_at, id LIMIT 1"))?.id || (await get<any>('SELECT id FROM users WHERE disabled = 0 ORDER BY created_at, id LIMIT 1'))?.id;
+  if (!owner) return null;
+  const id = `w_br_${hash(br.id, 16)}`, t = now();
+  const wsName = !isDefaultBrand && br.name ? br.name : (k.name || br.name);
+  await run("INSERT OR IGNORE INTO workspaces(id, name, about, owner_id, visibility, created_at, updated_at, customer_id, brand_id) VALUES(?,?,?,?,'private',?,?,?,?)", id, wsName, br.notes || '', owner, t, t, k.id, br.id);
+  if (br.logo) {
+    await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', 'workspace-avatar:' + id, br.logo);
+  }
+  return get<any>('SELECT * FROM workspaces WHERE id = ?', id);
+}
+
 /** The workspace a customer's new service board goes to: the customer's first, else one made for it. */
 export async function customerWorkspace(customerId: string) {
+  const firstBrand = await get<any>('SELECT * FROM brands WHERE customer_id = ? AND deleted_at IS NULL ORDER BY pos, created_at, id LIMIT 1', customerId);
+  if (firstBrand) return brandWorkspace(firstBrand.id, customerId);
   const w = await get<any>('SELECT * FROM workspaces WHERE customer_id = ? ORDER BY created_at, id LIMIT 1', customerId);
   if (w) return w;
   const k = await get<any>('SELECT id, name, created_by, manager_id FROM customers WHERE id = ?', customerId);
@@ -84,13 +124,13 @@ export async function linkBoard(boardId: string, brandServiceId: string, by: str
   await saveBoardServices(boardId, bs?.catalog_service_id ? [bs.catalog_service_id] : [], by || bs?.created_by || '');
 }
 
-/** The board of a brand's service: its own, or created in the customer's workspace with workflow columns. */
+/** The board of a brand's service: its own, or created in the brand's workspace with workflow columns. */
 export async function serviceBoard(brandServiceId: string) {
   const found = await boardOfProject(brandServiceId);
   if (found) return found;
   const bs = await brandServiceContext(brandServiceId);
   if (!bs?.customer_id) return null;
-  const ws = await customerWorkspace(bs.customer_id);
+  const ws = bs.brand_id ? await brandWorkspace(bs.brand_id, bs.customer_id) : await customerWorkspace(bs.customer_id);
   if (!ws) return null;
   const title = await boardDisplayName(bs.id);
   const id = `b_svc_${hash(bs.id, 16)}`, t = now();

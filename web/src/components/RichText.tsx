@@ -5,9 +5,10 @@
 // before (plain) shows as it always has.
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { api } from '../api';
 import { Icon } from './ui';
 import { Avatar, Rich } from './boardkit';
-import { openProfile, toast } from '../store';
+import { openProfile, toast, useStore } from '../store';
 import { langPref } from '../i18n';
 import { isBlank, isRich } from '../../../shared/rich';
 
@@ -88,20 +89,44 @@ export async function shrink(file: File, side = 900, quality = 0.8) {
   return c.toDataURL('image/jpeg', quality);
 }
 
-/** Who may be mentioned with @ in the editors inside (the people who see the card); none: no mentions. */
+/** Who may be mentioned with @ in the editors inside (the people who see the card); none: fallback to active company members. */
 export type Mentionable = { id: string; name: string; avatarAt?: number | null };
 export const MentionPeople = createContext<Mentionable[] | null>(null);
 const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase();
 
+let cachedMentionables: Mentionable[] | null = null;
+let fetchingMentionables: Promise<Mentionable[]> | null = null;
+export function loadDefaultMentionables(): Promise<Mentionable[]> {
+  if (cachedMentionables) return Promise.resolve(cachedMentionables);
+  return (fetchingMentionables ||= api
+    .chatMembers()
+    .then((list) => {
+      cachedMentionables = list.map((m) => ({ id: m.id, name: m.name }));
+      return cachedMentionables;
+    })
+    .catch(() => {
+      fetchingMentionables = null;
+      return [];
+    }));
+}
+
 /** The editor. `onChange` gets cleaned HTML ('' when nothing is written); ⌘/Ctrl+Enter calls `onSubmit`. */
 export function RichEditor({ value, onChange, placeholder = '', autoFocus, onSubmit, compact, disabled }: { value: string; onChange: (html: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void; compact?: boolean; disabled?: boolean }) {
+  const me = useStore((s) => s.user);
   const body = useRef<HTMLDivElement>(null), file = useRef<HTMLInputElement>(null), saved = useRef<Range | null>(null);
   const [empty, setEmpty] = useState(isBlank(value)), [menu, setMenu] = useState<'' | 'color' | 'mark' | 'align'>('');
-  // @ and the words after it, being typed: where they are, and the people they match.
-  const people = useContext(MentionPeople);
+  // @ and the words after it, being typed: where they are, and the people they match (always excluding yourself).
+  const ctxPeople = useContext(MentionPeople);
+  const [fallbackPeople, setFallbackPeople] = useState<Mentionable[]>(cachedMentionables || []);
+  useEffect(() => {
+    if (!ctxPeople && !cachedMentionables) {
+      void loadDefaultMentionables().then(setFallbackPeople);
+    }
+  }, [ctxPeople]);
+  const people = (ctxPeople ?? fallbackPeople).filter((p) => p.id !== me?.id);
   const spot = useRef<{ node: Text; start: number; end: number } | null>(null);
   const [mention, setMention] = useState<{ q: string; x: number; y: number } | null>(null), [pick, setPick] = useState(0);
-  const matches = mention && people ? people.filter((p) => fold(p.name).includes(fold(mention.q.trim()))).slice(0, 6) : [];
+  const matches = mention && people.length ? people.filter((p) => fold(p.name).includes(fold(mention.q.trim()))).slice(0, 8) : [];
   const look = () => {
     const s = window.getSelection(), node = s?.anchorNode;
     if (!people?.length || !s?.isCollapsed || !node || node.nodeType !== Node.TEXT_NODE || !body.current?.contains(node) || node.parentElement?.closest('[data-mention]')) { setMention(null); return; }
@@ -191,7 +216,7 @@ export function RichEditor({ value, onChange, placeholder = '', autoFocus, onSub
         <span>{tool(null, 'Tiêu đề 1', () => block('H1'), <b className="rt-h">H<sub>1</sub></b>)}{tool(null, 'Tiêu đề 2', () => block('H2'), <b className="rt-h">H<sub>2</sub></b>)}</span>
         <span>{tool('olist', 'Danh sách đánh số', () => cmd('insertOrderedList'))}{tool('list', 'Danh sách chấm', () => cmd('insertUnorderedList'))}</span>
         <span>{tool(null, 'Chỉ số dưới', () => cmd('subscript'), <b className="rt-h">x<sub>2</sub></b>)}{tool(null, 'Chỉ số trên', () => cmd('superscript'), <b className="rt-h">x<sup>2</sup></b>)}</span>
-        <span>{tool('link', 'Chèn liên kết', link)}{tool('photo', 'Chèn ảnh', () => { keep(); file.current?.click(); })}</span>
+        <span>{tool(null, 'Nhắc tên (@)', () => { restore(); document.execCommand('insertText', false, '@'); changed(); look(); }, <b className="rt-h">@</b>)}{tool('link', 'Chèn liên kết', link)}{tool('photo', 'Chèn ảnh', () => { keep(); file.current?.click(); })}</span>
         <span>
           <span className="rt-pop-wrap">{tool(null, 'Màu chữ', () => { keep(); setMenu(menu === 'color' ? '' : 'color'); }, <b className="rt-color">A</b>)}
             {menu === 'color' && <span className="rt-pop rt-swatches">{PALETTE.map((c) => <button key={c} type="button" style={{ background: c }} aria-label={`Màu ${c}`} onMouseDown={(e) => e.preventDefault()} onClick={() => cmd('foreColor', c)} />)}<button type="button" className="rt-none" onMouseDown={(e) => e.preventDefault()} onClick={() => cmd('foreColor', '#172b4d')}>Mặc định</button></span>}</span>

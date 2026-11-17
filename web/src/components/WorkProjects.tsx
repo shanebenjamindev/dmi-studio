@@ -59,7 +59,7 @@ export function WorkProjects() {
   const [selected, setSelected] = useState<string | null>(fromHash);
   const [scopeFilter, setScopeFilter] = useState(filterFromHash);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<{ customerId?: string; brandId?: string } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ProjectRow | null>(null);
 
@@ -162,7 +162,12 @@ export function WorkProjects() {
     : groupBy === 'stage'
     ? PROJECT_STAGES.map(([key, label]) => ({ key, label, rows: tasks.filter((p) => (p.stage || 'not_started') === key) })).filter((g) => g.rows.length)
     : [{ key: 'all', label: 'Tất cả dịch vụ', rows: tasks }]
-  ).map((g) => ({ ...g, onAdd: canCreate ? () => setCreating(true) : undefined }));
+  ).map((g) => ({
+    ...g,
+    onAdd: canCreate
+      ? () => setCreating(groupBy === 'customer' && g.key !== '_' ? { customerId: g.key } : {})
+      : undefined,
+  }));
   const ordered = groups.flatMap((g) => g.rows);
   const totals = `${tasks.length} dịch vụ · ${tasks.reduce((n, p) => n + p.tasks, 0)} công việc`;
 
@@ -211,7 +216,7 @@ export function WorkProjects() {
           ]} />
         </header>
         <div className="tk-toolbar">
-          {canCreate && <button className="tk-new" onClick={() => setCreating(true)}><Icon name="plus" size={15} />Thêm mới</button>}
+          {canCreate && <button className="tk-new" onClick={() => setCreating({})}><Icon name="plus" size={15} />Thêm mới</button>}
           {selectedIds.length > 0 && (
             <>
               <button className="btn btn-sm cm-danger" disabled={busyId === 'bulk'} onClick={() => void bulkDeleteProjects()}><Icon name="trash" size={14} />Xoá đã chọn ({selectedIds.length})</button>
@@ -229,7 +234,7 @@ export function WorkProjects() {
               <Icon name="folder" size={36} />
               <h3>{query ? 'Không có dịch vụ phù hợp' : 'Chưa có dịch vụ nào'}</h3>
               <p>{query ? 'Thử từ khoá khác.' : 'Dịch vụ sẽ xuất hiện khi tạo mới hoặc nhập dữ liệu công việc.'}</p>
-              {canCreate && !query && <button className="btn btn-primary" onClick={() => setCreating(true)}>Thêm dịch vụ</button>}
+              {canCreate && !query && <button className="btn btn-primary" onClick={() => setCreating({})}>Thêm dịch vụ</button>}
             </div>
           ) : selected ? (
             <div className="tk-reading-list">
@@ -322,7 +327,17 @@ export function WorkProjects() {
           )}
       </section>
       {editing && <ProjectEditDialog project={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); window.dispatchEvent(new Event('dms:entities-changed')); }} />}
-      {creating && <QuickCreateDialog kind="project" onClose={() => setCreating(false)} onCreated={(r) => { setCreating(false); refresh(); select(r.id); }} />}
+      {creating && (
+        <QuickCreateDialog
+          kind="project"
+          context={{
+            customerId: creating.customerId || scopeFilter.customer || scopeBrand?.customerId || undefined,
+            brandId: creating.brandId || scopeFilter.brand || undefined,
+          }}
+          onClose={() => setCreating(null)}
+          onCreated={(r) => { setCreating(null); refresh(); select(r.id); }}
+        />
+      )}
     </div>
   );
 }

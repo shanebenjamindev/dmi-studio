@@ -7,6 +7,7 @@ import { useStore, toast, openCard } from '../store';
 import { Icon, IconButton, Menu, Segmented } from './ui';
 import { FolderPicker } from './FolderPicker';
 import { Dashboard } from './Dashboard';
+import { Breadcrumb } from './kit';
 import type { Loc, Customer, CustomerLink, CustomerTask, DriveFile, DriveFolder, FileKind, WorkspaceInfo } from '../types';
 import { setDriveView, useDriveView } from '../driveView';
 import { askConfirm, askText } from './AskDialog';
@@ -107,15 +108,15 @@ export function WorkspacePage() {
           {admin && <IconButton icon="plus" label="Khách hàng mới" className={syncing ? 'busy' : ''} onClick={() => setAdding(true)} />}
         </header>
         {info && info.crumbs.length > 1 && (
-          <nav className="ws-root" aria-label="Đường dẫn">
-            {info.crumbs.slice(0, -1).map((cr, i) => (
-              <span key={i}>
-                {/* Every part of the path, "My Drive" included, opens that folder on Drive; the overview has its own button above. */}
-                <button className="link" onClick={() => { setDash(false); go(cr.loc); }} title={`Xem các thư mục trong “${cr.name}”`}>{cr.name}</button>
-                <i>›</i>
-              </span>
-            ))}
-          </nav>
+          <div className="ws-root">
+            <Breadcrumb
+              items={info.crumbs.map((cr) => ({
+                label: cr.name,
+                title: `Xem các thư mục trong “${cr.name}”`,
+                onClick: () => { setDash(false); go(cr.loc); },
+              }))}
+            />
+          </div>
         )}
         {adding && (
           <form className="ws-add" onSubmit={(e) => { e.preventDefault(); create(); }}>
@@ -429,10 +430,17 @@ export function CustomerDetail({ id, admin, canDelete = admin, viewOnly, onChang
         </div>
       ))}
       {trail.length > 0 && (
-        <nav className="dv-trail" aria-label="Thư mục đang mở">
-          <button className="link" onClick={() => closeTo(0)}>{cur?.name}</button>
-          {trail.map((t, i) => <span key={t.key}><i>›</i>{i === trail.length - 1 ? <b>{t.name}</b> : <button className="link" onClick={() => closeTo(i + 1)}>{t.name}</button>}</span>)}
-        </nav>
+        <div className="dv-trail">
+          <Breadcrumb
+            items={[
+              { label: cur?.name || 'Thư mục', onClick: () => closeTo(0) },
+              ...trail.map((t, i) => ({
+                label: t.name,
+                onClick: i === trail.length - 1 ? undefined : () => closeTo(i + 1),
+              })),
+            ]}
+          />
+        </div>
       )}
       {/* Drive's "Type" filter and order, and its grid / list switch. */}
       {items.length > 0 && (
