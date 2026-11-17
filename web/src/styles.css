@@ -1,51 +1,69 @@
-/* DMI Workspace — Apple-style minimal UI.
-   System font, quiet neutrals, one tint colour (Movement Blue), generous spacing, large hit targets. */
+/* DMI Workspace — Unified design tokens (light & dark mode). */
 :root {
-  /* The app's frame: a navigation rail on the left (a bar at the bottom on phones), no top bar. */
   --tb-h: 0px; --head-h: 52px; --rail-w: 76px; --bn-h: 0px;
-  --bg: #f5f5f7;
+  /* Spacing (4 / 8 / 12 / 16 / 24 / 32) and Radius (4 / 6 / 8) */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-6: 24px; --sp-8: 32px;
+  --r-1: 4px; --r-2: 6px; --r-3: 8px;
+  /* Core surfaces & text hierarchy */
+  --bg: #f6f6f7;
   --surface: #ffffff;
+  --surface-2: #fafafa;
   --grouped: #f2f2f7;
   --fill: rgba(118, 118, 128, 0.12);
-  --fill-2: rgba(118, 118, 128, 0.08);
-  --sep: rgba(60, 60, 67, 0.12);
-  --label: #1d1d1f;
-  --label-2: #6e6e73;
-  --label-3: #8e8e93;
+  --fill-2: rgba(118, 118, 128, 0.07);
+  --sep: rgba(15, 23, 42, 0.10);
+  --sep-2: rgba(15, 23, 42, 0.06);
+  --label: #18181b;
+  --label-2: #52525b;
+  --label-3: #71717a;
+  /* Single primary + meaningful stage & state colors */
   --tint: #0b7df2;
   --tint-press: #0868cc;
-  --tint-soft: rgba(11, 125, 242, 0.1);
-  --red: #ff3b30;
+  --tint-soft: rgba(11, 125, 242, 0.10);
+  --red: #dc2626;
   --orange: #c26a00;
-  --green: #28a745;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.07);
-  --shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.06);
+  --green: #16a34a;
+  --st-good: #16a34a;
+  --st-warning: #d97706;
+  --st-serious: #ea580c;
+  --st-critical: #dc2626;
+  --stage-account: #64748b;
+  --stage-execution: #2563eb;
+  --stage-review: #7c3aed;
+  --stage-completed: #16a34a;
+  --stage-rejected: #dc2626;
+  /* Shadows reserved strictly for floating layers (max 3 levels: menu, drawer, modal) */
+  --shadow-1: 0 2px 8px rgba(15, 23, 42, 0.08);
+  --shadow-2: 0 8px 24px rgba(15, 23, 42, 0.12);
+  --shadow-3: 0 18px 44px rgba(15, 23, 42, 0.18);
+  --shadow-sm: var(--shadow-1);
+  --shadow: var(--shadow-2);
+  --shadow-lg: var(--shadow-3);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Helvetica Neue", "Segoe UI", sans-serif;
   --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Helvetica Neue", sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   --ease: cubic-bezier(.25, .1, .25, 1);
+  --ease-ui: 160ms cubic-bezier(.2, .8, .2, 1);
+  /* Unified semantic aliases for existing sub-systems (--ax-*, --ed-*, --bd-*) */
+  --card-bg: var(--surface); --text: var(--label); --sub: var(--label-2); --primary: var(--tint);
+  --fill-1: var(--fill-2); --fill-3: var(--fill); --line: var(--sep);
+  --ed-bg: var(--bg); --ed-gap: var(--sep); --ed-bar: var(--surface-2); --ed-panel: var(--surface); --ed-panel-2: var(--grouped); --ed-screen: #e4e4e8;
+  --ed-input: var(--fill-2); --ed-input-2: var(--fill); --ed-text: var(--label); --ed-text-2: var(--label-2); --ed-text-3: var(--label-3);
+  --ed-row-bg: var(--tint-soft); --ed-row-fg: var(--tint-press); --ed-sel: var(--tint); --ed-head: var(--red);
   font-family: var(--font);
   color-scheme: light;
 }
-:root {
-  /* project list + editor */
-  --ed-bg: #ececf0; --ed-gap: #d9d9de; --ed-bar: #f7f7f9; --ed-panel: #ffffff; --ed-panel-2: #f2f2f5; --ed-screen: #e4e4e8;
-  --ed-input: #e7e7eb; --ed-input-2: #d6d6dc; --ed-text: #18181b; --ed-text-2: #52525b; --ed-text-3: #75757e;
-  --ed-row-bg: #dbe4ff; --ed-row-fg: #3142a8; --ed-sel: #0b7df2; --ed-head: #e5484d;
-  /* Names some views were written with: the theme's tokens under other names, so they follow light and dark too
-     (left undefined, each fell back to a light colour and the dark theme showed white panels). */
-  --card-bg: var(--surface); --text: var(--label); --sub: var(--label-2); --primary: var(--tint);
-  --fill-1: var(--fill-2); --fill-3: var(--fill); --line: var(--sep);
-}
 :root[data-theme="dark"] {
-  --bg: #0f0f11; --surface: #18181b; --grouped: #141417; --fill: rgba(255, 255, 255, 0.08); --fill-2: rgba(255, 255, 255, 0.05);
-  --sep: rgba(255, 255, 255, 0.09); --label: #f4f4f5; --label-2: #a1a1aa; --label-3: #71717a;
+  --bg: #0f0f11; --surface: #18181b; --surface-2: #1f1f23; --grouped: #141417;
+  --fill: rgba(255, 255, 255, 0.08); --fill-2: rgba(255, 255, 255, 0.05);
+  --sep: rgba(255, 255, 255, 0.10); --sep-2: rgba(255, 255, 255, 0.06);
+  --label: #f4f4f5; --label-2: #a1a1aa; --label-3: #8e8e98;
   --tint: #22b8f0; --tint-press: #0ea5e9; --tint-soft: rgba(34, 184, 240, 0.14);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.4); --shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.6);
-  --ed-bg: #0f0f11; --ed-gap: #000; --ed-bar: #141417; --ed-panel: #18181b; --ed-panel-2: #1f1f23; --ed-screen: #0b0b0d;
-  --ed-input: #27272a; --ed-input-2: #3f3f46; --ed-text: #e4e4e7; --ed-text-2: #a1a1aa; --ed-text-3: #71717a;
-  --ed-row-bg: #312e81; --ed-row-fg: #c7d2fe; --ed-sel: #ffffff; --ed-head: #ffffff;
+  --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 10px 28px rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 20px 52px rgba(0, 0, 0, 0.6);
+  --ed-screen: #0b0b0d; --ed-row-bg: rgba(34, 184, 240, 0.16); --ed-row-fg: var(--tint);
+  color-scheme: dark;
 }
 :root[data-theme="dark"] .toolbar { background: rgba(20, 20, 23, 0.85); }
 :root[data-theme="dark"] .play, :root[data-theme="dark"] .ws-tab.on { color: #0a0a0a; }
@@ -8024,3 +8042,202 @@ body.as-open .fmsg-heads-stack { display: none; }
 .bd-link-svc { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 14px; border-radius: 12px; background: var(--bd-side, var(--surface)); color: var(--bd-text, var(--label)); box-shadow: inset 0 0 0 1px var(--bd-line, var(--sep)); }
 .bd-link-svc p { flex-basis: 100%; margin: 0; font-size: 13px; }
 .bd-link-svc .bk-in { max-width: 240px; }
+
+/* ==========================================================================
+   Stage 5: Unified UI Kit (.ui-*) — clean hierarchy, 1px borders, 400/600 weights
+   ========================================================================== */
+.ui-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 36px; padding: 0 14px; border-radius: var(--r-2);
+  border: 1px solid transparent; font-size: 14px; font-weight: 600; white-space: nowrap;
+  cursor: pointer; transition: background-color var(--ease-ui), border-color var(--ease-ui), opacity var(--ease-ui);
+}
+.ui-btn-sm { height: 32px; padding: 0 12px; font-size: 12px; }
+.ui-btn:disabled { opacity: 0.45; cursor: default; }
+.ui-btn-primary { background: var(--tint); color: #fff; }
+.ui-btn-primary:hover:not(:disabled) { background: var(--tint-press); }
+:root[data-theme="dark"] .ui-btn-primary { color: #09090b; }
+.ui-btn-secondary { background: var(--surface); border-color: var(--sep); color: var(--label); }
+.ui-btn-secondary:hover:not(:disabled) { background: var(--fill-2); }
+.ui-btn-ghost { background: transparent; color: var(--label-2); font-weight: 400; }
+.ui-btn-ghost:hover:not(:disabled) { background: var(--fill-2); color: var(--label); }
+.ui-btn-danger { background: transparent; border-color: color-mix(in srgb, var(--st-critical) 35%, transparent); color: var(--st-critical); }
+.ui-btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--st-critical) 10%, transparent); }
+
+/* Single Stage & State Badge */
+.ui-stage-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 22px; padding: 0 8px; border-radius: var(--r-1);
+  font-size: 12px; font-weight: 600; line-height: 1; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ui-stage-badge.tf-tint { background: color-mix(in srgb, var(--tf) 14%, transparent); color: var(--tf); }
+.ui-stage-badge.tf-solid { background: var(--tf); color: #fff; }
+.ui-stage-badge.tone-neutral { background: var(--fill-2); color: var(--label-2); }
+.ui-stage-badge.tone-doing { background: color-mix(in srgb, var(--stage-execution) 14%, transparent); color: var(--stage-execution); }
+.ui-stage-badge.tone-good { background: color-mix(in srgb, var(--st-good) 14%, transparent); color: var(--st-good); }
+.ui-stage-badge.tone-warn { background: color-mix(in srgb, var(--st-warning) 14%, transparent); color: var(--st-warning); }
+.ui-stage-badge.tone-bad { background: color-mix(in srgb, var(--st-critical) 14%, transparent); color: var(--st-critical); }
+
+/* Horizontal Stage Stepper */
+.ui-stepper { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); list-style: none; margin: 0; padding: 0; }
+.ui-step-wrap { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.ui-step-sep { color: var(--label-3); font-size: 12px; user-select: none; }
+.ui-step {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 26px; padding: 0 10px; border-radius: var(--r-1);
+  border: 1px solid var(--sep); background: var(--surface); color: var(--label-2);
+  font-size: 12px; font-weight: 400; cursor: default;
+}
+button.ui-step { cursor: pointer; }
+button.ui-step:hover { border-color: var(--tf, var(--label-3)); color: var(--label); }
+.ui-step.is-done { color: var(--tf); border-color: color-mix(in srgb, var(--tf) 30%, var(--sep)); }
+.ui-step.is-now {
+  font-weight: 600; color: var(--tf);
+  background: color-mix(in srgb, var(--tf) 12%, transparent);
+  border-color: color-mix(in srgb, var(--tf) 45%, transparent);
+}
+
+/* Typographic Breadcrumb */
+.ui-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; font-weight: 400; color: var(--label-3); min-width: 0; }
+.ui-crumb-sep { color: var(--label-3); user-select: none; }
+.ui-crumb-link, .ui-crumb-text { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-crumb-link { border: 0; padding: 0; background: none; color: var(--label-2); font: inherit; cursor: pointer; }
+.ui-crumb-link:hover { color: var(--tint); text-decoration: underline; }
+.ui-crumb-cur { color: var(--label); font-weight: 600; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 3-level Hierarchy Sidebar Tree (Khách hàng ▸ Nhãn hàng ▸ Dịch vụ) */
+.ui-tree { display: flex; flex-direction: column; gap: var(--sp-2); height: 100%; min-height: 0; padding: var(--sp-3); background: var(--surface); border-right: 1px solid var(--sep); }
+.ui-tree-search {
+  display: flex; align-items: center; gap: var(--sp-2); height: 32px; padding: 0 var(--sp-2);
+  border: 1px solid var(--sep); border-radius: var(--r-2); background: var(--surface-2); color: var(--label-3);
+}
+.ui-tree-search:focus-within { border-color: var(--tint); background: var(--surface); }
+.ui-tree-search input { flex: 1; min-width: 0; border: 0; background: transparent; outline: none; font-size: 12px; color: var(--label); }
+.ui-tree-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.ui-tree-empty { margin: var(--sp-4) var(--sp-2); font-size: 12px; color: var(--label-3); text-align: center; }
+.ui-tree-node { display: flex; flex-direction: column; }
+.ui-tree-children { display: flex; flex-direction: column; padding-left: 14px; }
+.ui-tree-row {
+  display: flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 6px;
+  border-radius: var(--r-2); color: var(--label-2); font-size: 14px; font-weight: 400;
+}
+.ui-tree-row:hover { background: var(--fill-2); color: var(--label); }
+.ui-tree-row.is-active { background: var(--tint-soft); color: var(--tint); font-weight: 600; }
+.ui-tree-chev {
+  flex: none; width: 20px; height: 20px; padding: 0; border: 0; background: none; color: var(--label-3);
+  display: grid; place-items: center; border-radius: var(--r-1); cursor: pointer;
+}
+.ui-tree-chev:hover { color: var(--label); background: var(--fill); }
+.ui-tree-chev .ico { transition: transform var(--ease-ui); }
+.ui-tree-chev.open .ico { transform: rotate(90deg); }
+.ui-tree-label {
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  border: 0; padding: 4px 2px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.ui-tree-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-tree-brand { font-size: 13px; }
+.ui-tree-svc { width: 100%; border: 0; background: none; padding-left: 22px; text-align: left; font-size: 13px; cursor: pointer; }
+.ui-tree-dot { flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--label-3); opacity: 0.6; }
+.ui-tree-row.is-active .ui-tree-dot { background: var(--tint); opacity: 1; }
+.ui-tree-svc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-tree-count { flex: none; font-style: normal; font-size: 12px; font-weight: 400; color: var(--label-3); font-variant-numeric: tabular-nums; }
+
+/* Unified SidePanel & Popup Overlay (150-200ms open/close, shadow reserved strictly for overlay) */
+@keyframes uiPanelFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes uiPopupIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes uiSlideIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+.ui-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; background: rgba(15, 23, 42, 0.45);
+  animation: uiPanelFade var(--ease-ui) forwards;
+}
+:root[data-theme="dark"] .ui-overlay { background: rgba(0, 0, 0, 0.62); }
+.ui-overlay-popup { align-items: center; justify-content: center; padding: var(--sp-4); }
+.ui-overlay-panel { justify-content: flex-end; }
+.ui-panel {
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface); color: var(--label); border: 1px solid var(--sep);
+}
+.ui-panel-popup {
+  width: min(1040px, calc(100vw - 32px)); max-height: calc(100dvh - 32px);
+  border-radius: var(--r-3); box-shadow: var(--shadow-3);
+  animation: uiPopupIn var(--ease-ui) forwards;
+}
+.ui-panel-panel {
+  width: min(640px, 100vw); height: 100%; border-width: 0 0 0 1px;
+  border-radius: 0; box-shadow: var(--shadow-2);
+  animation: uiSlideIn var(--ease-ui) forwards;
+}
+.ui-panel-head {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--sep);
+}
+.ui-panel-title { min-width: 0; flex: 1; }
+.ui-panel-title h2 { margin: 0; font-size: 16px; font-weight: 600; color: var(--label); }
+.ui-panel-actions { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
+.ui-icon-close {
+  width: 30px; height: 30px; display: grid; place-items: center; border: 0;
+  border-radius: var(--r-2); background: transparent; color: var(--label-2); cursor: pointer;
+}
+.ui-icon-close:hover { background: var(--fill-2); color: var(--label); }
+.ui-panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-4); }
+
+/* Flat EmptyState (no circles/gradients) */
+.ui-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); text-align: center;
+  border: 1px dashed var(--sep); border-radius: var(--r-3); background: var(--surface);
+}
+.ui-empty-ico { color: var(--label-3); }
+.ui-empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--label); }
+.ui-empty-desc { margin: 0; max-width: 420px; font-size: 12px; font-weight: 400; color: var(--label-3); }
+.ui-empty-action { margin-top: var(--sp-2); }
+
+/* Unified PageShell ("Tổng task" frame for all non-Workspace screens) */
+.ui-page { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--bg); color: var(--label); }
+.ui-page-head {
+  flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-6) 0; background: var(--surface); border-bottom: 1px solid var(--sep);
+}
+.ui-page-head-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: var(--sp-2); }
+.ui-page-crumbs { padding-top: 2px; }
+.ui-page-title-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-3); }
+.ui-page-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; color: var(--label); }
+.ui-page-sub { font-size: 12px; font-weight: 400; color: var(--label-3); }
+.ui-page-actions { flex: none; display: flex; align-items: center; gap: var(--sp-2); padding-bottom: var(--sp-3); }
+.ui-tabs { display: flex; align-items: center; gap: var(--sp-4); overflow-x: auto; scrollbar-width: none; margin-top: var(--sp-1); }
+.ui-tabs::-webkit-scrollbar { display: none; }
+.ui-tab {
+  position: relative; display: inline-flex; align-items: center; gap: 6px;
+  height: 36px; padding: 0 2px; border: 0; border-bottom: 2px solid transparent;
+  background: none; color: var(--label-2); font-size: 14px; font-weight: 400; white-space: nowrap; cursor: pointer;
+}
+.ui-tab:hover { color: var(--label); }
+.ui-tab.active { color: var(--label); font-weight: 600; border-bottom-color: var(--tint); }
+.ui-tab-count { font-style: normal; font-size: 12px; font-weight: 400; color: var(--label-3); font-variant-numeric: tabular-nums; }
+.ui-toolbar {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-6); background: var(--surface); border-bottom: 1px solid var(--sep);
+}
+.ui-summary-strip {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-6); background: var(--surface-2); border-bottom: 1px solid var(--sep);
+}
+.ui-page-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-4) var(--sp-6) var(--sp-6); }
+
+/* GroupedList hierarchy indent & 40px crisp rows */
+.gl-row { min-height: 40px; }
+.gl-depth-1 { padding-left: 20px; }
+.gl-depth-2 { padding-left: 40px; }
+.gl-depth-3 { padding-left: 60px; }
+.gl-depth-4 { padding-left: 80px; }
+.gl-branch { flex: none; font-size: 12px; color: var(--label-3); margin-right: 2px; }
+
+@media (max-width: 760px) {
+  .ui-page-head { flex-wrap: wrap; padding: var(--sp-3) var(--sp-4) 0; }
+  .ui-toolbar, .ui-summary-strip { padding-inline: var(--sp-4); }
+  .ui-page-body { padding: var(--sp-3) var(--sp-4) var(--sp-6); }
+  .ui-overlay-popup { padding: var(--sp-2); }
+  .ui-panel-popup { width: 100%; max-height: calc(100dvh - 16px); }
+}

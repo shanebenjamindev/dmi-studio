@@ -7,16 +7,16 @@ import { Icon } from './ui';
 export interface GroupColumn<T> { key: string; label: string | ReactNode; render: (row: T) => ReactNode; width?: number; wide?: boolean; end?: boolean }
 export interface Group<T> { key: string; label: string; rows: T[]; color?: string; onAdd?: () => void }
 
-export function GroupedList<T extends { id: string }>({ groups, columns, name, nameLabel, check, selection, onOpen, selected, foldKey, addLabel = 'Tạo mới', hideEmpty }: {
+export function GroupedList<T extends { id: string }>({ groups, columns, name, nameLabel, check, selection, indent, onOpen, selected, foldKey, addLabel = 'Tạo mới', hideEmpty }: {
   groups: Group<T>[]; columns: GroupColumn<T>[]; name: (row: T) => ReactNode; nameLabel: string;
   check?: { done: (row: T) => boolean; toggle: (row: T) => void; label: (row: T) => string; all?: boolean; toggleAll?: (checked: boolean) => void; canCheck?: (row: T) => boolean };
   selection?: { selected: string[]; toggle: (id: string) => void; all?: boolean; toggleAll?: (checked: boolean) => void };
+  indent?: (row: T) => number;
   onOpen: (row: T) => void; selected?: string | null; foldKey: string; addLabel?: string; hideEmpty?: boolean;
 }) {
   // Which groups are folded, remembered per list in this browser.
   const [folded, setFolded] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem(foldKey) || '[]'); } catch { return []; } });
   const fold = (k: string) => { const next = folded.includes(k) ? folded.filter((x) => x !== k) : [...folded, k]; setFolded(next); try { localStorage.setItem(foldKey, JSON.stringify(next)); } catch { /* private mode */ } };
-  const span = columns.length + 1 + (selection ? 1 : 0);
   return (
     <div className="gl-wrap" role="region" aria-label={nameLabel} tabIndex={0}>
       <table className="gl">
@@ -44,13 +44,15 @@ export function GroupedList<T extends { id: string }>({ groups, columns, name, n
             <tbody key={g.key} className={shut ? 'shut' : ''}>
               <tr className="gl-group">
                 <th className="gl-name" colSpan={selection ? 2 : 1}><div className="gl-group-h">
-                  <button className="gl-fold" onClick={() => fold(g.key)} aria-expanded={!shut}><Icon name="chevron" size={13} className={shut ? 'gl-closed' : ''} />{g.color && <i style={{ background: g.color }} />}<b>{g.label}</b><span>({g.rows.length})</span></button>
-                  {g.onAdd && <button className="gl-add" onClick={g.onAdd}><Icon name="plus" size={13} />{addLabel}</button>}
+                  <button type="button" className="gl-fold" onClick={() => fold(g.key)} aria-expanded={!shut}><Icon name="chevron" size={13} className={shut ? 'gl-closed' : ''} />{g.color && <i style={{ background: g.color }} />}<b>{g.label}</b><span>({g.rows.length})</span></button>
+                  {g.onAdd && <button type="button" className="gl-add" onClick={g.onAdd}><Icon name="plus" size={13} />{addLabel}</button>}
                 </div></th>
                 <td colSpan={columns.length} />
               </tr>
-              {!shut && g.rows.map((r) => (
-                <tr key={r.id} className={'gl-row' + (selected === r.id ? ' on' : '') + (selection?.selected.includes(r.id) ? ' checked' : '')} onClick={() => onOpen(r)}>
+              {!shut && g.rows.map((r) => {
+                const depth = Math.min(4, Math.max(0, indent ? indent(r) : 0));
+                return (
+                <tr key={r.id} className={'gl-row' + (selected === r.id ? ' on' : '') + (selection?.selected.includes(r.id) ? ' checked' : '') + (depth > 0 ? ' is-sub' : '')} onClick={() => onOpen(r)}>
                   {selection && (
                     <td className="gl-sel" style={{ width: 36, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                       <input
@@ -62,14 +64,16 @@ export function GroupedList<T extends { id: string }>({ groups, columns, name, n
                     </td>
                   )}
                   <th className="gl-name" scope="row">
-                    <span className="gl-title">
+                    <span className={'gl-title' + (depth > 0 ? ` gl-depth-${depth}` : '')}>
+                      {depth > 0 && <span className="gl-branch" aria-hidden="true">└</span>}
                       {check && (!check.canCheck || check.canCheck(r)) && <input type="checkbox" checked={check.done(r)} aria-label={check.label(r)} onClick={(e) => e.stopPropagation()} onChange={() => check.toggle(r)} />}
                       <span>{name(r)}</span>
                     </span>
                   </th>
                   {columns.map((c) => <td key={c.key} className={(c.wide ? '' : 'gl-narrow') + (c.end ? ' gl-end' : '')}>{c.render(r)}</td>)}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           );
         })}

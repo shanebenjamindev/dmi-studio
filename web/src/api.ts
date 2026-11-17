@@ -184,23 +184,48 @@ export const api = {
     req('DELETE', `/api/chat/messages?channel=${channel}${recipientId ? `&recipientId=${recipientId}` : ''}`),
   planner: (from: number, to: number) => req<PlannerCard[]>('GET', `/api/planner?from=${from}&to=${to}`),
   syncTasksToBoard:()=>req<{total:number;created:number;linked:number;remaining:number}>('POST','/api/tasks/sync-board',{}),
-  tasks: (q: { scope?: 'mine' | 'team' | 'all'; rel?: string; team?: string; person?: string; employee?:string; project?: string; campaign?:string; state?: string; q?: string }) =>
+  tasks: (q: { scope?: 'mine' | 'team' | 'all'; rel?: string; team?: string; person?: string; employee?: string; customer?: string; brand?: string; brandService?: string; service?: string; project?: string; campaign?: string; state?: string; q?: string }) =>
     req<{ tasks: TaskItem[]; linked: boolean }>('GET', `/api/tasks?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}`),
-  projectMembers:(id:string)=>req<{ownerId:string;teamId:string|null;level:'admin'|'normal'|'observer';members:{id:string;name:string;level:ProjectRole}[];people:{id:string;name:string;teamId:string|null}[];teams:{id:string;name:string}[]}>('GET',`/api/task-projects/${id}/members`),
-  setProjectTeam:(id:string,teamId:string|null)=>req('PUT',`/api/task-projects/${id}/team`,{teamId}),
-  setProjectMember:(id:string,userId:string,level:ProjectRole)=>req('PUT',`/api/task-projects/${id}/members/${userId}`,{level}),
-  removeProjectMember:(id:string,userId:string)=>req('DELETE',`/api/task-projects/${id}/members/${userId}`),
-  projectCampaigns: (project: string) => req<TaskCampaign[]>('GET', `/api/task-projects/${project}/campaigns`),
+  brands: (q?: { customerId?: string; q?: string }) =>
+    req<import('./types').Brand[]>('GET', `/api/brands${q ? `?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}` : ''}`),
+  customerBrands: (customerId: string) => req<import('./types').Brand[]>('GET', `/api/customers/${customerId}/brands`),
+  brand: (id: string) => req<import('./types').Brand>('GET', `/api/brands/${id}`),
+  createBrand: (customerId: string, b: { name: string; notes?: string; logo?: string | null; driveFolder?: any; driveLink?: string }) =>
+    req<import('./types').Brand>('POST', `/api/customers/${customerId}/brands`, b),
+  updateBrand: (id: string, b: { name?: string; notes?: string; logo?: string | null; pos?: number; driveFolder?: any; driveLink?: string }) =>
+    req<import('./types').Brand>('PUT', `/api/brands/${id}`, b),
+  deleteBrand: (id: string, moveToBrandId?: string) =>
+    req<{ ok: true }>('DELETE', `/api/brands/${id}${moveToBrandId ? `?moveToBrandId=${encodeURIComponent(moveToBrandId)}` : ''}`),
+  brandServices: (q?: { customerId?: string; brandId?: string; serviceId?: string }) =>
+    req<import('./types').BrandServiceItem[]>('GET', `/api/brand-services${q ? `?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}` : ''}`),
+  brandService: (id: string) => req<import('./types').BrandServiceItem>('GET', `/api/brand-services/${id}`),
+  createBrandService: (b: { brandId: string; catalogServiceId: string; name?: string; teamId?: string | null }) =>
+    req<import('./types').BrandServiceItem>('POST', '/api/brand-services', b),
+  brandServiceForService: (brandId: string, catalogServiceId: string) =>
+    req<{ id: string; name: string; created: boolean }>('POST', '/api/brand-services/for-service', { brandId, catalogServiceId }),
+  updateBrandService: (id: string, b: { name?: string; brandId?: string; catalogServiceId?: string; teamId?: string | null; hold?: 'paused' | 'cancelled' | null }) =>
+    req<{ ok: true; id: string; name: string; brandId: string | null; catalogServiceId: string; teamId: string | null }>('PUT', `/api/brand-services/${id}`, b),
+  deleteBrandService: (id: string) => req<{ ok: true }>('DELETE', `/api/brand-services/${id}`),
+  bulkDeleteBrandServices: (ids: string[]) => req<{ ok: true; deleted: number }>('POST', '/api/brand-services/bulk-delete', { ids }),
+  brandServiceMembers: (id: string) =>
+    req<{ ownerId: string; teamId: string | null; level: 'admin' | 'normal' | 'observer'; members: { id: string; name: string; level: ProjectRole }[]; people: { id: string; name: string; teamId: string | null }[]; teams: { id: string; name: string }[] }>('GET', `/api/brand-services/${id}/members`),
+  setBrandServiceTeam: (id: string, teamId: string | null) => req('PUT', `/api/brand-services/${id}/team`, { teamId }),
+  setBrandServiceMember: (id: string, userId: string, level: ProjectRole) => req('PUT', `/api/brand-services/${id}/members/${userId}`, { level }),
+  removeBrandServiceMember: (id: string, userId: string) => req('DELETE', `/api/brand-services/${id}/members/${userId}`),
+  projectMembers:(id:string)=>req<{ownerId:string;teamId:string|null;level:'admin'|'normal'|'observer';members:{id:string;name:string;level:ProjectRole}[];people:{id:string;name:string;teamId:string|null}[];teams:{id:string;name:string}[]}>('GET',`/api/brand-services/${id}/members`),
+  setProjectTeam:(id:string,teamId:string|null)=>req('PUT',`/api/brand-services/${id}/team`,{teamId}),
+  setProjectMember:(id:string,userId:string,level:ProjectRole)=>req('PUT',`/api/brand-services/${id}/members/${userId}`,{level}),
+  removeProjectMember:(id:string,userId:string)=>req('DELETE',`/api/brand-services/${id}/members/${userId}`),
+  projectCampaigns: (_project: string) => Promise.resolve([] as TaskCampaign[]),
   createCampaign: (project:string,name:string)=>req<TaskCampaign>('POST',`/api/task-projects/${project}/campaigns`,{name}),
   renameCampaign:(project:string,id:string,name:string)=>req('PUT',`/api/task-projects/${project}/campaigns/${id}`,{name}),
   deleteCampaign:(project:string,id:string)=>req('DELETE',`/api/task-projects/${project}/campaigns/${id}`),
-  renameTaskProject:(id:string,name:string)=>req<{ok:true;id:string;name:string}>('PUT',`/api/task-projects/${id}`,{name}),
-  updateTaskProject:(id:string,b:{name?:string;customerId?:string|null;teamId?:string|null;hold?:'paused'|'cancelled'|null;services?:string[]})=>req<{ok:true;id:string;name:string;customerId:string|null;teamId:string|null}>('PUT',`/api/task-projects/${id}`,b),
+  renameTaskProject:(id:string,name:string)=>req<{ok:true;id:string;name:string}>('PUT',`/api/brand-services/${id}`,{name}),
+  updateTaskProject:(id:string,b:{name?:string;customerId?:string|null;teamId?:string|null;hold?:'paused'|'cancelled'|null;services?:string[]})=>req<{ok:true;id:string;name:string;customerId:string|null;teamId:string|null}>('PUT',`/api/brand-services/${id}`,b),
   createTaskProject:(b:{name:string;customerId?:string|null;teamId?:string|null;services?:string[]})=>req<{id:string;name:string;customerId:string|null;teamId:string|null}>('POST','/api/task-projects',b),
-  /** The project behind a customer's service (one per customer × service), made on the spot if there is none yet. */
   projectForService:(customerId:string,serviceId:string)=>req<{id:string;name:string;created:boolean}>('POST','/api/task-projects/for-service',{customerId,serviceId}),
-  deleteTaskProject:(id:string)=>req<{ok:true}>('DELETE',`/api/task-projects/${id}`),
-  bulkDeleteTaskProjects:(ids:string[])=>req<{ok:true;deleted:number}>('POST','/api/task-projects/bulk-delete',{ids}),
+  deleteTaskProject:(id:string)=>req<{ok:true}>('DELETE',`/api/brand-services/${id}`),
+  bulkDeleteTaskProjects:(ids:string[])=>req<{ok:true;deleted:number}>('POST','/api/brand-services/bulk-delete',{ids}),
   taskMeta: () => req<TaskMeta>('GET', '/api/tasks/meta'),
   task: (id: string) => req<TaskDetail>('GET', `/api/tasks/${id}`),
   createTask: (body: TaskWrite) => req<{ id: string }>('POST', '/api/tasks', body),

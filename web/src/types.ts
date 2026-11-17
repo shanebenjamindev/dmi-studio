@@ -105,6 +105,68 @@ export interface TaskReviewRound {
   id: string; round: number; submittedBy: { id: string; name: string } | null; submittedAt: number; note: string; result: string | null; resultHidden: boolean;
   outcome: import('../../shared/task-flow').FlowOutcome | null; reviewer: { id: string; name: string } | null; reviewedAt: number | null; feedback: string;
 }
+export interface BrandServiceRef {
+  id: string;
+  name: string;
+  brandId?: string | null;
+  brandName?: string | null;
+  customerId?: string | null;
+  catalogServiceId?: string | null;
+}
+
+export interface BrandServiceItem {
+  id: string;
+  name: string;
+  catalogServiceId: string;
+  catalogServiceName?: string | null;
+  brandId: string | null;
+  brandName?: string | null;
+  customerId: string | null;
+  customerName?: string | null;
+  hold?: import('../../shared/projects').ProjectHold | null;
+  stage?: import('../../shared/projects').ProjectStage;
+  tasks: number;
+  completed?: number;
+  overdue?: number;
+  level: Level;
+  teamId?: string | null;
+  createdBy?: string | null;
+  createdAt?: number | null;
+  updatedAt?: number | null;
+  assignees?: TaskPerson[];
+  services?: ServiceRef[];
+}
+
+export interface Brand {
+  id: string;
+  customerId: string;
+  customerName?: string;
+  name: string;
+  logo?: string | null;
+  notes?: string;
+  pos?: number;
+  driveFolder?: { kind?: 'gdrive'; account: string; id: string; label?: string } | null;
+  effectiveDriveFolder?: { kind?: 'gdrive'; account: string; id: string; label?: string } | null;
+  driveInherited?: boolean;
+  catalogServices?: ServiceRef[];
+  brandServices?: {
+    id: string;
+    name: string;
+    catalogServiceId: string;
+    hold: import('../../shared/projects').ProjectHold | null;
+    tasks: number;
+    completed: number;
+    level: Level;
+    stage: import('../../shared/projects').ProjectStage;
+  }[];
+  servicesCount?: number;
+  tasksCount?: number;
+  completedCount?: number;
+  createdBy?: string | null;
+  createdAt?: number | null;
+  updatedAt?: number | null;
+}
+
 export interface TaskItem {
   stage?: import('../../shared/task-flow').FlowStage;
   /** Rounds sent back with REDO, and when it was last handed in for review. */
@@ -113,6 +175,8 @@ export interface TaskItem {
   boardLink?:{cardId:string;boardId:string;boardName:string;listName:string;listId:string}|null;hasBoardLink?:boolean;
   canDelete?: boolean;
   id: string; externalId: string | null; title: string; status: string; state: TaskState; startAt: number | null; dueAt: number | null; doneAt: number | null;
+  brandService?: BrandServiceRef | null;
+  brand?: { id: string; name: string } | null;
   project: { id: string; name: string; customerId: string | null } | null; customer?: { id: string; name: string } | null; parent: { id: string; title: string } | null; children: number;
   priority?: { id: string; name: string; color: string; pos?: number } | null; readOnly?: boolean;
   createdBy: { id: string; name: string; userId?: string | null } | null; assignees: TaskPerson[]; cardPeople?: TaskPerson[]; followers: { id: string; name: string; avatarAt?: number | null }[]; labels: string[]; services?: ServiceRef[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number; createdAt?: number;
@@ -129,14 +193,18 @@ export interface TaskDetail extends TaskItem {
 export interface TaskMeta {
   campaigns:TaskCampaign[]; teams:{id:string;name:string;color:string}[];
   workTeams?:{id:string;name:string;color:string;departmentId:string|null;memberIds:string[];leaderIds:string[]}[];
-  people: (TaskPerson & { userName: string | null; tasks: number })[]; projects: { id: string; name: string; customerId: string | null; customerName?: string | null; teamId:string|null;createdBy:string|null;createdAt?:number|null;updatedAt?:number|null;level:Level;tasks: number; completed?: number; overdue?: number; assignees?: TaskPerson[]; stage?: import('../../shared/projects').ProjectStage; hold?: import('../../shared/projects').ProjectHold | null; services?: ServiceRef[] }[];
+  people: (TaskPerson & { userName: string | null; tasks: number })[];
+  brands?: Brand[];
+  brandServices?: BrandServiceItem[];
+  serviceCatalog?: ServiceRef[];
+  projects: { id: string; name: string; brandId?: string | null; brandName?: string | null; catalogServiceId?: string | null; customerId: string | null; customerName?: string | null; teamId:string|null;createdBy:string|null;createdAt?:number|null;updatedAt?:number|null;level:Level;tasks: number; completed?: number; overdue?: number; assignees?: TaskPerson[]; stage?: import('../../shared/projects').ProjectStage; hold?: import('../../shared/projects').ProjectHold | null; services?: ServiceRef[] }[];
   mine: string[]; statuses: string[]; users: { id: string; name: string; email: string; teamId: string | null; workTeamIds?: string[] }[];
   labels?: { id: string; name: string; color: string }[];
   imports: { id: string; rows: number; created: number; updated: number; at: number; by: string; sourceName: string; hasSheet: boolean }[];
 }
 export interface TaskWrite {
   title?: string; description?: string; result?: string; status?: string; startAt?: number | null; dueAt?: number | null;
-  campaignId?: string | null; projectId?: string | null; parentId?: string | null; assigneeIds?: string[]; assigneeUserIds?: string[]; followerUserIds?: string[]; labels?: string[]; services?: string[];
+  campaignId?: string | null; brandServiceId?: string | null; projectId?: string | null; parentId?: string | null; assigneeIds?: string[]; assigneeUserIds?: string[]; followerUserIds?: string[]; labels?: string[]; services?: string[];
   /** On a new task only: who reviews it (none: whoever makes it). */
   reviewerUserId?: string;
 }
