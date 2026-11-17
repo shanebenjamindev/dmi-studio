@@ -5,7 +5,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
-export const IS_CLOUDFLARE = process.env.DMS_RUNTIME === 'cloudflare';
+export const IS_CLOUDFLARE = process.env.DMS_RUNTIME === 'cloudflare' || (typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers') || typeof (globalThis as any).WebSocketPair !== 'undefined';
 export const ROOT = IS_CLOUDFLARE ? '/tmp/dm-studio' : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // Minimal .env loader (no dependency). Real environment variables win.

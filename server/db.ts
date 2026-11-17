@@ -210,12 +210,14 @@ export const uid = (p = '') => p + crypto.randomUUID().replace(/-/g, '').slice(0
 export const now = () => Date.now();
 
 export async function all<T = any>(sql: string, ...args: SqlValue[]): Promise<T[]> {
+  if (!db && !IS_CLOUDFLARE) await initDatabase();
   return (await db.execute({ sql, args })).rows as unknown as T[];
 }
 export async function get<T = any>(sql: string, ...args: SqlValue[]): Promise<T | undefined> {
   return (await all<T>(sql, ...args))[0];
 }
 export async function run(sql: string, ...args: SqlValue[]) {
+  if (!db && !IS_CLOUDFLARE) await initDatabase();
   const result = await db.execute({ sql, args });
   return { changes: result.rowsAffected, lastInsertRowid: result.lastInsertRowid };
 }
@@ -228,5 +230,3 @@ export async function setSetting(key: string, value: any) {
   if (value === undefined || value === null || value === '') await run('DELETE FROM settings WHERE key = ?', key);
   else await run('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value));
 }
-// Last, so everything above (uid, getSetting…) exists while the local database is set up.
-if (!IS_CLOUDFLARE) await initDatabase();
