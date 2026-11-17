@@ -327,4 +327,18 @@ CREATE TABLE IF NOT EXISTS user_gmail (
   refresh TEXT NOT NULL, access TEXT, expiry INTEGER, created_at INTEGER NOT NULL,
   signature TEXT NOT NULL DEFAULT '', signature_on INTEGER NOT NULL DEFAULT 1
 );
+-- Khách hàng -> Nhãn hàng: each customer has one or more brands (default brand shares customer name).
+CREATE TABLE IF NOT EXISTS brands (
+  id TEXT PRIMARY KEY, customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, name TEXT NOT NULL,
+  logo TEXT, notes TEXT NOT NULL DEFAULT '', pos REAL NOT NULL DEFAULT 0, drive_folder TEXT,
+  created_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS brands_customer ON brands(customer_id, deleted_at, pos);
+-- Google Drive per DMI account: each signed-in user connects one or more of their own Gmail accounts.
+CREATE TABLE IF NOT EXISTS user_google_accounts (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, email TEXT NOT NULL,
+  name TEXT, picture TEXT, refresh TEXT NOT NULL, scopes TEXT NOT NULL DEFAULT 'drive',
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, UNIQUE(user_id, email)
+);
+CREATE INDEX IF NOT EXISTS user_google_accounts_user ON user_google_accounts(user_id);
 `;
