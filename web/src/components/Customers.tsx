@@ -19,6 +19,7 @@ import { ProjectEditDialog } from './ProjectEditDialog';
 import { CustomerDashboard, type CustomerView } from './CustomerDashboard';
 import { CustomerOverview, CustomerContext, CustomerTasks, CustomerMembersTab, CustomerHistory } from './CustomerTabs';
 import { ReportList } from './Reports';
+import { CustomerSpaces } from './CustomerSpaces';
 import type { CustomerRecord, Loc, ServiceRef, TaskMeta } from '../types';
 import { askConfirm } from './AskDialog';
 
@@ -44,7 +45,7 @@ export function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   // Each customer opens on its overview; one tab for each kind of thing about it.
-  type Tab = 'overview' | 'campaigns' | 'tasks' | 'drive' | 'reports' | 'members' | 'history';
+  type Tab = 'overview' | 'workspaces' | 'campaigns' | 'tasks' | 'drive' | 'reports' | 'members' | 'history';
   const [tab, setTab] = useState<Tab>('overview');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [catalog, setCatalog] = useState<ServiceRef[]>([]);
@@ -123,6 +124,7 @@ export function CustomersPage() {
         </div>
         <ReadingTabs vertical className="crm-vtabs" label="Thông tin khách hàng" value={tab} items={[
           {value:'overview' as Tab,label:sideFolded ? '' : 'Tổng quan',icon:'info'},
+          {value:'workspaces' as Tab,label:sideFolded ? '' : 'Workspace & board',icon:'boards'},
           {value:'campaigns' as Tab,label:sideFolded ? '' : `Dịch vụ (${current?.projects ?? campaigns.length})`,icon:'layers'},
           {value:'tasks' as Tab,label:sideFolded ? '' : `Công việc (${current?.tasks ?? 0})`,icon:'checklist'},
           ...(drive?[{value:'drive' as Tab,label:sideFolded ? '' : 'Drive',icon:'folder'}]:[]),
@@ -146,7 +148,8 @@ export function CustomersPage() {
       : tab === 'overview' ? <><div className="crm-detail-stages"><CustomerStages status={current.status||''} disabled={!manage||busy} onChange={status=>void act(async()=>{await api.saveCustomerRecord(current.id,{status:status||null});await load();})}/></div><div className="tk-reading-grid crm-detail-layout"><div className="crm-detail-body"><CustomerOverview key={selected} c={current} view={view} onTab={(t) => setTab(t as Tab)} onChanged={load} /></div><CustomerContext c={current} onTab={t=>{setTab(t as Tab);setCampaign(null);}} onChanged={load}/></div></>
       : campaign ? <ProjectCampaigns key={campaign.id} id={campaign.id} name={campaign.name} displayView="list" onBack={() => { setCampaign(null); loadCampaigns(selected); }} onEdited={() => { void loadCampaigns(selected); void load(); }} onDeleted={() => { setCampaign(null); void loadCampaigns(selected); void load(); }} />
       : <div className="crm-detail-body crm-tab-surface">{
-        tab === 'tasks' ? <CustomerTasks key={selected} id={selected} view={view} />
+        tab === 'workspaces' ? <CustomerSpaces key={selected} id={selected} name={current.name} manage={manage} catalog={catalog} onChanged={() => { void load(); void loadCampaigns(selected); }} />
+        : tab === 'tasks' ? <CustomerTasks key={selected} id={selected} view={view} />
         : tab === 'members' ? <CustomerMembersTab key={selected} id={selected} onManage={() => setSharing(true)} />
         : tab === 'history' ? <CustomerHistory key={selected} id={selected} />
         : tab === 'drive' ? <CustomerDetail key={selected} id={selected} admin={manage} canDelete={!!current?.canDelete} viewOnly={current?.level==='observer'||user.level==='observer'} onChanged={load} onDeleted={() => { select(null); load(); }} />
@@ -165,7 +168,7 @@ export function CustomersPage() {
           </div>}
           {!campaigns.length && <p className="note">Khách hàng chưa có dịch vụ nào. Thêm một dịch vụ để bắt đầu giao công việc cho khách.</p>}
           {manage && !catalog.length && <p className="note">Danh mục dịch vụ đang trống. <a href="#admin/services/list">Thêm dịch vụ trong Quản trị</a> để chọn được ở đây.</p>}
-          <div className="crm-campaign-grid crm-project-list">{campaigns.map((c) => { const svc = c.services?.[0]?.name; return <article key={c.id}><button className="crm-campaign-title" onClick={() => setCampaign({ ...c, name: svc || c.name })}><Icon name="layers" size={20} /><b>{svc || c.name}</b><span>{c.tasks} công việc{svc && svc !== c.name ? ` · ${c.name}` : ''}</span></button>{(c.services?.length || 0) > 1 && <span className="crm-need-chips" title="Các dịch vụ khác của nhóm này">{c.services!.slice(1).map((sv) => <span key={sv.id} className="crm-need-chip plain">{sv.name}</span>)}</span>}{manage && <div className="crm-campaign-actions"><button className="btn btn-gray btn-sm" disabled={busy} onClick={() => { const row = meta?.projects.find((p) => p.id === c.id); if (row) setEditingProject(row); else toast('Không tìm thấy dịch vụ này', true); }}><Icon name="edit" size={13} />Sửa</button><button className="btn btn-gray btn-sm" disabled={busy} onClick={async () => { if (await askConfirm(`Gỡ liên kết “${c.name}” khỏi khách hàng? Dịch vụ và công việc vẫn được giữ.`)) act(async () => { await api.updateCustomerProject(selected, c.id, { unlink: true }); await loadCampaigns(selected); }); }}>Gỡ liên kết</button><button className="btn btn-sm cm-danger" disabled={busy} onClick={async () => { if (await askConfirm(`Xoá dịch vụ “${svc || c.name}” khỏi khách hàng? Các công việc được giữ lại, chỉ không còn thuộc dịch vụ này.`)) act(async () => { await api.deleteTaskProject(c.id); await loadCampaigns(selected); await load(); }); }}>Xoá</button></div>}</article>; })}</div>
+          <div className="crm-campaign-grid crm-project-list">{campaigns.map((c) => { const svc = c.services?.[0]?.name; return <article key={c.id}><button className="crm-campaign-title" onClick={() => setCampaign({ ...c, name: svc || c.name })}><Icon name="layers" size={20} /><b>{svc || c.name}</b><span>{c.tasks} công việc{svc && svc !== c.name ? ` · ${c.name}` : ''}</span></button>{(c.services?.length || 0) > 1 && <span className="crm-need-chips" title="Các dịch vụ khác của nhóm này">{c.services!.slice(1).map((sv) => <span key={sv.id} className="crm-need-chip plain">{sv.name}</span>)}</span>}{manage && <div className="crm-campaign-actions"><button className="btn btn-gray btn-sm" disabled={busy} onClick={() => { const row = meta?.projects.find((p) => p.id === c.id); if (row) setEditingProject(row); else toast('Không tìm thấy dịch vụ này', true); }}><Icon name="edit" size={13} />Sửa</button><button className="btn btn-gray btn-sm" disabled={busy} onClick={async () => { if (await askConfirm(`Gỡ liên kết “${c.name}” khỏi khách hàng? Dịch vụ và công việc vẫn được giữ.`)) act(async () => { await api.updateCustomerProject(selected, c.id, { unlink: true }); await loadCampaigns(selected); }); }}>Gỡ liên kết</button><button className="btn btn-gray btn-sm crm-btn-danger" disabled={busy} onClick={async () => { if (await askConfirm(`Xoá dịch vụ “${svc || c.name}” khỏi khách hàng? Các công việc được giữ lại, chỉ không còn thuộc dịch vụ này.`)) act(async () => { await api.deleteTaskProject(c.id); await loadCampaigns(selected); await load(); }); }}><Icon name="trash" size={13} />Xoá</button></div>}</article>; })}</div>
         </section>
       }</div>}
       </div>

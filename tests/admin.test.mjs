@@ -220,6 +220,15 @@ test('admin module: task and customer records, their history, and the lists the 
     assert.equal(ok(await s.call('GET',`/api/customers/${legacy.id}/record`,undefined,b)).category,null);
 
     assert.equal((await s.call('POST', '/api/admin/services', { name: 'x', image: 'http://insecure.test/a.png' }, b)).status, 400);
+    // A service is put in its packages from its own form; one it stays in keeps the quantity the package gave it.
+    const care = ok(await s.call('POST', '/api/admin/service-packages', { name: 'Gói chăm sóc', items: [{ serviceId: ppf.id, qty: 2 }] }, b));
+    const full = ok(await s.call('POST', '/api/admin/service-packages', { name: 'Gói trọn bộ', items: [] }, b));
+    assert.deepEqual(ok(await s.call('PUT', `/api/admin/services/${ppf.id}`, { packageIds: [care.id, full.id] }, b)).packages.map((p) => p.name), ['Gói chăm sóc', 'Gói trọn bộ']);
+    assert.equal(ok(await s.call('GET', '/api/admin/service-packages', undefined, b)).find((p) => p.id === care.id).items[0].qty, 2);
+    assert.deepEqual(ok(await s.call('GET', `/api/admin/services?package=${full.id}`, undefined, b)).items.map((x) => x.id), [ppf.id]);
+    assert.equal(ok(await s.call('PUT', `/api/admin/services/${ppf.id}`, { packageIds: [care.id] }, b)).packages.length, 1);
+    assert.ok(ok(await s.call('GET', '/api/admin/services?package=none', undefined, b)).items.every((x) => x.id !== ppf.id));
+    assert.equal((await s.call('PUT', `/api/admin/services/${ppf.id}`, { packageIds: ['sp_missing'] }, b)).status, 400);
     const c = ok(await s.call('POST', '/api/admin/customers', { name: 'Garage A', categoryId: vip.id, managerId: ann.id, status: 'lead' }, b));
     // Its services are those of its projects: set on a project, seen on the customer, gone when the project drops them.
     const garageProject = ok(await s.call('POST', `/api/customers/${c.id}/projects`, { name: 'Dán PPF Garage A', services: [ppf.id] }, b));
@@ -423,8 +432,10 @@ test('admin & global search handle #, brackets, hyphens, unaccented Vietnamese, 
     }
 
     // 4. Bulk delete task projects
-    const p1 = ok(await s.call('POST', '/api/task-projects', { name: 'Proj Bulk 1' }, b));
-    const p2 = ok(await s.call('POST', '/api/task-projects', { name: 'Proj Bulk 2' }, b));
+    // A service is always a customer's.
+    const owner = ok(await s.call('POST', '/api/customers', { name: 'Proj Bulk owner', databaseOnly: true }, b));
+    const p1 = ok(await s.call('POST', '/api/task-projects', { name: 'Proj Bulk 1', customerId: owner.id }, b));
+    const p2 = ok(await s.call('POST', '/api/task-projects', { name: 'Proj Bulk 2', customerId: owner.id }, b));
     const pDel = ok(await s.call('POST', '/api/task-projects/bulk-delete', { ids: [p1.id, p2.id] }, b));
     assert.equal(pDel.deleted, 2);
   } finally {

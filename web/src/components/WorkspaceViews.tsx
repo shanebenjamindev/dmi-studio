@@ -152,11 +152,13 @@ function TreeNode({ c, depth, under, board, onCard, dnd }: { c: TreeCard; depth:
 
 // ---------------------------------------------------------------- the workspace's timeline
 /** Every dated card on the workspace's boards over time, a row per board or per client; a card opens in place. */
-export function WorkspaceTimeline({ wsId, boards, spaces, onCard, onTask }: { wsId: string; boards: BoardItem[]; spaces?: Workspace[]; onCard: (boardId: string, cardId: string) => void; onTask: (taskId: string) => void }) {
+/** `customerId`: one customer's work only (the Workspace page's customer filter). */
+export function WorkspaceTimeline({ wsId, boards, spaces, customerId, onCard, onTask }: { wsId: string; boards: BoardItem[]; spaces?: Workspace[]; customerId?: string; onCard: (boardId: string, cardId: string) => void; onTask: (taskId: string) => void }) {
   const [rows, setRows] = useState<ClientCard[] | null>(null), [error, setError] = useState('');
   const [by, setByState] = useState<'board' | 'client' | 'workspace'>(() => {
     const v = read('dms.timelineBy');
-    return v === 'workspace' && spaces?.length ? 'workspace' : v === 'client' ? 'client' : 'board';
+    // By customer unless chosen otherwise: every workspace and board is one customer's.
+    return v === 'workspace' && spaces?.length ? 'workspace' : v === 'board' ? 'board' : 'client';
   });
   const setBy = (v: 'board' | 'client' | 'workspace') => { setByState(v); keep('dms.timelineBy', v); };
   const stamp = boards.map((b) => b.id + b.updatedAt).join();
@@ -166,7 +168,7 @@ export function WorkspaceTimeline({ wsId, boards, spaces, onCard, onTask }: { ws
   const none = 'Không gắn khách hàng';
   const noneWs = 'Workspace chung';
   // Subtasks without a card belong to no board: they show by client or workspace only.
-  const shown = rows.filter((c) => by === 'client' || by === 'workspace' || c.boardId);
+  const shown = rows.filter((c) => (by === 'client' || by === 'workspace' || c.boardId) && (!customerId || c.customerId === customerId));
   const cards = shown.map((c) => ({
     id: c.id,
     title: c.title,

@@ -8,7 +8,7 @@ import type { AdminAccess, TeamRole, User, Page } from './types';
 
 /** Công việc: personal tasks, services and department boards; Drive holds the customers' folders;
  *  'tools': file conversion, open to everyone (it runs in the browser). */
-export type View = 'profile' | 'customers' | 'boards' | 'tasks' | 'projects' | 'workspace' | 'admin' | 'tools' | 'reports' | 'ads';
+export type View = 'profile' | 'customers' | 'boards' | 'tasks' | 'projects' | 'workspace' | 'admin' | 'tools' | 'reports' | 'ads' | 'mail';
 export interface AppState {
   ready: boolean;
   /** Signed-in DMI Workspace account; null shows the sign-in page. */
@@ -31,7 +31,7 @@ export interface AppState {
   toast: { text: string; err?: boolean; id: number } | null;
 }
 
-export const HASH: Partial<Record<View, string>> = { profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', reports: '#reports', ads: '#ads', tools: '#tools', admin: '#admin' };
+export const HASH: Partial<Record<View, string>> = { profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', reports: '#reports', ads: '#ads', tools: '#tools', mail: '#mail', admin: '#admin' };
 /** The page an address opens (the reverse of HASH); any other address opens the boards. */
 const viewOfHash = (hash: string) => (Object.keys(HASH) as View[]).find((v) => hash.startsWith(HASH[v]!)) ?? 'boards';
 
@@ -107,6 +107,8 @@ export function openPages(): View[] {
   out.push('reports');
   if (state.pages.includes('ads') || state.user?.role === 'admin') out.push('ads');
   out.push('tools');
+  // Hộp thư: everyone, each with their own Gmail.
+  out.push('mail');
   // Quản trị: company admins, and whoever a role gives any of its permissions (each page inside checks its own).
   if (state.user?.role === 'admin' || Object.keys(state.admin?.perms || {}).length) out.push('admin');
   return out;

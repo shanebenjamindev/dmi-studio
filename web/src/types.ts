@@ -59,6 +59,8 @@ export interface BoardItem {
    *  members when `memberEdit`. */
   id: string; name: string; bg: string; roleId: string | null; workspaceId: string; private: boolean; createdBy: string | null;
   starred: boolean; cards: number; taskCount?: number; updatedAt: number; level: Level; memberEdit: boolean; canShape: boolean; labelText: boolean;
+  /** The customer's service it is (server/service-boards.ts); `needsService`: none yet, its admins are asked to choose. */
+  projectId?: string | null; needsService?: boolean;
   /** Who is on it (its maker, then the people added), in the board list only. */
   people?: { id: string; name: string; avatarAt?: number | null }[];
   /** The customer the board is for (null: none). */
@@ -270,3 +272,17 @@ export interface NotificationStatus {enabled:boolean;loginEmail:string;email:str
 export interface CustomerMembersData {ownerId:string;level:Level;members:{id:string;name:string;email:string;level:Level}[];people:{id:string;name:string;email:string}[]}
 
 export interface NotificationInbox {unread:number;items:{id:string;taskId:string|null;link:string|null;detail?:{status:string;dueAt:number|null;text:string}|null;title:string;body:string;createdAt:number;read:boolean}[]}
+
+/** Hộp thư (server/mailbox.ts): the account's own Gmail. */
+export interface MailboxStatus { connected: boolean; googleConfigured: boolean; email?: string; name?: string; picture?: string; unread?: number | null; reconnect?: string | null; signature?: string; signatureOn?: boolean }
+export interface MailThreadRow { id: string; subject: string; snippet: string; from: string[]; count: number; at: number; unread: boolean; starred: boolean; attachments: boolean }
+export interface MailMessage {
+  id: string; from: { name: string; email: string }; to: string; cc: string; subject: string; at: number; messageId: string; references: string;
+  unread: boolean; mine: boolean; html: string; text: string; attachments: { id: string; name: string; type: string; size: number }[];
+}
+export interface MailThread { id: string; subject: string; messages: MailMessage[]; spam?: boolean; trash?: boolean }
+export interface MailDraft { to: string; cc?: string; bcc?: string; subject: string; text: string; html?: string; threadId?: string; inReplyTo?: string; references?: string; attachments?: { name: string; type: string; data: string }[] }
+
+/** A customer's workspaces and, in each, a board per service (GET /api/customers/:id/workspaces). */
+export interface CustomerBoard { id: string; name: string; bg: string; projectId: string | null; service: { id: string; name: string } | null; openTasks: number; tasks: number; level: Level | 'viewer' | null; needsService: boolean }
+export interface CustomerSpaces { workspaces: { id: string; name: string; level: Level | null; boards: CustomerBoard[] }[]; unboarded: { projectId: string; name: string; service: { id: string; name: string } | null }[] }

@@ -34,13 +34,37 @@ async function start(dataDir, extra = {}) {
       onData();
     });
   } catch (e) { child.kill(); throw e; }
+  const raw = async (method, url, body, cookie) => {
+    const res = await fetch(origin + url, {
+      method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body), redirect: 'manual',
+    });
+    return { status: res.status, data: await res.json(), cookie: res.headers.get('set-cookie')?.split(';')[0] };
+  };
+  // Every board is a customer's service and every workspace a customer's (server/service-boards.ts). A test about
+  // something else that makes one without saying which gets a customer and a service of its own, made by the company
+  // admin, the caller working on that customer.
+  let admin = null, made = 0;
+  const own = async (cookie) => {
+    const k = (await raw('POST', '/api/customers', { name: `Khách thử ${++made}`, databaseOnly: true }, admin || cookie)).data;
+    const me = (await raw('GET', '/api/auth/me', undefined, cookie)).data.user;
+    if (admin && me && me.role !== 'admin') await raw('PUT', `/api/customers/${k.id}/members/${me.id}`, { level: 'normal' }, admin);
+    return k.id;
+  };
+  const fill = async (url, body, cookie) => {
+    if (url === '/api/workspaces' && body && !body.customerId) return { ...body, customerId: await own(cookie) };
+    if (url !== '/api/boards' || !body || body.serviceId || body.services) return body;
+    const svc = (await raw('POST', '/api/admin/services', { name: `Dịch vụ thử ${++made}` }, admin || cookie)).data;
+    const spaces = body.workspaceId ? (await raw('GET', '/api/workspaces', undefined, cookie)).data : [];
+    const inCustomerSpace = Array.isArray(spaces) && spaces.some((w) => w.id === body.workspaceId && w.customerId);
+    return { ...body, serviceId: svc.id, ...(body.customerId || inCustomerSpace || !body.workspaceId && body.customerId ? {} : body.workspaceId && body.workspaceId !== 'company' ? {} : { customerId: await own(cookie) }) };
+  };
   return {
     async call(method, url, body, cookie) {
-      const res = await fetch(origin + url, {
-        method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
-        body: body === undefined ? undefined : JSON.stringify(body), redirect: 'manual',
-      });
-      return { status: res.status, data: await res.json(), cookie: res.headers.get('set-cookie')?.split(';')[0] };
+      if (method === 'POST' && (url === '/api/boards' || url === '/api/workspaces') && (admin || cookie)) body = await fill(url, body, cookie);
+      const r = await raw(method, url, body, cookie);
+      if (method === 'POST' && (url === '/api/auth/setup' || url === '/api/auth/login') && r.cookie && (url === '/api/auth/setup' || r.data?.user?.role === 'admin')) admin ||= r.cookie;
+      return r;
     },
     async close() { const done = once(child, 'exit'); child.kill(); await done; },
   };
@@ -947,10 +971,14 @@ test('customer directory links existing folders, multiple campaigns and multi-pe
     assert.equal((await server.call('POST','/api/tasks/master',{projectId:c1.data.id,keys:['invalid'],assigneeIds:[]},cookie)).status,400);
     const second = await server.call('POST','/api/customers',{name:'Client B',existingFolder:{kind:'fs',dir:folder}},cookie);
     assert.equal((await server.call('POST',`/api/customers/${second.data.id}/projects`,{projectId:c1.data.id},cookie)).status,409);
-    assert.equal((await server.call('PUT',`/api/customers/${id}/projects/${c1.data.id}`,{unlink:true},cookie)).status,200);
+    // A service with its board stays a customer's: it is not unlinked, it moves to another customer with its board and
+    // tasks (server/service-boards.ts).
+    assert.equal((await server.call('PUT',`/api/customers/${id}/projects/${c1.data.id}`,{unlink:true},cookie)).status,409);
+    assert.equal((await server.call('PUT',`/api/task-projects/${c1.data.id}`,{customerId:second.data.id},cookie)).status,200);
     const kept = await server.call('GET',`/api/tasks/${task.data.id}`,undefined,cookie);
     assert.equal(kept.status,200); assert.equal(kept.data.assignees.length,1);
-    assert.equal((await server.call('POST',`/api/customers/${second.data.id}/projects`,{projectId:c1.data.id},cookie)).status,200);
+    const moved = (await server.call('GET',`/api/customers/${second.data.id}/workspaces`,undefined,cookie)).data;
+    assert.ok(moved.workspaces.some((w)=>w.boards.some((b)=>b.projectId===c1.data.id)),'its board went to the new customer');
   } finally { if (server) await server.close(); await rm(dir,{recursive:true,force:true}); }
 });
 
@@ -1394,23 +1422,37 @@ test('a role given customers.create adds customers without Drive; Drive folders 
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
-test('a board is made for a customer, moved to another or cleared by its admins; only customers they reach',async()=>{
+test('a board is one service of one customer: never cleared or changed apart from it; only customers they reach',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-board-customer-'));let server;
  try{
   server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
   const ac=(await server.call('POST','/api/auth/setup',{code:'test-setup-only',name:'Boss',email:'bc-boss@example.test',password:'test-password'})).cookie;
   const one=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách một'},ac)).data, two=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách hai'},ac)).data;
-  const board=(await server.call('POST','/api/boards',{name:'Board khách',bg:'ocean',roleId:null,private:true,customerId:one.id},ac)).data;
+  const web=(await server.call('POST','/api/admin/services',{name:'Website'},ac)).data, ads=(await server.call('POST','/api/admin/services',{name:'Meta Ads'},ac)).data;
+  const board=(await server.call('POST','/api/boards',{bg:'ocean',roleId:null,private:true,customerId:one.id,serviceId:web.id},ac)).data;
   const read=async()=>(await server.call('GET',`/api/boards/${board.id}`,undefined,ac)).data;
   assert.equal((await read()).customerName,'Khách một');
-  assert.equal((await server.call('PUT',`/api/boards/${board.id}`,{customerId:two.id},ac)).status,200);
-  assert.equal((await read()).customerName,'Khách hai');
-  assert.equal((await server.call('PUT',`/api/boards/${board.id}`,{customerId:null},ac)).status,200);
-  assert.equal((await read()).customerId,null);
-  // Someone else may not tie their board to a customer they cannot reach.
+  assert.equal(board.name,'Website','named after its service');
+  // Its customer is its service's: not changed or cleared on the board itself.
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}`,{customerId:two.id},ac)).status,400);
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}`,{customerId:null},ac)).status,400);
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}`,{serviceId:null},ac)).status,400);
+  // One board per customer × service: a second Website board of Khách một is refused, another service is not.
+  assert.equal((await server.call('POST','/api/boards',{customerId:one.id,serviceId:web.id},ac)).status,409);
+  const second=(await server.call('POST','/api/boards',{customerId:one.id,serviceId:ads.id},ac)).data;
+  assert.equal((await server.call('PUT',`/api/boards/${second.id}`,{serviceId:web.id},ac)).status,409,'not to a service the customer has on another board');
+  // A board changes service with its project: the customer's services follow.
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}`,{serviceId:ads.id},ac)).status,409);
+  const svc=(await server.call('POST','/api/admin/services',{name:'Video'},ac)).data;
+  assert.equal((await server.call('PUT',`/api/boards/${board.id}`,{serviceId:svc.id},ac)).status,200);
+  assert.deepEqual((await read()).services.map((x)=>x.name),['Video']);
+  // The customer page shows its workspace (made for it) and its boards by service.
+  const page=(await server.call('GET',`/api/customers/${one.id}/workspaces`,undefined,ac)).data;
+  assert.deepEqual(page.workspaces.flatMap((w)=>w.boards.map((b)=>b.service?.name)).sort(),['Meta Ads','Video']);
+  // Someone else may not make a board for a customer they cannot reach.
   await server.call('POST','/api/users',{name:'Other',email:'bc-other@example.test',password:'test-password',role:'member'},ac);
   const oc=(await server.call('POST','/api/auth/login',{email:'bc-other@example.test',password:'test-password'})).cookie;
-  assert.equal((await server.call('POST','/api/boards',{name:'Của tôi',bg:'ocean',roleId:null,private:true,customerId:one.id},oc)).status,404);
+  assert.equal((await server.call('POST','/api/boards',{name:'Của tôi',bg:'ocean',roleId:null,private:true,customerId:one.id,serviceId:ads.id},oc)).status,404);
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
@@ -1500,7 +1542,7 @@ test('@ in a comment or a card description tells the person mentioned, once, if 
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
-test('a workspace of one\'s own can be for a customer; its boards\' work counts for that customer',async()=>{
+test('a workspace is one customer\'s; its boards are that customer\'s services and their work counts for it',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dmi-ws-client-'));let server;
  try{
   server=await start(dir,{DRIVE_DIR:path.join(dir,'drive')});
@@ -1509,38 +1551,39 @@ test('a workspace of one\'s own can be for a customer; its boards\' work counts 
   const ws=(await server.call('POST','/api/workspaces',{name:'Dự án khách',customerId:one.id},ac)).data;
   assert.equal(ws.customerName,'Khách workspace');
   const find=async()=>(await server.call('GET','/api/workspaces',undefined,ac)).data.find((w)=>w.id===ws.id);
-  // A board in it with no customer of its own: its cards count for the workspace's customer.
+  // A board in it is the workspace's customer's: its cards count for that customer.
   const board=(await server.call('POST','/api/boards',{name:'Board trong workspace',bg:'ocean',roleId:null,private:true,workspaceId:ws.id},ac)).data;
+  assert.equal(board.customerId,one.id);
+  assert.equal((await server.call('POST','/api/boards',{workspaceId:ws.id,customerId:two.id,serviceId:board.services?.[0]?.id},ac)).status,400,'not for another customer');
   const list=(await server.call('GET',`/api/boards/${board.id}`,undefined,ac)).data.lists[0];
   const card=(await server.call('POST',`/api/lists/${list.id}/cards`,{title:'Việc của workspace'},ac)).data;
   const row=(await server.call('GET',`/api/client-work?workspace=${ws.id}`,undefined,ac)).data.find((x)=>x.id===card.id);
   assert.equal(row?.customerName,'Khách workspace');
-  assert.equal((await server.call('PUT',`/api/workspaces/${ws.id}`,{customerId:two.id},ac)).status,200);
-  assert.equal((await find()).customerName,'Khách khác');
-  assert.equal((await server.call('PUT',`/api/workspaces/${ws.id}`,{customerId:null},ac)).status,200);
-  assert.equal((await find()).customerId,null);
+  // Its customer holds while it has that customer's boards, and it always has one.
+  assert.equal((await server.call('PUT',`/api/workspaces/${ws.id}`,{customerId:two.id},ac)).status,409);
+  assert.equal((await server.call('PUT',`/api/workspaces/${ws.id}`,{customerId:null},ac)).status,400);
+  assert.equal((await find()).customerName,'Khách workspace');
   assert.equal((await server.call('POST','/api/workspaces',{name:'Sai',customerId:'nope'},ac)).status,404);
-  // A board's type is the services it is for; its cards count for them unless their task names its own.
+  const empty=(await server.call('POST','/api/workspaces',{name:'Trống',customerId:one.id},ac)).data;
+  assert.equal((await server.call('PUT',`/api/workspaces/${empty.id}`,{customerId:two.id},ac)).status,200,'one with no boards yet changes customer');
+  // A board's type is its one service; its cards count for it.
   const svc=(await server.call('POST','/api/admin/services',{name:'Website'},ac)).data;
   const typed=(await server.call('POST','/api/boards',{name:'Board website',bg:'ocean',roleId:null,private:true,workspaceId:ws.id,services:[svc.id]},ac)).data;
   assert.deepEqual(typed.services.map((x)=>x.name),['Website']);
-  // A board is of one service: two are refused, on making it and on changing it.
   const other=(await server.call('POST','/api/admin/services',{name:'Quảng cáo'},ac)).data;
-  assert.equal((await server.call('POST','/api/boards',{name:'Hai dịch vụ',bg:'ocean',roleId:null,private:true,services:[svc.id,other.id]},ac)).status,400);
+  assert.equal((await server.call('POST','/api/boards',{name:'Hai dịch vụ',bg:'ocean',roleId:null,private:true,workspaceId:ws.id,services:[svc.id,other.id]},ac)).status,400);
   assert.equal((await server.call('PUT',`/api/boards/${typed.id}`,{services:[svc.id,other.id]},ac)).status,400);
+  assert.equal((await server.call('PUT',`/api/boards/${typed.id}`,{services:[]},ac)).status,400);
   assert.deepEqual((await server.call('GET','/api/boards',undefined,ac)).data.find((b)=>b.id===typed.id).services.map((x)=>x.name),['Website']);
-  assert.equal((await server.call('PUT',`/api/workspaces/${ws.id}`,{customerId:one.id},ac)).status,200);
   const tl=(await server.call('GET',`/api/boards/${typed.id}`,undefined,ac)).data.lists[0];
   const tc=(await server.call('POST',`/api/lists/${tl.id}/cards`,{title:'Sửa trang chủ'},ac)).data;
   assert.deepEqual((await server.call('GET',`/api/client-work?workspace=${ws.id}`,undefined,ac)).data.find((x)=>x.id===tc.id).services.map((x)=>x.name),['Website']);
-  // The timeline asks for the cards for no customer too.
-  const loose=(await server.call('POST','/api/boards',{name:'Board không khách',bg:'ocean',roleId:null,private:true},ac)).data;
-  const ll=(await server.call('GET',`/api/boards/${loose.id}`,undefined,ac)).data.lists[0];
-  const lc=(await server.call('POST',`/api/lists/${ll.id}/cards`,{title:'Việc nội bộ'},ac)).data;
-  assert.ok(!(await server.call('GET','/api/client-work?workspace=company',undefined,ac)).data.some((x)=>x.id===lc.id));
-  assert.equal((await server.call('GET','/api/client-work?workspace=company&all=1',undefined,ac)).data.find((x)=>x.id===lc.id)?.customerId,'');
-  assert.equal((await server.call('PUT',`/api/boards/${typed.id}`,{services:[]},ac)).status,200);
-  assert.deepEqual((await server.call('GET',`/api/boards/${typed.id}`,undefined,ac)).data.services,[]);
+  // A card made on a service's board is a task of that service.
+  const linked=(await server.call('GET',`/api/cards/${tc.id}`,undefined,ac)).data;
+  assert.ok(linked.linkedTask);
+  assert.equal((await server.call('GET',`/api/tasks/${linked.linkedTask.id}`,undefined,ac)).data.project?.name,'Website');
+  // In the company's workspace a board names its customer.
+  assert.equal((await server.call('POST','/api/boards',{name:'Không khách',serviceId:other.id},ac)).status,400);
  }finally{if(server)await server.close();await rm(dir,{recursive:true,force:true});}
 });
 
@@ -1628,11 +1671,12 @@ test('each account has its own notification email, and whatever concerns that pe
   await server.call('PUT',`/api/cards/${card.id}`,{listId:list[1].id},ac);
   await server.call('POST',`/api/cards/${card.id}/comments`,{text:'Đã sửa'},cookie);
   const items=(await server.call('GET','/api/notifications/inbox',undefined,cookie)).data.items;
-  assert.deepEqual(items.map(i=>i.title).sort(),['Bình luận mới trên thẻ của bạn','Bạn được thêm vào thẻ','Thẻ của bạn được chuyển danh sách'].sort());
-  assert.ok(items.every(i=>i.link===`#boards/${board.id}/c/${card.id}`));
+  // A card on a service's board is a task of it: put on it, Dylan is given the task, and hears of its moves as the
+  // person doing it (from the task), not as a member of the card.
+  assert.deepEqual(items.map(i=>i.title).sort(),['Bình luận mới trên thẻ của bạn','Bạn được giao công việc','Bạn được thêm vào thẻ'].sort());
+  assert.ok(items.filter(i=>i.title!=='Bạn được giao công việc').every(i=>i.link===`#boards/${board.id}/c/${card.id}`));
   // In the app the notification shows what it is about: the comment itself, the card's list (never in the mail).
   assert.equal(items.find(i=>i.title==='Bình luận mới trên thẻ của bạn').detail.text,'Xem lại bản 2');
-  assert.equal(items.find(i=>i.title==='Thẻ của bạn được chuyển danh sách').detail.status,list[1].name);
   assert.equal((await server.call('GET','/api/notifications/latest',undefined,cookie)).data.latest,Math.max(...items.map(i=>i.createdAt)));
   assert.equal((await server.call('GET','/api/notifications/inbox',undefined,ac)).data.items.some(i=>i.title==='Bình luận mới trên thẻ của bạn'),false);
   const db=new DatabaseSync(path.join(dir,'studio.db'));
@@ -1734,20 +1778,15 @@ test('a card holds the work result: its own note for editors, the linked task\'s
   for(const [who,level] of [[ed,'normal'],[sam,'observer']]){await server.call('PUT',`/api/workspaces/${ws.id}/members/${who.id}`,{level},ac);await server.call('PUT',`/api/boards/${board.id}/members/${who.id}`,{level},ac);}
   const list=(await server.call('GET',`/api/boards/${board.id}`,undefined,ac)).data.lists[0];
   const card=(await server.call('POST',`/api/lists/${list.id}/cards`,{title:'Bàn giao'},ac)).data;
-  // A card without a task keeps its own note, for those who edit the card.
-  assert.equal((await server.call('PUT',`/api/cards/${card.id}`,{result:'login: x'},ed.cookie)).status,200);
-  assert.equal((await server.call('PUT',`/api/cards/${card.id}`,{result:'nope'},sam.cookie)).status,403);
-  const byEd=(await server.call('GET',`/api/cards/${card.id}`,undefined,ed.cookie)).data;
-  assert.deepEqual([byEd.result,byEd.resultHidden],['login: x',false]);
-  const bySam=(await server.call('GET',`/api/cards/${card.id}`,undefined,sam.cookie)).data;
-  assert.deepEqual([bySam.result,bySam.resultHidden],[null,true]);
-  // Linked to a task, the card's note joins the task's, and the result is read and written on the task from then on.
-  const task=(await server.call('POST','/api/tasks',{title:'Bàn giao'},ac)).data;
-  assert.equal((await server.call('POST',`/api/tasks/${task.id}/card`,{cardId:card.id},ac)).status,201);
-  assert.equal((await server.call('GET',`/api/tasks/${task.id}`,undefined,ac)).data.result,'login: x');
-  const linked=(await server.call('GET',`/api/cards/${card.id}`,undefined,ac)).data;
-  assert.deepEqual([linked.linkedTask?.id,linked.result,linked.resultHidden],[task.id,null,false]);
-  assert.equal((await server.call('PUT',`/api/cards/${card.id}`,{result:'elsewhere'},ac)).status,400);
+  // A card on a service's board is a task of that service from the start: its result is the task's, read and written
+  // there (the card keeps no note of its own), and only those who may change the task write it.
+  const linked=(await server.call('GET',`/api/cards/${card.id}`,undefined,ed.cookie)).data;
+  assert.ok(linked.linkedTask?.id);
+  assert.equal((await server.call('PUT',`/api/cards/${card.id}`,{result:'login: x'},ed.cookie)).status,400);
+  assert.equal((await server.call('PUT',`/api/tasks/${linked.linkedTask.id}`,{result:'login: x'},ac)).status,200);
+  assert.equal((await server.call('GET',`/api/tasks/${linked.linkedTask.id}`,undefined,ac)).data.result,'login: x');
+  assert.equal((await server.call('PUT',`/api/tasks/${linked.linkedTask.id}`,{result:'nope'},sam.cookie)).status!==200,true);
+  // Given to another customer, a task goes to that customer's same service (its board made for it).
   // The cards of one customer, each with its result files (the Drive tab marks the files with them).
   const [a,b]=await Promise.all(['Khách A','Khách B'].map(async name=>(await server.call('POST','/api/customers',{databaseOnly:true,name},ac)).data));
   const other=(await server.call('POST',`/api/lists/${list.id}/cards`,{title:'Khác'},ac)).data;
@@ -1849,7 +1888,10 @@ test('a new task goes onto its project\'s board as a card, shared with the proje
   const user=async(name,email)=>{const u=(await server.call('POST','/api/users',{name,email,password:'test-password',role:'member'},ac)).data;return{...u,cookie:(await server.call('POST','/api/auth/login',{email,password:'test-password'})).cookie};};
   const mia=await user('Mia','auto-mia@example.test'),bob=await user('Bob','auto-bob@example.test');
   assert.equal((await server.call('GET','/api/admin/settings',undefined,ac)).data.taskWorkspaceAuto,true);
-  const project=(await server.call('POST','/api/task-projects',{name:'Auto project'},ac)).data;
+  // A service is a customer's: without one it is refused.
+  assert.equal((await server.call('POST','/api/task-projects',{name:'Auto project'},ac)).status,400);
+  const client=(await server.call('POST','/api/customers',{databaseOnly:true,name:'Khách auto'},ac)).data;
+  const project=(await server.call('POST','/api/task-projects',{name:'Auto project',customerId:client.id},ac)).data;
   assert.equal((await server.call('PUT',`/api/task-projects/${project.id}/members/${bob.id}`,{level:'normal'},ac)).status,200);
   const made=await server.call('POST','/api/tasks',{title:'Dựng reel',projectId:project.id,assigneeUserIds:[mia.id]},ac);
   assert.equal(made.status,201);

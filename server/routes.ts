@@ -16,6 +16,7 @@ import { registerSearch } from './search';
 import { registerSupport } from './support';
 import { registerMcp } from './mcp';
 import { registerAssistant } from './assistant';
+import { registerMailbox } from './mailbox';
 
 export const api = new Router();
 
@@ -36,3 +37,4 @@ registerSearch(api);
 registerSupport(api);
 registerMcp(api);
 registerAssistant(api);
+registerMailbox(api);

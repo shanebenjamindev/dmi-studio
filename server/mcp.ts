@@ -1,7 +1,8 @@
-// Claude connector: DMI Workspace as a remote MCP server (Streamable HTTP, stateless JSON answers) at /api/mcp, signed in
-// with OAuth on each person's own DMI account. Claude (claude.ai, Desktop, Code) registers itself, the person approves it on
-// a DMI page, and every tool runs as an ordinary request of theirs through the API: the same guard, rights and audit log
-// as the app, so Claude sees and changes no more than they could. No AI is paid for here: Claude runs on their own plan.
+// Claude / ChatGPT connector: DMI Workspace as a remote MCP server (Streamable HTTP, stateless JSON answers) at /api/mcp,
+// signed in with OAuth on each person's own DMI account. Claude (claude.ai, Desktop, Code) or ChatGPT registers itself, the
+// person approves it on a DMI page, and every tool runs as an ordinary request of theirs through the API: the same guard,
+// rights and audit log as the app, so the AI sees and changes no more than they could. No AI is paid for here: it runs on
+// their own plan.
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { Readable } from 'node:stream';
@@ -17,7 +18,9 @@ const secret = () => crypto.randomBytes(32).toString('base64url');
 const same = (a: string, b: string) => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-// Where Claude may be sent back with a code: https, or a loopback address (Claude Code and Desktop listen on one).
+// Where Claude or ChatGPT may be sent back with a code: https, or a loopback address (Claude Code and Desktop listen on one).
+/** What the audit log calls changes made through a connected app. */
+const agentOf = (clientName: string | null) => /chatgpt|openai/i.test(clientName || '') ? 'ChatGPT (MCP)' : 'Claude (MCP)';
 function redirectOk(u: string) {
   try {
     const x = new URL(u);
@@ -57,7 +60,7 @@ function consentPage(res: Res, o: { client: any; user: User; params: URLSearchPa
   const host = new URL(o.params.get('redirect_uri')!).host;
   const fields = [...o.params].map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join('');
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self' https: http://localhost:* http://127.0.0.1:*; frame-ancestors 'none'" });
-  res.end(`<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kết nối Claude · DMI Workspace</title>
+  res.end(`<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kết nối AI · DMI Workspace</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f5f7;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#18181b}
 main{width:min(420px,calc(100% - 32px));background:#fff;border:1px solid rgba(15,23,42,.09);border-radius:16px;padding:28px;box-shadow:0 4px 14px rgba(15,23,42,.05)}
 img{height:28px}h1{font-size:20px;margin:18px 0 6px}p{margin:0 0 12px;color:#52525b}ul{margin:0 0 18px;padding-left:20px;color:#52525b}
@@ -70,7 +73,7 @@ button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:9px 18p
 <ul><li>Xem và tìm công việc, dịch vụ, khách hàng bạn được xem</li><li>Tạo, sửa, bình luận và chuyển bước công việc bạn được sửa</li></ul>
 <form method="post" action="/api/oauth/authorize">${fields}<input type="hidden" name="csrf" value="${esc(o.csrf)}">
 <div class="row"><button class="no" name="decision" value="deny">Từ chối</button><button class="ok" name="decision" value="allow">Cho phép</button></div></form>
-<p style="margin:16px 0 0;font-size:12.5px">Chỉ cho phép nếu bạn vừa bấm kết nối DMI từ Claude.</p></main></body></html>`);
+<p style="margin:16px 0 0;font-size:12.5px">Chỉ cho phép nếu bạn vừa bấm kết nối DMI từ Claude hoặc ChatGPT.</p></main></body></html>`);
 }
 
 /** What the authorize request asks, checked: an error to show (not to send back) when the client or address is wrong. */
@@ -103,7 +106,7 @@ export function registerMcp(api: Router) {
   };
   for (const p of ['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration']) { api.get(p, server); api.get(p + '/api/mcp', server); }
 
-  // Dynamic client registration (RFC 7591): Claude registers itself the first time it connects.
+  // Dynamic client registration (RFC 7591): Claude or ChatGPT registers itself the first time it connects.
   api.post('/api/oauth/register', async (req, res) => {
     const b = await body(req);
     const uris = Array.isArray(b.redirect_uris) ? b.redirect_uris.map(String) : [];
@@ -157,7 +160,7 @@ export function registerMcp(api: Router) {
     oauthError(res, 400, 'unsupported_grant_type', 'Chỉ hỗ trợ authorization_code và refresh_token');
   });
 
-  // The Claude apps a person has connected (Hồ sơ › Kết nối Claude), and taking one back: its tokens go at once.
+  // The AI apps a person has connected (Hồ sơ › Kết nối Claude và ChatGPT), and taking one back: its tokens go at once.
   api.get('/api/mcp/connections', async (req, res) => {
     const user = await currentUser(req);
     if (!user) throw new HttpError(401, 'Hãy đăng nhập');
@@ -175,7 +178,7 @@ export function registerMcp(api: Router) {
   // ---------------------------------------------------------------- MCP
   api.post('/api/mcp', async (req, res) => {
     const token = String(req.headers.authorization || '').match(/^Bearer\s+(\S+)$/i)?.[1] || '';
-    const row = token ? await get<any>("SELECT user_id FROM mcp_tokens WHERE id=? AND kind='access' AND expires_at>?", hash(token), now()) : null;
+    const row = token ? await get<any>("SELECT t.user_id, c.name FROM mcp_tokens t LEFT JOIN mcp_clients c ON c.id = t.client_id WHERE t.id=? AND t.kind='access' AND t.expires_at>?", hash(token), now()) : null;
     const user = row ? await get<User>(`${USER_SQL} WHERE u.id = ? AND u.disabled = 0`, row.user_id) : null;
     if (!user) {
       res.writeHead(401, { 'content-type': 'application/json', 'www-authenticate': `Bearer resource_metadata="${publicOrigin(req)}/.well-known/oauth-protected-resource/api/mcp"` });
@@ -183,7 +186,7 @@ export function registerMcp(api: Router) {
     }
     let msg: any;
     try { msg = JSON.parse((await readBody(req, 1024 * 1024)).toString('utf8')); } catch { return json(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }); }
-    const answers = (await Promise.all((Array.isArray(msg) ? msg : [msg]).map((m) => answer(req, user, m)))).filter(Boolean);
+    const answers = (await Promise.all((Array.isArray(msg) ? msg : [msg]).map((m) => answer(req, user, m, agentOf(row.name))))).filter(Boolean);
     if (!answers.length) { res.writeHead(202); return res.end(); }
     json(res, 200, Array.isArray(msg) ? answers : answers[0]);
   });
@@ -192,16 +195,17 @@ export function registerMcp(api: Router) {
   api.get('/api/mcp', (req, res) => {
     if (!String(req.headers.accept || '').includes('text/html')) return noStream(req, res);
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-    res.end(`<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connector Claude · DMI Workspace</title>
+    res.end(`<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connector Claude / ChatGPT · DMI Workspace</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f5f7;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#18181b}main{width:min(480px,calc(100% - 32px));background:#fff;border:1px solid rgba(15,23,42,.09);border-radius:16px;padding:28px}code{display:block;margin:8px 0 14px;padding:10px 12px;border-radius:10px;background:#f4f5f7;font-size:13px;overflow-wrap:anywhere}h1{font-size:20px;margin:0 0 8px}p{margin:0 0 10px;color:#52525b}@media(prefers-color-scheme:dark){body{background:#0f0f11;color:#f4f4f5}main{background:#18181b;border-color:rgba(255,255,255,.09)}p{color:#c3c2b7}code{background:#232326}}</style></head>
-<body><main><h1>Đây là địa chỉ connector cho Claude</h1><p>Không mở trong trình duyệt. Hãy dán địa chỉ này vào Claude:</p><code>${esc(mcpUrl(req))}</code>
+<body><main><h1>Đây là địa chỉ connector cho Claude và ChatGPT</h1><p>Không mở trong trình duyệt. Hãy dán địa chỉ này vào Claude hoặc ChatGPT:</p><code>${esc(mcpUrl(req))}</code>
 <p><b>claude.ai / app Claude:</b> Settings → Connectors → Add custom connector, dán địa chỉ trên rồi bấm Connect, đăng nhập DMI và bấm Cho phép.</p>
-<p><b>Claude Code:</b> claude mcp add --transport http dmi ${esc(mcpUrl(req))}</p></main></body></html>`);
+<p><b>Claude Code:</b> claude mcp add --transport http dmi ${esc(mcpUrl(req))}</p>
+<p><b>ChatGPT:</b> Settings → Apps &amp; Connectors → Advanced settings, bật Developer mode; rồi Create, dán địa chỉ trên, chọn OAuth, đăng nhập DMI và bấm Cho phép.</p></main></body></html>`);
   });
   api.delete('/api/mcp', noStream);
 }
 
-async function answer(req: Req, user: User, m: any) {
+async function answer(req: Req, user: User, m: any, agent: string) {
   if (!m || m.jsonrpc !== '2.0' || typeof m.method !== 'string') return { jsonrpc: '2.0', id: m?.id ?? null, error: { code: -32600, message: 'Invalid request' } };
   if (m.id === undefined || m.id === null) return null; // a notification: nothing to answer
   const ok = (result: any) => ({ jsonrpc: '2.0', id: m.id, result });
@@ -219,7 +223,7 @@ async function answer(req: Req, user: User, m: any) {
       const tool = TOOLS.find((t) => t.name === m.params?.name);
       if (!tool) return { jsonrpc: '2.0', id: m.id, error: { code: -32602, message: `Không có công cụ ${m.params?.name}` } };
       try {
-        const out = await tool.run(callAs(req, user), m.params?.arguments || {});
+        const out = await tool.run(callAs(req, user, agent), m.params?.arguments || {});
         // A tool that shows pictures answers MCP content itself (text and images).
         if (out && Array.isArray(out.content)) return ok({ content: out.content });
         return ok({ content: [{ type: 'text', text: typeof out === 'string' ? out : JSON.stringify(out, null, 1) }] });
@@ -235,12 +239,12 @@ async function answer(req: Req, user: User, m: any) {
 // The API's own entry (server/app.ts hands it over: importing it here would make a cycle, which the Worker bundle can't start).
 let handleApi: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>;
 export const useApiEntry = (h: typeof handleApi) => { handleApi = h; };
-export function callAs(outer: Req, user: User): Call {
+export function callAs(outer: Req, user: User, agent = 'Claude (MCP)'): Call {
   return async (method, path, data) => {
     const req = Readable.from(data === undefined ? [] : [Buffer.from(JSON.stringify(data))]) as any;
     Object.assign(req, {
       method, url: path, [ACTING]: user, socket: outer.socket,
-      headers: { host: outer.headers.host, 'x-forwarded-proto': outer.headers['x-forwarded-proto'], 'cf-connecting-ip': outer.headers['cf-connecting-ip'], 'user-agent': 'Claude (MCP)', 'content-type': 'application/json' },
+      headers: { host: outer.headers.host, 'x-forwarded-proto': outer.headers['x-forwarded-proto'], 'cf-connecting-ip': outer.headers['cf-connecting-ip'], 'user-agent': agent, 'content-type': 'application/json' },
     });
     let status = 200, text = '';
     const res: any = {

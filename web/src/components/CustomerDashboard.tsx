@@ -90,16 +90,30 @@ export function CustomerDashboard({customers,selected=null,loading,error,manage,
       <h1>Khách hàng</h1>
       {!selected && <ReadingTabs label="Cách xem khách hàng" value={view} items={[{value:'list' as View,label:'Danh sách',icon:'list'},{value:'kanban' as View,label:'Kanban',icon:'boards'},{value:'overview' as View,label:'Tổng quan',icon:'chart'}]} onChange={v=>setView(v)}/>}
     </div>
-    {selected && onFold && (
-      <button type="button" className="bd-icon tk-pane-fold" onClick={onFold} title="Thu gọn danh sách khách hàng" aria-label="Thu gọn danh sách">
-        <Icon name="left" size={15}/>
-      </button>
+    {selected ? (
+      <div className="cd-head-actions">
+        {onFold && (
+          <button type="button" className="bd-icon tk-pane-fold" onClick={onFold} title="Thu gọn danh sách khách hàng" aria-label="Thu gọn danh sách">
+            <Icon name="left" size={14}/>
+          </button>
+        )}
+        {manage && (
+          <button type="button" className="btn btn-primary btn-sm cd-head-add" onClick={onAdd} title="Thêm khách hàng">
+            <Icon name="plus" size={13}/>
+            <span>Thêm</span>
+          </button>
+        )}
+        <Menu label="Thêm thao tác" items={[{label:'Làm mới',icon:'refresh',onClick:onRefresh},{label:'Import Excel',icon:'sheet',onClick:onImport,hidden:!manage},{label:'Thêm khách kèm thư mục Drive',icon:'folder',onClick:onDrive,hidden:!manage}]}/>
+      </div>
+    ) : (
+      <>
+        <span className="cd-totals">{loading?'…':totals}</span>
+        <Menu label="Thêm thao tác" items={[{label:'Làm mới',icon:'refresh',onClick:onRefresh},{label:'Import Excel',icon:'sheet',onClick:onImport,hidden:!manage},{label:'Thêm khách kèm thư mục Drive',icon:'folder',onClick:onDrive,hidden:!manage}]}/>
+      </>
     )}
-    {!selected&&<span className="cd-totals">{loading?'…':totals}</span>}
-    <Menu label="Thêm thao tác" items={[{label:'Làm mới',icon:'refresh',onClick:onRefresh},{label:'Import Excel',icon:'sheet',onClick:onImport,hidden:!manage},{label:'Thêm khách kèm thư mục Drive',icon:'folder',onClick:onDrive,hidden:!manage}]}/>
   </header>
   <div className="tk-toolbar">
-   {manage&&<button className="tk-new" onClick={onAdd}><Icon name="plus" size={15}/>{selected ? 'Thêm' : 'Thêm mới'}</button>}
+   {manage && !selected && <button className="tk-new" onClick={onAdd}><Icon name="plus" size={15}/>Thêm mới</button>}
    {selectedIds.length>0&&!selected&&<><button className="btn btn-sm cm-danger" disabled={busyId==='bulk'} onClick={()=>void bulkDelete()}><Icon name="trash" size={14}/>Xoá đã chọn ({selectedIds.length})</button><button className="btn btn-gray btn-sm" onClick={()=>setSelectedIds([])}>Bỏ chọn</button></>}
    <label className="tk-find"><Icon name="search" size={14}/><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==='Escape'&&q){e.stopPropagation();setQ('');}}} placeholder={selected ? "Tìm khách..." : "Tìm tên, liên hệ, email, điện thoại, dịch vụ…"} aria-label="Tìm khách hàng"/>{q&&<button type="button" className="tk-find-x" onClick={()=>setQ('')} aria-label="Xoá tìm kiếm" title="Xoá tìm kiếm"><Icon name="x" size={12}/></button>}</label>
    {!selected&&<button className={'tk-pick cd-filter-btn'+(active?' on':'')} onClick={()=>setFilters(!filters)} aria-expanded={filters}><Icon name="filter" size={14}/><span>Lọc</span>{active?` (${active})`:''}</button>}

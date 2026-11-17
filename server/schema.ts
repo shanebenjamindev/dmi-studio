@@ -321,4 +321,10 @@ CREATE TABLE IF NOT EXISTS ai_messages (
   tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ai_messages_conversation ON ai_messages(conversation_id, seq);
+-- Hộp thư (server/mailbox.ts): the Gmail each person connected for themselves, with its tokens, like the Drive accounts.
+CREATE TABLE IF NOT EXISTS user_gmail (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, email TEXT NOT NULL, name TEXT NOT NULL, picture TEXT NOT NULL DEFAULT '',
+  refresh TEXT NOT NULL, access TEXT, expiry INTEGER, created_at INTEGER NOT NULL,
+  signature TEXT NOT NULL DEFAULT '', signature_on INTEGER NOT NULL DEFAULT 1
+);
 `;

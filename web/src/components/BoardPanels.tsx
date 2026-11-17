@@ -1,5 +1,4 @@
-// The panels around a board, like Trello's: the person's Inbox (cards jotted down, then dragged onto a list to put them
-// on a board), the Planner (their dated cards, a week at a time; a card dragged onto another day moves its due date,
+// The panels around a board, like Trello's: the person's Mailbox (their Gmail, components/Mailbox.tsx), the Planner (their dated cards, a week at a time; a card dragged onto another day moves its due date,
 // including a card dragged from the board), the dock at the bottom that shows or hides each, and "Switch boards".
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
@@ -7,7 +6,6 @@ import { toast } from '../store';
 import { Icon } from './ui';
 import { dueState } from './boardkit';
 import type { BoardItem, PlannerCard, Workspace } from '../types';
-import { useMessengerState } from './Messenger';
 import { WEEKDAYS } from '../i18n';
 
 /** What is being dragged from one panel to another: an inbox item (onto a list) or a board card (onto a planner day). */
@@ -27,8 +25,8 @@ export function useChanged(what: Topic, f: () => void) {
   }, [what]);
 }
 
-export type Panels = { inbox: boolean; planner: boolean; board: boolean };
-export const PANEL_NAME: Record<keyof Panels, string> = { inbox: 'Inbox', planner: 'Planner', board: 'Board' };
+export type Panels = { mail: boolean; planner: boolean; board: boolean };
+export const PANEL_NAME: Record<keyof Panels, string> = { mail: 'Mailbox', planner: 'Planner', board: 'Board' };
 
 // ---------------------------------------------------------------- planner
 const DAY = 864e5;
@@ -112,20 +110,18 @@ export function PlannerPanel({ bgOf, onOpen, onHide }: { bgOf: (k: string) => st
 }
 
 // ---------------------------------------------------------------- the dock and "Switch boards"
-export function Dock({ panels, onToggle, onSwitch, switching }: { panels: Panels; onToggle: (k: keyof Panels) => void; onSwitch: () => void; switching: boolean }) {
-  const icon: Record<keyof Panels, string> = { inbox: 'messenger', planner: 'calendar', board: 'boards' };
-  const msg = useMessengerState();
-  const totalUnread = Object.values(msg.unreadMap).reduce((a, b) => a + b, 0);
-  const isInboxOpen = msg.openWindows.length > 0;
+/** `unread`: the Mailbox's unread threads, on its button. */
+export function Dock({ panels, onToggle, onSwitch, switching, unread = 0 }: { panels: Panels; onToggle: (k: keyof Panels) => void; onSwitch: () => void; switching: boolean; unread?: number }) {
+  const icon: Record<keyof Panels, string> = { mail: 'mail', planner: 'calendar', board: 'boards' };
   return (
     <nav className="bd-dock" aria-label="Bảng điều khiển">
       {(Object.keys(icon) as (keyof Panels)[]).map((k) => {
-        const active = k === 'inbox' ? isInboxOpen : panels[k];
+        const active = panels[k];
         return (
           <button key={k} className={active ? 'on' : ''} aria-pressed={active} onClick={() => onToggle(k)}>
             <Icon name={icon[k]} size={16} />
             {PANEL_NAME[k]}
-            {k === 'inbox' && totalUnread > 0 && <span className="bd-dock-badge">{totalUnread > 9 ? '9+' : totalUnread}</span>}
+            {k === 'mail' && unread > 0 && <span className="bd-dock-badge">{unread > 9 ? '9+' : unread}</span>}
           </button>
         );
       })}

@@ -28,6 +28,7 @@ import { matcher } from './admin/common';
 import { applyFlow, flowDetail, flowSettings, settleStages, stageOf, statusBlocked } from './task-flow';
 import { isFlowFilter, flowMatch } from '../shared/flow-filter';
 import { handOver, lastAdded } from './task-assign';
+import { checkServiceFree, projectOf, serviceOf } from './service-boards';
 
 const me = async (req: Req) => (await currentUser(req))!;
 /** The names in the task data linked to this account. */
@@ -397,7 +398,7 @@ async function inheritFollowers(id: string, project: string | null, parent: stri
 
 /** The project behind a customer's service: the oldest of the customer's projects carrying it, else a new one named
  *  after the service. Anyone who may work on the customer resolves it. */
-export async function projectForService(user:{id:string;team_role?:string|null},customerId:string,serviceId:string){
+export async function projectForService(user:{id:string;team_role?:string|null},customerId:string,serviceId:string,{home=true}:{home?:boolean}={}){
   if(!customerId||!serviceId)throw new HttpError(400,'Cần chọn khách hàng và dịch vụ');
   await requireCustomer(user.id,customerId,'normal');
   const svc=await get<any>('SELECT id,name FROM services WHERE id=? AND deleted_at IS NULL',serviceId);
@@ -408,7 +409,8 @@ export async function projectForService(user:{id:string;team_role?:string|null},
   await run('INSERT INTO task_projects(id,name,customer_id,created_by,team_id,created_at) VALUES(?,?,?,?,?,?)',id,svc.name,customerId,user.id,user.team_role||null,now());
   await saveProjectServices(id,[svc.id],user.id);
   await run('DELETE FROM customer_needs WHERE customer_id=? AND service_id=?',customerId,svc.id);
-  if(await getSetting('task_workspace_auto',true))await projectHome(id);
+  // Its board at once (server/service-boards.ts), unless the caller is making the board itself.
+  if(home)await projectHome(id);
   return{id,name:svc.name as string,created:true};
 }
 
@@ -421,7 +423,10 @@ export function registerTasks(api: Router) {
     const name=services?.length?(await get<any>('SELECT name FROM services WHERE id=?',services[0]))?.name||'':String(body.name||'').trim();
     if(!name||name.length>200)throw new HttpError(400,'Hãy chọn dịch vụ');
     const customerId=body.customerId?String(body.customerId):null;
-    if(customerId)await requireCustomer(user.id,customerId,'admin');
+    // A service is always one customer's (its board sits in the customer's workspace), and a customer has each one once.
+    if(!customerId)throw new HttpError(400,'Hãy chọn khách hàng của dịch vụ');
+    await requireCustomer(user.id,customerId,'admin');
+    if(services?.length&&await projectOf(customerId,services[0]))throw new HttpError(409,'Khách hàng này đã có dịch vụ này');
     const teamId=body.teamId!==undefined?(body.teamId?String(body.teamId):null):user.team_role||null;
     if(teamId&&!await get('SELECT id FROM team_roles WHERE id=?',teamId))throw new HttpError(400,'Phòng ban không tồn tại');
     const id=uid('tj_');
@@ -429,8 +434,8 @@ export function registerTasks(api: Router) {
     // The services chosen for it (the form offers its customer's as defaults), or else those still set on the customer.
     if(services){await saveProjectServices(id,services,user.id);if(customerId)await run('DELETE FROM customer_needs WHERE customer_id=?',customerId);}
     else if(customerId)await settleCustomerServices([customerId]);
-    // On Workspace at once: a card on its customer's board (or its own board), where its tasks will go.
-    if(await getSetting('task_workspace_auto',true))await projectHome(id);
+    // Its board at once, in the customer's workspace, where its tasks will go.
+    await projectHome(id);
     json(res,201,{id,name,customerId,teamId});
   });
   // Dịch vụ làm trục chính (Khách → Dịch vụ → Công việc): the project behind a customer's service, found or made on the
@@ -446,19 +451,27 @@ export function registerTasks(api: Router) {
     if(body.name!==undefined){
       const name=String(body.name||'').trim();
       if(!name||name.length>200)throw new HttpError(400,'Tên dịch vụ không hợp lệ (tối đa 200 ký tự)');
+      const old=(await get<any>('SELECT name FROM task_projects WHERE id=?',id))?.name;
       await run('UPDATE task_projects SET name=? WHERE id=?',name,id);
-      await renameProjectBoard(id,name);
+      await renameProjectBoard(id,name,old);
     }
     let customerChanged=false;
     if(body.customerId!==undefined){
       const cid=body.customerId?String(body.customerId):null;
-      if(cid)await requireCustomer(user.id,cid,'admin');
+      if(!cid)throw new HttpError(400,'Dịch vụ phải thuộc một khách hàng');
+      await requireCustomer(user.id,cid,'admin');
+      const svc=await serviceOf(id),other=svc?await projectOf(cid,svc.id):null;
+      if(other&&other.id!==id)throw new HttpError(409,`Khách hàng đó đã có dịch vụ ${svc!.name}: mỗi dịch vụ của một khách chỉ có một board`);
       customerChanged=cid!==((await get<any>('SELECT customer_id FROM task_projects WHERE id=?',id))?.customer_id||null);
       await run('UPDATE task_projects SET customer_id=? WHERE id=?',cid,id);
       if(cid)await settleCustomerServices([cid]);
     }
     // What the project is for: services of the catalogue (its customer's services are those of its projects).
-    if(body.services!==undefined)await saveProjectServices(id,await oneService(body.services,ONE_SERVICE),user.id);
+    if(body.services!==undefined){
+      const ids=await oneService(body.services,ONE_SERVICE);
+      if(ids[0])await checkServiceFree(id,ids[0]);
+      await saveProjectServices(id,ids,user.id);
+    }
     // Put on hold or cancelled by its managers, or (null) back to following its tasks.
     if(body.hold!==undefined){
       if(body.hold!==null&&!isHold(body.hold))throw new HttpError(400,'Trạng thái dịch vụ không hợp lệ');

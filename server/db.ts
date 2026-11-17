@@ -118,6 +118,8 @@ async function upgrade() {
     // was last handed in and graded, and how many times it was sent back.
     ['tasks', 'stage'], ['tasks', 'reviewer_id'], ['tasks', 'submitted_at', 'INTEGER'], ['tasks', 'reviewed_at', 'INTEGER'], ['tasks', 'revision', 'INTEGER NOT NULL DEFAULT 0'],
     ['card_comments', 'reply_to_id'],
+    // The customer's service a board is (server/service-boards.ts): one board per customer × service.
+    ['boards', 'project_id'],
     ['task_comments', 'reply_to_id']]) {
     // One look at each table's columns, not one per column: every cold start on D1 runs this.
     const info = columns.get(table) || (await db.execute(`PRAGMA table_info(${table})`)).rows.map(c => c.name as string);
@@ -125,6 +127,7 @@ async function upgrade() {
     if (!info.includes(column)) { await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`); info.push(column); }
   }
   await db.execute('CREATE INDEX IF NOT EXISTS notifications_broadcast ON notifications(broadcast_id)');
+  await db.execute('CREATE UNIQUE INDEX IF NOT EXISTS boards_project ON boards(project_id) WHERE project_id IS NOT NULL');
   await seedAdmin();
   await repairData();
 }

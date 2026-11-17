@@ -9,10 +9,47 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-16-5',
+    date: '16/11/2026',
+    items: [
+      { kind: 'new', vi: 'Khách hàng → workspace → board → công việc luôn đi cùng nhau: mỗi workspace là của một khách hàng (một khách có thể có nhiều workspace), mỗi board là một dịch vụ của khách đó, mỗi dịch vụ của khách chỉ có một board. Việc của dịch vụ tự nằm trên board của nó; đổi dịch vụ của việc thì thẻ chuyển sang board kia.', en: 'Client → workspace → board → task now always go together: each workspace belongs to one client (a client can have several), each board is one of that client\'s services, and each service of a client has one board. A service\'s tasks sit on its board by themselves; change a task\'s service and its card moves to that board.' },
+      { kind: 'new', vi: 'Trang khách hàng có tab Workspace & board: xem các workspace của khách, mỗi dịch vụ một board kèm số việc đang mở, thêm dịch vụ (tạo board) hoặc workspace mới ngay tại đó.', en: 'The client page has a Workspaces & boards tab: the client\'s workspaces, one board per service with its open tasks, and adding a service (a new board) or a workspace right there.' },
+      { kind: 'new', vi: 'Trang Workspace xem theo khách hàng: các workspace và board gom dưới từng khách, chọn một khách để mọi chế độ xem (lưới, cây thư mục, timeline, dashboard) chỉ hiện của khách đó.', en: 'The Workspace page is by client: workspaces and boards grouped under each client, and pick one client so every view (grid, tree, timeline, dashboard) shows only theirs.' },
+      { kind: 'fix', vi: 'Board cũ chưa có dịch vụ sẽ hỏi quản lý board chọn khách hàng và dịch vụ; các board cũ đã tự chuyển theo dịch vụ (ví dụ board gom nhiều dịch vụ được tách thành từng board).', en: 'Older boards with no service ask their managers to choose a client and service; older boards were moved over by service (a board holding several services was split into one board each).' },
+    ],
+  },
+  {
+    id: '2026-11-16-4',
+    date: '16/11/2026',
+    items: [
+      { kind: 'new', vi: 'Hộp thư: đọc và gửi email bằng Gmail của chính bạn ngay trong DMI. Vào Hộp thư trên thanh bên, bấm Kết nối Gmail một lần; sau đó xem thư đến, đã gửi, có gắn sao, tìm thư, trả lời, chuyển tiếp và đính kèm tệp. Chỉ bạn xem được hộp thư của mình, thư vẫn nằm trong Gmail như cũ.', en: 'Mail: read and send email with your own Gmail right inside DMI. Open Mail in the sidebar and click Connect Gmail once; then see your inbox, sent and starred mail, search, reply, forward and attach files. Only you can see your mailbox, and your mail stays in Gmail as before.' },
+      { kind: 'new', vi: 'Workspace: nút Inbox ở thanh dưới đổi thành Mailbox. Bấm vào để mở thư Gmail của bạn ngay cạnh Planner: đọc, trả lời và soạn thư mới mà không rời board. Tin nhắn nội bộ vẫn mở từ biểu tượng Messenger ở góc trên.', en: 'Workspace: the Inbox button on the bottom bar is now Mailbox. Click it to open your Gmail right beside the Planner: read, reply and write new mail without leaving the board. Team chat still opens from the Messenger icon at the top.' },
+      { kind: 'new', vi: 'Viết thư như Gmail: thư mới mở trong cửa sổ nhỏ ở góc dưới bên phải (thu nhỏ, phóng to hoặc đóng được, vẫn dùng trang bên dưới), trả lời và chuyển tiếp viết ngay cuối cuộc trò chuyện. Có thêm Bcc; Ctrl/⌘ + Enter để gửi.', en: 'Write mail as in Gmail: a new message opens in a small window at the bottom right (minimize, enlarge or close it while still using the page), and replies and forwards are written at the foot of the conversation. Bcc is there too; Ctrl/⌘ + Enter sends.' },
+      { kind: 'new', vi: 'Hộp thư chuyên nghiệp hơn: định dạng thư như Gmail (phông, cỡ chữ, đậm, nghiêng, màu, căn lề, danh sách, trích dẫn, liên kết); chữ ký tự thêm vào cuối thư, đặt ở nút bánh răng hoặc lấy luôn chữ ký trong Gmail; thêm Quan trọng, Thư rác, Thùng rác, báo cáo thư rác, xoá, khôi phục và đánh dấu chưa đọc.', en: 'A more professional mailbox: format mail as in Gmail (font, size, bold, italic, colour, alignment, lists, quotes, links); a signature added at the end of your mail, set from the gear button or taken from your Gmail; plus Important, Spam and Trash, report spam, delete, restore and mark as unread.' },
+      { kind: 'new', vi: 'Board: bấm Thêm thẻ là tạo công việc và mở ngay cửa sổ của nó, tên đã chọn sẵn để gõ đè. Đóng mà chưa sửa gì thì thẻ trống tự bỏ đi.', en: 'Boards: Add a card now creates the task and opens its window straight away, with the name selected so you can type over it. Close it without changing anything and the blank card goes away.' },
+    ],
+  },
+  {
     id: '2026-11-16-3',
     date: '16/11/2026',
     items: [
       { kind: 'fix', vi: 'Người giao việc không tự thêm mình vào công việc: danh sách Người thực hiện, Người theo dõi và Người duyệt không hiện tên bạn (bạn là người duyệt sẵn). Việc con cũng không tự cho bạn theo dõi khi bạn tạo nó.', en: 'Whoever gives a task out no longer adds themselves to it: your name is not offered as Assignee, Follower or Reviewer (you review it by default). A subtask you create does not make you follow it either.' },
+    ],
+  },
+  {
+    id: '2026-11-16-2',
+    date: '16/11/2026',
+    items: [
+      { kind: 'new', vi: 'Hồ sơ: công việc xếp theo nhóm cần làm trước (Quá hạn, Đang mở, rồi Hoàn thành và Đã huỷ gập lại), mỗi nhóm hiện 5 việc đầu và có nút Xem thêm. Bấm các ô số liệu để chỉ xem một nhóm; có ô tìm khi nhiều việc.', en: 'Profile: tasks are grouped by what needs doing first (Overdue, Open, then Done and Cancelled folded away), each group shows its first 5 with a Show more button. Click a counter to see one group only; a search box appears when there are many tasks.' },
+      { kind: 'fix', vi: 'Trợ lý AI hết tiền API giờ chỉ báo một câu ngắn.', en: 'When the AI assistant runs out of API credit it now says so in one short line.' },
+      { kind: 'new', vi: 'Kết nối ChatGPT với DMI, như Claude: mỗi người dùng ChatGPT của chính mình, đăng nhập bằng tài khoản DMI của mình và chỉ làm được những gì tài khoản đó được làm. Hướng dẫn ở Hồ sơ › Kết nối Claude và ChatGPT; nhật ký ghi rõ thay đổi đến từ ChatGPT hay Claude.', en: 'Connect ChatGPT to DMI, like Claude: each person uses their own ChatGPT, signs in with their own DMI account and can only do what that account may do. How-to in Profile › Connect Claude and ChatGPT; the log shows whether a change came from ChatGPT or Claude.' },
+    ],
+  },
+  {
+    id: '2026-11-16-1',
+    date: '16/11/2026',
+    items: [
+      { kind: 'new', vi: 'Quản trị › Dịch vụ: bỏ Danh mục dịch vụ, thay bằng Gói dịch vụ. Khi thêm hoặc sửa một dịch vụ, tích chọn các gói có dịch vụ đó; danh sách dịch vụ hiện gói của từng dịch vụ và lọc được theo gói.', en: 'Admin › Services: service categories are gone, replaced by service packages. When adding or editing a service, tick the packages it belongs to; the service list shows each service’s packages and filters by package.' },
     ],
   },
   {

@@ -26,7 +26,18 @@ export type PopKind = 'add' | 'subtask' | 'members' | 'labels' | 'label' | 'chec
 
 /** A card's window over the board; `embedded`: the same card laid into a page instead (a task's own page on Công việc,
  *  as task and card are one piece of work), with `extra` (the task's own facts) above its description. */
-export function CardModal({ id, board, me, onClose, onChanged, embedded = false, extra, topActions }: { id: string; board: Board; me: User; onClose: () => void; onChanged: () => void; embedded?: boolean; extra?: ReactNode; topActions?: ReactNode }) {
+/** The title a card made from "Thêm thẻ" starts with, opened straight away to be named (`fresh`). */
+export const NEW_CARD_TITLE = 'Công việc mới';
+/** `fresh`: just made by "Thêm thẻ": its title is picked to type over, and closed untouched it goes again (with its task). */
+export function CardModal({ id, board, me, onClose: close, onChanged, embedded = false, extra, topActions, fresh = false }: { id: string; board: Board; me: User; onClose: () => void; onChanged: () => void; embedded?: boolean; extra?: ReactNode; topActions?: ReactNode; fresh?: boolean }) {
+  const onClose = () => {
+    if (!fresh) return close();
+    close();
+    void api.card(id).then((k) => {
+      const untouched = k.title === NEW_CARD_TITLE && !k.description && !k.startAt && !k.dueAt && !k.labels.length && !k.checklists.length && !k.attachments.length && !k.comments.length;
+      if (untouched) return api.deleteCard(id).then(onChanged);
+    }).catch(() => {});
+  };
   const [c, setC] = useState<CardDetail | null>(null);
   const [pop, setPop] = useState<{ kind: PopKind; el: HTMLElement; label?: BoardLabel | null } | null>(null);
   const [commentsOpen,setCommentsOpen]=useState(!embedded);
@@ -117,7 +128,7 @@ export function CardModal({ id, board, me, onClose, onChanged, embedded = false,
             <button className={'cm-done' + (c.done ? ' on' : '')} disabled={!edit} onClick={() => act(() => api.updateCard(c.id, { done: !c.done }))} aria-label={c.done ? 'Bỏ đánh dấu hoàn thành' : 'Đánh dấu hoàn thành'} title={c.done ? 'Bỏ đánh dấu hoàn thành' : 'Đánh dấu hoàn thành'}>
               {c.done ? <Icon name="check" size={14} /> : null}
             </button>
-            <Title value={c.title} readOnly={!edit} onSave={(t) => act(() => api.updateCard(c.id, { title: t }))} />
+            <Title value={c.title} readOnly={!edit} pick={fresh && c.title === NEW_CARD_TITLE} onSave={(t) => act(() => api.updateCard(c.id, { title: t }))} />
             {c.linkedTask && !embedded && <button className="btn btn-gray btn-sm cm-task-open" onClick={() => { const taskId = c.linkedTask!.id; onClose(); openTask(taskId); }}><Icon name="checklist" size={14} />Mở trang công việc</button>}
           </header>
             {edit ? (
@@ -270,9 +281,11 @@ function ServiceTasks({ card, edit, onOpen, onChanged }: { card: CardDetail; edi
   );
 }
 
-function Title({ value, readOnly, onSave }: { value: string; readOnly?: boolean; onSave: (t: string) => void }) {
+/** `pick`: focused with its text picked, to be typed over (a card just made). */
+function Title({ value, readOnly, pick, onSave }: { value: string; readOnly?: boolean; pick?: boolean; onSave: (t: string) => void }) {
   const [v, setV] = useState(value);
   const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { if (pick && !readOnly) { ref.current?.focus(); ref.current?.select(); } }, [pick, readOnly]);
   useEffect(() => setV(value), [value]);
   useEffect(() => { const el = ref.current; if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }, [v]);
   return <textarea ref={ref} className="cm-title" rows={1} value={v} readOnly={readOnly} onChange={(e) => setV(e.target.value)} aria-label="Tên thẻ"

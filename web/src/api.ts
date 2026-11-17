@@ -1,7 +1,7 @@
 import {beginLoading} from './loading';
 import type { AdsService, AdsSummary } from '../../shared/ads-summary';
 // Typed client for the DMI Workspace REST API.
-import type { QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardViewKind, ClientCard, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Customer, DriveFile, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page } from './types';
+import type { CustomerSpaces, MailboxStatus, MailThreadRow, MailThread, MailDraft, QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardViewKind, ClientCard, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Customer, DriveFile, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page } from './types';
 import { askText } from './components/AskDialog';
 
 /** Called when the session has ended (401) so the app can show the sign-in page. */
@@ -57,6 +57,14 @@ export const api = {
   forgotPassword: (email: string, turnstileToken?: string) => req<{ ok: true }>('POST', '/api/auth/forgot', { email, turnstileToken }),
   resetPassword: (token: string, password: string) => req<{ ok: true }>('POST', '/api/auth/reset', { token, password }),
   changePassword: (current: string, next: string) => req('PUT', '/api/auth/password', { current, next }),
+  mailbox:()=>req<MailboxStatus>('GET','/api/mailbox'),
+  disconnectMailbox:()=>req('DELETE','/api/mailbox'),
+  mailThreads:(folder:string,q='',page='')=>req<{threads:MailThreadRow[];next:string|null}>('GET',`/api/mailbox/threads?${new URLSearchParams({folder,q,page})}`),
+  mailThread:(id:string)=>req<MailThread>('GET',`/api/mailbox/threads/${encodeURIComponent(id)}`),
+  markMailThread:(id:string,change:{unread?:boolean;starred?:boolean;archive?:boolean;spam?:boolean;trash?:boolean})=>req('POST',`/api/mailbox/threads/${encodeURIComponent(id)}/modify`,change),
+  mailSettings:(change:{signature?:string;signatureOn?:boolean})=>req('PUT','/api/mailbox/settings',change),
+  gmailSignature:()=>req<{signature:string}>('GET','/api/mailbox/gmail-signature'),
+  sendMail:(draft:MailDraft)=>req<{id:string;threadId:string}>('POST','/api/mailbox/send',draft),
   notificationInbox:()=>req<NotificationInbox>('GET','/api/notifications/inbox'),
   notificationLatest:()=>req<{latest:number;unread:number}>('GET','/api/notifications/latest'),
   readNotifications:(id?:string)=>req('POST','/api/notifications/read',{id}),
@@ -87,8 +95,9 @@ export const api = {
   deletePosition: (id: string) => req('DELETE', `/api/positions/${id}`),
   boards: () => req<BoardItem[]>('GET', '/api/boards'),
   board: (id: string) => req<Board>('GET', `/api/boards/${id}`),
-  createBoard: (b: { name: string; bg: string; roleId: string | null; workspaceId?: string; private?: boolean; lists?: string[]; customerId?: string | null; view?: BoardViewKind; startAt?: number | null; services?: string[] }) => req<BoardItem>('POST', '/api/boards', b),
-  updateBoard: (id: string, b: Partial<{ name: string; bg: string; roleId: string | null; private: boolean; workspaceId: string; about: string; memberEdit: boolean; labelText: boolean; customerId: string | null; view: BoardViewKind; startAt: number | null; services: string[] }>) => req('PUT', `/api/boards/${id}`, b),
+  createBoard: (b: { name: string; bg: string; roleId: string | null; workspaceId?: string; private?: boolean; lists?: string[]; customerId?: string | null; view?: BoardViewKind; startAt?: number | null; services?: string[]; serviceId?: string }) => req<BoardItem>('POST', '/api/boards', b),
+  updateBoard: (id: string, b: Partial<{ name: string; bg: string; roleId: string | null; private: boolean; workspaceId: string; about: string; memberEdit: boolean; labelText: boolean; customerId: string | null; view: BoardViewKind; startAt: number | null; services: string[]; serviceId: string }>) => req('PUT', `/api/boards/${id}`, b),
+  customerSpaces: (customerId: string) => req<CustomerSpaces>('GET', `/api/customers/${encodeURIComponent(customerId)}/workspaces`),
   boardMembers: (id: string) => req<{ members: BoardMember[]; people: Person[] }>('GET', `/api/boards/${id}/members`),
   setBoardMember: (id: string, userId: string, level: Level) => req<{ members: BoardMember[] }>('PUT', `/api/boards/${id}/members/${userId}`, { level }),
   removeBoardMember: (id: string, userId: string) => req<{ members: BoardMember[] }>('DELETE', `/api/boards/${id}/members/${userId}`),

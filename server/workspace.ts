@@ -23,6 +23,7 @@ import { normName } from './taskimport';
 import { driveId, locate } from './drive-links';
 import {customerStatuses,customerStatus,defaultCustomerStatus} from './customer-statuses';
 import { renameProjectBoard, projectHome, projectCustomerChanged } from './taskworkspace';
+import { boardOfProject, projectOf } from './service-boards';
 import { syncProjectCards } from './work-sync';
 import { customerServices, oneService, projectServices, saveProjectServices, settleCustomerServices } from './project-services';
 import { customerBoardId, syncBoardPeople } from './board-people';
@@ -521,10 +522,11 @@ export function registerWorkspace(api: Router) {
       const a = await G.finishLogin(req.query.get('code') || '', state);
       if (a.purpose === 'signin') { await finishGoogleSignin(req, res, a.email); return redirect(res, '/'); }
       if(a.purpose==='mail')return redirect(res,`/#admin?mail=${encodeURIComponent(a.email)}`);
+      if(a.purpose==='mailbox')return redirect(res,'/#mail');
       if (!await currentUser(req)) throw new Error('Hãy đăng nhập DMI Workspace trước');
       redirect(res, `/#admin?google=${encodeURIComponent(a.email)}`);
     } catch (e: any) {
-      redirect(res, signin ? `/?auth_error=${encodeURIComponent(e.message)}` : purpose==='mail'?`/#admin?mail_error=${encodeURIComponent(e.message)}`:`/#admin?google_error=${encodeURIComponent(e.message)}`);
+      redirect(res, signin ? `/?auth_error=${encodeURIComponent(e.message)}` : purpose==='mailbox'?`/#mail?error=${encodeURIComponent(e.message)}`:purpose==='mail'?`/#admin?mail_error=${encodeURIComponent(e.message)}`:`/#admin?google_error=${encodeURIComponent(e.message)}`);
     }
   });
   api.delete('/api/google/accounts/:email', async (req, res) => { await G.removeAccount(req.params.email); json(res, 200, { accounts: await G.publicAccounts() }); });
@@ -775,13 +777,15 @@ export function registerWorkspace(api: Router) {
     const services = b.services !== undefined ? await oneService(b.services, 'Chỉ chọn một dịch vụ') : null;
     const title = services?.length ? (await get<any>('SELECT name FROM services WHERE id=?', services[0]))?.name || '' : name;
     if (!title || title.length > 200) throw new HttpError(400, 'Hãy chọn dịch vụ');
+    // Each service once per customer: it has one board (server/service-boards.ts).
+    if (services?.length && await projectOf(req.params.id, services[0])) throw new HttpError(409, 'Khách hàng này đã có dịch vụ này');
     const id = uid('tj_');
     await run('INSERT INTO task_projects(id,name,customer_id,created_at) VALUES(?,?,?,?)', id, title, req.params.id, now());
     const creator=(await currentUser(req))!;await run('UPDATE task_projects SET created_by=?,team_id=? WHERE id=?',creator.id,creator.team_role||null,id);
     // The services chosen for it (the form offers the customer's as its defaults), or else those still set on the customer.
     if (services) { await saveProjectServices(id, services, creator.id); await run('DELETE FROM customer_needs WHERE customer_id=?', req.params.id); }
     else await settleCustomerServices([req.params.id]);
-    if(await getSetting('task_workspace_auto',true))await projectHome(id);
+    await projectHome(id);
     json(res, 201, { id, name: title });
   });
   api.put('/api/customers/:id/projects/:project', async (req, res) => {
@@ -791,13 +795,16 @@ export function registerWorkspace(api: Router) {
     if (!p) throw new HttpError(404, 'Không tìm thấy dịch vụ của khách hàng');
     const b = await readJson(req);
     if (b.unlink === true) {
+      // A service with its board is the customer's for good: its board would belong to no one.
+      const board = await boardOfProject(p.id);
+      if (board) throw new HttpError(409, `Dịch vụ này có board “${board.name}” của khách hàng: hãy chuyển dịch vụ sang khách khác thay vì gỡ`);
       await run('UPDATE task_projects SET customer_id=NULL WHERE id=?', p.id);
       await projectCustomerChanged(p.id);
     } else {
       const name = String(b.name || '').trim();
       if (!name || name.length > 200) throw new HttpError(400, 'Tên dịch vụ cần từ 1 đến 200 ký tự');
       await run('UPDATE task_projects SET name=? WHERE id=?', name, p.id);
-      await renameProjectBoard(p.id, name);
+      await renameProjectBoard(p.id, name, p.name);
     }
     await syncProjectCards(p.id);
     json(res, 200, { ok: true });

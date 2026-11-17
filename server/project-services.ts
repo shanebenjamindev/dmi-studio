@@ -44,6 +44,9 @@ export async function saveProjectServices(projectId: string, ids: string[], by: 
   await run('DELETE FROM project_services WHERE project_id = ? AND service_id NOT IN (SELECT value FROM json_each(?))', projectId, JSON.stringify(ids));
   for (const id of ids) await run('INSERT OR IGNORE INTO project_services(project_id, service_id, added_by, created_at) VALUES(?,?,?,?)', projectId, id, by, now());
   if (ids.length === 1) await nameAfterService(projectId);
+  // Its board (the customer's service, server/service-boards.ts) is of the same service.
+  const board = await get<any>('SELECT id FROM boards WHERE project_id = ?', projectId);
+  if (board) await saveBoardServices(board.id, ids, by);
 }
 /** A project is called by its service's name: it, its own board and its cards on boards take it. */
 export async function nameAfterService(projectId: string) {
@@ -53,6 +56,8 @@ export async function nameAfterService(projectId: string) {
   if (!p || p.name === s.name) return;
   await run('UPDATE task_projects SET name=? WHERE id=?', s.name, projectId);
   await run("UPDATE board_cards SET title=? WHERE card_kind='project' AND work_project_id=?", s.name, projectId);
+  // Its board, if it still has the old name (one renamed by its people keeps theirs).
+  await run('UPDATE boards SET name=? WHERE project_id=? AND name=?', s.name, projectId, p.name);
   // Its own board (a project of no customer; taskworkspace.ts's projectBoardId), without importing that module here.
   await run('UPDATE boards SET name=? WHERE id=?', s.name, `b_proj_${createHash('sha256').update(projectId).digest('hex').slice(0, 16)}`);
 }

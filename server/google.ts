@@ -32,8 +32,10 @@ export async function removeAccount(email: string) {
 }
 
 // ---------------------------------------------------------------- OAuth
-// 'drive' connects an account for storage; 'signin' only identifies who is logging in to DMI Workspace.
-export type Purpose = 'drive' | 'signin' | 'mail';
+// 'drive' connects an account for storage; 'signin' only identifies who is logging in to DMI Workspace; 'mail' is the
+// admin's send-only account for notifications; 'mailbox' is one person's own Gmail for Hộp thư (server/mailbox.ts).
+export type Purpose = 'drive' | 'signin' | 'mail' | 'mailbox';
+export const MAILBOX_SCOPE = 'https://www.googleapis.com/auth/gmail.modify';
 interface OAuthState { redirect: string; purpose: Purpose; owner_id?:string|null }
 export async function authUrl(redirect: string, purpose: Purpose = 'drive', ownerId?:string) {
   const { clientId } = await oauthConfig();
@@ -44,12 +46,13 @@ export async function authUrl(redirect: string, purpose: Purpose = 'drive', owne
   const q = new URLSearchParams(purpose === 'signin'
     ? { client_id: clientId, redirect_uri: redirect, response_type: 'code', scope: 'openid email profile', prompt: 'select_account', state }
     : {
-      client_id: clientId, redirect_uri: redirect, response_type: 'code', scope: purpose==='mail'?'openid email profile https://www.googleapis.com/auth/gmail.send':SCOPES,
-      access_type: 'offline', prompt: 'consent select_account', include_granted_scopes: 'true', state,
+      client_id: clientId, redirect_uri: redirect, response_type: 'code', scope: purpose==='mail'?'openid email profile https://www.googleapis.com/auth/gmail.send':purpose==='mailbox'?`openid email profile ${MAILBOX_SCOPE}`:SCOPES,
+      // A mailbox asks for Gmail alone: its token never carries the Drive access given to the same account.
+      access_type: 'offline', prompt: 'consent select_account', include_granted_scopes: purpose==='mailbox'?'false':'true', state,
     });
   return `https://accounts.google.com/o/oauth2/v2/auth?${q}`;
 }
-async function tokenCall(params: Record<string, string>) {
+export async function tokenCall(params: Record<string, string>) {
   const { clientId, clientSecret } = await oauthConfig();
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -80,6 +83,16 @@ export async function finishLogin(code: string, state: string) {
     await setSetting('notification_mail',account);
     await setSetting('notification_mail_issue',null);
     return {purpose:p.purpose,email:account.email,name:account.name,picture:account.picture};
+  }
+  if(p.purpose==='mailbox'){
+    if(!p.owner_id||!await get('SELECT 1 FROM users WHERE id=? AND disabled=0',p.owner_id))throw new HttpError(403,'Hãy đăng nhập DMI Workspace trước');
+    if(t.scope&&!String(t.scope).split(' ').includes(MAILBOX_SCOPE))throw new HttpError(400,'Chưa cấp quyền đọc và gửi Gmail: hãy kết nối lại và tích chọn quyền Gmail');
+    const email=String(me.email).toLowerCase(),previous=await get<any>('SELECT email,refresh FROM user_gmail WHERE user_id=?',p.owner_id);
+    const refresh=t.refresh_token||(previous?.email===email?previous.refresh:'');
+    if(!refresh)throw new HttpError(400,'Google chưa cấp quyền truy cập lâu dài, hãy kết nối lại');
+    await run('INSERT INTO user_gmail(user_id,email,name,picture,refresh,access,expiry,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET email=excluded.email,name=excluded.name,picture=excluded.picture,refresh=excluded.refresh,access=excluded.access,expiry=excluded.expiry',
+      p.owner_id,email,me.name||email,me.picture||'',refresh,t.access_token,Date.now()+((t.expires_in||3600)-60)*1000,Date.now());
+    return {purpose:p.purpose,email,name:me.name||email,picture:me.picture||''};
   }
   const prev = (await accounts()).find((a) => a.email === me.email);
   const acc: GAccount = {

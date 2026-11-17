@@ -42,6 +42,7 @@ const PAGES = {
   tools: lazyPage(() => import('./components/Tools'), 'ToolsPage'),
   reports: lazyPage(() => import('./components/Reports'), 'ReportsPage'),
   ads: lazyPage(() => import('./components/AdsPage'), 'AdsPage'),
+  mail: lazyPage(() => import('./components/Mailbox'), 'MailboxPage'),
 };
 type PageKey = keyof typeof PAGES;
 export type Can = { admin: boolean };

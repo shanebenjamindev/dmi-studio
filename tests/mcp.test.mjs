@@ -142,6 +142,22 @@ test('Claude connector: OAuth, tools, rights and safety', async () => {
     const db = new DatabaseSync(path.join(dir, 'data', 'studio.db'));
     assert.ok(db.prepare("SELECT COUNT(*) n FROM audit_logs WHERE agent = 'Claude (MCP)' AND user_name = 'Boss'").get().n > 0);
 
+    // ChatGPT registers itself with its own https address and a secret; its changes are logged as ChatGPT's
+    const gptBack = 'https://chatgpt.com/connector_platform_oauth_redirect';
+    const gpt = await (await json('POST', '/api/oauth/register', { redirect_uris: [gptBack], client_name: 'ChatGPT', token_endpoint_auth_method: 'client_secret_post' })).json();
+    assert.ok(gpt.client_secret);
+    const gv = crypto.randomBytes(32).toString('base64url');
+    const gq = new URLSearchParams({ response_type: 'code', client_id: gpt.client_id, redirect_uri: gptBack, code_challenge: crypto.createHash('sha256').update(gv).digest('base64url'), code_challenge_method: 'S256', state: 'g', scope: 'dmi', resource: base + '/api/mcp' });
+    const gpage = await (await fetch(base + '/api/oauth/authorize?' + gq, { headers: { cookie: admin } })).text();
+    assert.match(gpage, /Cho phép ChatGPT truy cập/);
+    const gloc = new URL((await fetch(base + '/api/oauth/authorize', { method: 'POST', redirect: 'manual', headers: { cookie: admin, origin: base, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams([...gq, ['csrf', gpage.match(/name="csrf" value="([^"]+)"/)[1]], ['decision', 'allow']]) })).headers.get('location'));
+    assert.equal(gloc.origin + gloc.pathname, gptBack);
+    const G = (await (await token({ grant_type: 'authorization_code', code: gloc.searchParams.get('code'), client_id: gpt.client_id, client_secret: gpt.client_secret, redirect_uri: gptBack, code_verifier: gv })).json()).access_token;
+    assert.equal((await call(G, 'comment_task', { task_id: tid, text: 'Từ ChatGPT' })).err, false);
+    assert.ok(db.prepare("SELECT COUNT(*) n FROM audit_logs WHERE agent = 'ChatGPT (MCP)' AND user_name = 'Boss'").get().n > 0);
+    assert.equal((await json('DELETE', `/api/mcp/connections/${gpt.client_id}`, undefined, { cookie: admin })).status, 200);
+    assert.equal((await json('POST', '/api/mcp', { jsonrpc: '2.0', id: 0, method: 'ping' }, { authorization: 'Bearer ' + G })).status, 401);
+
     // P1: a member connects and keeps a member's rights
     assert.equal((await json('POST', '/api/users', { email: 'mia@example.test', name: 'Mia', password: 'Passw0rd!long', role: 'member' }, { cookie: admin })).status, 201);
     const mia = cookieOf(await json('POST', '/api/auth/login', { email: 'mia@example.test', password: 'Passw0rd!long' }));

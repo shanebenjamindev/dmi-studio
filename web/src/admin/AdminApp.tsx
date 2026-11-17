@@ -24,7 +24,7 @@ const PAGES: Record<string, ComponentType> = {
   'rbac/roles': Rbac.Roles, 'rbac/groups': Rbac.PermissionGroups, 'rbac/permissions': Rbac.PermissionMatrix, 'rbac/assign': Rbac.Assign,
   'tasks/list': Work.AllTasks, 'tasks/statuses': Work.Statuses, 'tasks/categories': Work.Categories, 'tasks/priorities': Work.Priorities, 'tasks/workflow': Work.Workflow, 'tasks/templates': Work.Templates, 'tasks/overdue': Work.Overdue,
   'customers/list': Customers.CustomerList, 'customers/categories': Customers.Categories, 'customers/statuses': Customers.Statuses, 'customers/sources': Customers.Sources,
-  'services/list': Services.ServiceList, 'services/categories': Services.Categories, 'services/packages': Services.Packages,
+  'services/list': Services.ServiceList, 'services/packages': Services.Packages,
   'notify/list': Notify.Sent, 'notify/create': Notify.Compose, 'notify/templates': Notify.Templates, 'notify/history': Notify.MailLog,
   'logs/logins': Logs.Logins, 'logs/actions': Logs.Actions, 'logs/data': Logs.DataChanges, 'logs/permissions': Logs.PermissionChanges, 'logs/errors': Logs.Errors,
   'system/info': System.Info, 'system/general': System.General, 'system/statuses': Work.Statuses, 'system/notifications': System.NotificationConfig, 'system/storage': System.Storage, 'system/hosting': Hosting.Hosting, 'system/sql': Hosting.Sql, 'system/backup': System.Backup,

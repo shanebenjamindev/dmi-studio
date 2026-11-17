@@ -7,6 +7,12 @@ import {normalizeAllBoards} from './board-flow';
 import {projectsAsServices} from './project-services';
 import { handleApi } from './app';
 import { initDatabase, repairData, type D1Binding } from './db';
+import { migrateServiceBoards } from './service-boards';
+
+/** Once per instance after the database is up: the boards from before become their customers' service boards (it does
+ *  nothing once done; server/service-boards.ts). */
+let migrated: Promise<void> | undefined;
+const ready = (binding?: D1Binding) => initDatabase(binding).then(() => migrated ||= migrateServiceBoards().catch((e) => { migrated = undefined; throw e; }));
 
 createServer(handleApi).listen(8787);
 const TOKEN_AUTH = /^\/api\/(mcp|oauth\/(token|register))$/;
@@ -17,7 +23,7 @@ export default {
   async scheduled(event:ScheduledEvent,env:{DB?:D1Binding},ctx:ExecutionContext){
     // Every tenth minute the data repairs run as well (they read whole tables), tasks not yet in the review workflow join
     // it, and the reminders for overdue work and waiting reviews go out.
-    ctx.waitUntil((async()=>{await initDatabase(env.DB);if(new Date(event.scheduledTime).getUTCMinutes()%10===0){await repairData();await settleStages();await projectsAsServices();await normalizeAllBoards();await remindTasks();}await drainNotifications();})());
+    ctx.waitUntil((async()=>{await ready(env.DB);if(new Date(event.scheduledTime).getUTCMinutes()%10===0){await repairData();await settleStages();await projectsAsServices();await normalizeAllBoards();await remindTasks();}await drainNotifications();})());
   },
   async fetch(request: WorkerRequest, env: { ASSETS: Fetcher; DB?: D1Binding }, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -32,7 +38,7 @@ export default {
       const origin = request.headers.get('origin');
       if (origin && origin !== url.origin) return Response.json({ error: 'Origin không hợp lệ' }, { status: 403 });
     }
-    try { await initDatabase(env.DB); }
+    try { await ready(env.DB); }
     catch {
       console.error('Không kết nối được Cloudflare D1; kiểm tra binding DB.');
       return Response.json({ error: 'Chưa kết nối được database cloud.' }, { status: 503, headers: { 'cache-control': 'no-store' } });

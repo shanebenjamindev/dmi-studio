@@ -18,15 +18,17 @@ export const customerBoardId = (customerId: string) => `b_cust_${createHash('sha
 /** The projects on a board: of its project cards and of the tasks on its cards. */
 async function boardProjects(boardId: string) {
   return all<any>(`SELECT id, customer_id, created_by FROM task_projects WHERE id IN (
-    SELECT work_project_id FROM board_cards WHERE board_id = ? AND card_kind = 'project'
-    UNION SELECT t.project_id FROM board_cards c JOIN task_board_links l ON l.card_id = c.id JOIN tasks t ON t.id = l.task_id WHERE c.board_id = ?)`, boardId, boardId);
+    SELECT project_id FROM boards WHERE id = ?
+    UNION SELECT work_project_id FROM board_cards WHERE board_id = ? AND card_kind = 'project' AND archived = 0
+    UNION SELECT t.project_id FROM board_cards c JOIN task_board_links l ON l.card_id = c.id JOIN tasks t ON t.id = l.task_id WHERE c.board_id = ?)`, boardId, boardId, boardId);
 }
 
 /** The people of the projects whose card is on the board join it, and leave it when they leave those projects. */
 export async function syncBoardPeople(boardId: string) {
-  const b = await get<any>('SELECT id, created_by, customer_id FROM boards WHERE id = ?', boardId);
+  const b = await get<any>('SELECT id, created_by, customer_id, project_id, workspace_id FROM boards WHERE id = ?', boardId);
   if (!b) return;
-  const projects = JSON.stringify((await all<any>("SELECT DISTINCT work_project_id id FROM board_cards WHERE board_id = ? AND card_kind = 'project' AND work_project_id IS NOT NULL", b.id)).map((r) => r.id));
+  // The service the board is (server/service-boards.ts), and those of project cards still on it from before.
+  const projects = JSON.stringify([...new Set([b.project_id, ...(await all<any>("SELECT DISTINCT work_project_id id FROM board_cards WHERE board_id = ? AND card_kind = 'project' AND archived = 0 AND work_project_id IS NOT NULL", b.id)).map((r) => r.id)].filter(Boolean))]);
   const want = new Map<string, BoardLevel>();
   const put = (user: string | null, level: BoardLevel) => { if (user && (RANK[want.get(user) || ''] || 0) < RANK[level]) want.set(user, level); };
   // Members a shared board opened the project to are on that board, not this one.
@@ -47,6 +49,8 @@ export async function syncBoardPeople(boardId: string) {
     await run('DELETE FROM board_members WHERE board_id = ? AND user_id = ?', b.id, user);
     await run('DELETE FROM card_members WHERE user_id = ? AND card_id IN (SELECT id FROM board_cards WHERE board_id = ?)', user, b.id);
   }
+  // They find the board in its workspace (a customer's): its people see the workspace too.
+  if (b.workspace_id) await (await import('./service-boards')).syncWorkspacePeople(b.workspace_id);
 }
 
 /** Open a customer or project to someone the board is shared with: added for the board, never lowered if they had it
@@ -107,7 +111,7 @@ export async function syncBoardGrants(boardId: string) {
 
 /** Both, for every board holding the project (its people or tasks changed). */
 export async function syncProjectBoards(projectId: string) {
-  for (const r of await all<any>("SELECT DISTINCT board_id FROM board_cards WHERE card_kind = 'project' AND work_project_id = ?", projectId)) {
+  for (const r of await all<any>("SELECT id board_id FROM boards WHERE project_id = ? UNION SELECT board_id FROM board_cards WHERE card_kind = 'project' AND archived = 0 AND work_project_id = ?", projectId, projectId)) {
     await syncBoardPeople(r.board_id);
     await syncBoardGrants(r.board_id);
   }

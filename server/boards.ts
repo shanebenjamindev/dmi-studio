@@ -38,6 +38,8 @@ import { customerFile, clientCustomers } from './workspace';
 import { matcher } from './admin/common';
 import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
 import { AUTO, syncBoardGrants, syncBoardPeople } from './board-people';
+import { boardOfProject, checkServiceFree, gatherProjectCards, linkBoard, personalBoard, projectOf, serviceOf, syncWorkspacePeople } from './service-boards';
+import { projectForService } from './tasks';
 import { projectCustomerChanged } from './taskworkspace';
 import { flowSettings, statusFor } from './task-flow';
 import { handOver } from './task-assign';
@@ -262,6 +264,8 @@ const boardOut = (b: any, starred: boolean, cards = 0, level: BoardLevel | null 
   memberEdit: !!b.member_edit, canShape: shapes(b, level), labelText: !!b.label_text,
   customerId: b.customer_id || null, customerName: b.customer_id ? b.customer_name || null : null, editorShare: !!b.editor_share, canShare: shares(b, level),
   view: viewIn(b.view), startAt: b.start_at ?? b.created_at ?? null,
+  // The customer's service it is (server/service-boards.ts); one that is none yet asks its admins to choose.
+  projectId: b.project_id || null, needsService: !b.project_id && !personalBoard(b.id),
 });
 /** Boards with the name of the customer they are for. */
 const WITH_CUSTOMER = 'SELECT b.*, k.name customer_name FROM boards b LEFT JOIN customers k ON k.id = b.customer_id';
@@ -461,6 +465,8 @@ export function registerBoards(api: Router) {
   });
   api.post('/api/workspaces', async (req, res) => {
     const u = await me(req), b = await readJson(req), id = uid('w_'), t = now(), customer = await customerFor(req, b.customerId);
+    // A workspace is one customer's: its boards are that customer's services.
+    if (!customer) throw new HttpError(400, 'Hãy chọn khách hàng của workspace');
     // Private unless asked otherwise: only its owner sees it until they invite people.
     await run('INSERT INTO workspaces(id, name, about, owner_id, visibility, created_at, updated_at, customer_id) VALUES(?,?,?,?,?,?,?,?)', id, text(b.name, 80, 'tên workspace'), long(b.about, 2000), u.id, visibilityIn(b.visibility), t, t, customer);
     json(res, 201, wsOut(await get(`${WS_SQL} WHERE w.id = ?`, id), 'admin', 1));
@@ -470,8 +476,13 @@ export function registerBoards(api: Router) {
     // For a customer its admins reach; taken off one by someone who works on that customer (as a board).
     if (b.customerId !== undefined && (b.customerId || null) !== (w.customer_id || null)) {
       const customer = await customerFor(req, b.customerId);
+      if (!customer) throw new HttpError(400, 'Workspace luôn thuộc một khách hàng');
       if (w.customer_id) await requireCustomer((await me(req)).id, w.customer_id, 'normal');
+      // Its boards are its customer's services: only a workspace whose boards are all of the new customer (or none yet) changes.
+      const others = await get<any>("SELECT name FROM boards WHERE workspace_id = ? AND id NOT LIKE 'b_tasks_%' AND COALESCE(customer_id, '') <> ? AND project_id IS NOT NULL LIMIT 1", w.id, customer);
+      if (others) throw new HttpError(409, `Workspace đang có board “${others.name}” của khách hàng khác: chuyển board đó sang workspace của khách đó trước`);
       await run('UPDATE workspaces SET customer_id = ? WHERE id = ?', customer, w.id);
+      await run("UPDATE boards SET customer_id = ? WHERE workspace_id = ? AND project_id IS NULL AND id NOT LIKE 'b_tasks_%'", customer, w.id);
     }
     await run('UPDATE workspaces SET name = ?, about = ?, visibility = ?, updated_at = ? WHERE id = ?', b.name !== undefined ? text(b.name, 80, 'tên workspace') : w.name,
       b.about !== undefined ? long(b.about, 2000) : w.about, b.visibility !== undefined ? visibilityIn(b.visibility) : w.visibility || 'private', now(), w.id);
@@ -597,22 +608,68 @@ export function registerBoards(api: Router) {
   }
   // In the company's workspace or one of this account's; seen by the workspace, one role (company only) or only its
   // members; for a customer or none.
+  // A board is one of a customer's services: in one of the customer's workspaces (its customer is the workspace's) or in
+  // the company's (the customer chosen). Each customer × service has one board (server/service-boards.ts).
   api.post('/api/boards', async (req, res) => {
     const u = await me(req), b = await readJson(req);
-    const roleId = b.roleId ? String(b.roleId) : null, ws = await workspaceFor(req, b.workspaceId), customer = await customerFor(req, b.customerId);
-    const services = b.services !== undefined ? await boardService(b.services) : [];
+    const roleId = b.roleId ? String(b.roleId) : null, ws = await workspaceFor(req, b.workspaceId);
+    const service = (b.serviceId ? [String(b.serviceId)] : b.services !== undefined ? await boardService(b.services) : [])[0];
+    if (!service) throw new HttpError(400, 'Hãy chọn dịch vụ của board');
     if (!ws && wsLevel(u, null) === 'observer') throw new HttpError(403, 'Role của bạn trong phòng chỉ được xem, không tạo được board');
     if (roleId) { if (ws) throw new HttpError(400, ROLE_IN_COMPANY); await checkRole(req, roleId); }
-    const id = await newBoard(text(b.name, 80, 'tên board'), BGS.includes(b.bg) ? b.bg : 'ocean', roleId, u.id,
+    const customer = await boardCustomer(req, ws, b.customerId);
+    const project = await projectForService(u, customer, service, { home: false });
+    const taken = await boardOfProject(project.id);
+    if (taken) throw new HttpError(409, `Dịch vụ ${project.name} của khách này đã có board “${taken.name}”: mỗi dịch vụ của một khách chỉ có một board`);
+    const name = b.name ? text(b.name, 80, 'tên board') : (await serviceOf(project.id))?.name || project.name;
+    const id = await newBoard(name, BGS.includes(b.bg) ? b.bg : 'ocean', roleId, u.id,
       Array.isArray(b.lists) && b.lists.length ? b.lists.slice(0, 20).map((x: any) => text(x, 80, 'tên danh sách')) : BASIC, ws, !!b.private && !roleId);
-    if (customer) await run('UPDATE boards SET customer_id = ? WHERE id = ?', customer, id);
     // Columns of its own still get one for each workflow step they lack.
     if (Array.isArray(b.lists) && b.lists.length) await (await import('./board-flow')).normalizeBoard(id);
     // No date given: it starts now.
     await run('UPDATE boards SET view = ?, start_at = ? WHERE id = ?', viewIn(b.view), startIn(b.startAt) ?? now(), id);
-    // Its type: the services it is for.
-    if (services.length) await saveBoardServices(id, services, u.id);
+    await linkBoard(id, project.id, u.id);
+    // Tasks of the service already made (on their makers' boards) come onto it.
+    await gatherProjectCards(project.id);
+    await syncBoardPeople(id); await syncBoardGrants(id);
     json(res, 201, { ...boardOut(await get(`${WITH_CUSTOMER} WHERE b.id = ?`, id), false, 0, 'admin'), services: (await boardServices([id])).get(id) || [] });
+  });
+  /** The customer of a board in workspace `ws`: the workspace's (one given must be it), or in the company's the one chosen. */
+  async function boardCustomer(req: Req, ws: string | null, given: any) {
+    const w = ws ? await get<any>('SELECT customer_id, name, owner_id FROM workspaces WHERE id = ?', ws) : null;
+    if (w) {
+      if (!w.customer_id) throw new HttpError(400, `Workspace “${w.name}” chưa gắn khách hàng: hãy chọn khách hàng cho workspace trước (Thành viên › Khách hàng)`);
+      if (given && String(given) !== w.customer_id) throw new HttpError(400, 'Board trong workspace của một khách hàng là của chính khách hàng đó');
+      // Editing in a customer's workspace (checked by workspaceFor) is working on that customer: it opens to them.
+      const u = await me(req);
+      if (ws && (w.owner_id === u.id || await get('SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND role IN (\'normal\', \'admin\')', ws, u.id))) await grantAccess(u.id, w.owner_id || u.id, { customerId: w.customer_id }, 'normal');
+      await requireCustomer(u.id, w.customer_id, 'normal');
+      return w.customer_id as string;
+    }
+    const customer = await customerFor(req, given);
+    if (!customer) throw new HttpError(400, 'Hãy chọn khách hàng của board');
+    return customer;
+  }
+  // A customer's workspaces and, in each, its boards: one per service of the customer (server/service-boards.ts), with
+  // how many of its tasks are open; the ones this account cannot open are named but not opened. Services of the
+  // customer still without a board come last.
+  api.get('/api/customers/:id/workspaces', async (req, res) => {
+    const u = await me(req), level = await levels(u), customer = req.params.id;
+    const mine = new Map((await all<any>('SELECT workspace_id, role FROM workspace_members WHERE user_id = ?', u.id)).map((r) => [r.workspace_id, r.role]));
+    const boards = await all<any>(`SELECT b.*, s.id service_id, s.name service_name,
+        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = b.project_id AND t.done_at IS NULL) open_tasks,
+        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = b.project_id) all_tasks
+      FROM boards b LEFT JOIN project_services ps ON ps.project_id = b.project_id LEFT JOIN services s ON s.id = ps.service_id
+      WHERE b.customer_id = ? OR b.workspace_id IN (SELECT id FROM workspaces WHERE customer_id = ?) ORDER BY b.created_at`, customer, customer);
+    const out = (b: any) => ({ id: b.id, name: b.name, bg: bgOf(b), projectId: b.project_id || null, service: b.service_id ? { id: b.service_id, name: b.service_name } : null,
+      openTasks: Number(b.open_tasks || 0), tasks: Number(b.all_tasks || 0), level: level(b), needsService: !b.project_id });
+    const spaces = (await all<any>('SELECT * FROM workspaces WHERE customer_id = ? ORDER BY created_at, id', customer)).map((w) => ({
+      id: w.id, name: w.name, level: wsLevel(u, w, mine.get(w.id)), boards: boards.filter((b) => b.workspace_id === w.id).map(out) }));
+    // Its boards kept in the company's workspace.
+    const company = boards.filter((b) => !b.workspace_id && !personalBoard(b.id)).map(out);
+    if (company.length) spaces.push({ id: COMPANY, name: 'Detailers Movement', level: wsLevel(u, null), boards: company });
+    const unboarded = await all<any>('SELECT p.id, p.name, s.id service_id, s.name service_name FROM task_projects p LEFT JOIN project_services ps ON ps.project_id = p.id LEFT JOIN services s ON s.id = ps.service_id WHERE p.customer_id = ? AND p.id NOT IN (SELECT project_id FROM boards WHERE project_id IS NOT NULL) ORDER BY p.created_at', customer);
+    json(res, 200, { workspaces: spaces, unboarded: unboarded.map((p) => ({ projectId: p.id, name: p.name, service: p.service_id ? { id: p.service_id, name: p.service_name } : null })) });
   });
   api.get('/api/boards/:id', async (req, res) => {
     const u = await me(req), b = await mustBoard(req, req.params.id, 'viewer');
@@ -638,34 +695,65 @@ export function registerBoards(api: Router) {
   api.put('/api/boards/:id', async (req, res) => {
     const bd = await mustBoard(req, req.params.id), b = await readJson(req), u = await me(req);
     if (['name', 'bg', 'about', 'labelText', 'view', 'startAt', 'services'].some((k) => b[k] !== undefined) && !shapes(bd)) throw new HttpError(403, NO_SHAPE);
-    const start = b.startAt !== undefined ? startIn(b.startAt) ?? bd.created_at : undefined, services = b.services !== undefined ? await boardService(b.services) : undefined;
+    const start = b.startAt !== undefined ? startIn(b.startAt) ?? bd.created_at : undefined;
+    const service = b.serviceId !== undefined ? (b.serviceId ? String(b.serviceId) : null) : b.services !== undefined ? (await boardService(b.services))[0] || null : undefined;
     let roleId = bd.role_id, priv = 1, ws = bd.workspace_id || null;
     if ((b.memberEdit !== undefined || b.editorShare !== undefined || b.customerId !== undefined) && bd.level !== 'admin') throw new HttpError(403, DENIED.admin);
-    if (b.customerId !== undefined && (b.customerId || null) !== (bd.customer_id || null)) {
-      const customer = await customerFor(req, b.customerId);
-      // Taken off a customer by someone who works on that customer.
-      if (bd.customer_id) await requireCustomer(u.id, bd.customer_id, 'normal');
-      await run('UPDATE boards SET customer_id = ?, updated_at = ? WHERE id = ?', customer, now(), bd.id);
-      await log(bd.id, null, u.id, 'board.customer', { name: customer ? (await get<any>('SELECT name FROM customers WHERE id = ?', customer))?.name || '' : '' });
-      await syncBoardGrants(bd.id);
+    // Its customer and service are the project it is (server/service-boards.ts). A board of a service changes service (its
+    // project's, with every task on it); its customer is its workspace's and does not change here. A board of none yet
+    // becomes one (its admins choose): the service of the customer, made if new, its tasks with it.
+    if (service === null && !personalBoard(bd.id)) throw new HttpError(400, 'Board luôn thuộc một dịch vụ');
+    if (bd.project_id) {
+      if (b.customerId !== undefined && (b.customerId || null) !== (bd.customer_id || null)) throw new HttpError(400, 'Khách hàng của board là khách của workspace: chuyển board sang workspace của khách khác, hoặc đổi khách của dịch vụ');
+      if (service && service !== (await serviceOf(bd.project_id))?.id) {
+        if (!shapes(bd)) throw new HttpError(403, NO_SHAPE);
+        await checkServiceFree(bd.project_id, service);
+        const old = await serviceOf(bd.project_id);
+        await requireProject(u.id, bd.project_id, 'admin');
+        await (await import('./project-services')).saveProjectServices(bd.project_id, [service], u.id);
+        await log(bd.id, null, u.id, 'board.service', { name: (await serviceOf(bd.project_id))?.name || '', from: old?.name || '' });
+      }
+    } else if (service || b.customerId !== undefined) {
+      if (bd.level !== 'admin') throw new HttpError(403, DENIED.admin);
+      if (!service) throw new HttpError(400, 'Hãy chọn dịch vụ của board');
+      if (personalBoard(bd.id)) throw new HttpError(400, 'Board việc riêng của bạn không gắn dịch vụ');
+      const customer = await boardCustomer(req, bd.workspace_id || null, b.customerId ?? bd.customer_id);
+      const project = await projectForService(u, customer, service, { home: false });
+      const taken = await boardOfProject(project.id);
+      if (taken && taken.id !== bd.id) throw new HttpError(409, `Dịch vụ ${project.name} của khách này đã có board “${taken.name}”: mỗi dịch vụ của một khách chỉ có một board`);
+      await linkBoard(bd.id, project.id, u.id);
+      // The tasks on it of no service are this one's; those of another service go to that service's board; the
+      // service's tasks elsewhere come here.
+      await run('UPDATE tasks SET project_id = ?, updated_at = ? WHERE project_id IS NULL AND id IN (SELECT l.task_id FROM task_board_links l JOIN board_cards c ON c.id = l.card_id WHERE c.board_id = ?)', project.id, now(), bd.id);
+      for (const r of await all<any>('SELECT l.task_id FROM task_board_links l JOIN board_cards c ON c.id = l.card_id JOIN tasks t ON t.id = l.task_id WHERE c.board_id = ? AND t.project_id <> ?', bd.id, project.id))
+        await (await import('./taskworkspace')).placeTaskCard(r.task_id);
+      await gatherProjectCards(project.id);
+      await log(bd.id, null, u.id, 'board.customer', { name: (await get<any>('SELECT name FROM customers WHERE id = ?', customer))?.name || '' });
+      await syncBoardPeople(bd.id); await syncBoardGrants(bd.id);
     }
     if (b.editorShare !== undefined) await run('UPDATE boards SET editor_share = ? WHERE id = ?', b.editorShare ? 1 : 0, bd.id);
     if (b.roleId !== undefined || b.private !== undefined || b.workspaceId !== undefined) {
       if (bd.level !== 'admin') throw new HttpError(403, DENIED.admin);
       if (b.roleId !== undefined) roleId = b.roleId ? String(b.roleId) : null;
       priv = 1;
-      if (b.workspaceId !== undefined && (b.workspaceId || COMPANY) !== (bd.workspace_id || COMPANY)) ws = await workspaceFor(req, b.workspaceId);
+      if (b.workspaceId !== undefined && (b.workspaceId || COMPANY) !== (bd.workspace_id || COMPANY)) {
+        ws = await workspaceFor(req, b.workspaceId);
+        // Only to another workspace of its customer (or the company's): the workspace is the customer's.
+        const to = ws ? await get<any>('SELECT customer_id, name FROM workspaces WHERE id = ?', ws) : null;
+        const mine = (await get<any>('SELECT customer_id FROM boards WHERE id = ?', bd.id))?.customer_id || null;
+        if (to && !personalBoard(bd.id) && to.customer_id !== mine) throw new HttpError(400, to.customer_id ? 'Board chỉ chuyển được sang workspace của cùng khách hàng' : `Workspace “${to.name}” chưa gắn khách hàng`);
+      }
       if (roleId && ws) throw new HttpError(400, ROLE_IN_COMPANY);
       if (roleId && roleId !== bd.role_id) await checkRole(req, roleId);
       priv = 1;
     }
     if (b.view !== undefined) await run('UPDATE boards SET view = ? WHERE id = ?', viewIn(b.view), bd.id);
     if (start !== undefined) await run('UPDATE boards SET start_at = ? WHERE id = ?', start, bd.id);
-    if (services) await saveBoardServices(bd.id, services, u.id);
     await run('UPDATE boards SET name = ?, bg = ?, role_id = ?, private = ?, workspace_id = ?, about = ?, member_edit = ?, label_text = ?, updated_at = ? WHERE id = ?', b.name !== undefined ? text(b.name, 80, 'tên board') : bd.name,
       b.bg !== undefined && BGS.includes(b.bg) ? b.bg : bd.bg, roleId, priv, ws, b.about !== undefined ? long(b.about, 4000) : bd.about,
       b.memberEdit !== undefined ? (b.memberEdit ? 1 : 0) : bd.member_edit || 0, b.labelText !== undefined ? (b.labelText ? 1 : 0) : bd.label_text || 0, now(), bd.id);
     if (b.memberEdit !== undefined && !!b.memberEdit !== !!bd.member_edit) await log(bd.id, null, u.id, 'board.member-edit', { on: !!b.memberEdit });
+    if ((ws || null) !== (bd.workspace_id || null)) { if (bd.workspace_id) await syncWorkspacePeople(bd.workspace_id); if (ws) await syncWorkspacePeople(ws); }
     json(res, 200, { ok: true });
   });
   // Its admins: the workspace's admins, whoever made it, and people made admin on it.
@@ -913,6 +1001,11 @@ export function registerBoards(api: Router) {
       workProjectId = prj.id;
       if (!customerId) customerId = prj.customer_id || null;
     }
+    // A task made on a service's board is that service's, for its customer (server/service-boards.ts).
+    if (kind === 'task' && !workProjectId) {
+      const own = await get<any>('SELECT p.id, p.customer_id FROM boards b JOIN task_projects p ON p.id = b.project_id WHERE b.id = ?', l.board_id);
+      if (own) { workProjectId = own.id; customerId = own.customer_id || customerId; }
+    }
     const id = uid('k_'), t = now();
     if (kind === 'customer') {
       if (!customerId) {
@@ -1008,9 +1101,21 @@ export function registerBoards(api: Router) {
       const k = b.customerId ? await get<any>('SELECT id, name FROM customers WHERE id = ?', String(b.customerId)) : null;
       if(k)await requireCustomer(u.id,k.id,'normal');
       if (b.customerId && !k) throw new HttpError(404, 'Không tìm thấy khách hàng');
-      const project = c.work_project_id || (await get<any>('SELECT t.project_id FROM task_board_links l JOIN tasks t ON t.id = l.task_id WHERE l.card_id = ?', c.id))?.project_id || null;
+      const link = await get<any>('SELECT t.id, t.project_id FROM task_board_links l JOIN tasks t ON t.id = l.task_id WHERE l.card_id = ?', c.id);
+      const project = c.work_project_id || link?.project_id || null;
       set.push(['customer_id', k?.id || null]); await log(c.board_id, c.id, u.id, 'card.customer', { name: k?.name || '' });
-      if (project) {
+      // One task of a service, given to another customer: it becomes that customer's same service (made if new) and its
+      // card goes to that service's board. The service's other tasks stay with their customer.
+      const svc = !c.work_project_id && link?.project_id ? await serviceOf(link.project_id) : null;
+      if (svc && k) {
+        const to = await projectForService(u, k.id, svc.id);
+        await run('UPDATE tasks SET project_id = ?, campaign_id = NULL, updated_at = ? WHERE id = ?', to.id, now(), link.id);
+        b.projectId = undefined;
+        const { placeTaskCard } = await import('./taskworkspace');
+        await run(`UPDATE board_cards SET customer_id = ? WHERE id = ?`, k.id, c.id);
+        await placeTaskCard(link.id);
+      } else if (svc && !k) throw new HttpError(400, 'Công việc của một dịch vụ luôn có khách hàng của dịch vụ đó');
+      else if (project) {
         await requireProject(u.id, project, 'admin').catch((e) => { throw e instanceof HttpError && e.status === 403 ? new HttpError(403, 'Khách hàng của công việc là của dịch vụ: chỉ quản lý dịch vụ mới đổi được') : e; });
         await run('UPDATE task_projects SET customer_id = ? WHERE id = ?', k?.id || null, project);
         await projectCustomerChanged(project);

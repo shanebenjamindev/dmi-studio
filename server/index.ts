@@ -13,6 +13,7 @@ import { api } from './routes';
 import { guard, type User } from './auth';
 import { withTrail, logError } from './audit';
 import { cloudDatabase, repairData } from './db';
+import { migrateServiceBoards } from './service-boards';
 import './app'; // hands the API entry to the Claude connector (server/mcp.ts), as on the Worker
 
 // Hostnames this server answers to. Checking Host blocks DNS rebinding; checking Origin on writes
@@ -81,6 +82,8 @@ process.on('unhandledRejection', (e: any) => console.error('✖ Promise lỗi (s
 
 // Large video uploads can take longer than Node's default 5-minute request timeout.
 server.requestTimeout = 0;
+// Once, before answering: the boards from before become their customers' service boards (server/service-boards.ts).
+await migrateServiceBoards();
 server.listen(PORT, HOST, () => {
   console.log(`\n  ▶ DMI Workspace  ${PUBLIC_URL || `http://localhost:${PORT}`}`);
   console.log(`    Database: ${cloudDatabase ? 'Cloudflare D1 (dùng chung)' : 'SQLite local'}`);

@@ -9,6 +9,7 @@ import {Icon} from './ui';
 import {openConversation} from './Messenger';
 import {PasswordSheet} from './PasswordSheet';
 import {ClaudeConnect} from './ClaudeConnect';
+import {ProfileTasks} from './ProfileTasks';
 import type {TaskItem,TeamRole,UserProfile} from '../types';
 import {stepCode} from './taskkit';
 
@@ -25,11 +26,11 @@ export function ProfilePage(){
  const[editing,setEditing]=useState(false),[saving,setSaving]=useState(false),[saveError,setSaveError]=useState(''),[pw,setPw]=useState(false);
  const[avatarBusy,setAvatarBusy]=useState(false);
  const[taskLoading,setTaskLoading]=useState(true);
- const[filter,setFilter]=useState('all'),[retry,setRetry]=useState(0);
+ const[retry,setRetry]=useState(0);
  const fileRef=useRef<HTMLInputElement>(null);
  useEffect(()=>{const change=()=>setId(profileId(me.id));window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change);},[me.id]);
  useEffect(()=>{
-   let current=true;setLoading(true);setError('');setTaskError('');setEditing(false);setSaveError('');setFilter('all');setP(null);setTasks([]);setPw(false);setTaskLoading(true);
+   let current=true;setLoading(true);setError('');setTaskError('');setEditing(false);setSaveError('');setP(null);setTasks([]);setPw(false);setTaskLoading(true);
    api.profile(id).then(profile=>{
      if(!current)return;
      setP(profile);setName(profile.name);setPhone(profile.phone||'');setEmail(profile.email||'');
@@ -113,10 +114,6 @@ export function ProfilePage(){
    }catch(e:any){toast(e.message,true);setSaveError(e.message);}finally{setAvatarBusy(false);}
  };
  const selectedDept=roles.find(r=>r.id===teamRole);
- const done=tasks.filter(t=>['done','done_late'].includes(t.state)).length;
- const open=tasks.filter(t=>!['done','done_late','cancelled'].includes(t.state)).length;
- const late=tasks.filter(t=>t.state==='overdue').length;
- const visible=tasks.filter(t=>filter==='all'||(filter==='done'?['done','done_late'].includes(t.state):filter==='overdue'?t.state==='overdue':!['done','done_late','cancelled'].includes(t.state)));
  if(loading)return <main className="profile-page"><BrandLoading label="Đang tải hồ sơ…"/></main>;
  if(error||!p)return <main className="profile-page"><p role="alert">{error||'Không tìm thấy hồ sơ.'}</p><button className="btn btn-gray" onClick={()=>setRetry(n=>n+1)}>Thử lại</button></main>;
  const hasAvatar=!!(p.avatarAt||hasUserAvatar(p.id));
@@ -190,7 +187,7 @@ export function ProfilePage(){
      <div><dt>Vai trò trong phòng</dt><dd>{p.position||'—'}</dd></div>
      {p.createdAt&&<div><dt>Tham gia từ</dt><dd>{date(p.createdAt)}</dd></div>}
    </dl>}</aside>
-   <section className="profile-work"><div className="staff-stats"><div className="staff-stat-box"><span>Tổng công việc</span><b>{taskError||taskLoading?'—':tasks.length}</b></div><div className="staff-stat-box is-open"><span>Đang mở</span><b>{taskError||taskLoading?'—':open}</b></div><div className="staff-stat-box is-done"><span>Hoàn thành</span><b>{taskError||taskLoading?'—':done}</b></div><div className="staff-stat-box is-late"><span>Quá hạn</span><b>{taskError||taskLoading?'—':late}</b></div></div><header className="profile-work-heading"><h2>{p.canEdit?'Công việc được giao':'Công việc bạn có quyền xem'}</h2><select aria-label="Lọc công việc hồ sơ" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">Tất cả ({tasks.length})</option><option value="open">Đang mở ({open})</option><option value="done">Hoàn thành ({done})</option><option value="overdue">Quá hạn ({late})</option></select></header>{taskLoading?<BrandLoading label="Đang tải công việc…"/>:taskError?<p role="alert">Không tải được công việc: {taskError} <button className="btn btn-gray btn-sm" onClick={()=>setRetry(n=>n+1)}>Thử lại</button></p>:visible.length?<div className="profile-tasks">{visible.map(t=><button key={t.id} onClick={()=>{history.replaceState(null,'',`#tasks/${t.id}`);goto('tasks');}}><Icon name="checklist" size={18}/><div><b>{t.title}</b><span>{t.project?.name||'Chưa có dịch vụ'}{t.dueAt?` · Hạn ${date(t.dueAt)}`:''}</span></div><span className={'profile-task-status '+t.state}>{t.stage?stepCode(t.stage):t.status}</span><Icon name="right" size={15}/></button>)}</div>:<p className="profile-empty">{tasks.length?'Không có công việc khớp bộ lọc.':'Chưa có công việc được giao.'}</p>}</section></div>
+   <section className="profile-work">{taskError?<p role="alert">Không tải được công việc: {taskError} <button className="btn btn-gray btn-sm" onClick={()=>setRetry(n=>n+1)}>Thử lại</button></p>:taskLoading?<><ProfileTasks tasks={[]} loading title={p.canEdit?'Công việc được giao':'Công việc bạn có quyền xem'}/><BrandLoading label="Đang tải công việc…"/></>:<ProfileTasks tasks={tasks} loading={false} title={p.canEdit?'Công việc được giao':'Công việc bạn có quyền xem'}/>}</section></div>
    {p.canEdit&&<section className="notification-settings profile-lang"><header><h2>Ngôn ngữ / Language</h2></header><p className="note">Giao diện hiển thị bằng ngôn ngữ đã chọn trên trình duyệt này.</p><LangChoice/></section>}
    {p.canEdit&&<ClaudeConnect/>}
    {p.canEdit&&<NotificationSettings/>}
