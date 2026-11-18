@@ -2,45 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { openLink, openProfile, toast, useStore } from '../store';
 import type { ChatAttachment, ChatChannel, ChatMember, ChatMessage, Workspace } from '../types';
-import { askConfirm } from './AskDialog';
+import { askConfirm, askText } from './AskDialog';
 import { Avatar, LogoImg } from './boardkit';
 import { BrandLoading } from './BrandLoading';
+import { ChannelSettings } from './ChannelSettings';
 import { Attachments, ChatFilesPanel, ContextMenu, KindIcon, bytes, copy, dragsFiles, menuAt, uploadTo, type CtxItem, type CtxState } from './ChatFiles';
 import { formatChatTime, formatOnlineStatus, getConvReadAt, isUserOnline, setConvReadAt } from './Messenger';
 import { Icon } from './ui';
 
-interface BuiltinChannel {
-  id: string;
-  serverId: string;
-  category: string;
-  name: string;
-  topic: string;
-  builtin?: boolean;
-  createdBy?: string | null;
-}
-
-const COMPANY_CHANNELS: BuiltinChannel[] = [
-  { id: 'thong-bao', serverId: 'company', category: 'KÊNH THÔNG TIN', name: 'thong-bao', topic: 'Thông báo chung và cập nhật quan trọng toàn công ty', builtin: true },
-  { id: 'general', serverId: 'company', category: 'KÊNH CHUNG', name: 'general', topic: 'Kênh trao đổi công việc chung của cả công ty', builtin: true },
-  { id: 'y-tuong', serverId: 'company', category: 'KÊNH CHUNG', name: 'y-tuong', topic: 'Đóng góp ý tưởng sáng tạo, cải tiến quy trình', builtin: true },
-  { id: 'account', serverId: 'company', category: 'PHÒNG BAN & DỊCH VỤ', name: 'account', topic: 'Trao đổi brief khách hàng, tiến độ Account', builtin: true },
-  { id: 'execution', serverId: 'company', category: 'PHÒNG BAN & DỊCH VỤ', name: 'execution', topic: 'Triển khai sản xuất Media, Design, Video, Content', builtin: true },
-  { id: 'paid-ads', serverId: 'company', category: 'PHÒNG BAN & DỊCH VỤ', name: 'paid-ads', topic: 'Chiến dịch quảng cáo, tối ưu ngân sách & báo cáo', builtin: true },
-  { id: 'website', serverId: 'company', category: 'PHÒNG BAN & DỊCH VỤ', name: 'website', topic: 'Kỹ thuật website, hosting, domain & SEO', builtin: true },
-];
+/** A channel of the open server, as the server keeps it (server/chat-channels.ts); #general cannot be deleted. */
+type BuiltinChannel = ChatChannel & { builtin: boolean };
 
 const QUICK_REACTIONS = ['👍', '❤️', '🔥', '✅', '🎉', '😂'];
 const EMOJI_PALETTE = ['😀', '😂', '🥰', '😎', '🤔', '🙌', '👍', '👏', '🔥', '✨', '🎉', '❤️', '💯', '✅', '🚀', '📌', '⚡', '🤝'];
-
-function workspaceChannels(ws: Workspace): BuiltinChannel[] {
-  const prefix = `ws_${ws.id}_`;
-  return [
-    { id: `${prefix}chung`, serverId: ws.id, category: 'KÊNH NHÃN HÀNG', name: 'chung', topic: `Trao đổi chung của nhãn hàng ${ws.name}`, builtin: true },
-    { id: `${prefix}brief`, serverId: ws.id, category: 'KÊNH NHÃN HÀNG', name: 'brief-khach-hang', topic: `Brief, tài liệu và yêu cầu từ khách hàng ${ws.customerName || ws.name}`, builtin: true },
-    { id: `${prefix}san-xuat`, serverId: ws.id, category: 'TRIỂN KHAI', name: 'san-xuat', topic: `Sản xuất nội dung, hình ảnh, video cho ${ws.name}`, builtin: true },
-    { id: `${prefix}bao-cao`, serverId: ws.id, category: 'TRIỂN KHAI', name: 'bao-cao-nghiem-thu', topic: `Báo cáo kết quả và nghiệm thu công việc ${ws.name}`, builtin: true },
-  ];
-}
 
 const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase();
 
@@ -145,38 +119,26 @@ export function MessagesPage() {
   }, [loadSidebarData]);
 
   // Channels for current server
-  const currentServerChannels = useMemo<BuiltinChannel[]>(() => {
-    if (serverId === 'dm') return [];
-    const base =
-      serverId === 'company'
-        ? COMPANY_CHANNELS
-        : (() => {
-            const ws = spaces.find((w) => w.id === serverId);
-            return ws ? workspaceChannels(ws) : [];
-          })();
-    const custom = customChannels
-      .filter((c) => c.serverId === serverId)
-      .map((c) => ({
-        id: c.id,
-        serverId: c.serverId,
-        category: c.category,
-        name: c.name,
-        topic: c.topic,
-        builtin: false,
-        createdBy: c.createdBy ?? null,
-      }));
-    return [...base, ...custom];
-  }, [serverId, spaces, customChannels]);
+  // Only the channels this person may see come from the server, in their order.
+  const currentServerChannels = useMemo<BuiltinChannel[]>(
+    () => (serverId === 'dm' ? [] : customChannels.filter((c) => c.serverId === serverId).map((c) => ({ ...c, builtin: c.id === 'general' }))),
+    [serverId, customChannels],
+  );
 
   // What this person may do in the open server (server/chat-perms.ts: Quản trị › Phân quyền › Tin nhắn, the block list
   // of Quản trị › Tin nhắn, and a workspace's own admins for its channels). What they may not do is not offered; the
   // server refuses it anyway. Until the answer comes, writing stays open and managing closed.
-  const [can, setCan] = useState({ send: true, manage: false });
-  useEffect(() => {
-    setCan({ send: true, manage: false });
+  type Access = Awaited<ReturnType<typeof api.chatAccess>>;
+  const OPEN: Access = { send: true, manage: false, channels: {} };
+  const [can, setCan] = useState<Access>(OPEN);
+  const channelIds = currentServerChannels.map((c) => c.id).join(',');
+  const loadAccess = useCallback(() => {
     const server = serverId;
-    api.chatAccess(server).then((a) => server === serverId && setCan(a), () => {});
-  }, [serverId]);
+    api.chatAccess(server, channelIds.split(',').filter(Boolean)).then((a) => server === serverId && setCan(a), () => {});
+  }, [serverId, channelIds]);
+  useEffect(() => { setCan(OPEN); loadAccess(); }, [loadAccess]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [editing, setEditing] = useState<{ channel: ChatChannel; tab: 'overview' | 'perms' } | null>(null);
+  const openSettings = (ch: ChatChannel, tab: 'overview' | 'perms' = 'overview') => setEditing({ channel: ch, tab });
 
   // Keep activeChannelId valid when switching servers
   useEffect(() => {
@@ -195,6 +157,10 @@ export function MessagesPage() {
     () => currentServerChannels.find((c) => c.id === activeChannelId) || currentServerChannels[0] || null,
     [currentServerChannels, activeChannelId],
   );
+
+  /** Writing here: the person's right to write, and in a channel its rule of who writes there. */
+  const sendHere = can.send && (serverId === 'dm' || !activeChannel || can.channels[activeChannel.id]?.send !== false);
+  const cannotSend = !can.send ? 'Bạn không được phép nhắn tin. Liên hệ quản trị viên nếu cần.' : 'Chỉ một số người được nhắn trong kênh này; bạn vẫn đọc được.';
 
   const activeDmMember = useMemo(
     () => (activeDmUserId ? members.find((m) => m.id === activeDmUserId) || null : null),
@@ -293,7 +259,7 @@ export function MessagesPage() {
   /** Files picked, dropped or pasted: uploaded at once into the conversation's folder, sent with the next message. */
   const attach = (files: File[]) => {
     if (!convParam) return toast('Hãy chọn người để nhắn tin trước', true);
-    if (!can.send) return toast('Bạn không được phép nhắn tin', true);
+    if (!sendHere) return toast(cannotSend, true);
     for (const file of files) {
       const id = ++pendingId.current;
       setPending((p) => [...p, { id, name: file.name, progress: 0 }]);
@@ -524,11 +490,19 @@ export function MessagesPage() {
       { label: 'Sao chép tên kênh', icon: 'copy', run: () => void copy(`#${ch.name}`, 'tên kênh') },
       ch.topic && { label: 'Sao chép chủ đề', icon: 'copy', run: () => void copy(ch.topic, 'chủ đề') },
       'sep',
+      can.manage && { label: 'Chỉnh sửa kênh', icon: 'edit', run: () => openSettings(ch) },
+      can.manage && { label: 'Quyền của kênh', icon: 'lock', run: () => openSettings(ch, 'perms') },
       can.manage && { label: 'Tạo kênh trong danh mục', icon: 'plus', run: () => newChannelIn(ch.category) },
       !ch.builtin && (ch.createdBy === me.id || can.manage) && { label: 'Xoá kênh', icon: 'trash', danger: true, run: () => void handleDeleteChannel(ch) },
     ]);
+  const renameCategory = async (cat: string) => {
+    const to = await askText('Tên mới của danh mục', cat, { required: true });
+    if (!to || to.trim() === cat) return;
+    try { await api.renameChatCategory(serverId, cat, to.trim()); await loadSidebarData(); } catch (err: any) { toast(err.message, true); }
+  };
   const categoryMenu = (e: React.MouseEvent, cat: string) =>
     openCtx(e, [
+      can.manage && { label: 'Đổi tên danh mục', icon: 'edit', run: () => void renameCategory(cat) },
       { label: foldedCats[cat] ? 'Mở danh mục' : 'Thu gọn danh mục', icon: foldedCats[cat] ? 'down' : 'right', run: () => setFoldedCats((p) => ({ ...p, [cat]: !p[cat] })) },
       { label: 'Tạo kênh', icon: 'plus', run: () => newChannelIn(cat) },
     ]);
@@ -804,11 +778,17 @@ export function MessagesPage() {
                               onClick={() => setActiveChannelId(ch.id)}
                               title={ch.topic || `#${ch.name}`}
                             >
-                              <span className="dc-chan-hash">#</span>
+                              <span className="dc-chan-hash">{ch.private ? <Icon name="lock" size={14} /> : '#'}</span>
                               <span className="dc-chan-name">{ch.name}</span>
+                              {ch.readOnly && <span className="dc-chan-note" title="Chỉ một số người được nhắn"><Icon name="eye" size={12} /></span>}
                               {unread > 0 && <span className="dc-unread-pill">{unread}</span>}
                             </button>
-                            {!ch.builtin && (ch.createdBy === me.id || can.manage) && (
+                            {can.manage && (
+                              <button type="button" className="dc-chan-del" title={`Chỉnh sửa kênh #${ch.name}`} aria-label={`Chỉnh sửa kênh #${ch.name}`} onClick={(e) => { e.stopPropagation(); openSettings(ch); }}>
+                                <Icon name="gear" size={13} />
+                              </button>
+                            )}
+                            {!ch.builtin && !can.manage && ch.createdBy === me.id && (
                               <button
                                 type="button"
                                 className="dc-chan-del"
@@ -1327,7 +1307,7 @@ export function MessagesPage() {
               className="dc-comp-btn"
               title="Đính kèm file"
               aria-label="Đính kèm file"
-              disabled={!convParam || !can.send}
+              disabled={!convParam || !sendHere}
               onClick={() => attachInput.current?.click()}
             >
               <Icon name="clip" size={18} />
@@ -1351,10 +1331,10 @@ export function MessagesPage() {
               ref={inputRef}
               rows={1}
               value={draft}
-              disabled={sending || (serverId === 'dm' && !activeDmMember) || !can.send}
+              disabled={sending || (serverId === 'dm' && !activeDmMember) || !sendHere}
               placeholder={
-                !can.send
-                  ? 'Bạn không được phép nhắn tin. Liên hệ quản trị viên nếu cần.'
+                !sendHere
+                  ? cannotSend
                   : serverId === 'dm'
                   ? activeDmMember
                     ? `Nhắn tin tới @${activeDmMember.name} (gõ @ để nhắc tên)…`
@@ -1530,6 +1510,16 @@ export function MessagesPage() {
       )}
 
       {ctx && <ContextMenu menu={ctx} onClose={closeCtx} />}
+      {editing && (
+        <ChannelSettings
+          channel={editing.channel}
+          startTab={editing.tab}
+          categories={[...new Set(currentServerChannels.map((c) => c.category))]}
+          onClose={() => setEditing(null)}
+          onSaved={() => { void loadSidebarData(); loadAccess(); }}
+          onDeleted={() => { setCustomChannels((prev) => prev.filter((x) => x.id !== editing.channel.id)); void loadSidebarData(); }}
+        />
+      )}
 
       {/* Create Channel Modal */}
       {creatingChannel && (

@@ -307,6 +307,10 @@ CREATE TABLE IF NOT EXISTS chat_items (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS chat_items_folder ON chat_items(conversation, parent_id);
+-- Who sees and who writes in a channel, on top of the site's permissions (server/chat-perms.ts)
+CREATE TABLE IF NOT EXISTS chat_channel_rules (
+  channel_id TEXT PRIMARY KEY, rules TEXT NOT NULL, updated_by TEXT, updated_at INTEGER NOT NULL
+);
 -- Tin nhắn had roles of its own for a day: it follows Quản trị › Phân quyền instead (server/chat-perms.ts)
 DROP TABLE IF EXISTS chat_channel_perms;
 DROP TABLE IF EXISTS chat_role_members;

@@ -172,6 +172,10 @@ export const api = {
   createChatChannel: (b: { serverId?: string; category?: string; name: string; topic?: string }) =>
     req<import('./types').ChatChannel>('POST', '/api/chat/channels', b),
   deleteChatChannel: (id: string) => req('DELETE', `/api/chat/channels/${id}`),
+  updateChatChannel: (id: string, b: Partial<{ name: string; topic: string; category: string }>) => req<import('./types').ChatChannel>('PUT', `/api/chat/channels/${encodeURIComponent(id)}`, b),
+  renameChatCategory: (server: string, from: string, to: string) => req('PUT', `/api/chat/servers/${encodeURIComponent(server)}/categories`, { from, to }),
+  channelRules: (id: string) => req<import('./types').ChannelRules & { options: { people: { id: string; name: string; email: string }[]; departments: { id: string; name: string; color: string }[]; roles: { id: string; name: string }[] } }>('GET', `/api/chat/channels/${encodeURIComponent(id)}/rules`),
+  setChannelRules: (id: string, b: import('./types').ChannelRules) => req<import('./types').ChannelRules>('PUT', `/api/chat/channels/${encodeURIComponent(id)}/rules`, b),
   chatMessages: (channel: string = 'general', recipientId?: string, since = 0) =>
     req<ChatMessage[]>('GET', `/api/chat/messages?channel=${encodeURIComponent(channel)}${recipientId ? `&recipientId=${encodeURIComponent(recipientId)}` : ''}${since ? `&since=${since}` : ''}`),
   sendChatMessage: (message: string, channel: string = 'general', recipientId?: string, replyToId?: string | null, attachments: string[] = []) =>
@@ -179,7 +183,7 @@ export const api = {
   /** Gives a comment (card or task) this person's reaction, or takes it back with null. */
   reactComment: (id: string, reaction: import('./types').ReactionKind | null) => req<{ reactions: import('./types').CommentReaction[] }>('PUT', `/api/comment-reactions/${encodeURIComponent(id)}`, { reaction }),
   /** What this person may do in a Tin nhắn server ('company', a workspace id, or 'dm'), by Quản trị › Phân quyền. */
-  chatAccess: (server: string) => req<{ send: boolean; manage: boolean }>('GET', `/api/chat/servers/${encodeURIComponent(server)}/access`),
+  chatAccess: (server: string, channels: string[] = []) => req<{ send: boolean; manage: boolean; channels: Record<string, { view: boolean; send: boolean; private: boolean; readOnly: boolean }> }>('GET', `/api/chat/servers/${encodeURIComponent(server)}/access?${new URLSearchParams({ channels: channels.join(',') })}`),
   /** A conversation's folder (`c`: a channel id or "dm:<person>"), or a folder inside it. */
   chatFiles: (c: string, folder = '') => req<ChatFolder>('GET', `/api/chat/files?${new URLSearchParams({ c, folder })}`),
   createChatFolder: (c: string, folder: string, name: string) => req<ChatFile>('POST', `/api/chat/files/folders?${new URLSearchParams({ c, folder })}`, { name }),

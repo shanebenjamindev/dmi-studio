@@ -5,12 +5,15 @@
 //    clearing a channel, and Quản trị › Tin nhắn (who is blocked from writing).
 // People blocked there keep reading but cannot write. Reading follows the channel: the company's are everyone's, a brand
 // workspace's are its people's, whose owner and admins also manage them. Direct messages are their two people's.
+// On top, each channel may say who sees it (a private channel) and who writes in it (the others only read), as people,
+// departments and roles of the site; those who manage Tin nhắn always see and write, and are the ones who set it.
 import type { Router } from './http';
 import { HttpError, json, readJson } from './http';
-import { all, get, getSetting, setSetting } from './db';
+import { all, get, run, now, getSetting, setSetting } from './db';
 import { currentUser, type User } from './auth';
 import { accessOf } from './rbac';
 import { need, changed } from './admin/common';
+import { MEMBER } from '../shared/permissions';
 
 export type ChatAct = 'view' | 'send' | 'manage';
 const MUTED = 'chat_muted';
@@ -33,23 +36,100 @@ export async function chatRights(u: User, server = 'company') {
   const member = admin || !!mine || w?.visibility === 'company';
   return { member, send: member && send, manage: member && (admin || manage) };
 }
-const REFUSED: Record<Exclude<ChatAct, 'view'>, string> = { send: 'Bạn không được phép nhắn tin', manage: 'Bạn không có quyền quản lý tin nhắn ở đây' };
+
+// ---------------------------------------------------------------- a channel's own rules
+/** Who: people ("u:<id>"), departments ("d:<id>") and roles ("r:<id>"). `all`: everyone (then `who` is unused). */
+export interface Rule { view: { all: boolean; who: string[] }; send: { all: boolean; who: string[] } }
+const OPEN: Rule = { view: { all: true, who: [] }, send: { all: true, who: [] } };
+async function ruleOf(channel: string): Promise<Rule> {
+  const r = await get<any>('SELECT rules FROM chat_channel_rules WHERE channel_id = ?', channel);
+  try { return r ? { ...OPEN, ...JSON.parse(r.rules) } : OPEN; } catch { return OPEN; }
+}
+/** What this person is, in the terms a rule names them by. */
+async function tagsOf(u: User) {
+  const roles = (await all<any>('SELECT role_id FROM user_roles WHERE user_id = ?', u.id)).map((r) => `r:${r.role_id}`);
+  return new Set([`u:${u.id}`, ...(u.team_role ? [`d:${u.team_role}`] : []), ...roles, `r:role_${MEMBER}`]);
+}
+/** In a channel: whether this person sees it and writes in it (its rules on top of the server's rights). */
+export async function channelRights(u: User, channel: string, server?: string) {
+  const r = await chatRights(u, server ?? await serverOfChannel(channel)), rule = await ruleOf(channel);
+  if (!r.member) return { ...r, view: false, send: false, private: !rule.view.all, readOnly: !rule.send.all };
+  const me = r.manage || (rule.view.all && rule.send.all) ? null : await tagsOf(u);
+  const hit = (who: string[]) => !!me && who.some((t) => me.has(t));
+  const view = r.manage || rule.view.all || hit(rule.view.who);
+  return { ...r, view, send: view && r.send && (r.manage || rule.send.all || hit(rule.send.who)), private: !rule.view.all, readOnly: !rule.send.all };
+}
+/** channelRights for many channels at once (a list of channels): the person's server rights and tags asked once. */
+export function rightsMemo(u: User) {
+  const servers = new Map<string, ReturnType<typeof chatRights>>();
+  let tags: Promise<Set<string>> | null = null;
+  return async (channel: string, server: string) => {
+    if (!servers.has(server)) servers.set(server, chatRights(u, server));
+    const r = await servers.get(server)!, rule = await ruleOf(channel);
+    const base = { private: !rule.view.all, readOnly: !rule.send.all };
+    if (!r.member) return { ...r, ...base, view: false, send: false };
+    if (r.manage || (rule.view.all && rule.send.all)) return { ...r, ...base, view: true, send: r.send };
+    const me = await (tags ||= tagsOf(u)), hit = (who: string[]) => who.some((t) => me.has(t));
+    const view = rule.view.all || hit(rule.view.who);
+    return { ...r, ...base, view, send: view && r.send && (rule.send.all || hit(rule.send.who)) };
+  };
+}
+const REFUSED: Record<Exclude<ChatAct, 'view'>, string> = { send: 'Bạn không được phép nhắn tin ở đây', manage: 'Bạn không có quyền quản lý tin nhắn ở đây' };
 export async function needInServer(u: User, server: string, act: ChatAct) {
   const r = await chatRights(u, server);
   if (!r.member) throw new HttpError(404, 'Không tìm thấy kênh');
   if (act !== 'view' && !r[act]) throw new HttpError(403, REFUSED[act]);
 }
-/** Stops the request unless this person may `act` in a channel (a channel id). */
-export const needInChannel = async (u: User, channel: string, act: ChatAct) => needInServer(u, await serverOfChannel(channel), act);
+/** Stops the request unless this person may `act` in a channel (a channel id), its own rules included. */
+export async function needInChannel(u: User, channel: string, act: ChatAct) {
+  const r = await channelRights(u, channel);
+  if (!r.member || !r.view) throw new HttpError(404, 'Không tìm thấy kênh');
+  if (act !== 'view' && !r[act]) throw new HttpError(403, REFUSED[act]);
+}
 /** Writing to someone directly: the same "Nhắn tin" permission. */
 export const needToSend = (u: User) => needInServer(u, 'company', 'send');
 
 export function registerChatPerms(api: Router) {
-  // What the page offers: who may not write gets a closed message box, who may not manage no channel buttons.
+  // What the page offers: channels it may not see are left out, where it may not write the box is closed, who may not
+  // manage gets no channel buttons. `channels`: the server's channels to ask about.
   api.get('/api/chat/servers/:server/access', async (req, res) => {
-    const r = await chatRights((await currentUser(req))!, req.params.server === 'dm' ? 'company' : req.params.server);
+    const u = (await currentUser(req))!, server = req.params.server === 'dm' ? 'company' : req.params.server;
+    const r = await chatRights(u, server);
     if (!r.member) throw new HttpError(404, 'Không tìm thấy kênh');
-    json(res, 200, { send: r.send, manage: r.manage });
+    const channels: Record<string, { view: boolean; send: boolean; private: boolean; readOnly: boolean }> = {}, rights = rightsMemo(u);
+    for (const id of String(req.query.get('channels') || '').split(',').filter(Boolean).slice(0, 100)) {
+      const c = await rights(id, server);
+      channels[id] = { view: c.view, send: c.send, private: c.private, readOnly: c.readOnly };
+    }
+    json(res, 200, { send: r.send, manage: r.manage, channels });
+  });
+
+  // A channel's rules, and what can be picked for them: people, departments and roles of the site.
+  api.get('/api/chat/channels/:id/rules', async (req, res) => {
+    await needInServer((await currentUser(req))!, await serverOfChannel(req.params.id), 'manage');
+    json(res, 200, {
+      ...await ruleOf(req.params.id),
+      options: {
+        people: await all<any>('SELECT id, name, email FROM users WHERE disabled = 0 ORDER BY name COLLATE NOCASE'),
+        departments: await all<any>('SELECT id, name, color FROM team_roles ORDER BY pos, name'),
+        roles: await all<any>('SELECT id, name FROM roles ORDER BY rank DESC, name'),
+      },
+    });
+  });
+  api.put('/api/chat/channels/:id/rules', async (req, res) => {
+    const u = (await currentUser(req))!;
+    await needInServer(u, await serverOfChannel(req.params.id), 'manage');
+    const b = await readJson(req), known = new Set([
+      ...(await all<any>('SELECT id FROM users')).map((r) => `u:${r.id}`),
+      ...(await all<any>('SELECT id FROM team_roles')).map((r) => `d:${r.id}`),
+      ...(await all<any>('SELECT id FROM roles')).map((r) => `r:${r.id}`),
+    ]);
+    const part = (v: any) => ({ all: v?.all !== false, who: v?.all === false && Array.isArray(v.who) ? [...new Set<string>(v.who.map(String))].filter((t) => known.has(t)).slice(0, 500) : [] });
+    const next: Rule = { view: part(b.view), send: part(b.send) }, before = await ruleOf(req.params.id);
+    if (next.view.all && next.send.all) await run('DELETE FROM chat_channel_rules WHERE channel_id = ?', req.params.id);
+    else await run('INSERT INTO chat_channel_rules(channel_id, rules, updated_by, updated_at) VALUES(?,?,?,?) ON CONFLICT(channel_id) DO UPDATE SET rules = excluded.rules, updated_by = excluded.updated_by, updated_at = excluded.updated_at', req.params.id, JSON.stringify(next), u.id, now());
+    await changed({ user: u, access: await accessOf(u), scope: 'organization', req }, { action: 'Đổi quyền của kênh', type: 'settings', id: `chat:${req.params.id}`, label: `Kênh #${req.params.id}`, before: before as any, after: next as any, kind: 'permission' });
+    json(res, 200, next);
   });
 
   // Quản trị › Tin nhắn: which roles may write and manage (set in Phân quyền), and who is blocked from writing.

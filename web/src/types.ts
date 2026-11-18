@@ -265,7 +265,12 @@ export interface ChatChannel {
   topic: string;
   createdBy?: string | null;
   createdAt: number;
+  /** Seen only by those picked, written in only by those picked (server/chat-perms.ts). */
+  private?: boolean;
+  readOnly?: boolean;
 }
+/** Who sees and who writes in a channel: everyone, or the departments ("d:"), roles ("r:") and people ("u:") picked. */
+export interface ChannelRules { view: { all: boolean; who: string[] }; send: { all: boolean; who: string[] } }
 export interface ChatMember {
   id: string;
   name: string;

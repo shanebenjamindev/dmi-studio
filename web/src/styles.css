@@ -8985,6 +8985,37 @@ button.ui-step:hover { border-color: var(--tf, var(--label-3)); color: var(--lab
 .rx-sum i { font-style: normal; font-size: 13px; margin-right: -3px; }
 .rx-sum b { margin-left: 6px; font-weight: 500; }
 
+/* Chỉnh sửa kênh (ChannelSettings) */
+.dc-chan-note { flex: none; display: inline-grid; place-items: center; color: var(--dc-faint); }
+.cs-box { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-3); overflow: hidden; }
+.cs-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 6px; }
+.cs-head b { display: inline-flex; align-items: center; gap: 6px; font-size: 16px; }
+.cs-tabs { display: flex; gap: 4px; padding: 0 16px; border-bottom: 1px solid var(--sep); }
+.cs-tabs button { height: 36px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--label-2); font-weight: 600; cursor: pointer; }
+.cs-tabs button.on { color: var(--tint); border-bottom-color: var(--tint); }
+.cs-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.cs-field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: var(--label-2); }
+.cs-field textarea { resize: vertical; }
+.cs-danger { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 6px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--red) 35%, transparent); border-radius: 10px; }
+.cs-danger span { display: flex; flex-direction: column; gap: 2px; }
+.cs-danger small { color: var(--label-3); }
+.cs-danger .btn { color: var(--red); }
+.cs-rule { display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--sep-2); }
+.cs-rule h4 { margin: 0 0 2px; font-size: 13px; }
+.cs-radio { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--label); cursor: pointer; }
+.cs-pick { position: relative; display: flex; flex-direction: column; gap: 8px; margin: 4px 0 0 24px; }
+.cs-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cs-chips small { color: var(--label-3); }
+.cs-chip { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 6px 0 8px; border-radius: 13px; background: var(--fill-2); font-size: 12.5px; }
+.cs-chip em, .cs-found em { font-style: normal; font-size: 10.5px; color: var(--label-3); text-transform: uppercase; }
+.cs-chip i, .cs-found i { width: 8px; height: 8px; border-radius: 50%; }
+.cs-chip button { display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--label-3); cursor: pointer; }
+.cs-found { margin: 0; padding: 4px; list-style: none; border: 1px solid var(--sep); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-1); }
+.cs-found button { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; }
+.cs-found button:hover { background: var(--fill-2); }
+.cs-found small { margin-left: auto; color: var(--label-3); font-size: 11.5px; }
+.cs-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--sep); }
+
 /* Right-click menu */
 .dc-ctx {
   position: fixed; z-index: 1000; min-width: 200px; max-width: 280px; padding: 6px 8px;

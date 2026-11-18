@@ -21,8 +21,8 @@ const boardService = (v: unknown) => oneService(v, 'Mỗi board chỉ có một 
 import { notifyPeople } from './notifications';
 import { currentUser, PAGES, pagesOf, deptLevel, USER_SQL, type Level } from './auth';
 import { customerFile, clientCustomers } from './workspace';
-import { attachmentsIn, dropConversation } from './chat-files';
-import { needInChannel, needInServer, needToSend } from './chat-perms';
+import { attachmentsIn } from './chat-files';
+import { needInChannel, needToSend } from './chat-perms';
 import { reactionsOf, react, dropReactions } from './comment-reactions';
 import { matcher } from './admin/common';
 import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
@@ -1649,44 +1649,6 @@ export function registerBoards(api: Router) {
   /** Someone has read a conversation up to now: 'general', or the other person of a direct chat. */
   const markChatRead = (userId: string, conversation: string) =>
     run('INSERT INTO chat_reads(user_id, conversation, read_at) VALUES(?,?,?) ON CONFLICT(user_id, conversation) DO UPDATE SET read_at = MAX(read_at, excluded.read_at)', userId, conversation, now());
-
-  api.get('/api/chat/channels', async (req, res) => {
-    await me(req);
-    const rows = await all<any>('SELECT * FROM chat_channels ORDER BY created_at ASC');
-    json(res, 200, rows.map((r) => ({
-      id: r.id,
-      serverId: r.server_id || 'company',
-      category: r.category || 'KÊNH CHUNG',
-      name: r.name,
-      topic: r.topic || '',
-      createdBy: r.created_by || null,
-      createdAt: r.created_at,
-    })));
-  });
-
-  api.post('/api/chat/channels', async (req, res) => {
-    const u = await me(req), b = await readJson(req);
-    const rawName = String(b.name || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_đàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ-]/gi, '').slice(0, 48);
-    if (!rawName) throw new HttpError(400, 'Hãy nhập tên kênh');
-    const serverId = String(b.serverId || 'company').trim() || 'company';
-    await needInServer(u, serverId, 'manage');
-    const category = String(b.category || 'KÊNH CHUNG').trim().slice(0, 60) || 'KÊNH CHUNG';
-    const topic = String(b.topic || '').trim().slice(0, 200);
-    const id = `ch_${uid('').slice(0, 12)}`, t = now();
-    await run('INSERT INTO chat_channels(id, server_id, category, name, topic, created_by, created_at) VALUES(?,?,?,?,?,?,?)', id, serverId, category, rawName, topic, u.id, t);
-    json(res, 201, { id, serverId, category, name: rawName, topic, createdBy: u.id, createdAt: t });
-  });
-
-  api.delete('/api/chat/channels/:id', async (req, res) => {
-    const u = await me(req);
-    const ch = await get<any>('SELECT * FROM chat_channels WHERE id = ?', req.params.id);
-    if (!ch) throw new HttpError(404, 'Không tìm thấy kênh');
-    if (ch.created_by !== u.id) await needInChannel(u, ch.id, 'manage');
-    await run('DELETE FROM chat_messages WHERE channel = ?', ch.id);
-    await dropConversation(ch.id);
-    await run('DELETE FROM chat_channels WHERE id = ?', ch.id);
-    json(res, 200, { ok: true });
-  });
 
   api.get('/api/chat/messages', async (req, res) => {
     const u = await me(req);
