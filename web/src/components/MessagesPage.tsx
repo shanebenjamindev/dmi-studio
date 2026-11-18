@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { openLink, openProfile, toast, useStore } from '../store';
-import type { ChatAccess, ChatAttachment, ChatChannel, ChatMember, ChatMessage, ChatPerm, ChatRole, Workspace } from '../types';
+import type { ChatAttachment, ChatChannel, ChatMember, ChatMessage, Workspace } from '../types';
 import { askConfirm } from './AskDialog';
 import { Avatar, LogoImg } from './boardkit';
 import { BrandLoading } from './BrandLoading';
-import { ServerSettings } from './ServerSettings';
 import { Attachments, ChatFilesPanel, ContextMenu, KindIcon, bytes, copy, dragsFiles, menuAt, uploadTo, type CtxItem, type CtxState } from './ChatFiles';
 import { formatChatTime, formatOnlineStatus, getConvReadAt, isUserOnline, setConvReadAt } from './Messenger';
 import { Icon } from './ui';
@@ -146,7 +145,7 @@ export function MessagesPage() {
   }, [loadSidebarData]);
 
   // Channels for current server
-  const allServerChannels = useMemo<BuiltinChannel[]>(() => {
+  const currentServerChannels = useMemo<BuiltinChannel[]>(() => {
     if (serverId === 'dm') return [];
     const base =
       serverId === 'company'
@@ -169,35 +168,16 @@ export function MessagesPage() {
     return [...base, ...custom];
   }, [serverId, spaces, customChannels]);
 
-  // Roles and permissions of the open server (server/chat-perms.ts): channels it may not see are left out, and what it
-  // may not do is not offered (the server refuses it anyway).
-  const [access, setAccess] = useState<ChatAccess | null>(null);
-  const [serverRoles, setServerRoles] = useState<{ roles: ChatRole[]; members: Record<string, string[]> }>({ roles: [], members: {} });
-  const [settings, setSettings] = useState<{ channel?: string } | null>(null);
-  const channelIds = allServerChannels.map((c) => c.id).join(',');
-  const loadAccess = useCallback(() => {
-    if (serverId === 'dm') { setAccess(null); setServerRoles({ roles: [], members: {} }); return; }
+  // What this person may manage in the open server (server/chat-perms.ts: Quản trị › Phân quyền › Tin nhắn, and a
+  // workspace's own admins for its channels). What they may not do is not offered; the server refuses it anyway.
+  const NONE = { create: false, delete: false, manage: false };
+  const [can, setCan] = useState(NONE);
+  useEffect(() => {
+    setCan(NONE);
+    if (serverId === 'dm') return;
     const server = serverId;
-    api.chatAccess(server, channelIds.split(',').filter(Boolean)).then((a) => server === serverId && setAccess(a), () => setAccess({ owner: false, perms: [], channels: {} }));
-    api.chatRoles(server).then((r) => server === serverId && setServerRoles(r), () => {});
-  }, [serverId, channelIds]);
-  useEffect(() => { setAccess(null); loadAccess(); }, [loadAccess]);
-  /** In the open server (`channel`: one of its channels). Until the answer comes, only managing is held back. */
-  const canServer = (p: ChatPerm) => serverId !== 'dm' && !!access && (access.owner || access.perms.includes(p));
-  const canIn = (channel: string | undefined, p: ChatPerm) => {
-    if (serverId === 'dm') return p !== 'manage_channels' && p !== 'manage_roles';
-    if (!access) return p === 'view' || p === 'send' || p === 'attach';
-    return access.owner || !!(channel && access.channels[channel]?.includes(p));
-  };
-  const currentServerChannels = useMemo(
-    () => (access && !access.owner ? allServerChannels.filter((c) => access.channels[c.id]?.includes('view')) : allServerChannels),
-    [allServerChannels, access],
-  );
-  /** A person's highest role in the open server, for the colour of their name. */
-  const topRole = (userId: string) => {
-    const mine = serverRoles.members[userId];
-    return mine ? serverRoles.roles.find((r) => !r.everyone && mine.includes(r.id)) || null : null;
-  };
+    api.chatAccess(server).then((a) => server === serverId && setCan(a), () => {});
+  }, [serverId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep activeChannelId valid when switching servers
   useEffect(() => {
@@ -314,7 +294,6 @@ export function MessagesPage() {
   /** Files picked, dropped or pasted: uploaded at once into the conversation's folder, sent with the next message. */
   const attach = (files: File[]) => {
     if (!convParam) return toast('Hãy chọn người để nhắn tin trước', true);
-    if (!canIn(activeChannel?.id, 'attach')) return toast('Bạn không có quyền gửi file trong kênh này', true);
     for (const file of files) {
       const id = ++pendingId.current;
       setPending((p) => [...p, { id, name: file.name, progress: 0 }]);
@@ -532,8 +511,7 @@ export function MessagesPage() {
     openCtx(e, [
       id === 'company' && (unreadMap.general || 0) > 0 && { label: 'Đánh dấu đã đọc', icon: 'check', run: () => markRead('general') },
       'sep',
-      id === serverId && canServer('manage_channels') && { label: 'Tạo kênh', icon: 'plus', run: () => newChannelIn(id === 'company' ? 'KÊNH CHUNG' : 'KÊNH NHÃN HÀNG', id) },
-      id === serverId && canServer('manage_roles') && { label: 'Cài đặt máy chủ', icon: 'gear', run: () => setSettings({}) },
+      id === serverId && can.create && { label: 'Tạo kênh', icon: 'plus', run: () => newChannelIn(id === 'company' ? 'KÊNH CHUNG' : 'KÊNH NHÃN HÀNG', id) },
       ws && { label: 'Thành viên workspace', icon: 'users', run: () => openLink(`#boards/ws/${ws.id}`) },
       'sep',
       { label: 'Sao chép tên', icon: 'copy', run: () => void copy(name, 'tên') },
@@ -546,9 +524,8 @@ export function MessagesPage() {
       { label: 'Sao chép tên kênh', icon: 'copy', run: () => void copy(`#${ch.name}`, 'tên kênh') },
       ch.topic && { label: 'Sao chép chủ đề', icon: 'copy', run: () => void copy(ch.topic, 'chủ đề') },
       'sep',
-      canServer('manage_channels') && { label: 'Tạo kênh trong danh mục', icon: 'plus', run: () => newChannelIn(ch.category) },
-      canServer('manage_roles') && { label: 'Quyền của kênh', icon: 'lock', run: () => setSettings({ channel: ch.id }) },
-      !ch.builtin && (ch.createdBy === me.id || canServer('manage_channels')) && { label: 'Xoá kênh', icon: 'trash', danger: true, run: () => void handleDeleteChannel(ch) },
+      can.create && { label: 'Tạo kênh trong danh mục', icon: 'plus', run: () => newChannelIn(ch.category) },
+      !ch.builtin && (ch.createdBy === me.id || can.delete) && { label: 'Xoá kênh', icon: 'trash', danger: true, run: () => void handleDeleteChannel(ch) },
     ]);
   const categoryMenu = (e: React.MouseEvent, cat: string) =>
     openCtx(e, [
@@ -561,13 +538,13 @@ export function MessagesPage() {
     openCtx(e, [
       { label: 'Trả lời', icon: 'undo', run: () => { setReplyTo(msg); inputRef.current?.focus(); } },
       msg.isMe && { label: 'Sửa tin nhắn', icon: 'edit', run: () => { setEditingMsgId(msg.id); setEditingText(msg.message); } },
-      canIn(activeChannel?.id, 'manage_messages') && { label: msg.pinned ? 'Bỏ ghim' : 'Ghim tin nhắn', icon: 'tag', run: () => void handleTogglePin(msg) },
+      can.manage && { label: msg.pinned ? 'Bỏ ghim' : 'Ghim tin nhắn', icon: 'tag', run: () => void handleTogglePin(msg) },
       !!msg.message && !msg.message.startsWith('data:') && { label: 'Sao chép nội dung', icon: 'copy', run: () => void copy(msg.message, 'nội dung') },
       'sep',
       !msg.isMe && { label: `Nhắn riêng ${msg.senderName}`, icon: 'messenger', run: () => openDm(msg.senderId) },
       { label: 'Xem hồ sơ', icon: 'user', run: () => openProfile(msg.senderId) },
       'sep',
-      (msg.isMe || (serverId === 'dm' ? me.role === 'admin' : canIn(activeChannel?.id, 'manage_messages'))) && { label: 'Xoá tin nhắn', icon: 'trash', danger: true, run: () => void handleDeleteMessage(msg.id) },
+      (msg.isMe || (serverId === 'dm' ? me.role === 'admin' : can.manage)) && { label: 'Xoá tin nhắn', icon: 'trash', danger: true, run: () => void handleDeleteMessage(msg.id) },
     ], { emojis: QUICK_REACTIONS, pick: (em) => void handleToggleReaction(msg, em) });
   };
   const memberMenu = (e: React.MouseEvent, m: { id: string; name: string; email?: string }) => {
@@ -668,7 +645,7 @@ export function MessagesPage() {
           );
         })}
 
-        {canServer('manage_channels') && <button
+        {can.create && <button
           type="button"
           className="dc-srv-btn dc-srv-add"
           onClick={() => {
@@ -703,12 +680,7 @@ export function MessagesPage() {
           ) : (
             <div className="dc-srv-header-row">
               <h2 className="dc-srv-title" title={currentServerTitle}>{currentServerTitle}</h2>
-              {canServer('manage_roles') && (
-                <button type="button" className="dc-icon-btn" onClick={() => setSettings({})} title="Cài đặt máy chủ: role và quyền" aria-label="Cài đặt máy chủ">
-                  <Icon name="gear" size={15} />
-                </button>
-              )}
-              {canServer('manage_channels') && <button
+              {can.create && <button
                 type="button"
                 className="dc-icon-btn"
                 onClick={() => {
@@ -808,7 +780,7 @@ export function MessagesPage() {
                         <Icon name={folded ? 'right' : 'down'} size={11} />
                         <span>{cat}</span>
                       </button>
-                      {canServer('manage_channels') && <button
+                      {can.create && <button
                         type="button"
                         className="dc-cat-add"
                         title={`Tạo kênh trong ${cat}`}
@@ -836,7 +808,7 @@ export function MessagesPage() {
                               <span className="dc-chan-name">{ch.name}</span>
                               {unread > 0 && <span className="dc-unread-pill">{unread}</span>}
                             </button>
-                            {!ch.builtin && (ch.createdBy === me.id || canServer('manage_channels')) && (
+                            {!ch.builtin && (ch.createdBy === me.id || can.delete) && (
                               <button
                                 type="button"
                                 className="dc-chan-del"
@@ -877,13 +849,12 @@ export function MessagesPage() {
               <small>Đang trực tuyến</small>
             </span>
           </button>
-          {/* Settings: the open server's (roles and permissions) for whoever manages them, else one's own profile. */}
           <button
             type="button"
             className="dc-icon-btn"
-            onClick={() => (canServer('manage_roles') ? setSettings({}) : openProfile(me.id))}
-            title={canServer('manage_roles') ? 'Cài đặt máy chủ: role và quyền' : 'Cài đặt hồ sơ'}
-            aria-label={canServer('manage_roles') ? 'Cài đặt máy chủ' : 'Cài đặt hồ sơ'}
+            onClick={() => openProfile(me.id)}
+            title="Cài đặt hồ sơ"
+            aria-label="Cài đặt hồ sơ"
           >
             <Icon name="gear" size={15} />
           </button>
@@ -984,7 +955,7 @@ export function MessagesPage() {
               <Icon name="users" size={16} />
             </button>
 
-            {(serverId === 'dm' || canIn(activeChannel?.id, 'manage_messages')) && messages.length > 0 && (
+            {(serverId === 'dm' || can.manage) && messages.length > 0 && (
               <button
                 type="button"
                 className="dc-icon-btn"
@@ -1138,7 +1109,6 @@ export function MessagesPage() {
                               <button
                                 type="button"
                                 className="dc-msg-author"
-                                style={topRole(msg.senderId)?.color ? { color: topRole(msg.senderId)!.color } : undefined}
                                 onClick={() => openProfile(msg.senderId)}
                               >
                                 {msg.senderName}
@@ -1237,7 +1207,7 @@ export function MessagesPage() {
                         >
                           ↩
                         </button>
-                        {canIn(activeChannel?.id, 'manage_messages') && <button
+                        {can.manage && <button
                           type="button"
                           className="dc-act-btn"
                           title={msg.pinned ? 'Bỏ ghim' : 'Ghim tin nhắn'}
@@ -1245,7 +1215,7 @@ export function MessagesPage() {
                         >
                           📌
                         </button>}
-                        {(msg.isMe || (serverId === 'dm' ? me.role === 'admin' : canIn(activeChannel?.id, 'manage_messages'))) && (
+                        {(msg.isMe || (serverId === 'dm' ? me.role === 'admin' : can.manage)) && (
                           <>
                             {msg.isMe && (
                               <button
@@ -1357,7 +1327,7 @@ export function MessagesPage() {
               className="dc-comp-btn"
               title="Đính kèm file"
               aria-label="Đính kèm file"
-              disabled={!convParam || !canIn(activeChannel?.id, 'attach') || !canIn(activeChannel?.id, 'send')}
+              disabled={!convParam}
               onClick={() => attachInput.current?.click()}
             >
               <Icon name="clip" size={18} />
@@ -1381,11 +1351,9 @@ export function MessagesPage() {
               ref={inputRef}
               rows={1}
               value={draft}
-              disabled={sending || (serverId === 'dm' && !activeDmMember) || !canIn(activeChannel?.id, 'send')}
+              disabled={sending || (serverId === 'dm' && !activeDmMember)}
               placeholder={
-                !canIn(activeChannel?.id, 'send')
-                  ? 'Bạn không có quyền gửi tin nhắn trong kênh này'
-                  : serverId === 'dm'
+                serverId === 'dm'
                   ? activeDmMember
                     ? `Nhắn tin tới @${activeDmMember.name} (gõ @ để nhắc tên)…`
                     : 'Chọn một thành viên để nhắn tin…'
@@ -1493,8 +1461,8 @@ export function MessagesPage() {
                     <span className="dc-status-dot is-online" />
                   </span>
                   <span className="dc-member-info">
-                    <b style={topRole(me.id)?.color ? { color: topRole(me.id)!.color } : undefined}>{me.name} (bạn)</b>
-                    <small>{topRole(me.id)?.name || (me.role === 'admin' ? 'Super Admin' : 'Đang hoạt động')}</small>
+                    <b>{me.name} (bạn)</b>
+                    <small>{me.role === 'admin' ? 'Super Admin' : 'Đang hoạt động'}</small>
                   </span>
                 </button>
                 {onlineMembers.map((m) => {
@@ -1516,8 +1484,8 @@ export function MessagesPage() {
                         <span className="dc-status-dot is-online" />
                       </span>
                       <span className="dc-member-info">
-                        <b style={topRole(m.id)?.color ? { color: topRole(m.id)!.color } : undefined}>{m.name}</b>
-                        <small>{topRole(m.id)?.name || (r ? r.name : 'Đang hoạt động')}</small>
+                        <b>{m.name}</b>
+                        <small>{r ? r.name : 'Đang hoạt động'}</small>
                       </span>
                     </button>
                   );
@@ -1546,8 +1514,8 @@ export function MessagesPage() {
                           <span className="dc-status-dot" />
                         </span>
                         <span className="dc-member-info">
-                          <b style={topRole(m.id)?.color ? { color: topRole(m.id)!.color } : undefined}>{m.name}</b>
-                          <small>{topRole(m.id)?.name || (r ? r.name : formatOnlineStatus(m.lastActive))}</small>
+                          <b>{m.name}</b>
+                          <small>{r ? r.name : formatOnlineStatus(m.lastActive)}</small>
                         </span>
                       </button>
                     );
@@ -1560,16 +1528,6 @@ export function MessagesPage() {
       )}
 
       {ctx && <ContextMenu menu={ctx} onClose={closeCtx} />}
-      {settings && serverId !== 'dm' && (
-        <ServerSettings
-          server={serverId}
-          title={currentServerTitle}
-          channels={allServerChannels.map((c) => ({ id: c.id, name: c.name, category: c.category }))}
-          startChannel={settings.channel}
-          onClose={() => setSettings(null)}
-          onChanged={loadAccess}
-        />
-      )}
 
       {/* Create Channel Modal */}
       {creatingChannel && (

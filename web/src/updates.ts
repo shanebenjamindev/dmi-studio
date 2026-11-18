@@ -9,12 +9,11 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
-    id: '2026-11-18-1',
+    id: '2026-11-18-2',
     date: '18/11/2026',
     items: [
-      { kind: 'new', vi: 'Tin nhắn có Cài đặt máy chủ như Discord (nút ⚙ cạnh tên máy chủ): tạo role có màu, xếp thứ bậc, chọn quyền cho từng role (xem kênh, gửi tin, gửi file, quản lý tin nhắn, quản lý kênh, quản lý role, quản trị viên) và gán role cho thành viên. Mỗi máy chủ (DMI Studio, từng nhãn hàng) có bộ role riêng.', en: 'Messages has Server settings as on Discord (the ⚙ by the server name): make coloured roles, order them, choose each role\'s permissions (view channels, send messages, send files, manage messages, manage channels, manage roles, administrator) and give roles to members. Each server (DMI Studio, each brand) has its own roles.' },
-      { kind: 'new', vi: 'Kênh riêng tư và quyền theo kênh: bật “Kênh riêng tư” rồi chọn role được xem, hoặc cho phép / chặn từng quyền cho từng role trong một kênh (ví dụ kênh thông báo chỉ một số người được gửi). Bấm chuột phải vào kênh › Quyền của kênh.', en: 'Private channels and per-channel permissions: turn on “Private channel” and pick the roles that see it, or allow / deny each permission per role in one channel (say, an announcements channel only some people post in). Right-click a channel › Channel permissions.' },
-      { kind: 'new', vi: 'Tên người trong chat và danh sách thành viên mang màu của role cao nhất của họ.', en: 'Names in the chat and the member list take the colour of the person\'s highest role.' },
+      { kind: 'new', vi: 'Tin nhắn dùng chung phân quyền của Quản trị: Quản trị › Phân quyền có thêm mục Tin nhắn (tạo kênh, xoá kênh, quản lý tin nhắn: ghim, xoá tin và file của người khác, xoá lịch sử kênh). Admin và Manager có sẵn các quyền này; vai trò khác được cấp ở đó.', en: 'Messages follows the site\'s own permissions: Admin › Permissions has a Messages section (create channels, delete channels, manage messages: pin, delete other people\'s messages and files, clear a channel). Admin and Manager have them already; give them to other roles there.' },
+      { kind: 'new', vi: 'Kênh của một nhãn hàng theo quyền vào workspace đó: ai mở được workspace thì đọc và nhắn được, chủ và admin workspace quản lý kênh của mình. Bản Cài đặt máy chủ riêng của Tin nhắn hôm qua đã bỏ.', en: 'A brand\'s channels follow access to its workspace: whoever can open the workspace reads and writes there, and the workspace\'s owner and admins manage its channels. Yesterday\'s separate Server settings of Messages is gone.' },
     ],
   },
   {

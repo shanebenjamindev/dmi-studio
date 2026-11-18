@@ -1,7 +1,7 @@
 import {beginLoading} from './loading';
 import type { AdsService, AdsSummary } from '../../shared/ads-summary';
 // Typed client for the DMI Workspace REST API.
-import type { CustomerSpaces, MailboxStatus, MailThreadRow, MailThread, MailDraft, QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardViewKind, ClientCard, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, ChatFile, ChatFolder, ChatAccess, ChatPerm, ChatRole, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Customer, DriveFile, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page } from './types';
+import type { CustomerSpaces, MailboxStatus, MailThreadRow, MailThread, MailDraft, QuickNote, CustomerTaskRow, RecordChange, ReportDriveFolder, ServiceRef, NotificationInbox, CustomerMembersData, NotificationStatus, UserProfile, ReportVideo, TaskCampaign, CustomerRecord, TaskImportSheet, TaskWrite, TeamRole, DeptRole, Workspace, WorkspaceMember, Person, Level, BoardMember, Board, BoardItem, BoardViewKind, ClientCard, BoardList, BoardCard, BoardLabel, BoardActivity, CardDetail, CustomerTask, InboxItem, ChatMessage, ChatMember, ChatFile, ChatFolder, PlannerCard, TaskItem, TaskDetail, TaskMeta, TaskImportResult, AdAccount, AdsReport, AdsSettings, Report, ReportData, ReportItem, Customer, DriveFile, WorkspaceInfo, DrivePlace, FolderListing, Loc, GoogleStatus, GoogleAccount, AuthInfo, User, Role, Page } from './types';
 import { askText } from './components/AskDialog';
 
 /** Called when the session has ended (401) so the app can show the sign-in page. */
@@ -176,17 +176,8 @@ export const api = {
     req<ChatMessage[]>('GET', `/api/chat/messages?channel=${encodeURIComponent(channel)}${recipientId ? `&recipientId=${encodeURIComponent(recipientId)}` : ''}${since ? `&since=${since}` : ''}`),
   sendChatMessage: (message: string, channel: string = 'general', recipientId?: string, replyToId?: string | null, attachments: string[] = []) =>
     req<ChatMessage>('POST', '/api/chat/messages', { message, channel, recipientId, replyToId, attachments }),
-  /** Roles and permissions of a Tin nhắn server ('company' or a workspace id) and its channels. */
-  chatAccess: (server: string, channels: string[]) => req<ChatAccess>('GET', `/api/chat/servers/${encodeURIComponent(server)}/access?${new URLSearchParams({ channels: channels.join(',') })}`),
-  chatRoles: (server: string) => req<{ roles: ChatRole[]; members: Record<string, string[]> }>('GET', `/api/chat/servers/${encodeURIComponent(server)}/roles`),
-  createChatRole: (server: string, b: { name: string; color?: string }) => req<ChatRole>('POST', `/api/chat/servers/${encodeURIComponent(server)}/roles`, b),
-  updateChatRole: (server: string, id: string, b: Partial<{ name: string; color: string; perms: ChatPerm[] }>) => req<ChatRole>('PUT', `/api/chat/servers/${encodeURIComponent(server)}/roles/${encodeURIComponent(id)}`, b),
-  orderChatRoles: (server: string, ids: string[]) => req('PUT', `/api/chat/servers/${encodeURIComponent(server)}/role-order`, { ids }),
-  deleteChatRole: (server: string, id: string) => req('DELETE', `/api/chat/servers/${encodeURIComponent(server)}/roles/${encodeURIComponent(id)}`),
-  chatServerMembers: (server: string) => req<{ id: string; name: string; email: string }[]>('GET', `/api/chat/servers/${encodeURIComponent(server)}/members`),
-  setChatMemberRoles: (server: string, userId: string, roles: string[]) => req<{ roles: string[] }>('PUT', `/api/chat/servers/${encodeURIComponent(server)}/members/${encodeURIComponent(userId)}/roles`, { roles }),
-  channelPerms: (channel: string) => req<{ roleId: string; allow: ChatPerm[]; deny: ChatPerm[] }[]>('GET', `/api/chat/channels/${encodeURIComponent(channel)}/perms`),
-  setChannelPerm: (channel: string, roleId: string, allow: ChatPerm[], deny: ChatPerm[]) => req('PUT', `/api/chat/channels/${encodeURIComponent(channel)}/perms/${encodeURIComponent(roleId)}`, { allow, deny }),
+  /** What this person may manage in a Tin nhắn server ('company' or a workspace id), by Quản trị › Phân quyền. */
+  chatAccess: (server: string) => req<{ create: boolean; delete: boolean; manage: boolean }>('GET', `/api/chat/servers/${encodeURIComponent(server)}/access`),
   /** A conversation's folder (`c`: a channel id or "dm:<person>"), or a folder inside it. */
   chatFiles: (c: string, folder = '') => req<ChatFolder>('GET', `/api/chat/files?${new URLSearchParams({ c, folder })}`),
   createChatFolder: (c: string, folder: string, name: string) => req<ChatFile>('POST', `/api/chat/files/folders?${new URLSearchParams({ c, folder })}`, { name }),

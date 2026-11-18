@@ -12,7 +12,7 @@ import { all, get, run, uid, now } from './db';
 import { DATA_DIR, IS_CLOUDFLARE } from './config';
 import { currentUser, type User } from './auth';
 import { mimeOfName, kindOf, safeName, type FileKind } from './workspace';
-import { needInChannel, type Perm } from './chat-perms';
+import { needInChannel, type ChatAct } from './chat-perms';
 
 /** Largest file sent in a chat. */
 export const MAX_BYTES = 50 * 1024 * 1024;
@@ -110,11 +110,11 @@ export async function dropConversation(conv: string) {
   for (const r of await all<any>('SELECT store_key FROM chat_items WHERE conversation = ? AND store_key IS NOT NULL', conv)) await dropBody(r.store_key).catch(() => {});
   await run('DELETE FROM chat_items WHERE conversation = ?', conv);
 }
-/** Stops the request unless this person may `perm` in the conversation: a direct chat is its two people's, a channel's
- *  files follow its permissions (server/chat-perms.ts) — seeing them is viewing the channel, adding them is sending files. */
-async function need(u: User, conv: string, perm: Perm) {
+/** Stops the request unless this person may `act` in the conversation: a direct chat is its two people's, a channel's
+ *  files follow the channel (server/chat-perms.ts): seeing them is reading it, adding them is writing in it. */
+async function need(u: User, conv: string, act: ChatAct) {
   if (conv.startsWith('dm:')) { if (!conv.slice(3).split(':').includes(u.id)) throw new HttpError(404, 'Không tìm thấy file'); return; }
-  await needInChannel(u, conv, perm);
+  await needInChannel(u, conv, act);
 }
 
 // ---------------------------------------------------------------- folders and files
@@ -186,7 +186,7 @@ export function registerChatFiles(api: Router) {
 
   api.post('/api/chat/files/folders', async (req, res) => {
     const { u, c, folder } = await ctx(req);
-    await need(u, c.conv, 'attach');
+    await need(u, c.conv, 'send');
     await folderIn(c, folder);
     const raw = safeName(String((await readJson(req)).name || ''));
     if (!raw) throw new HttpError(400, 'Hãy đặt tên thư mục');
@@ -198,7 +198,7 @@ export function registerChatFiles(api: Router) {
   // The file is the request body; its name comes in the address.
   api.post('/api/chat/files', async (req, res) => {
     const { u, c, folder } = await ctx(req);
-    await need(u, c.conv, 'attach');
+    await need(u, c.conv, 'send');
     await folderIn(c, folder);
     const raw = safeName(String(req.query.get('name') || 'file'));
     if (!raw) throw new HttpError(400, 'Tên file không hợp lệ');
@@ -222,7 +222,7 @@ export function registerChatFiles(api: Router) {
   api.delete('/api/chat/files/:key', async (req, res) => {
     const u = (await currentUser(req))!, r = await mustItem(u, req.params.key);
     if (r.uploaded_by !== u.id) {
-      if (!r.conversation.startsWith('dm:')) await needInChannel(u, r.conversation, 'manage_messages');
+      if (!r.conversation.startsWith('dm:')) await needInChannel(u, r.conversation, 'manage');
       else if (u.role !== 'admin') throw new HttpError(403, 'Chỉ người tải lên hoặc quản trị viên mới xoá được');
     }
     if (r.kind === FOLDER && (await get('SELECT 1 FROM chat_items WHERE parent_id = ? LIMIT 1', r.id))) throw new HttpError(409, 'Thư mục còn file bên trong, hãy xoá chúng trước');

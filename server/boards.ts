@@ -1657,7 +1657,7 @@ export function registerBoards(api: Router) {
     const rawName = String(b.name || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_đàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ-]/gi, '').slice(0, 48);
     if (!rawName) throw new HttpError(400, 'Hãy nhập tên kênh');
     const serverId = String(b.serverId || 'company').trim() || 'company';
-    await needInServer(u, serverId, 'manage_channels');
+    await needInServer(u, serverId, 'create');
     const category = String(b.category || 'KÊNH CHUNG').trim().slice(0, 60) || 'KÊNH CHUNG';
     const topic = String(b.topic || '').trim().slice(0, 200);
     const id = `ch_${uid('').slice(0, 12)}`, t = now();
@@ -1669,7 +1669,7 @@ export function registerBoards(api: Router) {
     const u = await me(req);
     const ch = await get<any>('SELECT * FROM chat_channels WHERE id = ?', req.params.id);
     if (!ch) throw new HttpError(404, 'Không tìm thấy kênh');
-    if (ch.created_by !== u.id) await needInChannel(u, ch.id, 'manage_channels');
+    if (ch.created_by !== u.id) await needInChannel(u, ch.id, 'delete');
     await run('DELETE FROM chat_messages WHERE channel = ?', ch.id);
     await dropConversation(ch.id);
     await run('DELETE FROM chat_channels WHERE id = ?', ch.id);
@@ -1779,8 +1779,7 @@ export function registerBoards(api: Router) {
     if (channel === 'dm' && !recipientId) throw new HttpError(400, 'Thiếu thông tin người nhận');
     if (channel !== 'dm') {
       await needInChannel(u, channel, 'send');
-      if (Array.isArray(b.attachments) && b.attachments.length) await needInChannel(u, channel, 'attach');
-    }
+          }
     // Files already put in the conversation's folder (server/chat-files.ts); a message may be only files.
     const attachments = await attachmentsIn(u, channel === 'dm' ? `dm:${recipientId}` : channel, b.attachments);
     if (!msg && !attachments.length) throw new HttpError(400, 'Tin nhắn không được để trống');
@@ -1825,7 +1824,7 @@ export function registerBoards(api: Router) {
     if (!msg) throw new HttpError(404, 'Không tìm thấy tin nhắn');
     // A direct message only for its two people; a channel's as its permissions say (pinning is managing messages).
     if (msg.channel === 'dm') { if (msg.sender_id !== u.id && msg.recipient_id !== u.id) throw new HttpError(404, 'Không tìm thấy tin nhắn'); }
-    else await needInChannel(u, msg.channel, b.pinned !== undefined ? 'manage_messages' : 'view');
+    else await needInChannel(u, msg.channel, b.pinned !== undefined ? 'manage' : 'view');
     if (b.message !== undefined) {
       if (msg.sender_id !== u.id && u.role !== 'admin') throw new HttpError(403, 'Chỉ người gửi mới sửa được tin nhắn');
       const nextText = String(b.message || '').trim();
@@ -1857,7 +1856,7 @@ export function registerBoards(api: Router) {
     const msg = await get<any>('SELECT * FROM chat_messages WHERE id = ?', req.params.id);
     if (!msg) throw new HttpError(404, 'Không tìm thấy tin nhắn');
     if (msg.sender_id !== u.id) {
-      if (msg.channel !== 'dm') await needInChannel(u, msg.channel, 'manage_messages');
+      if (msg.channel !== 'dm') await needInChannel(u, msg.channel, 'manage');
       else if (u.role !== 'admin') throw new HttpError(403, 'Chỉ người gửi hoặc quản trị viên mới được xoá tin nhắn này');
     }
     await run('DELETE FROM chat_messages WHERE id = ?', msg.id);
@@ -1875,7 +1874,7 @@ export function registerBoards(api: Router) {
         u.id, recipientId, recipientId, u.id
       );
     } else {
-      await needInChannel(u, channel, 'manage_messages');
+      await needInChannel(u, channel, 'manage');
       await run('DELETE FROM chat_messages WHERE channel = ?', channel);
     }
     json(res, 200, { ok: true });
