@@ -1,8 +1,10 @@
 // Ghi chú nhanh: each account's own sticky notes (formatted text, a colour, where its window sits and whether it is
-// open). Only their writer reads or changes them, wherever they sign in; Quản trị and the logs never see them.
+// open). Only their writer reads or changes them, wherever they sign in (several computers see the same notes, the
+// page asks for changes every few seconds); Quản trị and the logs never see them.
 import { all, get, run, uid, now } from './db';
 import { HttpError, json, readJson, type Router, type Req } from './http';
 import { currentUser } from './auth';
+import { textHash } from '../shared/text-hash';
 
 const COLORS = ['yellow', 'green', 'pink', 'purple', 'blue', 'dark'];
 const MAX_BODY = 600 * 1024, MAX_NOTES = 500;
@@ -55,6 +57,8 @@ export function registerQuickNotes(api: Router) {
     const n = await mine(req), b = await readJson(req);
     if (b.body !== undefined && (typeof b.body !== 'string' || Buffer.byteLength(b.body) > MAX_BODY)) throw new HttpError(413, 'Ghi chú quá lớn (tối đa 600 KB); hãy bớt ảnh');
     if (b.color !== undefined && !COLORS.includes(b.color)) throw new HttpError(400, 'Màu không hợp lệ');
+    // Typed over another version than the one kept (changed meanwhile on another computer): refused, not overwritten.
+    if (b.body !== undefined && typeof b.base === 'string' && b.body !== n.body && b.base !== textHash(n.body)) throw new HttpError(409, 'Ghi chú vừa được sửa trên máy khác');
     const body = b.body ?? n.body, touched = b.body !== undefined && b.body !== n.body;
     await run('UPDATE quick_notes SET body = ?, color = ?, open = ?, x = ?, y = ?, w = ?, h = ?, updated_at = ? WHERE id = ?',
       body, b.color ?? n.color, b.open !== undefined ? (b.open ? 1 : 0) : n.open, b.x !== undefined ? pos(b.x) : n.x, b.y !== undefined ? pos(b.y) : n.y,

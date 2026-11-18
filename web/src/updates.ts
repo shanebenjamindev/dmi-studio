@@ -12,6 +12,7 @@ export const UPDATES: Update[] = [
     id: '2026-11-18-2',
     date: '18/11/2026',
     items: [
+      { kind: 'new', vi: 'Ghi chú nhanh đồng bộ giữa các máy: đăng nhập trên máy nào cũng thấy cùng ghi chú, sửa ở máy này thì máy kia tự cập nhật sau vài giây. Nếu hai máy cùng sửa một ghi chú, phần bạn vừa gõ được giữ thành ghi chú mới, không bị ghi đè.', en: 'Quick notes sync across computers: the same notes wherever you sign in, and a change on one computer shows on the other within seconds. If two computers edit the same note, what you just typed is kept as a new note instead of being overwritten.' },
       { kind: 'new', vi: 'Tin nhắn theo phân quyền của Quản trị, gọn còn 2 quyền ở Phân quyền › Tin nhắn: Nhắn tin (gửi tin, file, nhắn riêng; mọi nhân viên có sẵn) và Quản lý (tạo, xoá kênh, ghim và xoá tin của người khác). Kênh của một nhãn hàng theo quyền vào workspace đó.', en: 'Messages follows the site\'s own permissions, down to two in Permissions › Messages: Send (messages, files, direct messages; everyone has it) and Manage (create and delete channels, pin and delete other people\'s messages). A brand\'s channels follow access to its workspace.' },
       { kind: 'new', vi: 'Quản trị › Tin nhắn › Cài đặt Tin nhắn: xem vai trò nào được nhắn tin và chặn từng người nhắn tin (họ vẫn đọc được). Bản Cài đặt máy chủ riêng của Tin nhắn hôm qua đã bỏ.', en: 'Admin › Messages › Message settings: see which roles may send and block a person from sending (they can still read). Yesterday\'s separate Server settings of Messages is gone.' },
     ],

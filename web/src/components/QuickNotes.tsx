@@ -1,6 +1,7 @@
 // Ghi chú nhanh: each account's own sticky notes. The top bar's button opens the list (search, several at once, a new
 // one); a note opens as a small window that can be dragged and resized, in one of six colours, with bold, italic, code,
-// headings, lists, checklists and pictures. Everything saves as it is typed; only its writer ever sees it.
+// headings, lists, checklists and pictures. Everything saves as it is typed; only its writer ever sees it, on every
+// computer they sign in on: the page asks every few seconds (and on coming back to it) which notes changed elsewhere.
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
@@ -8,6 +9,7 @@ import { toast } from '../store';
 import { Icon } from './ui';
 import type { NoteColor, QuickNote } from '../types';
 import { askConfirm } from './AskDialog';
+import { textHash } from '../../../shared/text-hash';
 
 export const NOTE_COLORS: [NoteColor, string][] = [['yellow', 'Vàng'], ['green', 'Xanh lá'], ['pink', 'Hồng'], ['purple', 'Tím'], ['blue', 'Xanh dương'], ['dark', 'Tối']];
 
@@ -72,6 +74,28 @@ export function QuickNotes() {
   useEffect(() => { api.quickNotes().then((all) => { const open = all.filter((n) => n.open); open.forEach((n) => known.set(n.id, n)); opened = open.map((n) => n.id).reverse(); emit(); }).catch(() => {}); }, []);
   const [listVersion, setListVersion] = useState(0);
   const changed = useCallback(() => setListVersion((v) => v + 1), []);
+  // When each note last changed, as the server says: open windows reload what changed on another computer, the list
+  // refreshes, and a note deleted elsewhere closes here. Asked every 15 s while the page is in view and on coming back.
+  const [stamps, setStamps] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let alive = true, prev: Record<string, number> | null = null;
+    const tick = () => {
+      if (document.visibilityState !== 'visible') return;
+      api.quickNotes().then((all) => {
+        if (!alive) return;
+        const next = Object.fromEntries(all.map((n) => [n.id, n.updatedAt]));
+        if (prev) {
+          for (const id of opened) if (id in prev && !(id in next)) closeNote(id);
+          if (JSON.stringify(prev) !== JSON.stringify(next)) changed();
+        }
+        prev = next; setStamps(next);
+      }, () => {});
+    };
+    tick();
+    const t = setInterval(tick, 15_000);
+    window.addEventListener('focus', tick); document.addEventListener('visibilitychange', tick);
+    return () => { alive = false; clearInterval(t); window.removeEventListener('focus', tick); document.removeEventListener('visibilitychange', tick); };
+  }, [changed]);
   // ✕ only hides a note; a blank hidden one is opened again rather than another blank one made.
   const create = async (near?: { x: number; y: number }) => {
     try {
@@ -86,7 +110,7 @@ export function QuickNotes() {
   };
   useEffect(() => { const make = () => void create(); window.addEventListener('dms:new-note', make); return () => window.removeEventListener('dms:new-note', make); });
   return createPortal(<>
-    {s.opened.map((id, i) => <NoteWindow key={id} id={id} z={1000 + i} onNew={create} onChanged={changed} />)}
+    {s.opened.map((id, i) => <NoteWindow key={id} id={id} z={1000 + i} stamp={stamps[id]} onNew={create} onChanged={changed} />)}
     {s.panel && <NotesPanel version={listVersion} onNew={() => void create()} onChanged={changed} />}
   </>, document.body);
 }
@@ -169,38 +193,69 @@ function ago(t: number) {
 }
 
 /** One note's window: drag it by its top, resize it from its corner; it saves its text, colour and place. */
-function NoteWindow({ id, z, onNew, onChanged }: { id: string; z: number; onNew: (near: { x: number; y: number }) => void; onChanged: () => void }) {
+function NoteWindow({ id, z, stamp, onNew, onChanged }: { id: string; z: number; stamp?: number; onNew: (near: { x: number; y: number }) => void; onChanged: () => void }) {
   const [note, setNote] = useState<QuickNote | null>(() => known.get(id) || null), [menu, setMenu] = useState(false), [empty, setEmpty] = useState(true), [saving, setSaving] = useState<'' | 'saving' | 'error'>('');
   const box = useRef<HTMLDivElement>(null), body = useRef<HTMLDivElement>(null), file = useRef<HTMLInputElement>(null);
-  const timer = useRef<any>(null), last = useRef('');
+  // `last`: the text as last saved or loaded here; `base`: the fingerprint of the server's text it stands on.
+  const timer = useRef<any>(null), last = useRef(''), base = useRef(''), seen = useRef(0);
+  /** Shows the server's version of the note: on opening it, or when it changed on another computer (then the window keeps
+   *  its place and size on this screen). */
+  const apply = (n: QuickNote, focus = false) => {
+    setNote((cur) => (focus || !cur ? n : { ...n, x: cur.x, y: cur.y, w: cur.w, h: cur.h }));
+    seen.current = n.updatedAt; base.current = textHash(n.body || '');
+    const html = cleanHtml(n.body || '');
+    last.current = html;
+    // A note with nothing written in it starts plain (not inside a list or heading left from before).
+    if (body.current) { body.current.innerHTML = html; if (blankBody(body.current)) body.current.innerHTML = ''; setEmpty(!body.current.innerHTML); if (focus && !body.current.innerHTML) body.current.focus(); }
+  };
   useEffect(() => {
     known.delete(id);
     api.quickNote(id).then((n) => {
-      setNote(n);
-      const html = cleanHtml(n.body || '');
-      last.current = html;
-      // A note with nothing written in it starts plain (not inside a list or heading left from before).
-      if (body.current) { body.current.innerHTML = html; if (blankBody(body.current)) body.current.innerHTML = ''; setEmpty(!body.current.innerHTML); if (!body.current.innerHTML) body.current.focus(); }
+      apply(n, true);
       if (!n.open) void api.saveQuickNote(id, { open: true }).catch(() => {});
     }).catch((e) => { toast(e.message, true); closeNote(id); });
     return () => clearTimeout(timer.current);
-  }, [id]);
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Changed on another computer: shown here unless something is being typed (then the save tells, see `kept`).
+  useEffect(() => {
+    if (!stamp || stamp <= seen.current || timer.current || document.activeElement === body.current) return;
+    api.quickNote(id).then((n) => { if (!timer.current && document.activeElement !== body.current) apply(n); }, () => {});
+  }, [stamp]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = (patch: Parameters<typeof api.saveQuickNote>[1]) => api.saveQuickNote(id, patch).then(() => { setSaving(''); onChanged(); }, (e) => { setSaving('error'); toast(e.message, true); });
+  /** The text, typed over the version `base` stands on. Changed meanwhile elsewhere, it is not lost: what was typed here
+   *  becomes a note of its own and this one shows the newer version. */
+  const saveText = (html: string, extra: { open?: boolean } = {}) => api.saveQuickNote(id, { ...extra, body: html, base: base.current }).then((n) => {
+    base.current = textHash(html); seen.current = n.updatedAt; setSaving(''); onChanged();
+  }, async (e) => {
+    if (e.status !== 409) { setSaving('error'); toast(e.message, true); return; }
+    await kept(html, extra.open === false);
+  });
+  const kept = async (html: string, closing: boolean) => {
+    try {
+      const el = box.current, copy = await api.createQuickNote({ color: note?.color || 'yellow', x: (el?.offsetLeft || 80) + 28, y: (el?.offsetTop || 90) + 28, w: el?.offsetWidth || 360, h: el?.offsetHeight || 340 });
+      await api.saveQuickNote(copy.id, { body: html });
+      if (!closing) { openNote(copy.id, copy); apply(await api.quickNote(id)); }
+      else await api.saveQuickNote(id, { open: false });
+      setSaving(''); onChanged();
+      toast('Ghi chú này vừa được sửa trên máy khác: phần bạn vừa gõ được giữ ở một ghi chú mới');
+    } catch (err: any) { setSaving('error'); toast(err.message, true); }
+  };
   // The text saves a moment after the last keystroke, and right away when the note is closed.
   const changedText = () => {
     const el = body.current!; setEmpty(blankBody(el));
     clearTimeout(timer.current); setSaving('saving');
-    timer.current = setTimeout(() => { const html = cleanHtml(el.innerHTML); if (html !== last.current) { last.current = html; void save({ body: html }); } else setSaving(''); }, 600);
+    timer.current = setTimeout(() => { timer.current = null; const html = cleanHtml(el.innerHTML); if (html !== last.current) { last.current = html; void saveText(html); } else setSaving(''); }, 600);
   };
   const close = async () => {
-    clearTimeout(timer.current);
+    clearTimeout(timer.current); timer.current = null;
     const html = body.current ? cleanHtml(body.current.innerHTML) : last.current;
     closeNote(id);
-    await api.saveQuickNote(id, { open: false, ...(html !== last.current ? { body: html } : {}) }).then(onChanged, (e) => toast(e.message, true));
+    if (html !== last.current) await saveText(html, { open: false });
+    else await api.saveQuickNote(id, { open: false }).then(onChanged, (e) => toast(e.message, true));
   };
   const remove = async () => {
     if (!await askConfirm('Xoá ghi chú này? Không khôi phục được.')) return;
-    clearTimeout(timer.current); closeNote(id);
+    clearTimeout(timer.current); timer.current = null; closeNote(id);
     try { await api.removeQuickNote(id); onChanged(); } catch (e: any) { toast(e.message, true); }
   };
   // Dragging by the top bar; the place is kept when the pointer lets go.
@@ -267,7 +322,7 @@ function NoteWindow({ id, z, onNew, onChanged }: { id: string; z: number; onNew:
       </div>}
       <div className="qn-body-wrap">
         {empty && <span className="qn-placeholder">Nhập ghi chú…</span>}
-        <div ref={body} className="qn-body" contentEditable suppressContentEditableWarning onInput={changedText} onPaste={paste} onClick={click} onBlur={() => { if (timer.current) { clearTimeout(timer.current); const html = cleanHtml(body.current!.innerHTML); if (html !== last.current) { last.current = html; void save({ body: html }); } } }} aria-label="Nội dung ghi chú" />
+        <div ref={body} className="qn-body" contentEditable suppressContentEditableWarning onInput={changedText} onPaste={paste} onClick={click} onBlur={() => { if (timer.current) { clearTimeout(timer.current); timer.current = null; const html = cleanHtml(body.current!.innerHTML); if (html !== last.current) { last.current = html; void saveText(html); } else setSaving(''); } }} aria-label="Nội dung ghi chú" />
       </div>
       <footer onMouseDown={(e) => e.preventDefault()}>
         <button onClick={() => cmd('bold')} title="Đậm" aria-label="Đậm"><Icon name="bold" size={16} /></button>

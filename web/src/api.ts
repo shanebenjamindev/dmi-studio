@@ -31,7 +31,7 @@ export async function req<T>(method: string, url: string, body?: any, headers: R
   if (res.status === 401 && !url.startsWith('/api/auth/')) auth.onSignedOut();
   if (res.status === 423) auth.onLocked(data.error || '');
   // `need`: what the server asks for to do it after all (a drag that grades a task: its feedback), for the page to ask.
-  if (!res.ok) throw Object.assign(new Error(data.error || `Lỗi ${res.status}`), data.need ? { need: data.need as string } : {});
+  if (!res.ok) throw Object.assign(new Error(data.error || `Lỗi ${res.status}`), { status: res.status }, data.need ? { need: data.need as string } : {});
   if(method!=='GET'&&/^\/api\/(tasks|cards)(\/|$)/.test(url))window.dispatchEvent(new Event('dms:notifications-changed'));
   if(method!=='GET'&&/^\/api\/admin\/customer-statuses(?:\/|$)/.test(url))window.dispatchEvent(new Event('dms:customer-statuses'));
   if(method!=='GET'&&/^\/api\/(cards|lists|boards|tasks|task-projects|customers)(\/|$)/.test(url))window.dispatchEvent(new Event('dms:entities-changed'));
@@ -326,7 +326,9 @@ export const api = {
   quickNotes: (q = '') => req<QuickNote[]>('GET', `/api/quick-notes${q ? `?q=${encodeURIComponent(q)}` : ''}`),
   quickNote: (id: string) => req<QuickNote>('GET', `/api/quick-notes/${id}`),
   createQuickNote: (b: Partial<Pick<QuickNote, 'color' | 'x' | 'y' | 'w' | 'h'>>) => req<QuickNote>('POST', '/api/quick-notes', b),
-  saveQuickNote: (id: string, b: Partial<Pick<QuickNote, 'body' | 'color' | 'open' | 'x' | 'y' | 'w' | 'h'>>) => req<QuickNote>('PUT', `/api/quick-notes/${id}`, b),
+  /** `base`: the fingerprint (shared/text-hash.ts) of the text the change was typed over; the server refuses it (409) when
+   *  the note was changed meanwhile elsewhere. */
+  saveQuickNote: (id: string, b: Partial<Pick<QuickNote, 'body' | 'color' | 'open' | 'x' | 'y' | 'w' | 'h'>> & { base?: string }) => req<QuickNote>('PUT', `/api/quick-notes/${id}`, b),
   removeQuickNote: (id: string) => req('DELETE', `/api/quick-notes/${id}`),
   orderQuickNotes: (ids: string[]) => req('PUT', '/api/quick-notes/order', { ids }),
   removeQuickNotes: (ids: string[]) => req<{ deleted: number }>('POST', '/api/quick-notes/delete', { ids }),
