@@ -10,6 +10,14 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-18-4',
+    date: '18/11/2026',
+    items: [
+      { kind: 'new', vi: 'Đổi tên kênh nhanh: bấm đúp vào tên kênh hoặc chuột phải › Đổi tên kênh, gõ tên mới rồi Enter (Esc để huỷ). Người tạo kênh cũng đổi tên được kênh của mình.', en: 'Rename a channel quickly: double-click its name or right-click › Rename channel, type the new name and press Enter (Esc cancels). Whoever made a channel can rename it too.' },
+      { kind: 'fix', vi: 'Tin nhắn không còn báo “Trang này gặp lỗi” khi trang được mở từ trước lúc cập nhật.', en: 'Messages no longer shows “Something went wrong on this page” when the page was open from before an update.' },
+    ],
+  },
+  {
     id: '2026-11-18-3',
     date: '18/11/2026',
     items: [

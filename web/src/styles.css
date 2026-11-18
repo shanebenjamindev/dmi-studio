@@ -9216,3 +9216,6 @@ dialog.sheet, .qc-dialog, .tm-dialog, .cm, .tk-popup-dialog, .ui-panel-popup, .u
 .dc-cust-context .crm-facts { grid-template-columns: 96px minmax(0, 1fr); gap: 8px; font-size: 12px; }
 @media (max-width: 1100px) { .dc-cust { position: absolute; top: 0; right: 0; bottom: 0; z-index: 20; box-shadow: -8px 0 24px rgba(0,0,0,.12); } }
 .dc-cust-context .crm-ov-card header h3 { display: flex; align-items: center; gap: 6px; }
+/* A channel's name changed in place. */
+.dc-chan-rename { cursor: text; }
+.dc-chan-rename input { flex: 1; min-width: 0; height: 24px; padding: 0 6px; border: 1px solid var(--tint); border-radius: 4px; background: var(--dc-chat); color: var(--dc-text); font: inherit; font-size: 15px; outline: none; }

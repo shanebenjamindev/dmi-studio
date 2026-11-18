@@ -94,6 +94,19 @@ export function MessagesPage() {
   // A brand's server shows its customer beside the chat (ChatCustomer.tsx) until closed.
   const [showCustomer, setShowCustomer] = useState(true);
   const [newSpace, setNewSpace] = useState(false);
+  // A channel's name being changed in place (double-click, or right-click › Đổi tên kênh).
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  const saveRename = async () => {
+    const r = renaming;
+    setRenaming(null);
+    const ch = r && customChannels.find((c) => c.id === r.id);
+    if (!r || !ch || !r.value.trim() || r.value.trim() === ch.name) return;
+    try {
+      const out = await api.updateChatChannel(ch.id, { name: r.value });
+      setCustomChannels((prev) => prev.map((c) => (c.id === ch.id ? { ...c, name: out.name } : c)));
+      toast(`Đã đổi tên kênh thành #${out.name}`);
+    } catch (err: any) { toast(err.message, true); }
+  };
   const [filesVersion, setFilesVersion] = useState(0);
   const [pending, setPending] = useState<{ id: number; name: string; progress: number; att?: ChatAttachment; error?: string }[]>([]);
   const [dropping, setDropping] = useState(false);
@@ -109,9 +122,10 @@ export function MessagesPage() {
         api.chatMembers().catch(() => [] as ChatMember[]),
         api.chatUnread(getConvReadAt('general')).catch(() => ({ unread: 0, general: 0, news: 0, dms: [] })),
       ]);
-      setSpaces(wsList.filter((w) => w.id !== 'company'));
-      setCustomChannels(chList);
-      setMembers(memList.filter((m) => m.id !== me.id));
+      const list = <T,>(v: T[]) => (Array.isArray(v) ? v : []);
+      setSpaces(list(wsList).filter((w) => w.id !== 'company'));
+      setCustomChannels(list(chList));
+      setMembers(list(memList).filter((m) => m.id !== me.id));
       const map: Record<string, number> = { general: unreadRes.general || 0, [NEWS]: unreadRes.news || 0 };
       for (const dm of unreadRes.dms || []) {
         map[dm.senderId] = dm.count;
@@ -208,7 +222,8 @@ export function MessagesPage() {
       const recip = isDm ? activeDmUserId || undefined : undefined;
       if (initial) setLoadingMsgs(true);
       try {
-        const list = await api.chatMessages(chanKey, recip, 0);
+        // Only a list: an answer of another shape (a page left open across an update) must not take the page down.
+        const list = await api.chatMessages(chanKey, recip, 0).then((l) => (Array.isArray(l) ? l : []));
         setMessages(list);
         const convKey = isDm && recip ? recip : chanKey;
         setConvReadAt(convKey, Date.now());
@@ -568,6 +583,7 @@ export function MessagesPage() {
       { label: 'Sao chép tên kênh', icon: 'copy', run: () => void copy(`#${ch.name}`, 'tên kênh') },
       ch.topic && { label: 'Sao chép chủ đề', icon: 'copy', run: () => void copy(ch.topic, 'chủ đề') },
       'sep',
+      (can.manage || ch.createdBy === me.id) && { label: 'Đổi tên kênh', icon: 'text', run: () => setRenaming({ id: ch.id, value: ch.name }) },
       can.manage && { label: 'Chỉnh sửa kênh', icon: 'edit', run: () => openSettings(ch) },
       can.manage && { label: 'Quyền của kênh', icon: 'lock', run: () => openSettings(ch, 'perms') },
       can.manage && { label: 'Tạo kênh trong danh mục', icon: 'plus', run: () => newChannelIn(ch.category) },
@@ -871,10 +887,26 @@ export function MessagesPage() {
                             onDragOver={(e) => overChannel(e, ch)}
                             onDrop={(e) => { e.preventDefault(); e.stopPropagation(); void dropHere(); }}
                           >
+                            {renaming?.id === ch.id ? (
+                              <label className="dc-chan-btn dc-chan-rename">
+                                <span className="dc-chan-hash">{ch.private ? <Icon name="lock" size={14} /> : '#'}</span>
+                                <input
+                                  autoFocus
+                                  value={renaming.value}
+                                  maxLength={48}
+                                  aria-label={`Tên mới của kênh #${ch.name}`}
+                                  onFocus={(e) => e.target.select()}
+                                  onChange={(e) => setRenaming({ id: ch.id, value: e.target.value })}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void saveRename(); } if (e.key === 'Escape') setRenaming(null); }}
+                                  onBlur={() => void saveRename()}
+                                />
+                              </label>
+                            ) : (
                             <button
                               type="button"
                               className="dc-chan-btn"
                               onClick={() => setActiveChannelId(ch.id)}
+                              onDoubleClick={() => (can.manage || ch.createdBy === me.id) && setRenaming({ id: ch.id, value: ch.name })}
                               title={ch.topic || `#${ch.name}`}
                             >
                               <span className="dc-chan-hash">{ch.private ? <Icon name="lock" size={14} /> : '#'}</span>
@@ -882,6 +914,7 @@ export function MessagesPage() {
                               {ch.readOnly && <span className="dc-chan-note" title="Chỉ một số người được nhắn"><Icon name="eye" size={12} /></span>}
                               {unread > 0 && <span className="dc-unread-pill">{unread}</span>}
                             </button>
+                            )}
                             {can.manage && (
                               <button type="button" className="dc-chan-del" title={`Chỉnh sửa kênh #${ch.name}`} aria-label={`Chỉnh sửa kênh #${ch.name}`} onClick={(e) => { e.stopPropagation(); openSettings(ch); }}>
                                 <Icon name="gear" size={13} />

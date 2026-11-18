@@ -78,10 +78,10 @@ export function registerChatChannels(api: Router) {
     await run('INSERT INTO chat_channels(id, server_id, category, name, topic, created_by, created_at, position) VALUES(?,?,?,?,?,?,?,?)', id, serverId, category(b.category), name, String(b.topic || '').trim().slice(0, 200), u.id, t, last + 1);
     json(res, 201, out(await mustChannel(id), { private: false, readOnly: false }));
   });
-  // Its name, topic and category.
+  // Its name, topic and category: its maker, or who manages Tin nhắn.
   api.put('/api/chat/channels/:id', async (req, res) => {
     const u = (await currentUser(req))!, ch = await mustChannel(req.params.id), b = await readJson(req);
-    await needInChannel(u, ch.id, 'manage');
+    if (ch.created_by !== u.id) await needInChannel(u, ch.id, 'manage');
     const name = b.name !== undefined ? channelName(b.name) : ch.name;
     if (!name) throw new HttpError(400, 'Hãy nhập tên kênh');
     await run('UPDATE chat_channels SET name = ?, topic = ?, category = ? WHERE id = ?', name, b.topic !== undefined ? String(b.topic).trim().slice(0, 200) : ch.topic, b.category !== undefined ? category(b.category, ch.category) : ch.category, ch.id);
