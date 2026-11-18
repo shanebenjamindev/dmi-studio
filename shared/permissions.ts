@@ -29,8 +29,8 @@ export const PERM_GROUPS: PermGroup[] = [
     actions: { view: 'Xem khách hàng trong phạm vi', create: 'Thêm khách hàng', update: 'Sửa, phân loại, gán phụ trách', delete: 'Lưu trữ và khôi phục', manage: 'Cấu hình phân loại và nguồn', export: 'Tải danh sách CSV' } },
   { key: 'services', label: 'Dịch vụ', about: 'Dịch vụ, danh mục, gói', scoped: false,
     actions: { view: 'Xem', create: 'Thêm', update: 'Sửa', delete: 'Xoá' } },
-  { key: 'messages', label: 'Tin nhắn', about: 'Kênh trò chuyện chung (kênh của một nhãn hàng do admin workspace đó quản lý)', scoped: false,
-    actions: { create: 'Tạo kênh', delete: 'Xoá kênh của người khác', manage: 'Ghim, xoá tin nhắn và file của người khác, xoá lịch sử kênh' } },
+  { key: 'messages', label: 'Tin nhắn', about: 'Nhắn tin trong kênh và nhắn riêng; người bị chặn ở Quản trị › Tin nhắn vẫn đọc được nhưng không gửi được', scoped: false,
+    actions: { create: 'Nhắn tin: gửi tin, gửi file, nhắn riêng', manage: 'Quản lý: tạo và xoá kênh, ghim và xoá tin, file của người khác, chặn người nhắn tin' } },
   { key: 'notifications', label: 'Thông báo', about: 'Gửi thông báo, mẫu, lịch sử gửi', scoped: true,
     actions: { view: 'Xem thông báo đã gửi và lịch sử email', create: 'Gửi thông báo tới người trong phạm vi', manage: 'Quản lý mẫu thông báo' } },
   { key: 'logs', label: 'Nhật ký hệ thống', about: 'Đăng nhập, thao tác, thay đổi dữ liệu, phân quyền, lỗi', scoped: true,
@@ -54,12 +54,12 @@ export const DEFAULT_ROLES: DefaultRole[] = [
   { key: 'admin', name: 'Admin', rank: 80, about: 'Quản trị vận hành: nhân sự, công việc, khách hàng, dịch vụ, thông báo, nhật ký. Không đổi phân quyền, không đổi cấu hình hệ thống.',
     perms: every('organization', 'stats.view', 'stats.export', 'staff.view', 'staff.create', 'staff.update', 'staff.export', 'org.view', 'org.create', 'org.update',
       'rbac.view', 'tasks.view', 'tasks.update', 'tasks.manage', 'tasks.export', 'customers.view', 'customers.create', 'customers.update', 'customers.delete', 'customers.manage', 'customers.export',
-      'services.view', 'services.create', 'services.update', 'services.delete', 'messages.create', 'messages.delete', 'messages.manage', 'notifications.view', 'notifications.create', 'notifications.manage', 'logs.view', 'settings.view') },
+      'services.view', 'services.create', 'services.update', 'services.delete', 'messages.create', 'messages.manage', 'notifications.view', 'notifications.create', 'notifications.manage', 'logs.view', 'settings.view') },
   { key: 'manager', name: 'Manager', rank: 60, about: 'Trưởng phòng: xem nhân sự, công việc, khách hàng và số liệu của phòng mình; gửi thông báo cho phòng.',
     perms: { ...every('department', 'stats.view', 'stats.export', 'staff.view', 'tasks.view', 'tasks.update', 'customers.view', 'customers.update', 'notifications.view', 'notifications.create', 'logs.view'), ...every('organization', 'org.view', 'services.view', 'messages.create', 'messages.manage') } },
   { key: 'leader', name: 'Leader', rank: 40, about: 'Trưởng nhóm: xem nhân sự, công việc, khách hàng và số liệu của nhóm mình; gửi thông báo cho nhóm.',
     perms: { ...every('team', 'stats.view', 'staff.view', 'tasks.view', 'customers.view', 'notifications.view', 'notifications.create'), ...every('organization', 'org.view', 'services.view') } },
-  { key: MEMBER, name: 'Member', rank: 20, about: 'Mọi nhân viên đều có vai trò này. Mặc định không có quyền quản trị.', perms: {} },
+  { key: MEMBER, name: 'Member', rank: 20, about: 'Mọi nhân viên đều có vai trò này. Mặc định chỉ được nhắn tin, không có quyền quản trị.', perms: every('organization', 'messages.create') },
 ];
 /** People holding a role ranked this high or more are listed as Admin accounts. */
 export const ADMIN_RANK = 80;

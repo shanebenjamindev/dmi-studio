@@ -8961,6 +8961,9 @@ button.ui-step:hover { border-color: var(--tf, var(--label-3)); color: var(--lab
 .dc-pending-chip > i { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--tint); transition: width 120ms linear; }
 .dc-comp-btn:disabled, .dc-icon-btn:disabled { opacity: .4; cursor: default; }
 
+/* Quản trị › Tin nhắn */
+.ax-chat-block { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+
 /* Right-click menu */
 .dc-ctx {
   position: fixed; z-index: 1000; min-width: 200px; max-width: 280px; padding: 6px 8px;

@@ -12,8 +12,8 @@ export const UPDATES: Update[] = [
     id: '2026-11-18-2',
     date: '18/11/2026',
     items: [
-      { kind: 'new', vi: 'Tin nhắn dùng chung phân quyền của Quản trị: Quản trị › Phân quyền có thêm mục Tin nhắn (tạo kênh, xoá kênh, quản lý tin nhắn: ghim, xoá tin và file của người khác, xoá lịch sử kênh). Admin và Manager có sẵn các quyền này; vai trò khác được cấp ở đó.', en: 'Messages follows the site\'s own permissions: Admin › Permissions has a Messages section (create channels, delete channels, manage messages: pin, delete other people\'s messages and files, clear a channel). Admin and Manager have them already; give them to other roles there.' },
-      { kind: 'new', vi: 'Kênh của một nhãn hàng theo quyền vào workspace đó: ai mở được workspace thì đọc và nhắn được, chủ và admin workspace quản lý kênh của mình. Bản Cài đặt máy chủ riêng của Tin nhắn hôm qua đã bỏ.', en: 'A brand\'s channels follow access to its workspace: whoever can open the workspace reads and writes there, and the workspace\'s owner and admins manage its channels. Yesterday\'s separate Server settings of Messages is gone.' },
+      { kind: 'new', vi: 'Tin nhắn theo phân quyền của Quản trị, gọn còn 2 quyền ở Phân quyền › Tin nhắn: Nhắn tin (gửi tin, file, nhắn riêng; mọi nhân viên có sẵn) và Quản lý (tạo, xoá kênh, ghim và xoá tin của người khác). Kênh của một nhãn hàng theo quyền vào workspace đó.', en: 'Messages follows the site\'s own permissions, down to two in Permissions › Messages: Send (messages, files, direct messages; everyone has it) and Manage (create and delete channels, pin and delete other people\'s messages). A brand\'s channels follow access to its workspace.' },
+      { kind: 'new', vi: 'Quản trị › Tin nhắn › Cài đặt Tin nhắn: xem vai trò nào được nhắn tin và chặn từng người nhắn tin (họ vẫn đọc được). Bản Cài đặt máy chủ riêng của Tin nhắn hôm qua đã bỏ.', en: 'Admin › Messages › Message settings: see which roles may send and block a person from sending (they can still read). Yesterday\'s separate Server settings of Messages is gone.' },
     ],
   },
   {

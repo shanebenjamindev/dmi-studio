@@ -22,7 +22,7 @@ import { notifyPeople } from './notifications';
 import { currentUser, PAGES, pagesOf, deptLevel, USER_SQL, type Level } from './auth';
 import { customerFile, clientCustomers } from './workspace';
 import { attachmentsIn, dropConversation } from './chat-files';
-import { needInChannel, needInServer } from './chat-perms';
+import { needInChannel, needInServer, needToSend } from './chat-perms';
 import { matcher } from './admin/common';
 import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
 import { AUTO, syncBoardGrants, syncBoardPeople } from './board-people';
@@ -1657,7 +1657,7 @@ export function registerBoards(api: Router) {
     const rawName = String(b.name || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_đàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ-]/gi, '').slice(0, 48);
     if (!rawName) throw new HttpError(400, 'Hãy nhập tên kênh');
     const serverId = String(b.serverId || 'company').trim() || 'company';
-    await needInServer(u, serverId, 'create');
+    await needInServer(u, serverId, 'manage');
     const category = String(b.category || 'KÊNH CHUNG').trim().slice(0, 60) || 'KÊNH CHUNG';
     const topic = String(b.topic || '').trim().slice(0, 200);
     const id = `ch_${uid('').slice(0, 12)}`, t = now();
@@ -1669,7 +1669,7 @@ export function registerBoards(api: Router) {
     const u = await me(req);
     const ch = await get<any>('SELECT * FROM chat_channels WHERE id = ?', req.params.id);
     if (!ch) throw new HttpError(404, 'Không tìm thấy kênh');
-    if (ch.created_by !== u.id) await needInChannel(u, ch.id, 'delete');
+    if (ch.created_by !== u.id) await needInChannel(u, ch.id, 'manage');
     await run('DELETE FROM chat_messages WHERE channel = ?', ch.id);
     await dropConversation(ch.id);
     await run('DELETE FROM chat_channels WHERE id = ?', ch.id);
@@ -1777,9 +1777,8 @@ export function registerBoards(api: Router) {
     const channel = b.channel === 'dm' ? 'dm' : String(b.channel || 'general').replace(/[^a-zA-Z0-9_:-]/g, '').slice(0, 64) || 'general';
     const recipientId = channel === 'dm' ? String(b.recipientId || '').trim() : null;
     if (channel === 'dm' && !recipientId) throw new HttpError(400, 'Thiếu thông tin người nhận');
-    if (channel !== 'dm') {
-      await needInChannel(u, channel, 'send');
-          }
+    if (channel !== 'dm') await needInChannel(u, channel, 'send');
+    else await needToSend(u);
     // Files already put in the conversation's folder (server/chat-files.ts); a message may be only files.
     const attachments = await attachmentsIn(u, channel === 'dm' ? `dm:${recipientId}` : channel, b.attachments);
     if (!msg && !attachments.length) throw new HttpError(400, 'Tin nhắn không được để trống');

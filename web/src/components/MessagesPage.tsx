@@ -168,16 +168,15 @@ export function MessagesPage() {
     return [...base, ...custom];
   }, [serverId, spaces, customChannels]);
 
-  // What this person may manage in the open server (server/chat-perms.ts: Quản trị › Phân quyền › Tin nhắn, and a
-  // workspace's own admins for its channels). What they may not do is not offered; the server refuses it anyway.
-  const NONE = { create: false, delete: false, manage: false };
-  const [can, setCan] = useState(NONE);
+  // What this person may do in the open server (server/chat-perms.ts: Quản trị › Phân quyền › Tin nhắn, the block list
+  // of Quản trị › Tin nhắn, and a workspace's own admins for its channels). What they may not do is not offered; the
+  // server refuses it anyway. Until the answer comes, writing stays open and managing closed.
+  const [can, setCan] = useState({ send: true, manage: false });
   useEffect(() => {
-    setCan(NONE);
-    if (serverId === 'dm') return;
+    setCan({ send: true, manage: false });
     const server = serverId;
     api.chatAccess(server).then((a) => server === serverId && setCan(a), () => {});
-  }, [serverId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [serverId]);
 
   // Keep activeChannelId valid when switching servers
   useEffect(() => {
@@ -294,6 +293,7 @@ export function MessagesPage() {
   /** Files picked, dropped or pasted: uploaded at once into the conversation's folder, sent with the next message. */
   const attach = (files: File[]) => {
     if (!convParam) return toast('Hãy chọn người để nhắn tin trước', true);
+    if (!can.send) return toast('Bạn không được phép nhắn tin', true);
     for (const file of files) {
       const id = ++pendingId.current;
       setPending((p) => [...p, { id, name: file.name, progress: 0 }]);
@@ -511,7 +511,7 @@ export function MessagesPage() {
     openCtx(e, [
       id === 'company' && (unreadMap.general || 0) > 0 && { label: 'Đánh dấu đã đọc', icon: 'check', run: () => markRead('general') },
       'sep',
-      id === serverId && can.create && { label: 'Tạo kênh', icon: 'plus', run: () => newChannelIn(id === 'company' ? 'KÊNH CHUNG' : 'KÊNH NHÃN HÀNG', id) },
+      id === serverId && can.manage && { label: 'Tạo kênh', icon: 'plus', run: () => newChannelIn(id === 'company' ? 'KÊNH CHUNG' : 'KÊNH NHÃN HÀNG', id) },
       ws && { label: 'Thành viên workspace', icon: 'users', run: () => openLink(`#boards/ws/${ws.id}`) },
       'sep',
       { label: 'Sao chép tên', icon: 'copy', run: () => void copy(name, 'tên') },
@@ -524,8 +524,8 @@ export function MessagesPage() {
       { label: 'Sao chép tên kênh', icon: 'copy', run: () => void copy(`#${ch.name}`, 'tên kênh') },
       ch.topic && { label: 'Sao chép chủ đề', icon: 'copy', run: () => void copy(ch.topic, 'chủ đề') },
       'sep',
-      can.create && { label: 'Tạo kênh trong danh mục', icon: 'plus', run: () => newChannelIn(ch.category) },
-      !ch.builtin && (ch.createdBy === me.id || can.delete) && { label: 'Xoá kênh', icon: 'trash', danger: true, run: () => void handleDeleteChannel(ch) },
+      can.manage && { label: 'Tạo kênh trong danh mục', icon: 'plus', run: () => newChannelIn(ch.category) },
+      !ch.builtin && (ch.createdBy === me.id || can.manage) && { label: 'Xoá kênh', icon: 'trash', danger: true, run: () => void handleDeleteChannel(ch) },
     ]);
   const categoryMenu = (e: React.MouseEvent, cat: string) =>
     openCtx(e, [
@@ -645,7 +645,7 @@ export function MessagesPage() {
           );
         })}
 
-        {can.create && <button
+        {can.manage && <button
           type="button"
           className="dc-srv-btn dc-srv-add"
           onClick={() => {
@@ -680,7 +680,7 @@ export function MessagesPage() {
           ) : (
             <div className="dc-srv-header-row">
               <h2 className="dc-srv-title" title={currentServerTitle}>{currentServerTitle}</h2>
-              {can.create && <button
+              {can.manage && <button
                 type="button"
                 className="dc-icon-btn"
                 onClick={() => {
@@ -780,7 +780,7 @@ export function MessagesPage() {
                         <Icon name={folded ? 'right' : 'down'} size={11} />
                         <span>{cat}</span>
                       </button>
-                      {can.create && <button
+                      {can.manage && <button
                         type="button"
                         className="dc-cat-add"
                         title={`Tạo kênh trong ${cat}`}
@@ -808,7 +808,7 @@ export function MessagesPage() {
                               <span className="dc-chan-name">{ch.name}</span>
                               {unread > 0 && <span className="dc-unread-pill">{unread}</span>}
                             </button>
-                            {!ch.builtin && (ch.createdBy === me.id || can.delete) && (
+                            {!ch.builtin && (ch.createdBy === me.id || can.manage) && (
                               <button
                                 type="button"
                                 className="dc-chan-del"
@@ -1327,7 +1327,7 @@ export function MessagesPage() {
               className="dc-comp-btn"
               title="Đính kèm file"
               aria-label="Đính kèm file"
-              disabled={!convParam}
+              disabled={!convParam || !can.send}
               onClick={() => attachInput.current?.click()}
             >
               <Icon name="clip" size={18} />
@@ -1351,9 +1351,11 @@ export function MessagesPage() {
               ref={inputRef}
               rows={1}
               value={draft}
-              disabled={sending || (serverId === 'dm' && !activeDmMember)}
+              disabled={sending || (serverId === 'dm' && !activeDmMember) || !can.send}
               placeholder={
-                serverId === 'dm'
+                !can.send
+                  ? 'Bạn không được phép nhắn tin. Liên hệ quản trị viên nếu cần.'
+                  : serverId === 'dm'
                   ? activeDmMember
                     ? `Nhắn tin tới @${activeDmMember.name} (gõ @ để nhắc tên)…`
                     : 'Chọn một thành viên để nhắn tin…'

@@ -5,6 +5,9 @@ import type { Scope } from '../../../shared/permissions';
 
 export type Paged<T> = { items: T[]; total: number; page: number; size: number; sort?: string; dir?: 'asc' | 'desc' };
 export type Ref = { id: string; name: string };
+/** Quản trị › Tin nhắn: each role's Tin nhắn permissions, and everyone with whether they are blocked from writing. */
+export interface ChatRoleRow { id: string; name: string; member: boolean; send: boolean; manage: boolean; people: number }
+export interface ChatPerson { id: string; name: string; email: string; blocked: boolean }
 export type Work = { total: number; open: number; overdue: number; done: number; late: number };
 export interface Staff {
   id: string; name: string; email: string; phone: string; avatarAt: number | null; superAdmin: boolean; disabled: boolean; lastLogin: number | null; createdAt: number; updatedAt: number; sessions: number;
@@ -85,6 +88,8 @@ const dict = (path: string) => ({
 export type DictApi = ReturnType<typeof dict>;
 
 export const admin = {
+  chat: () => req<{ roles: ChatRoleRow[]; people: ChatPerson[] }>('GET', '/api/admin/chat'),
+  setChatBlocked: (userIds: string[]) => req<{ blocked: string[] }>('PUT', '/api/admin/chat/blocked', { userIds }),
   q,
   staff: (p: Query) => req<Paged<Staff>>('GET', `/api/admin/staff${q(p)}`),
   staffOne: (id: string) => req<StaffDetail>('GET', `/api/admin/staff/${id}`),

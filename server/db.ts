@@ -204,10 +204,12 @@ async function seedAdmin() {
     for (const [i, [name, color]] of rows.entries()) await db.execute({ sql: `INSERT OR IGNORE INTO ${table}(id,name,color,pos,active,created_at,updated_at) VALUES(?,?,?,?,1,?,?)`, args: [uid(table === 'task_statuses' ? 'ts_' : 'tp_'), name, color, i + 1, t, t] });
     seeded.push(table);
   }
-  // The Tin nhắn permissions came after the built-in roles were made: theirs are given once, then left to the admins.
-  if (!seeded.includes('messages_perms')) {
+  // The Tin nhắn permissions came after the built-in roles were made: theirs are given once (Member: sending, so
+  // everyone chats), then left to the admins.
+  if (!seeded.includes('chat_perms')) {
+    await db.execute("DELETE FROM role_permissions WHERE perm = 'messages.delete'");
     for (const r of DEFAULT_ROLES.filter((r) => r.key !== SUPER_ADMIN)) for (const [perm, scope] of Object.entries(r.perms).filter(([p]) => p.startsWith('messages.'))) await db.execute({ sql: 'INSERT OR IGNORE INTO role_permissions(role_id,perm,scope) VALUES(?,?,?)', args: ['role_' + r.key, perm, scope] });
-    seeded.push('messages_perms');
+    seeded.push('chat_perms');
   }
   if(!seeded.includes('customer_statuses')) {
     const colors=['#94a3b8','#0b7df2','#16a34a','#f59e0b','#64748b'];

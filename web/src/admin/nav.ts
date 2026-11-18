@@ -12,10 +12,14 @@ export const NAV: NavGroup[] = [
   { key: 'customers', label: 'Khách hàng', icon: 'card', pages: [p('list', 'Danh sách khách hàng', 'customers.view'), p('statuses', 'Trạng thái khách hàng', 'customers.view'), p('categories', 'Phân loại khách hàng', 'customers.view'), p('sources', 'Nguồn khách hàng', 'customers.view')] },
   { key: 'services', label: 'Danh mục dịch vụ', icon: 'tag', pages: [p('list', 'Danh mục dịch vụ', 'services.view'), p('packages', 'Gói dịch vụ', 'services.view')] },
   { key: 'notify', label: 'Thông báo', icon: 'bell', pages: [p('list', 'Thông báo đã gửi', 'notifications.view'), p('create', 'Tạo thông báo', 'notifications.create'), p('templates', 'Mẫu thông báo', 'notifications.view'), p('history', 'Lịch sử gửi email', 'notifications.view')] },
+  { key: 'chat', label: 'Tin nhắn', icon: 'messenger', pages: [p('settings', 'Cài đặt Tin nhắn', 'messages.manage')] },
   { key: 'logs', label: 'Nhật ký hệ thống', icon: 'lines', pages: [p('logins', 'Lịch sử đăng nhập', 'logs.view'), p('actions', 'Lịch sử thao tác', 'logs.view'), p('data', 'Thay đổi dữ liệu', 'logs.view'), p('permissions', 'Lịch sử phân quyền', 'logs.view'), p('errors', 'Nhật ký lỗi', 'logs.view')] },
   { key: 'system', label: 'Cấu hình hệ thống', icon: 'gear', pages: [p('info', 'Thông tin hệ thống', 'settings.view'), p('general', 'Cấu hình chung', 'settings.view'), p('statuses', 'Cấu hình trạng thái', 'tasks.view'), p('notifications', 'Cấu hình thông báo', 'settings.view'), p('storage', 'Tệp và dung lượng', 'settings.view'), p('hosting', 'Hosting và giới hạn', 'settings.view'), p('sql', 'Truy vấn SQL', 'settings.update'), p('backup', 'Sao lưu và phục hồi', 'settings.view')] },
   { key: 'support', label: 'Hỗ trợ lập trình viên', icon: 'chat', pages: [p('list', 'Yêu cầu hỗ trợ', 'settings.view')] },
 ];
+
+/** Whether these permissions open any page of Quản trị (Tin nhắn's "Nhắn tin", which everyone holds, opens none). */
+export const opensAdmin = (perms: Record<string, unknown> | undefined) => !!perms && NAV.some((g) => g.pages.some((pg) => perms[pg.perm]));
 
 export interface Route { group: string; page: string; params: URLSearchParams }
 export function parseRoute(hash: string): Route {

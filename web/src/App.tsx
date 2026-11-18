@@ -1,3 +1,4 @@
+import { opensAdmin } from './admin/nav';
 import {BrandLoading,NetworkLoading} from './components/BrandLoading';
 import { Component, Suspense, useEffect, type ReactNode } from 'react';
 import { useStore, init, openPages } from './store';
@@ -42,7 +43,7 @@ export function App() {
   const user = useStore((s) => s.user);
   const siteLock = useStore((s) => s.siteLock);
   const adminAccess = useStore((s) => s.admin);
-  const can = { admin: user?.role === 'admin' || Object.keys(adminAccess?.perms || {}).length > 0 };
+  const can = { admin: user?.role === 'admin' || opensAdmin(adminAccess?.perms) };
   const Page = pageFor(view, can);
 
   useEffect(() => { init(); }, []);

@@ -69,8 +69,8 @@ test('admin module: permissions come from roles at a scope, and nobody raises th
     // The first account is Super Admin, the same as the company admin of the other pages.
     const me = ok(await s.call('GET', '/api/auth/me', undefined, b));
     assert.equal(me.admin.superAdmin, true); assert.equal(me.admin.perms['rbac.manage'], 'organization');
-    // Members have no admin permission: no page, and every endpoint refuses.
-    assert.deepEqual(ok(await s.call('GET', '/api/auth/me', undefined, ann.cookie)).admin.perms, {});
+    // Members have no admin permission (only Tin nhắn's "Nhắn tin", which opens no page): every endpoint refuses.
+    assert.deepEqual(ok(await s.call('GET', '/api/auth/me', undefined, ann.cookie)).admin.perms, { 'messages.create': 'organization' });
     assert.equal((await s.call('GET', '/api/admin/staff', undefined, ann.cookie)).status, 403);
     assert.equal((await s.call('GET', '/api/admin/logs?kind=action', undefined, ann.cookie)).status, 403);
 

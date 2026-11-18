@@ -12,7 +12,7 @@ import { all, get, run, uid, now } from './db';
 import { DATA_DIR, IS_CLOUDFLARE } from './config';
 import { currentUser, type User } from './auth';
 import { mimeOfName, kindOf, safeName, type FileKind } from './workspace';
-import { needInChannel, type ChatAct } from './chat-perms';
+import { needInChannel, needToSend, type ChatAct } from './chat-perms';
 
 /** Largest file sent in a chat. */
 export const MAX_BYTES = 50 * 1024 * 1024;
@@ -113,7 +113,7 @@ export async function dropConversation(conv: string) {
 /** Stops the request unless this person may `act` in the conversation: a direct chat is its two people's, a channel's
  *  files follow the channel (server/chat-perms.ts): seeing them is reading it, adding them is writing in it. */
 async function need(u: User, conv: string, act: ChatAct) {
-  if (conv.startsWith('dm:')) { if (!conv.slice(3).split(':').includes(u.id)) throw new HttpError(404, 'Không tìm thấy file'); return; }
+  if (conv.startsWith('dm:')) { if (!conv.slice(3).split(':').includes(u.id)) throw new HttpError(404, 'Không tìm thấy file'); if (act === 'send') await needToSend(u); return; }
   await needInChannel(u, conv, act);
 }
 

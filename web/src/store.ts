@@ -1,4 +1,5 @@
 // App state + actions. Tiny external store consumed with useSyncExternalStore.
+import { opensAdmin } from './admin/nav';
 import { useSyncExternalStore } from 'react';
 import { api, auth } from './api';
 import { adoptPrefs } from './prefs';
@@ -110,7 +111,7 @@ export function openPages(): View[] {
   // Hộp thư: everyone, each with their own Gmail.
   out.push('mail');
   // Quản trị: company admins, and whoever a role gives any of its permissions (each page inside checks its own).
-  if (state.user?.role === 'admin' || Object.keys(state.admin?.perms || {}).length) out.push('admin');
+  if (state.user?.role === 'admin' || opensAdmin(state.admin?.perms)) out.push('admin');
   return out;
 }
 /** Open a page (and keep it in the address, so a reload comes back to it). */

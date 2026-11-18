@@ -176,8 +176,8 @@ export const api = {
     req<ChatMessage[]>('GET', `/api/chat/messages?channel=${encodeURIComponent(channel)}${recipientId ? `&recipientId=${encodeURIComponent(recipientId)}` : ''}${since ? `&since=${since}` : ''}`),
   sendChatMessage: (message: string, channel: string = 'general', recipientId?: string, replyToId?: string | null, attachments: string[] = []) =>
     req<ChatMessage>('POST', '/api/chat/messages', { message, channel, recipientId, replyToId, attachments }),
-  /** What this person may manage in a Tin nhắn server ('company' or a workspace id), by Quản trị › Phân quyền. */
-  chatAccess: (server: string) => req<{ create: boolean; delete: boolean; manage: boolean }>('GET', `/api/chat/servers/${encodeURIComponent(server)}/access`),
+  /** What this person may do in a Tin nhắn server ('company', a workspace id, or 'dm'), by Quản trị › Phân quyền. */
+  chatAccess: (server: string) => req<{ send: boolean; manage: boolean }>('GET', `/api/chat/servers/${encodeURIComponent(server)}/access`),
   /** A conversation's folder (`c`: a channel id or "dm:<person>"), or a folder inside it. */
   chatFiles: (c: string, folder = '') => req<ChatFolder>('GET', `/api/chat/files?${new URLSearchParams({ c, folder })}`),
   createChatFolder: (c: string, folder: string, name: string) => req<ChatFile>('POST', `/api/chat/files/folders?${new URLSearchParams({ c, folder })}`, { name }),
