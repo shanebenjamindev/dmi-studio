@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chính sách bảo mật · DMI Workspace</title>
+<link rel="icon" href="/brand/mark.png" />
+<style>
+  :root { color-scheme: light dark; --text: #1d1d1f; --muted: #5c5e66; --line: #e3e5e8; --bg: #fff; --tint: #1a73e8; }
+  @media (prefers-color-scheme: dark) { :root { --text: #e8e8ea; --muted: #a1a1aa; --line: #2f3136; --bg: #18191b; --tint: #6ea8fe; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 16px 64px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  header img { width: 36px; height: 36px; }
+  h1 { margin: 0; font-size: 28px; }
+  h2 { margin: 32px 0 8px; font-size: 19px; }
+  p, li { color: var(--text); }
+  small, .muted { color: var(--muted); }
+  a { color: var(--tint); }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 40px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="/brand/mark.png" alt="" /><h1>Chính sách bảo mật</h1></header>
+  <p class="muted">DMI Workspace · Detailers Movement International Company · Cập nhật ngày 18/11/2026</p>
+
+  <p>DMI Workspace (<a href="https://dmi-workspace.detailersmovement.workers.dev">dmi-workspace.detailersmovement.workers.dev</a>) là công cụ làm việc nội bộ của Detailers Movement International Company ("DMI", "chúng tôi"), dùng để quản lý khách hàng, công việc, tin nhắn nội bộ, báo cáo và hộp thư của nhân viên. Trang này nói rõ chúng tôi thu thập dữ liệu gì, dùng vào việc gì và bạn có những quyền gì.</p>
+
+  <h2>1. Dữ liệu chúng tôi lưu</h2>
+  <ul>
+    <li><b>Tài khoản:</b> tên, email, ảnh đại diện, phòng ban, vai trò và lịch sử đăng nhập của nhân viên.</li>
+    <li><b>Dữ liệu công việc:</b> khách hàng, dịch vụ, công việc, bình luận, tin nhắn nội bộ, file gửi trong chat và báo cáo do người dùng tạo ra.</li>
+    <li><b>Kết nối Google:</b> khi bạn kết nối tài khoản Google, chúng tôi lưu email, tên, ảnh đại diện và mã truy cập (token) do Google cấp để thay bạn gọi API Google. Không lưu mật khẩu Google.</li>
+  </ul>
+
+  <h2>2. Dữ liệu Google chúng tôi truy cập và lý do</h2>
+  <table>
+    <tr><th>Quyền</th><th>Dùng để</th></tr>
+    <tr><td>openid, email, profile</td><td>Đăng nhập bằng Google và hiện tên, ảnh của bạn trong ứng dụng.</td></tr>
+    <tr><td>Google Drive (drive)</td><td>Mở, tải lên và sắp xếp file trong thư mục Drive của khách hàng mà bạn chọn liên kết với DMI Workspace.</td></tr>
+    <tr><td>Gmail (gmail.modify)</td><td>Trang Hộp thư: bạn đọc, tìm, gắn sao, chuyển thư vào thùng rác, trả lời và gửi thư bằng chính Gmail của mình ngay trong DMI Workspace. Ứng dụng cũng đọc người nhận trong thư đã gửi gần đây để gợi ý địa chỉ khi bạn soạn thư.</td></tr>
+    <tr><td>Gmail (gmail.send)</td><td>Gửi email thông báo công việc từ địa chỉ mà quản trị viên cấu hình.</td></tr>
+  </table>
+  <p>Thư Gmail được lấy trực tiếp từ Google mỗi khi bạn mở và <b>không được lưu</b> trên máy chủ của chúng tôi, trừ danh sách gợi ý người nhận được giữ tạm trong bộ nhớ tối đa 15 phút. Chỉ chính bạn xem được hộp thư của mình; quản trị viên cũng không xem được.</p>
+
+  <h2>3. Cam kết về dữ liệu người dùng Google (Limited Use)</h2>
+  <p>Việc DMI Workspace sử dụng và chuyển giao thông tin nhận được từ API của Google tuân thủ <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, bao gồm các yêu cầu về Limited Use. Cụ thể, chúng tôi:</p>
+  <ul>
+    <li>chỉ dùng dữ liệu Google để cung cấp các tính năng bạn thấy trong ứng dụng như mô tả ở trên;</li>
+    <li>không bán dữ liệu, không dùng cho quảng cáo, không chuyển cho bên thứ ba trừ khi cần để vận hành dịch vụ, theo yêu cầu pháp luật hoặc khi bạn đồng ý;</li>
+    <li>không để con người đọc dữ liệu Gmail của bạn, trừ khi bạn đồng ý, khi cần vì lý do bảo mật hoặc theo yêu cầu pháp luật;</li>
+    <li>không dùng dữ liệu Google để huấn luyện mô hình trí tuệ nhân tạo.</li>
+  </ul>
+
+  <h2>4. Nơi lưu và bảo vệ dữ liệu</h2>
+  <p>Ứng dụng chạy trên Cloudflare (Workers, D1, R2). Kết nối luôn qua HTTPS; mỗi người chỉ truy cập được dữ liệu theo quyền được giao. File gửi trong chat là riêng tư với người trong cuộc trò chuyện.</p>
+
+  <h2>5. Thời gian lưu và xoá dữ liệu</h2>
+  <ul>
+    <li>Bạn có thể ngắt kết nối Gmail hoặc Google Drive bất cứ lúc nào trong ứng dụng; token tương ứng bị xoá ngay. Bạn cũng có thể thu hồi quyền tại <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+    <li>Tin nhắn nội bộ được tự động xoá sau 60 ngày.</li>
+    <li>Khi nhân viên nghỉ việc, quản trị viên khoá tài khoản; bạn có thể yêu cầu xoá dữ liệu cá nhân qua email bên dưới.</li>
+  </ul>
+
+  <h2>6. Liên hệ</h2>
+  <p>Detailers Movement International Company<br />C2 Cao Thị Chính, Quận 7, TP. Hồ Chí Minh, Việt Nam<br />Email: <a href="mailto:editor@detailersmovement.com">editor@detailersmovement.com</a> · Website: <a href="https://detailersmovement.com">detailersmovement.com</a></p>
+
+  <hr />
+
+  <h1 style="font-size:24px">Privacy Policy (English)</h1>
+  <p>DMI Workspace is the internal work tool of Detailers Movement International Company for managing clients, tasks, internal chat, reports and staff mailboxes.</p>
+  <p><b>Data we keep:</b> staff accounts (name, email, picture, department, role, sign-in history); work data people create (clients, tasks, comments, chat messages and files, reports); and, when you connect Google, your email, name, picture and the OAuth tokens Google issues. We never store Google passwords.</p>
+  <p><b>Google data we access:</b> <i>openid, email, profile</i> to sign you in; <i>Google Drive</i> to open, upload and organise files in the client folders you link; <i>Gmail (gmail.modify)</i> so you can read, search, star, trash, reply to and send your own mail inside the Mail page, and to suggest recipients from the people you recently wrote to; <i>Gmail (gmail.send)</i> to send task notification emails. Gmail messages are fetched from Google when you open them and are not stored on our servers (recipient suggestions are kept in memory for at most 15 minutes). Only you can see your mailbox, administrators included.</p>
+  <p><b>Limited Use:</b> DMI Workspace's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. We use Google data only to provide the features described above; we do not sell it, use it for advertising, or transfer it to third parties except as needed to run the service, to comply with law, or with your consent; humans do not read your Gmail data unless you agree, for security, or as required by law; and we do not use it to train AI models.</p>
+  <p><b>Storage and security:</b> hosted on Cloudflare (Workers, D1, R2), always over HTTPS, with access limited by each person's permissions.</p>
+  <p><b>Retention and deletion:</b> disconnect Gmail or Google Drive in the app at any time and the tokens are deleted at once; you can also revoke access at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>. Internal chat messages are deleted after 60 days. Ask us by email to delete your personal data.</p>
+  <p><b>Contact:</b> Detailers Movement International Company, C2 Cao Thi Chinh, District 7, Ho Chi Minh City, Vietnam · <a href="mailto:editor@detailersmovement.com">editor@detailersmovement.com</a></p>
+  <p><small><a href="/terms">Điều khoản sử dụng / Terms of Service</a> · <a href="/">DMI Workspace</a></small></p>
+</main>
+</body>
+</html>
