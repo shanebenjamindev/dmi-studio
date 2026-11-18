@@ -198,6 +198,8 @@ export const api = {
     req<{
       unread: number;
       general: number;
+      /** Releases posted to #co-gi-moi since it was last read. */
+      news?: number;
       dms: Array<{ senderId: string; count: number; lastAt: number; senderName: string; senderEmail: string }>;
     }>('GET', `/api/chat/unread${since ? `?since=${since}` : ''}`),
   deleteChatMessage: (id: string) => req('DELETE', `/api/chat/messages/${id}`),

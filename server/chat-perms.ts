@@ -7,6 +7,7 @@
 // workspace's are its people's, whose owner and admins also manage them. Direct messages are their two people's.
 // On top, each channel may say who sees it (a private channel) and who writes in it (the others only read), as people,
 // departments and roles of the site; those who manage Tin nhắn always see and write, and are the ones who set it.
+// Nobody writes in #co-gi-moi: the system posts there (server/chat-news.ts).
 import type { Router } from './http';
 import { HttpError, json, readJson } from './http';
 import { all, get, run, now, getSetting, setSetting } from './db';
@@ -14,6 +15,7 @@ import { currentUser, type User } from './auth';
 import { accessOf } from './rbac';
 import { need, changed } from './admin/common';
 import { MEMBER } from '../shared/permissions';
+import { NEWS } from './chat-news';
 
 export type ChatAct = 'view' | 'send' | 'manage';
 const MUTED = 'chat_muted';
@@ -42,6 +44,10 @@ export async function chatRights(u: User, server = 'company') {
 export interface Rule { view: { all: boolean; who: string[] }; send: { all: boolean; who: string[] } }
 const OPEN: Rule = { view: { all: true, who: [] }, send: { all: true, who: [] } };
 async function ruleOf(channel: string): Promise<Rule> {
+  if (channel === NEWS) return { view: (await stored(channel)).view, send: { all: false, who: [] } };
+  return stored(channel);
+}
+async function stored(channel: string): Promise<Rule> {
   const r = await get<any>('SELECT rules FROM chat_channel_rules WHERE channel_id = ?', channel);
   try { return r ? { ...OPEN, ...JSON.parse(r.rules) } : OPEN; } catch { return OPEN; }
 }
@@ -57,7 +63,7 @@ export async function channelRights(u: User, channel: string, server?: string) {
   const me = r.manage || (rule.view.all && rule.send.all) ? null : await tagsOf(u);
   const hit = (who: string[]) => !!me && who.some((t) => me.has(t));
   const view = r.manage || rule.view.all || hit(rule.view.who);
-  return { ...r, view, send: view && r.send && (r.manage || rule.send.all || hit(rule.send.who)), private: !rule.view.all, readOnly: !rule.send.all };
+  return { ...r, view, send: view && r.send && channel !== NEWS && (r.manage || rule.send.all || hit(rule.send.who)), private: !rule.view.all, readOnly: !rule.send.all };
 }
 /** channelRights for many channels at once (a list of channels): the person's server rights and tags asked once. */
 export function rightsMemo(u: User) {
@@ -68,7 +74,7 @@ export function rightsMemo(u: User) {
     const r = await servers.get(server)!, rule = await ruleOf(channel);
     const base = { private: !rule.view.all, readOnly: !rule.send.all };
     if (!r.member) return { ...r, ...base, view: false, send: false };
-    if (r.manage || (rule.view.all && rule.send.all)) return { ...r, ...base, view: true, send: r.send };
+    if (r.manage || (rule.view.all && rule.send.all)) return { ...r, ...base, view: true, send: r.send && channel !== NEWS };
     const me = await (tags ||= tagsOf(u)), hit = (who: string[]) => who.some((t) => me.has(t));
     const view = rule.view.all || hit(rule.view.who);
     return { ...r, ...base, view, send: view && r.send && (rule.send.all || hit(rule.send.who)) };

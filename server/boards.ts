@@ -23,6 +23,7 @@ import { currentUser, PAGES, pagesOf, deptLevel, USER_SQL, type Level } from './
 import { customerFile, clientCustomers } from './workspace';
 import { attachmentsIn } from './chat-files';
 import { needInChannel, needToSend } from './chat-perms';
+import { NEWS, newsMessages, newsUnread } from './chat-news';
 import { reactionsOf, react, dropReactions } from './comment-reactions';
 import { matcher } from './admin/common';
 import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
@@ -1656,6 +1657,12 @@ export function registerBoards(api: Router) {
     const channel = rawChannel === 'dm' ? 'dm' : String(rawChannel).replace(/[^a-zA-Z0-9_:-]/g, '').slice(0, 64) || 'general';
     const recipientId = req.query.get('recipientId') || '';
     const since = Number(req.query.get('since')) || 0;
+    // The system's channel: the Có gì mới list itself.
+    if (channel === NEWS) {
+      await needInChannel(u, NEWS, 'view');
+      await markChatRead(u.id, NEWS);
+      return json(res, 200, await newsMessages());
+    }
     let rows: any[];
     if (channel === 'dm' && recipientId) {
       rows = await all<any>(
@@ -1731,10 +1738,13 @@ export function registerBoards(api: Router) {
 
     const generalUnread = Number(genRow?.c) || 0;
     const dmUnreadTotal = dmRows.reduce((acc, r) => acc + (Number(r.c) || 0), 0);
+    // A release posted to #co-gi-moi, for who sees that channel (and unless it was deleted).
+    const news = (await get<any>('SELECT 1 FROM chat_channels WHERE id = ?', NEWS)) ? await needInChannel(u, NEWS, 'view').then(() => newsUnread(u), () => 0) : 0;
 
     json(res, 200, {
-      unread: generalUnread + dmUnreadTotal,
+      unread: generalUnread + dmUnreadTotal + news,
       general: generalUnread,
+      news,
       dms: dmRows.map((r) => ({
         senderId: r.senderId,
         count: Number(r.c) || 0,
@@ -1751,6 +1761,7 @@ export function registerBoards(api: Router) {
     const channel = b.channel === 'dm' ? 'dm' : String(b.channel || 'general').replace(/[^a-zA-Z0-9_:-]/g, '').slice(0, 64) || 'general';
     const recipientId = channel === 'dm' ? String(b.recipientId || '').trim() : null;
     if (channel === 'dm' && !recipientId) throw new HttpError(400, 'Thiếu thông tin người nhận');
+    if (channel === NEWS) throw new HttpError(403, 'Kênh #co-gi-moi chỉ đăng bản cập nhật của hệ thống');
     if (channel !== 'dm') await needInChannel(u, channel, 'send');
     else await needToSend(u);
     // Files already put in the conversation's folder (server/chat-files.ts); a message may be only files.

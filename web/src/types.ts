@@ -251,6 +251,9 @@ export interface ChatMessage {
   attachments?: ChatAttachment[];
   createdAt: number;
   isMe: boolean;
+  /** A post of DMI Workspace in #co-gi-moi: one Có gì mới (shared/updates.ts); nobody replies to or changes it. */
+  system?: boolean;
+  news?: { date: string; items: import('../../shared/updates').Update['items'] };
 }
 /** A file sent with a message: it lives in the conversation's folder. */
 export interface ChatAttachment { key: string; name: string; kind: FileKind; mime: string; bytes: number; url: string | null; thumb: string | null }
@@ -268,6 +271,8 @@ export interface ChatChannel {
   /** Seen only by those picked, written in only by those picked (server/chat-perms.ts). */
   private?: boolean;
   readOnly?: boolean;
+  /** #co-gi-moi: the system posts there (server/chat-news.ts). */
+  system?: boolean;
 }
 /** Who sees and who writes in a channel: everyone, or the departments ("d:"), roles ("r:") and people ("u:") picked. */
 export interface ChannelRules { view: { all: boolean; who: string[] }; send: { all: boolean; who: string[] } }

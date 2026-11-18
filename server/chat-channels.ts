@@ -1,13 +1,15 @@
 // The channels of Tin nhắn, kept here (not in the page): each server starts with its usual channels, made once (one an
 // admin deletes stays deleted), and those who manage Tin nhắn add, rename, move to another category and delete them.
 // #general stays: the small chat window talks there. A channel's list shows only those its viewer may see
-// (server/chat-perms.ts), so a private channel's name stays private.
+// (server/chat-perms.ts), so a private channel's name stays private. #co-gi-moi, the system's, came later: it is made
+// once on its own (server/chat-news.ts).
 import type { Router } from './http';
 import { HttpError, json, readJson } from './http';
 import { all, get, run, uid, now, getSetting, setSetting } from './db';
 import { currentUser } from './auth';
 import { needInServer, needInChannel, rightsMemo } from './chat-perms';
 import { dropConversation } from './chat-files';
+import { NEWS_CHANNEL } from './chat-news';
 
 const COMPANY: [string, string, string, string][] = [
   ['thong-bao', 'KÊNH THÔNG TIN', 'thong-bao', 'Thông báo chung và cập nhật quan trọng toàn công ty'],
@@ -31,13 +33,14 @@ async function seed() {
   const done = new Set(await getSetting<string[]>(SEEDED, []));
   const servers: [string, [string, string, string, string][]][] = [];
   if (!done.has('company')) servers.push(['company', COMPANY]);
+  if (!done.has('news')) servers.push(['news', [NEWS_CHANNEL]]);
   for (const w of await all<any>('SELECT w.id, COALESCE(b.name, w.name) name, c.name customer FROM workspaces w LEFT JOIN brands b ON b.id = w.brand_id LEFT JOIN customers c ON c.id = w.customer_id')) {
     if (!done.has(w.id)) servers.push([w.id, workspaceDefaults(w)]);
   }
   if (!servers.length) return;
   const t = now();
   for (const [server, list] of servers) {
-    for (const [i, [id, category, name, topic]] of list.entries()) await run('INSERT OR IGNORE INTO chat_channels(id, server_id, category, name, topic, created_by, created_at) VALUES(?,?,?,?,?,NULL,?)', id, server, category, name, topic, t + i);
+    for (const [i, [id, category, name, topic]] of list.entries()) await run('INSERT OR IGNORE INTO chat_channels(id, server_id, category, name, topic, created_by, created_at) VALUES(?,?,?,?,?,NULL,?)', id, server === 'news' ? 'company' : server, category, name, topic, t + i);
     done.add(server);
   }
   await setSetting(SEEDED, [...done]);
@@ -45,7 +48,7 @@ async function seed() {
 /** A channel's name as Discord writes them: lower case, words joined by "-". */
 const channelName = (v: unknown) => String(v || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_đàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ-]/gi, '').slice(0, 48);
 const category = (v: unknown, fallback = 'KÊNH CHUNG') => String(v ?? '').trim().slice(0, 60) || fallback;
-const out = (r: any, extra: { private: boolean; readOnly: boolean }) => ({ id: r.id, serverId: r.server_id || 'company', category: r.category || 'KÊNH CHUNG', name: r.name, topic: r.topic || '', createdBy: r.created_by || null, createdAt: r.created_at, ...extra });
+const out = (r: any, extra: { private: boolean; readOnly: boolean }) => ({ id: r.id, serverId: r.server_id || 'company', category: r.category || 'KÊNH CHUNG', name: r.name, topic: r.topic || '', createdBy: r.created_by || null, createdAt: r.created_at, ...extra, ...(r.id === NEWS_CHANNEL[0] ? { system: true } : {}) });
 const mustChannel = async (id: string) => {
   const ch = await get<any>('SELECT * FROM chat_channels WHERE id = ?', id);
   if (!ch) throw new HttpError(404, 'Không tìm thấy kênh');

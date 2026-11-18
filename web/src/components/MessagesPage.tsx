@@ -9,6 +9,12 @@ import { ChannelSettings } from './ChannelSettings';
 import { Attachments, ChatFilesPanel, ContextMenu, KindIcon, bytes, copy, dragsFiles, menuAt, uploadTo, type CtxItem, type CtxState } from './ChatFiles';
 import { formatChatTime, formatOnlineStatus, getConvReadAt, isUserOnline, setConvReadAt } from './Messenger';
 import { Icon } from './ui';
+import { langPref } from '../i18n';
+
+/** The system's channel: each Có gì mới, posted by DMI Workspace (server/chat-news.ts). */
+const NEWS = 'co-gi-moi';
+/** Conversations kept in unreadMap that are channels, not people. */
+const CHANNEL_KEYS = new Set(['general', NEWS]);
 
 /** A channel of the open server, as the server keeps it (server/chat-channels.ts); #general cannot be deleted. */
 type BuiltinChannel = ChatChannel & { builtin: boolean };
@@ -95,12 +101,12 @@ export function MessagesPage() {
         api.workspaces().catch(() => [] as Workspace[]),
         api.chatChannels().catch(() => [] as ChatChannel[]),
         api.chatMembers().catch(() => [] as ChatMember[]),
-        api.chatUnread(getConvReadAt('general')).catch(() => ({ unread: 0, general: 0, dms: [] })),
+        api.chatUnread(getConvReadAt('general')).catch(() => ({ unread: 0, general: 0, news: 0, dms: [] })),
       ]);
       setSpaces(wsList.filter((w) => w.id !== 'company'));
       setCustomChannels(chList);
       setMembers(memList.filter((m) => m.id !== me.id));
-      const map: Record<string, number> = { general: unreadRes.general || 0 };
+      const map: Record<string, number> = { general: unreadRes.general || 0, [NEWS]: unreadRes.news || 0 };
       for (const dm of unreadRes.dms || []) {
         map[dm.senderId] = dm.count;
       }
@@ -160,7 +166,8 @@ export function MessagesPage() {
 
   /** Writing here: the person's right to write, and in a channel its rule of who writes there. */
   const sendHere = can.send && (serverId === 'dm' || !activeChannel || can.channels[activeChannel.id]?.send !== false);
-  const cannotSend = !can.send ? 'Bạn không được phép nhắn tin. Liên hệ quản trị viên nếu cần.' : 'Chỉ một số người được nhắn trong kênh này; bạn vẫn đọc được.';
+  const cannotSend = serverId !== 'dm' && activeChannel?.system ? 'Kênh này do hệ thống đăng mỗi khi DMI Workspace có bản cập nhật mới.'
+    : !can.send ? 'Bạn không được phép nhắn tin. Liên hệ quản trị viên nếu cần.' : 'Chỉ một số người được nhắn trong kênh này; bạn vẫn đọc được.';
 
   const activeDmMember = useMemo(
     () => (activeDmUserId ? members.find((m) => m.id === activeDmUserId) || null : null),
@@ -433,8 +440,9 @@ export function MessagesPage() {
     });
   }, [members, dmSearch, dmFilter, unreadMap]);
 
+  const companyUnread = (unreadMap.general || 0) + (unreadMap[NEWS] || 0);
   const totalDmUnread = useMemo(
-    () => Object.entries(unreadMap).reduce((sum, [k, v]) => (k !== 'general' ? sum + (v || 0) : sum), 0),
+    () => Object.entries(unreadMap).reduce((sum, [k, v]) => (!CHANNEL_KEYS.has(k) ? sum + (v || 0) : sum), 0),
     [unreadMap],
   );
 
@@ -446,7 +454,7 @@ export function MessagesPage() {
 
   /** Reading a conversation up to now: the server keeps the mark when its messages are asked for. */
   const markRead = (key: string) => {
-    void api.chatMessages(key === 'general' ? 'general' : 'dm', key === 'general' ? undefined : key, Date.now()).catch(() => {});
+    void api.chatMessages(CHANNEL_KEYS.has(key) ? key : 'dm', CHANNEL_KEYS.has(key) ? undefined : key, Date.now()).catch(() => {});
     setConvReadAt(key, Date.now());
     setUnreadMap((prev) => ({ ...prev, [key]: 0 }));
   };
@@ -466,7 +474,7 @@ export function MessagesPage() {
 
   const serverMenu = (e: React.MouseEvent, id: string) => {
     if (id === 'dm') {
-      const unread = Object.keys(unreadMap).filter((k) => k !== 'general' && unreadMap[k] > 0);
+      const unread = Object.keys(unreadMap).filter((k) => !CHANNEL_KEYS.has(k) && unreadMap[k] > 0);
       return openCtx(e, [
         unread.length > 0 && { label: 'Đánh dấu tất cả đã đọc', icon: 'check', run: () => unread.forEach(markRead) },
         { label: 'Tìm thành viên', icon: 'search', run: () => setServerId('dm') },
@@ -475,7 +483,7 @@ export function MessagesPage() {
     const ws = spaces.find((w) => w.id === id);
     const name = id === 'company' ? 'DMI Studio' : ws?.name || '';
     openCtx(e, [
-      id === 'company' && (unreadMap.general || 0) > 0 && { label: 'Đánh dấu đã đọc', icon: 'check', run: () => markRead('general') },
+      id === 'company' && companyUnread > 0 && { label: 'Đánh dấu đã đọc', icon: 'check', run: () => [...CHANNEL_KEYS].forEach(markRead) },
       'sep',
       id === serverId && can.manage && { label: 'Tạo kênh', icon: 'plus', run: () => newChannelIn(id === 'company' ? 'KÊNH CHUNG' : 'KÊNH NHÃN HÀNG', id) },
       ws && { label: 'Thành viên workspace', icon: 'users', run: () => openLink(`#boards/ws/${ws.id}`) },
@@ -485,7 +493,7 @@ export function MessagesPage() {
   };
   const channelMenu = (e: React.MouseEvent, ch: BuiltinChannel, unread: number) =>
     openCtx(e, [
-      unread > 0 && { label: 'Đánh dấu đã đọc', icon: 'check', run: () => markRead('general') },
+      unread > 0 && { label: 'Đánh dấu đã đọc', icon: 'check', run: () => markRead(ch.id) },
       'sep',
       { label: 'Sao chép tên kênh', icon: 'copy', run: () => void copy(`#${ch.name}`, 'tên kênh') },
       ch.topic && { label: 'Sao chép chủ đề', icon: 'copy', run: () => void copy(ch.topic, 'chủ đề') },
@@ -509,6 +517,7 @@ export function MessagesPage() {
   const messageMenu = (e: React.MouseEvent, msg: ChatMessage) => {
     // Text picked with the mouse keeps the browser's menu, to copy just that part.
     if (window.getSelection()?.toString()) return;
+    if (msg.system) return openCtx(e, [{ label: 'Sao chép nội dung', icon: 'copy', run: () => void copy(msg.message, 'nội dung') }]);
     openCtx(e, [
       { label: 'Trả lời', icon: 'undo', run: () => { setReplyTo(msg); inputRef.current?.focus(); } },
       msg.isMe && { label: 'Sửa tin nhắn', icon: 'edit', run: () => { setEditingMsgId(msg.id); setEditingText(msg.message); } },
@@ -594,7 +603,7 @@ export function MessagesPage() {
         >
           <span className="dc-srv-pill" />
           <img src="/brand/mark.png" alt="DMI" className="dc-srv-img" />
-          {(unreadMap.general || 0) > 0 && <span className="dc-srv-badge">{unreadMap.general}</span>}
+          {companyUnread > 0 && <span className="dc-srv-badge">{companyUnread}</span>}
         </button>
 
         {spaces.map((w) => {
@@ -769,7 +778,7 @@ export function MessagesPage() {
                     {!folded &&
                       chList.map((ch) => {
                         const active = activeChannel?.id === ch.id;
-                        const unread = ch.id === 'general' ? unreadMap.general || 0 : 0;
+                        const unread = CHANNEL_KEYS.has(ch.id) ? unreadMap[ch.id] || 0 : 0;
                         return (
                           <div key={ch.id} className={`dc-chan-row${active ? ' is-active' : ''}${unread > 0 ? ' is-unread' : ''}`} onContextMenu={(e) => channelMenu(e, ch, unread)}>
                             <button
@@ -1069,6 +1078,8 @@ export function MessagesPage() {
                           <span className="dc-msg-gutter-time">
                             {new Date(msg.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
                           </span>
+                        ) : msg.system ? (
+                          <span className="dc-msg-av is-system"><img src="/brand/mark.png" alt="DMI" /></span>
                         ) : (
                           <button
                             type="button"
@@ -1086,13 +1097,14 @@ export function MessagesPage() {
                         <div className="dc-msg-main">
                           {!grouped && (
                             <header className="dc-msg-head">
+                              {msg.system ? <b className="dc-msg-author">{msg.senderName}<span className="dc-bot-tag">HỆ THỐNG</span></b> : (
                               <button
                                 type="button"
                                 className="dc-msg-author"
                                 onClick={() => openProfile(msg.senderId)}
                               >
                                 {msg.senderName}
-                              </button>
+                              </button>)}
                               {senderRoleObj && (
                                 <span
                                   className="dc-role-badge"
@@ -1106,7 +1118,7 @@ export function MessagesPage() {
                             </header>
                           )}
 
-                          {editingMsgId === msg.id ? (
+                          {msg.news ? <NewsPost news={msg.news} /> : editingMsgId === msg.id ? (
                             <div className="dc-msg-edit">
                               <textarea
                                 autoFocus
@@ -1164,7 +1176,7 @@ export function MessagesPage() {
                       </div>
 
                       {/* Discord Hover Action Toolbar */}
-                      <div className="dc-msg-actions" role="toolbar" aria-label="Thao tác tin nhắn">
+                      {!msg.system && <div className="dc-msg-actions" role="toolbar" aria-label="Thao tác tin nhắn">
                         {QUICK_REACTIONS.slice(0, 4).map((emoji) => (
                           <button
                             key={emoji}
@@ -1220,7 +1232,7 @@ export function MessagesPage() {
                             </button>
                           </>
                         )}
-                      </div>
+                      </div>}
                     </article>
                   </div>
                 );
@@ -1561,3 +1573,17 @@ export function MessagesPage() {
   );
 }
 
+/** One release in #co-gi-moi: what is new and what works again, as the Có gì mới sheet lists it. */
+function NewsPost({ news }: { news: NonNullable<ChatMessage['news']> }) {
+  const en = langPref() === 'en';
+  return (
+    <div className="dc-news">
+      <b className="dc-news-title"><Icon name="sparkle" size={14} />{en ? `What's new · ${news.date}` : `Có gì mới · ${news.date}`}</b>
+      <ul>
+        {news.items.map((it, i) => (
+          <li key={i}><span className={`dc-news-kind is-${it.kind}`}>{it.kind === 'fix' ? (en ? 'Fixed' : 'Sửa') : (en ? 'New' : 'Mới')}</span><span>{en ? it.en : it.vi}</span></li>
+        ))}
+      </ul>
+    </div>
+  );
+}

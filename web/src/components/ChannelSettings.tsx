@@ -67,8 +67,10 @@ export function ChannelSettings({ channel, categories, startTab = 'overview', on
             <>
               <Rule title="Ai xem được kênh" all="Mọi người trong máy chủ" some="Chỉ những người được chọn (kênh riêng tư)"
                 value={rules.view} options={options} onChange={(view) => setRules({ ...rules, view })} />
-              <Rule title="Ai được nhắn trong kênh" all="Mọi người xem được kênh" some="Chỉ những người được chọn (người khác chỉ đọc)"
-                value={rules.send} options={options} onChange={(send) => setRules({ ...rules, send })} />
+              {channel.system ? <p className="note">Không ai nhắn trong kênh này: hệ thống tự đăng mỗi bản cập nhật mới.</p> : (
+                <Rule title="Ai được nhắn trong kênh" all="Mọi người xem được kênh" some="Chỉ những người được chọn (người khác chỉ đọc)"
+                  value={rules.send} options={options} onChange={(send) => setRules({ ...rules, send })} />
+              )}
               <p className="note">Người quản lý Tin nhắn (Quản trị › Phân quyền) luôn xem và nhắn được trong mọi kênh.</p>
             </>
           )}
