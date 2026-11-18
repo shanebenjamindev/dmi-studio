@@ -9,6 +9,38 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-18-1',
+    date: '18/11/2026',
+    items: [
+      { kind: 'new', vi: 'Tin nhắn có Cài đặt máy chủ như Discord (nút ⚙ cạnh tên máy chủ): tạo role có màu, xếp thứ bậc, chọn quyền cho từng role (xem kênh, gửi tin, gửi file, quản lý tin nhắn, quản lý kênh, quản lý role, quản trị viên) và gán role cho thành viên. Mỗi máy chủ (DMI Studio, từng nhãn hàng) có bộ role riêng.', en: 'Messages has Server settings as on Discord (the ⚙ by the server name): make coloured roles, order them, choose each role\'s permissions (view channels, send messages, send files, manage messages, manage channels, manage roles, administrator) and give roles to members. Each server (DMI Studio, each brand) has its own roles.' },
+      { kind: 'new', vi: 'Kênh riêng tư và quyền theo kênh: bật “Kênh riêng tư” rồi chọn role được xem, hoặc cho phép / chặn từng quyền cho từng role trong một kênh (ví dụ kênh thông báo chỉ một số người được gửi). Bấm chuột phải vào kênh › Quyền của kênh.', en: 'Private channels and per-channel permissions: turn on “Private channel” and pick the roles that see it, or allow / deny each permission per role in one channel (say, an announcements channel only some people post in). Right-click a channel › Channel permissions.' },
+      { kind: 'new', vi: 'Tên người trong chat và danh sách thành viên mang màu của role cao nhất của họ.', en: 'Names in the chat and the member list take the colour of the person\'s highest role.' },
+    ],
+  },
+  {
+    id: '2026-11-17-2',
+    date: '17/11/2026',
+    items: [
+      { kind: 'new', vi: 'Tools có thêm trang Giọng nói: đọc kịch bản thành giọng, chép lời và xuất phụ đề SRT, lồng tiếng video sang ngôn ngữ khác và nhân bản giọng (cần sự đồng ý của người có giọng). Chạy bằng app VoiceStudio miễn phí trên máy bạn, file không rời máy; lần đầu làm theo hướng dẫn kết nối ngay trên trang.', en: 'Tools has a new Voice page: read a script aloud, transcribe and export SRT subtitles, dub a video into another language and clone a voice (with its owner\'s consent). Runs on the free VoiceStudio app on your computer, so files never leave it; the first time, follow the connection steps on the page.' },
+      { kind: 'fix', vi: 'Hộp thư: thư có nhiều ảnh (thư quảng cáo, bản tin) hiện đủ cả thư, không còn bị cắt sau ảnh đầu tiên.', en: 'Mail: messages with many pictures (newsletters, promotions) show in full instead of being cut off after the first picture.' },
+      { kind: 'fix', vi: 'Ảnh gửi trong chat không còn hiện thành một đoạn mã dài: ảnh cũ hiện lại thành ảnh, ảnh gửi từ cửa sổ chat nhỏ được lưu như file của cuộc trò chuyện. Danh sách tin nhắn riêng ghi “📷 Ảnh” thay vì đoạn mã.', en: 'Pictures sent in chat no longer show as a long code: older ones show as pictures again, and pictures sent from the small chat window are kept as the conversation\'s files. The direct message list says “📷 Picture” instead of the code.' },
+      { kind: 'new', vi: 'Tạo board không cần gõ tên: board lấy tên theo dịch vụ bạn chọn (đổi được sau trong cài đặt board).', en: 'Creating a board needs no name: it is named after the service you pick (rename it later in the board\'s settings).' },
+      { kind: 'fix', vi: 'Workspace: nút ← trên thanh đường dẫn về trang trước đó (ví dụ từ board về Workspaces), không mở lại thẻ vừa đóng.', en: 'Workspace: the ← button on the path bar goes to the page before (from a board back to Workspaces, say) instead of reopening the card just closed.' },
+      { kind: 'fix', vi: 'Mở một cuộc trò chuyện có ảnh, khung chat ở đúng tin mới nhất thay vì dừng giữa chừng khi ảnh tải xong.', en: 'Opening a conversation with pictures lands on the newest message instead of stopping halfway once the pictures load.' },
+    ],
+  },
+  {
+    id: '2026-11-17-1',
+    date: '17/11/2026',
+    items: [
+      { kind: 'new', vi: 'Tin nhắn mang giao diện như Discord: cột máy chủ (DMI Studio, từng nhãn hàng, tin nhắn riêng), danh sách kênh theo nhóm, khung chat và danh sách thành viên đang trực tuyến.', en: 'Messages now look like Discord: a column of servers (DMI Studio, each brand, direct messages), channels in groups, the chat, and the list of members online.' },
+      { kind: 'new', vi: 'Gửi file trong chat: bấm 📎, kéo file thả vào khung chat hoặc dán ảnh (Ctrl/⌘ + V). Ảnh hiện xem trước ngay trong tin nhắn, file khác tải xuống được. Tối đa 50 MB một file.', en: 'Send files in chat: click 📎, drop files on the chat or paste a picture (Ctrl/⌘ + V). Pictures show right in the message, other files can be downloaded. Up to 50 MB per file.' },
+      { kind: 'new', vi: 'Mỗi cuộc trò chuyện có thư mục riêng (nút 📁 trên đầu chat): tạo thư mục con, tải file lên hoặc kéo thả vào, đi lại bằng đường dẫn phía trên. File chat là riêng tư: chỉ người trong cuộc trò chuyện xem được, tin nhắn riêng chỉ hai người.', en: 'Each conversation has its own folder (the 📁 button at the top of the chat): make folders, upload or drop files, and move around with the path above. Chat files are private: only the people in the conversation can open them, and a direct chat only its two people.' },
+      { kind: 'new', vi: 'Bấm chuột phải trong Tin nhắn để có thao tác nhanh: trên tin nhắn (thả cảm xúc, trả lời, ghim, sửa, sao chép, xoá), trên kênh, thành viên, máy chủ và file.', en: 'Right-click in Messages for quick actions: on a message (react, reply, pin, edit, copy, delete), on a channel, a member, a server and a file.' },
+      { kind: 'fix', vi: 'Logo workspace không còn khung nền trắng hay đen quanh logo.', en: 'Workspace logos no longer sit on a white or black square.' },
+    ],
+  },
+  {
     id: '2026-11-16-5',
     date: '16/11/2026',
     items: [

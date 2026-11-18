@@ -19,7 +19,7 @@ import { QuickCard, BoardAlternative } from './BoardViews';
 import { BoardTypePicker, VIEW_NAMES, VIEW_ICONS, type BoardViewKind } from './BoardType';
 import { ServicePicker, catalogue as serviceCatalogue } from './ServicePicker';
 import { BoardList, BoardTree, ClientWork, WorkspaceTimeline, WS_VIEWS, savedWsView, saveWsView, type WsView } from './WorkspaceViews';
-import { BG, COLOR, COLOR_NAME, Avatar, Pop, fileToAvatarDataUrl, activityText, ago, dueState, shortDate, fullDate, dateIn, timeIn } from './boardkit';
+import { BG, COLOR, COLOR_NAME, Avatar, LogoImg, Pop, fileToAvatarDataUrl, activityText, ago, dueState, shortDate, fullDate, dateIn, timeIn } from './boardkit';
 import { AvatarStack } from './AvatarStack';
 import { MailPanel } from './Mailbox';
 import { PlannerPanel, Dock, SwitchBoards, dragged, changed, useChanged, type Panels } from './BoardPanels';
@@ -51,7 +51,7 @@ const LEVEL_TIP: Record<Level, string> = { admin: 'Sửa mọi thứ, đổi cà
 const WS_COLORS = ['#0c66e4', '#6e5dc6', '#1f845a', '#c25100', '#ae2e24', '#206a83', '#943d73', '#5b7f24'];
 /** A workspace's mark: the company logo for the company's, else its first letter on a colour of its own. */
 function WsMark({ ws, size = 32 }: { ws: Workspace; size?: number }) {
-  if (ws.avatar) return <span className="bd-ws-mark bd-ws-custom" style={{ width: size, height: size }}><img src={ws.avatar} alt="" /></span>;
+  if (ws.avatar) return <span className="bd-ws-mark bd-ws-custom" style={{ width: size, height: size }}><LogoImg src={ws.avatar} /></span>;
   if (ws.kind === 'company') return <span className="bd-ws-mark bd-ws-logo" style={{ width: size, height: size }}><img src="/brand/mark.png" alt="" /></span>;
   const n = [...ws.id].reduce((a, ch) => a + ch.charCodeAt(0), 0);
   return <span className="bd-ws-mark" style={{ width: size, height: size, fontSize: Math.round(size * 0.45), background: WS_COLORS[n % WS_COLORS.length] }}>{(ws.name.trim()[0] || '?').toUpperCase()}</span>;
@@ -544,8 +544,11 @@ export function BoardsPage() {
   // A board, card or workspace opened is a step the browser's Back returns from too (`push`); the bar's own arrows move
   // within the page's trail and leave the browser's history as it is.
   const applyNav=(entry:NavEntry,push=false)=>{setOpenState({board:entry.board,card:entry.card,people:entry.people});setWsId(entry.ws);const hash=entry.people?`#boards/ws/${entry.people}`:entry.board?`#boards/${entry.board}${entry.card?`/c/${entry.card}`:''}`:'#boards';if(push&&location.hash!==hash)history.pushState(null,'',hash);else history.replaceState(null,'',hash);setNavTick(n=>n+1);};
-  const visit=(entry:NavEntry)=>{const nav=trail.current,last=nav.items[nav.at];if(JSON.stringify(last)!==JSON.stringify(entry)){nav.items=nav.items.slice(0,nav.at+1);nav.items.push(entry);nav.at++;}applyNav(entry,true);};
-  const step=(delta:number)=>{const nav=trail.current,index=nav.at+delta;if(index<0||index>=nav.items.length)return;nav.at=index;applyNav(nav.items[index]);};
+  // The trail holds pages (the workspaces, a board, a workspace's members): opening or closing a card on the same board
+  // is not a step of it, so the arrows go to the page before, never back into a card window.
+  const pageOf=(e:NavEntry)=>JSON.stringify([e.board,e.people,e.ws]);
+  const visit=(entry:NavEntry)=>{const nav=trail.current,last=nav.items[nav.at];if(pageOf(last)===pageOf(entry))nav.items[nav.at]=entry;else{nav.items=nav.items.slice(0,nav.at+1);nav.items.push(entry);nav.at++;}applyNav(entry,true);};
+  const step=(delta:number)=>{const nav=trail.current,index=nav.at+delta;if(index<0||index>=nav.items.length)return;nav.at=index;nav.items[index]={...nav.items[index],card:null};applyNav(nav.items[index]);};
 
   const [creating, setCreating] = useState<string | null>(null); // the workspace a new board goes to
   // A card or task picked in a workspace's list or dashboard opens right there, over it (the board stays closed).
@@ -1167,13 +1170,12 @@ function Tiles({ title, icon, list, roles, spaces, onOpen, onStar, onMore, onCre
 
 /** How many shapes the preview of each type draws (columns, rows, days, tiles, bars). */
 const PREVIEW: Record<BoardViewKind, number> = { board: 3, table: 4, calendar: 14, dashboard: 4, timeline: 3 };
-/** Background, its type (the one service it is for, which names it), the day it starts, its workspace (the customer it
+/** Background, its type (the one service it is for, which names it: no name is typed), the day it starts, its workspace (the customer it
  *  is for is the workspace's) (picked, or added on the spot), and who sees it: the workspace, one role (company only, members: their own) or
  *  only the people added. */
 function CreateBoard({ me, roles, spaces, wsId, initialCustomerId, onClose, onCreated }: { me: User; roles: TeamRole[]; spaces: Workspace[]; wsId: string; initialCustomerId?: string; onClose: () => void; onCreated: (b: BoardItem) => void }) {
   const[ownSpaces,setOwnSpaces]=useState(spaces);
   const targets = ownSpaces.filter((w) => w.level !== 'observer');
-  const [boardName, setBoardName] = useState('');
   const [b, setB] = useState('ocean');
   const [space, setSpace] = useState(targets.some((w) => w.id === wsId) ? wsId : targets[0]?.id || 'company');
   const vis='private';
@@ -1186,7 +1188,7 @@ function CreateBoard({ me, roles, spaces, wsId, initialCustomerId, onClose, onCr
   const loadCustomers = () => api.customersAll().then(setCustomers, () => {});
   useEffect(() => { if (companySpace && !customers.length) void loadCustomers(); }, [companySpace]); // eslint-disable-line react-hooks/exhaustive-deps
   const hasService = services.length > 0;
-  const ready = !busy && (boardName.trim().length > 0 || hasService);
+  const ready = !busy;
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ready || busy) return;
@@ -1194,7 +1196,8 @@ function CreateBoard({ me, roles, spaces, wsId, initialCustomerId, onClose, onCr
     const roleId = null, startAt = start ? new Date(start).getTime() : null;
     try {
       const catName = hasService ? (await serviceCatalogue()).find((s) => s.id === services[0])?.name : '';
-      const name = boardName.trim() || catName || 'Board mới';
+      // Named after its service; one without a service yet is renamed in its settings.
+      const name = catName || 'Board mới';
       const targetCustomer = companySpace ? (customer || null) : (chosen?.customerId || null);
       const isStandalone = !hasService || !targetCustomer;
       onCreated(await api.createBoard({
@@ -1217,9 +1220,7 @@ function CreateBoard({ me, roles, spaces, wsId, initialCustomerId, onClose, onCr
         <div className="bd-create-prev v-board" style={{ background: bg(b) }}>{Array.from({ length: PREVIEW.board }, (_, i) => <span key={i} />)}</div>
         <span className="bd-label">Phông nền</span>
         <div className="bd-swatches">{Object.keys(BG).map((k) => <button type="button" key={k} className={k === b ? 'on' : ''} style={{ background: BG[k] }} onClick={() => setB(k)} aria-label={`Nền ${k}`} />)}</div>
-        <label className="bd-label" htmlFor="bd-name">Tên board</label>
-        <input id="bd-name" autoFocus value={boardName} onChange={(e) => setBoardName(e.target.value)} placeholder="Nhập tên board (hoặc để trống lấy theo tên dịch vụ)" />
-        <span className="bd-label">Loại board / Dịch vụ (tuỳ chọn — có thể tự liên kết sau)</span>
+        <span className="bd-label">Loại board / Dịch vụ (đặt tên cho board; chưa chọn thì board tên “Board mới”, đổi sau được)</span>
         <ServicePicker single value={services} onChange={setServices} />
         <span className="bd-label">Ngày bắt đầu</span>
         <SpanField single endLabel="Ngày bắt đầu" placeholder="Chọn ngày bắt đầu" value={{ start: null, end: fromLocal(start) }} onChange={(v) => setStart(toLocal(v.end))} />

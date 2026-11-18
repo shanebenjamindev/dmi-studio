@@ -1044,6 +1044,8 @@ const EN: Record<string, string> = {
   "Khách hàng không tồn tại, đã bị xoá, hoặc bạn không có quyền truy cập.": "This client doesn't exist, was deleted, or you don't have access to it.",
   "Về danh sách khách hàng": "Back to the client list",
   "Tên board": "Board name",
+  "Giọng nói": "Voice",
+  "Loại board / Dịch vụ (đặt tên cho board; chưa chọn thì board tên “Board mới”, đổi sau được)": "Board type / Service (names the board; without one the board is called “New board”, renamed later)",
   "Board trong workspace ({0})": "Boards in this workspace ({0})",
   "Workspace chưa có board nào.": "This workspace has no boards yet.",
   "Chọn tất cả board bạn quản trị ({0})": "Select all boards you administer ({0})",

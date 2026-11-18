@@ -104,7 +104,7 @@ async function desktopDriveId(p: string, mtime: number) {
 
 /** Google Drive names may contain "/" (e.g. "11/2026"); only control characters are dropped. */
 const driveName = (s: string) => s.normalize('NFC').replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
-const safeName = (s: string) => s.normalize('NFC').replace(/[\/\\:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+export const safeName = (s: string) => s.normalize('NFC').replace(/[\/\\:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
 function uniqueIn(dir: string, name: string) {
   const ext = path.extname(name), stem = name.slice(0, name.length - ext.length);
   let out = name;
@@ -284,8 +284,8 @@ const EXT_MIME: Record<string, string> = {
   // Drive for desktop shows Google Docs, Sheets and Slides as small link files.
   gdoc: GAPPS + 'document', gsheet: GAPPS + 'spreadsheet', gslides: GAPPS + 'presentation',
 };
-const mimeOfName = (name: string) => EXT_MIME[path.extname(name).slice(1).toLowerCase()] || 'application/octet-stream';
-function kindOf(mime: string): FileKind {
+export const mimeOfName = (name: string) => EXT_MIME[path.extname(name).slice(1).toLowerCase()] || 'application/octet-stream';
+export function kindOf(mime: string): FileKind {
   if (mime === G.FOLDER_MIME) return 'folder';
   const top = mime.split('/')[0];
   if (top === 'video' || top === 'image' || top === 'audio') return top;

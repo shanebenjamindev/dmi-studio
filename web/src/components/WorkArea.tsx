@@ -14,7 +14,7 @@ import { SidebarTree, type TreeBrandNode, type TreeCustomerNode } from './kit';
 const SECTIONS: Record<string, { title: string; sub: string; pages: Partial<Record<View, [string, string]>> }> = {
   work: { title: 'Công việc', sub: 'Công việc & dịch vụ', pages: { tasks: ['Công việc của tôi', 'checklist'], projects: ['Dịch vụ', 'folder'] } },
   reports: { title: 'Báo cáo', sub: 'Báo cáo khách hàng & quảng cáo', pages: { reports: ['Tất cả báo cáo', 'file'], ads: ['Meta Ads', 'chart'] } },
-  tools: { title: 'Tools', sub: 'Công cụ', pages: { tools: ['Chuyển đổi định dạng', 'wand'] } },
+  tools: { title: 'Tools', sub: 'Công cụ', pages: { tools: ['Chuyển đổi định dạng', 'wand'], voice: ['Giọng nói', 'mic'] } },
 };
 const LS_FOLD = 'dms.sectionFolded';
 

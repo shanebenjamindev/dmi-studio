@@ -67,6 +67,64 @@ export async function fileToAvatarDataUrl(file: File): Promise<string> {
   return out;
 }
 
+// Logos are often saved on a white or black square. The flat colour that reaches the edges of the picture is made
+// transparent once per picture, in the browser, so old uploads lose it too.
+const clearedLogos = new Map<string, Promise<string>>();
+const near = (d: Uint8ClampedArray, i: number, c: number[], tol: number) =>
+  Math.abs(d[i] - c[0]) + Math.abs(d[i + 1] - c[1]) + Math.abs(d[i + 2] - c[2]) <= tol;
+async function clearBackdrop(src: string): Promise<string> {
+  const img = new Image();
+  img.src = src;
+  await img.decode();
+  const w = Math.min(img.naturalWidth, 480), h = Math.round(img.naturalHeight * (w / img.naturalWidth));
+  if (!w || !h) return src;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(img, 0, 0, w, h);
+  const px = ctx.getImageData(0, 0, w, h), d = px.data;
+  const corners = [0, w - 1, (h - 1) * w, h * w - 1].map((p) => p * 4);
+  if (corners.some((i) => d[i + 3] < 250)) return src; // already transparent
+  const bg = [0, 1, 2].map((k) => Math.round(corners.reduce((s, i) => s + d[i + k], 0) / 4));
+  if (corners.filter((i) => near(d, i, bg, 60)).length < 3) return src; // no flat backdrop: a photo
+  // Flood from every edge pixel of the backdrop colour; the logo's own white or black inside stays.
+  const TOL = 90, seen = new Uint8Array(w * h), stack: number[] = [];
+  for (let x = 0; x < w; x++) stack.push(x, (h - 1) * w + x);
+  for (let y = 0; y < h; y++) stack.push(y * w, y * w + w - 1);
+  let cleared = 0;
+  while (stack.length) {
+    const p = stack.pop()!;
+    if (seen[p]) continue;
+    seen[p] = 1;
+    const i = p * 4;
+    if (!near(d, i, bg, TOL)) continue;
+    // Close to the backdrop: gone; towards the edge of the shape: faded, so the outline stays smooth.
+    const diff = Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]);
+    d[i + 3] = diff <= 30 ? 0 : Math.round(255 * (diff - 30) / (TOL - 30));
+    cleared++;
+    const x = p % w;
+    if (x > 0) stack.push(p - 1);
+    if (x < w - 1) stack.push(p + 1);
+    if (p >= w) stack.push(p - w);
+    if (p < w * (h - 1)) stack.push(p + w);
+  }
+  if (cleared > w * h * 0.97) return src; // the whole picture is one colour
+  ctx.putImageData(px, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+/** A logo picture without the flat square it was saved on (the original shows until that is worked out). */
+export function LogoImg({ src, className }: { src: string; className?: string }) {
+  const [out, setOut] = useState(src);
+  useEffect(() => {
+    let live = true;
+    setOut(src);
+    if (!clearedLogos.has(src)) clearedLogos.set(src, clearBackdrop(src).catch(() => src));
+    void clearedLogos.get(src)!.then((s) => { if (live) setOut(s); });
+    return () => { live = false; };
+  }, [src]);
+  return <img src={out} alt="" className={className} />;
+}
+
 /** A person's picture (when uploaded) or their initials in a coloured circle (the colour follows their id). */
 export function Avatar({ m, size = 28 }: { m: { id: string; name: string; userId?: string | null; avatarAt?: number | null } | undefined; size?: number }) {
   const [, bump] = useState(0);

@@ -21,6 +21,8 @@ const boardService = (v: unknown) => oneService(v, 'Mỗi board chỉ có một 
 import { notifyPeople } from './notifications';
 import { currentUser, PAGES, pagesOf, deptLevel, USER_SQL, type Level } from './auth';
 import { customerFile, clientCustomers } from './workspace';
+import { attachmentsIn, dropConversation } from './chat-files';
+import { needInChannel, needInServer } from './chat-perms';
 import { matcher } from './admin/common';
 import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
 import { AUTO, syncBoardGrants, syncBoardPeople } from './board-people';
@@ -1655,6 +1657,7 @@ export function registerBoards(api: Router) {
     const rawName = String(b.name || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_đàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ-]/gi, '').slice(0, 48);
     if (!rawName) throw new HttpError(400, 'Hãy nhập tên kênh');
     const serverId = String(b.serverId || 'company').trim() || 'company';
+    await needInServer(u, serverId, 'manage_channels');
     const category = String(b.category || 'KÊNH CHUNG').trim().slice(0, 60) || 'KÊNH CHUNG';
     const topic = String(b.topic || '').trim().slice(0, 200);
     const id = `ch_${uid('').slice(0, 12)}`, t = now();
@@ -1666,8 +1669,9 @@ export function registerBoards(api: Router) {
     const u = await me(req);
     const ch = await get<any>('SELECT * FROM chat_channels WHERE id = ?', req.params.id);
     if (!ch) throw new HttpError(404, 'Không tìm thấy kênh');
-    if (ch.created_by !== u.id && u.role !== 'admin') throw new HttpError(403, 'Chỉ người tạo kênh hoặc quản trị viên mới được xoá');
+    if (ch.created_by !== u.id) await needInChannel(u, ch.id, 'manage_channels');
     await run('DELETE FROM chat_messages WHERE channel = ?', ch.id);
+    await dropConversation(ch.id);
     await run('DELETE FROM chat_channels WHERE id = ?', ch.id);
     json(res, 200, { ok: true });
   });
@@ -1691,6 +1695,7 @@ export function registerBoards(api: Router) {
         u.id, recipientId, recipientId, u.id, since
       );
     } else {
+      await needInChannel(u, channel, 'view');
       rows = await all<any>(
         `SELECT m.*, u.name sender_name, u.email sender_email, u.avatar_at sender_avatar_at, u.team_role sender_role
          FROM chat_messages m
@@ -1719,6 +1724,7 @@ export function registerBoards(api: Router) {
         replyToId: r.reply_to_id || null,
         pinned: !!r.pinned,
         reactions,
+        attachments: r.attachments ? JSON.parse(r.attachments) : [],
         createdAt: r.created_at,
         isMe: r.sender_id === u.id,
       };
@@ -1768,13 +1774,19 @@ export function registerBoards(api: Router) {
   api.post('/api/chat/messages', async (req, res) => {
     const u = await me(req), b = await readJson(req);
     const msg = String(b.message || '').trim();
-    if (!msg) throw new HttpError(400, 'Tin nhắn không được để trống');
     const channel = b.channel === 'dm' ? 'dm' : String(b.channel || 'general').replace(/[^a-zA-Z0-9_:-]/g, '').slice(0, 64) || 'general';
     const recipientId = channel === 'dm' ? String(b.recipientId || '').trim() : null;
     if (channel === 'dm' && !recipientId) throw new HttpError(400, 'Thiếu thông tin người nhận');
+    if (channel !== 'dm') {
+      await needInChannel(u, channel, 'send');
+      if (Array.isArray(b.attachments) && b.attachments.length) await needInChannel(u, channel, 'attach');
+    }
+    // Files already put in the conversation's folder (server/chat-files.ts); a message may be only files.
+    const attachments = await attachmentsIn(u, channel === 'dm' ? `dm:${recipientId}` : channel, b.attachments);
+    if (!msg && !attachments.length) throw new HttpError(400, 'Tin nhắn không được để trống');
     const replyToId = b.replyToId ? String(b.replyToId) : null;
     const id = uid('msg_'), t = now();
-    await run('INSERT INTO chat_messages(id, sender_id, recipient_id, channel, message, reply_to_id, pinned, reactions, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)', id, u.id, recipientId, channel, msg, replyToId, t);
+    await run('INSERT INTO chat_messages(id, sender_id, recipient_id, channel, message, reply_to_id, pinned, reactions, attachments, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)', id, u.id, recipientId, channel, msg, replyToId, attachments.length ? JSON.stringify(attachments) : null, t);
     await markChatRead(u.id, channel === 'dm' && recipientId ? recipientId : channel);
     // Notify @mentioned users (excluding the sender `u.id` — "trừ bản thân").
     const otherUsers = await all<any>('SELECT id, name FROM users WHERE disabled = 0 AND id != ?', u.id);
@@ -1801,6 +1813,7 @@ export function registerBoards(api: Router) {
       replyToId,
       pinned: false,
       reactions: {},
+      attachments,
       createdAt: t,
       isMe: true,
     });
@@ -1810,10 +1823,13 @@ export function registerBoards(api: Router) {
     const u = await me(req), b = await readJson(req);
     const msg = await get<any>('SELECT * FROM chat_messages WHERE id = ?', req.params.id);
     if (!msg) throw new HttpError(404, 'Không tìm thấy tin nhắn');
+    // A direct message only for its two people; a channel's as its permissions say (pinning is managing messages).
+    if (msg.channel === 'dm') { if (msg.sender_id !== u.id && msg.recipient_id !== u.id) throw new HttpError(404, 'Không tìm thấy tin nhắn'); }
+    else await needInChannel(u, msg.channel, b.pinned !== undefined ? 'manage_messages' : 'view');
     if (b.message !== undefined) {
       if (msg.sender_id !== u.id && u.role !== 'admin') throw new HttpError(403, 'Chỉ người gửi mới sửa được tin nhắn');
       const nextText = String(b.message || '').trim();
-      if (!nextText) throw new HttpError(400, 'Tin nhắn không được để trống');
+      if (!nextText && !msg.attachments) throw new HttpError(400, 'Tin nhắn không được để trống');
       await run('UPDATE chat_messages SET message = ? WHERE id = ?', nextText, msg.id);
     }
     if (b.pinned !== undefined) {
@@ -1840,7 +1856,10 @@ export function registerBoards(api: Router) {
     const u = await me(req);
     const msg = await get<any>('SELECT * FROM chat_messages WHERE id = ?', req.params.id);
     if (!msg) throw new HttpError(404, 'Không tìm thấy tin nhắn');
-    if (msg.sender_id !== u.id && u.role !== 'admin') throw new HttpError(403, 'Chỉ người gửi hoặc quản trị viên mới được xoá tin nhắn này');
+    if (msg.sender_id !== u.id) {
+      if (msg.channel !== 'dm') await needInChannel(u, msg.channel, 'manage_messages');
+      else if (u.role !== 'admin') throw new HttpError(403, 'Chỉ người gửi hoặc quản trị viên mới được xoá tin nhắn này');
+    }
     await run('DELETE FROM chat_messages WHERE id = ?', msg.id);
     json(res, 200, { ok: true });
   });
@@ -1856,7 +1875,7 @@ export function registerBoards(api: Router) {
         u.id, recipientId, recipientId, u.id
       );
     } else {
-      if (u.role !== 'admin') throw new HttpError(403, 'Chỉ quản trị viên mới được xoá toàn bộ lịch sử kênh');
+      await needInChannel(u, channel, 'manage_messages');
       await run('DELETE FROM chat_messages WHERE channel = ?', channel);
     }
     json(res, 200, { ok: true });
@@ -1875,6 +1894,8 @@ export function registerBoards(api: Router) {
        ORDER BY CASE WHEN lastAt IS NOT NULL THEN 0 ELSE 1 END, lastAt DESC, u.name COLLATE NOCASE`,
       u.id, u.id, u.id, u.id, u.id
     );
+    // The last message as a line: pictures (older ones are the picture itself) and files by what they are.
+    for (const r of users) if (r.lastAt) r.lastMessage = r.lastMessage?.startsWith('data:image/') ? '📷 Ảnh' : r.lastMessage || '📎 File';
     json(res, 200, users);
   });
   // The planner: this person's cards (made by them or with them on it) with a start or due date in [from, to), on the

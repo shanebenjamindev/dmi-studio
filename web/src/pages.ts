@@ -40,6 +40,7 @@ const PAGES = {
   profile: lazyPage(() => import('./components/Profile'), 'ProfilePage'),
   admin: lazyPage(() => import('./admin/AdminApp'), 'AdminApp'),
   tools: lazyPage(() => import('./components/Tools'), 'ToolsPage'),
+  voice: lazyPage(() => import('./components/VoiceStudio'), 'VoiceStudioPage'),
   reports: lazyPage(() => import('./components/Reports'), 'ReportsPage'),
   ads: lazyPage(() => import('./components/AdsPage'), 'AdsPage'),
   mail: lazyPage(() => import('./components/Mailbox'), 'MailboxPage'),

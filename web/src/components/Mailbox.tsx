@@ -222,9 +222,16 @@ function MessageView({ m, startOpen }: { m: MailMessage; startOpen: boolean }) {
       }
     };
     updateHeight();
-    for (const img of d.querySelectorAll('img')) {
-      if (!img.complete) img.addEventListener('load', updateHeight, { once: true });
+    // The height changes after load: pictures, fonts, the pane's width. A lazy picture below the first screen of a frame
+    // this short would never load (and the mail would stay cut off), so every picture loads now.
+    for (const img of d.images) {
+      img.loading = 'eager';
+      if (!img.complete) { img.addEventListener('load', updateHeight, { once: true }); img.addEventListener('error', updateHeight, { once: true }); }
     }
+    const watch = new ResizeObserver(updateHeight);
+    // The body and what is right inside it (a mail whose body is 100% high keeps that size while its tables grow).
+    for (const el of d.body ? [d.body, ...d.body.children] : []) watch.observe(el);
+    void d.fonts?.ready.then(updateHeight);
   };
   return (
     <article className={'mb-msg' + (open ? ' open' : '')}>

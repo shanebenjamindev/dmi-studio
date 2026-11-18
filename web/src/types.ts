@@ -245,9 +245,20 @@ export interface ChatMessage {
   replyToId?: string | null;
   pinned?: boolean;
   reactions?: Record<string, string[]>;
+  attachments?: ChatAttachment[];
   createdAt: number;
   isMe: boolean;
 }
+/** A file sent with a message: it lives in the conversation's folder. */
+export interface ChatAttachment { key: string; name: string; kind: FileKind; mime: string; bytes: number; url: string | null; thumb: string | null }
+/** Something in a conversation's folder (folders open in place, with a breadcrumb). */
+export interface ChatFile extends ChatAttachment { modifiedAt: number; uploadedBy: string | null }
+export interface ChatFolder { title: string; crumbs: { key: string; name: string }[]; items: ChatFile[] }
+/** What can be allowed in Tin nhắn (server/chat-perms.ts). */
+export type ChatPerm = 'view' | 'send' | 'attach' | 'manage_messages' | 'manage_channels' | 'manage_roles' | 'admin';
+/** A role of a Tin nhắn server, as on Discord; @everyone is everyone in it. */
+export interface ChatRole { id: string; name: string; color: string; position: number; perms: ChatPerm[]; everyone: boolean; members: number }
+export interface ChatAccess { owner: boolean; perms: ChatPerm[]; channels: Record<string, ChatPerm[]> }
 export interface ChatChannel {
   id: string;
   serverId: string;

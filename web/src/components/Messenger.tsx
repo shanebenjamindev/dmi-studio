@@ -10,6 +10,7 @@ import { Avatar } from './boardkit';
 import type { ChatMessage, ChatMember } from '../types';
 import { WEEKDAYS } from '../i18n';
 import { askConfirm } from './AskDialog';
+import { uploadTo } from './ChatFiles';
 
 export interface OpenWindow {
   id: string; // 'general' | memberId
@@ -403,9 +404,13 @@ function ChatWindowView({
       return;
     }
     try {
-      toast('Đang xử lý ảnh…');
-      const dataUrl = await fileToDataUrl(file);
-      await handleSend(dataUrl);
+      toast('Đang gửi ảnh…');
+      // Made smaller first, then kept with the conversation's files (server/chat-files.ts), not inside the message.
+      const small = await (await fetch(await fileToDataUrl(file))).blob();
+      const att = await uploadTo(isGeneral ? 'general' : `dm:${win.id}`, '', new File([small], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: small.type }), () => {});
+      const newMsg = await api.sendChatMessage('', isGeneral ? 'general' : 'dm', !isGeneral ? win.id : undefined, null, [att.key]);
+      setMessages((prev) => [...prev, newMsg]);
+      setConvReadAt(win.id, Date.now());
     } catch (err: any) {
       toast('Lỗi khi tải ảnh: ' + (err.message || ''), true);
     }
@@ -660,7 +665,10 @@ function ChatWindowView({
         )}
 
         {messages.map((m, idx) => {
-          const isPhoto = m.message.startsWith('data:image/') || /^https?:\/\/.*\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(m.message);
+          // A picture: one sent alone as a file, or (older messages) the picture itself as the text.
+          const photo = m.message.startsWith('data:image/') || /^https?:\/\/.*\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(m.message) ? m.message
+            : !m.message && m.attachments?.length === 1 ? m.attachments[0].thumb : null;
+          const isPhoto = !!photo;
           const isLike = m.message === '👍';
           const prevMsg = idx > 0 ? messages[idx - 1] : null;
           const nextMsg = idx < messages.length - 1 ? messages[idx + 1] : null;
@@ -692,15 +700,21 @@ function ChatWindowView({
                   <div className={'fmsg-bubble-box' + (isPhoto ? ' is-photo' : '') + (isLike ? ' is-like' : '')} title={formatChatTime(m.createdAt)}>
                     {isPhoto ? (
                       <img
-                        src={m.message}
+                        src={photo!}
                         alt="Ảnh chat"
                         className="fmsg-bubble-photo"
-                        onClick={() => window.open(m.message, '_blank')}
+                        onClick={() => !photo!.startsWith('data:') && window.open(photo!, '_blank')}
                       />
                     ) : isLike ? (
                       <span className="fmsg-bubble-like-sticker">👍</span>
                     ) : (
-                      <span className="fmsg-bubble-text">{m.message}</span>
+                      <span className="fmsg-bubble-text">
+                        {m.message}
+                        {/* Files sent from the Tin nhắn page: opened from here, shown in full there. */}
+                        {m.attachments?.map((a) => (
+                          <a key={a.key} className="fmsg-bubble-file" href={a.url || undefined} target="_blank" rel="noopener noreferrer">📎 {a.name}</a>
+                        ))}
+                      </span>
                     )}
                     {!isLike && (
                       <span className="fmsg-bubble-meta">

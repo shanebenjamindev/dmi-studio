@@ -288,6 +288,47 @@ CREATE TABLE IF NOT EXISTS chat_channels (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS chat_channels_server ON chat_channels(server_id, created_at);
+-- Folders and files of each conversation (a channel id, or dm:<a>:<b>), kept by this app (server/chat-files.ts):
+-- folders exist only here, the bytes of a file are in R2 (or DATA_DIR) under store_key. parent_id is '' at the top.
+CREATE TABLE IF NOT EXISTS chat_items (
+  id TEXT PRIMARY KEY,
+  conversation TEXT NOT NULL,
+  parent_id TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mime TEXT NOT NULL DEFAULT '',
+  bytes INTEGER NOT NULL DEFAULT 0,
+  store_key TEXT,
+  uploaded_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_items_folder ON chat_items(conversation, parent_id);
+-- Roles of each Tin nhắn server ('company' or a workspace id), as on Discord (server/chat-perms.ts): perms is a JSON
+-- list, @everyone is the role with id '@' plus the server, the highest position is first.
+CREATE TABLE IF NOT EXISTS chat_roles (
+  id TEXT PRIMARY KEY,
+  server_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL DEFAULT 0,
+  perms TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_roles_server ON chat_roles(server_id, position);
+CREATE TABLE IF NOT EXISTS chat_role_members (
+  role_id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (role_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS chat_role_members_user ON chat_role_members(user_id);
+-- A channel's permissions per role on top of the server's (JSON lists of what is allowed and denied there)
+CREATE TABLE IF NOT EXISTS chat_channel_perms (
+  channel_id TEXT NOT NULL,
+  role_id TEXT NOT NULL,
+  allow TEXT NOT NULL DEFAULT '[]',
+  deny TEXT NOT NULL DEFAULT '[]',
+  PRIMARY KEY (channel_id, role_id)
+);
 -- When each person last read each conversation (general, or the other person of a direct chat), kept on the server so
 -- unread counts agree on every device. No semicolons in these notes: D1 runs the schema split at each one.
 CREATE TABLE IF NOT EXISTS chat_reads (

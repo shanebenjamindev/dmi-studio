@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
-import { openProfile, toast, useStore } from '../store';
-import type { ChatChannel, ChatMember, ChatMessage, Workspace } from '../types';
+import { openLink, openProfile, toast, useStore } from '../store';
+import type { ChatAccess, ChatAttachment, ChatChannel, ChatMember, ChatMessage, ChatPerm, ChatRole, Workspace } from '../types';
 import { askConfirm } from './AskDialog';
-import { Avatar } from './boardkit';
+import { Avatar, LogoImg } from './boardkit';
 import { BrandLoading } from './BrandLoading';
+import { ServerSettings } from './ServerSettings';
+import { Attachments, ChatFilesPanel, ContextMenu, KindIcon, bytes, copy, dragsFiles, menuAt, uploadTo, type CtxItem, type CtxState } from './ChatFiles';
 import { formatChatTime, formatOnlineStatus, getConvReadAt, isUserOnline, setConvReadAt } from './Messenger';
 import { Icon } from './ui';
 
@@ -15,6 +17,7 @@ interface BuiltinChannel {
   name: string;
   topic: string;
   builtin?: boolean;
+  createdBy?: string | null;
 }
 
 const COMPANY_CHANNELS: BuiltinChannel[] = [
@@ -86,8 +89,31 @@ export function MessagesPage() {
   const [creatingBusy, setCreatingBusy] = useState(false);
 
   const streamRef = useRef<HTMLDivElement>(null);
+  // Whether the chat is read at its end: then pictures that finish loading keep it there ('load' does not bubble, so it
+  // is caught on the way down).
+  const atEnd = useRef(true);
+  useEffect(() => {
+    const el = streamRef.current;
+    if (!el) return;
+    const keep = (e: Event) => { if ((e.target as HTMLElement).tagName === 'IMG' && atEnd.current) el.scrollTop = el.scrollHeight; };
+    el.addEventListener('load', keep, true);
+    el.addEventListener('error', keep, true);
+    return () => { el.removeEventListener('load', keep, true); el.removeEventListener('error', keep, true); };
+  }, []);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastFetchedIdRef = useRef<string | null>(null);
+
+  const [ctx, setCtx] = useState<CtxState | null>(null);
+  const closeCtx = useCallback(() => setCtx(null), []);
+  const openCtx = (e: React.MouseEvent, items: (CtxItem | false | null | undefined | '')[], react?: CtxState['react']) => setCtx(menuAt(e, items, react));
+
+  // Files: the conversation's folder (right panel) and the files waiting to go with the next message.
+  const [showFiles, setShowFiles] = useState(false);
+  const [filesVersion, setFilesVersion] = useState(0);
+  const [pending, setPending] = useState<{ id: number; name: string; progress: number; att?: ChatAttachment; error?: string }[]>([]);
+  const [dropping, setDropping] = useState(false);
+  const dropDepth = useRef(0);
+  const attachInput = useRef<HTMLInputElement>(null);
 
   // Load workspaces, custom channels, members, unread counts
   const loadSidebarData = useCallback(async () => {
@@ -120,7 +146,7 @@ export function MessagesPage() {
   }, [loadSidebarData]);
 
   // Channels for current server
-  const currentServerChannels = useMemo<BuiltinChannel[]>(() => {
+  const allServerChannels = useMemo<BuiltinChannel[]>(() => {
     if (serverId === 'dm') return [];
     const base =
       serverId === 'company'
@@ -138,9 +164,40 @@ export function MessagesPage() {
         name: c.name,
         topic: c.topic,
         builtin: false,
+        createdBy: c.createdBy ?? null,
       }));
     return [...base, ...custom];
   }, [serverId, spaces, customChannels]);
+
+  // Roles and permissions of the open server (server/chat-perms.ts): channels it may not see are left out, and what it
+  // may not do is not offered (the server refuses it anyway).
+  const [access, setAccess] = useState<ChatAccess | null>(null);
+  const [serverRoles, setServerRoles] = useState<{ roles: ChatRole[]; members: Record<string, string[]> }>({ roles: [], members: {} });
+  const [settings, setSettings] = useState<{ channel?: string } | null>(null);
+  const channelIds = allServerChannels.map((c) => c.id).join(',');
+  const loadAccess = useCallback(() => {
+    if (serverId === 'dm') { setAccess(null); setServerRoles({ roles: [], members: {} }); return; }
+    const server = serverId;
+    api.chatAccess(server, channelIds.split(',').filter(Boolean)).then((a) => server === serverId && setAccess(a), () => setAccess({ owner: false, perms: [], channels: {} }));
+    api.chatRoles(server).then((r) => server === serverId && setServerRoles(r), () => {});
+  }, [serverId, channelIds]);
+  useEffect(() => { setAccess(null); loadAccess(); }, [loadAccess]);
+  /** In the open server (`channel`: one of its channels). Until the answer comes, only managing is held back. */
+  const canServer = (p: ChatPerm) => serverId !== 'dm' && !!access && (access.owner || access.perms.includes(p));
+  const canIn = (channel: string | undefined, p: ChatPerm) => {
+    if (serverId === 'dm') return p !== 'manage_channels' && p !== 'manage_roles';
+    if (!access) return p === 'view' || p === 'send' || p === 'attach';
+    return access.owner || !!(channel && access.channels[channel]?.includes(p));
+  };
+  const currentServerChannels = useMemo(
+    () => (access && !access.owner ? allServerChannels.filter((c) => access.channels[c.id]?.includes('view')) : allServerChannels),
+    [allServerChannels, access],
+  );
+  /** A person's highest role in the open server, for the colour of their name. */
+  const topRole = (userId: string) => {
+    const mine = serverRoles.members[userId];
+    return mine ? serverRoles.roles.find((r) => !r.everyone && mine.includes(r.id)) || null : null;
+  };
 
   // Keep activeChannelId valid when switching servers
   useEffect(() => {
@@ -250,18 +307,46 @@ export function MessagesPage() {
     });
   };
 
+  /** The conversation as its folder knows it: "dm:<person>" or the channel id ('' while no one is picked). */
+  const convParam = serverId === 'dm' ? (activeDmUserId ? `dm:${activeDmUserId}` : '') : activeChannel?.id || 'general';
+  useEffect(() => { setPending([]); }, [convParam]);
+  const pendingId = useRef(0);
+  /** Files picked, dropped or pasted: uploaded at once into the conversation's folder, sent with the next message. */
+  const attach = (files: File[]) => {
+    if (!convParam) return toast('Hãy chọn người để nhắn tin trước', true);
+    if (!canIn(activeChannel?.id, 'attach')) return toast('Bạn không có quyền gửi file trong kênh này', true);
+    for (const file of files) {
+      const id = ++pendingId.current;
+      setPending((p) => [...p, { id, name: file.name, progress: 0 }]);
+      uploadTo(convParam, '', file, (k) => setPending((p) => p.map((x) => (x.id === id ? { ...x, progress: k } : x)))).then(
+        (att) => setPending((p) => p.map((x) => (x.id === id ? { ...x, progress: 1, att } : x))),
+        (e) => setPending((p) => p.map((x) => (x.id === id ? { ...x, error: e.message } : x))),
+      );
+    }
+    inputRef.current?.focus();
+  };
+  const attachExisting = (att: ChatAttachment) => {
+    setPending((p) => (p.some((x) => x.att?.key === att.key) ? p : [...p, { id: ++pendingId.current, name: att.name, progress: 1, att }]));
+    inputRef.current?.focus();
+  };
+  const ready = pending.filter((p) => p.att).map((p) => p.att!);
+  const uploading = pending.some((p) => !p.att && !p.error);
+
   const handleSend = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    if ((!text && !ready.length) || sending) return;
+    if (uploading) return toast('Đợi file tải lên xong rồi gửi nhé');
     const isDm = serverId === 'dm';
     if (isDm && !activeDmUserId) return;
     const chanKey = isDm ? 'dm' : activeChannel?.id || 'general';
     const recip = isDm ? activeDmUserId || undefined : undefined;
     setSending(true);
     try {
-      const created = await api.sendChatMessage(text, chanKey, recip, replyTo?.id || null);
+      const created = await api.sendChatMessage(text, chanKey, recip, replyTo?.id || null, ready.map((a) => a.key));
       setMessages((prev) => [...prev, created]);
       setDraft('');
+      setPending([]);
+      if (ready.length) setFilesVersion((v) => v + 1);
       setReplyTo(null);
       setMentionState(null);
       requestAnimationFrame(() => {
@@ -414,6 +499,95 @@ export function MessagesPage() {
     return spaces.find((w) => w.id === serverId)?.name || 'Workspace';
   }, [serverId, spaces]);
 
+  /** Reading a conversation up to now: the server keeps the mark when its messages are asked for. */
+  const markRead = (key: string) => {
+    void api.chatMessages(key === 'general' ? 'general' : 'dm', key === 'general' ? undefined : key, Date.now()).catch(() => {});
+    setConvReadAt(key, Date.now());
+    setUnreadMap((prev) => ({ ...prev, [key]: 0 }));
+  };
+  const newChannelIn = (category: string, server = serverId) => {
+    if (server !== serverId) setServerId(server);
+    setNewChanCat(category);
+    setCreatingChannel({ category });
+  };
+  const mentionInComposer = (name: string) => {
+    setDraft((d) => `${d && !d.endsWith(' ') ? `${d} ` : d}@${name} `);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const openDm = (id: string) => {
+    setServerId('dm');
+    setActiveDmUserId(id);
+  };
+
+  const serverMenu = (e: React.MouseEvent, id: string) => {
+    if (id === 'dm') {
+      const unread = Object.keys(unreadMap).filter((k) => k !== 'general' && unreadMap[k] > 0);
+      return openCtx(e, [
+        unread.length > 0 && { label: 'Đánh dấu tất cả đã đọc', icon: 'check', run: () => unread.forEach(markRead) },
+        { label: 'Tìm thành viên', icon: 'search', run: () => setServerId('dm') },
+      ]);
+    }
+    const ws = spaces.find((w) => w.id === id);
+    const name = id === 'company' ? 'DMI Studio' : ws?.name || '';
+    openCtx(e, [
+      id === 'company' && (unreadMap.general || 0) > 0 && { label: 'Đánh dấu đã đọc', icon: 'check', run: () => markRead('general') },
+      'sep',
+      id === serverId && canServer('manage_channels') && { label: 'Tạo kênh', icon: 'plus', run: () => newChannelIn(id === 'company' ? 'KÊNH CHUNG' : 'KÊNH NHÃN HÀNG', id) },
+      id === serverId && canServer('manage_roles') && { label: 'Cài đặt máy chủ', icon: 'gear', run: () => setSettings({}) },
+      ws && { label: 'Thành viên workspace', icon: 'users', run: () => openLink(`#boards/ws/${ws.id}`) },
+      'sep',
+      { label: 'Sao chép tên', icon: 'copy', run: () => void copy(name, 'tên') },
+    ]);
+  };
+  const channelMenu = (e: React.MouseEvent, ch: BuiltinChannel, unread: number) =>
+    openCtx(e, [
+      unread > 0 && { label: 'Đánh dấu đã đọc', icon: 'check', run: () => markRead('general') },
+      'sep',
+      { label: 'Sao chép tên kênh', icon: 'copy', run: () => void copy(`#${ch.name}`, 'tên kênh') },
+      ch.topic && { label: 'Sao chép chủ đề', icon: 'copy', run: () => void copy(ch.topic, 'chủ đề') },
+      'sep',
+      canServer('manage_channels') && { label: 'Tạo kênh trong danh mục', icon: 'plus', run: () => newChannelIn(ch.category) },
+      canServer('manage_roles') && { label: 'Quyền của kênh', icon: 'lock', run: () => setSettings({ channel: ch.id }) },
+      !ch.builtin && (ch.createdBy === me.id || canServer('manage_channels')) && { label: 'Xoá kênh', icon: 'trash', danger: true, run: () => void handleDeleteChannel(ch) },
+    ]);
+  const categoryMenu = (e: React.MouseEvent, cat: string) =>
+    openCtx(e, [
+      { label: foldedCats[cat] ? 'Mở danh mục' : 'Thu gọn danh mục', icon: foldedCats[cat] ? 'down' : 'right', run: () => setFoldedCats((p) => ({ ...p, [cat]: !p[cat] })) },
+      { label: 'Tạo kênh', icon: 'plus', run: () => newChannelIn(cat) },
+    ]);
+  const messageMenu = (e: React.MouseEvent, msg: ChatMessage) => {
+    // Text picked with the mouse keeps the browser's menu, to copy just that part.
+    if (window.getSelection()?.toString()) return;
+    openCtx(e, [
+      { label: 'Trả lời', icon: 'undo', run: () => { setReplyTo(msg); inputRef.current?.focus(); } },
+      msg.isMe && { label: 'Sửa tin nhắn', icon: 'edit', run: () => { setEditingMsgId(msg.id); setEditingText(msg.message); } },
+      canIn(activeChannel?.id, 'manage_messages') && { label: msg.pinned ? 'Bỏ ghim' : 'Ghim tin nhắn', icon: 'tag', run: () => void handleTogglePin(msg) },
+      !!msg.message && !msg.message.startsWith('data:') && { label: 'Sao chép nội dung', icon: 'copy', run: () => void copy(msg.message, 'nội dung') },
+      'sep',
+      !msg.isMe && { label: `Nhắn riêng ${msg.senderName}`, icon: 'messenger', run: () => openDm(msg.senderId) },
+      { label: 'Xem hồ sơ', icon: 'user', run: () => openProfile(msg.senderId) },
+      'sep',
+      (msg.isMe || (serverId === 'dm' ? me.role === 'admin' : canIn(activeChannel?.id, 'manage_messages'))) && { label: 'Xoá tin nhắn', icon: 'trash', danger: true, run: () => void handleDeleteMessage(msg.id) },
+    ], { emojis: QUICK_REACTIONS, pick: (em) => void handleToggleReaction(msg, em) });
+  };
+  const memberMenu = (e: React.MouseEvent, m: { id: string; name: string; email?: string }) => {
+    const self = m.id === me.id, unread = unreadMap[m.id] || 0;
+    openCtx(e, [
+      !self && { label: 'Nhắn tin', icon: 'messenger', run: () => openDm(m.id) },
+      { label: 'Xem hồ sơ', icon: 'user', run: () => openProfile(m.id) },
+      !self && { label: 'Nhắc tên', icon: 'chat', run: () => mentionInComposer(m.name) },
+      unread > 0 && { label: 'Đánh dấu đã đọc', icon: 'check', run: () => markRead(m.id) },
+      'sep',
+      !!m.email && { label: 'Sao chép email', icon: 'copy', run: () => void copy(m.email!, 'email') },
+    ]);
+  };
+  // Inputs, links and selected text keep the browser's menu; everything else on the page has none.
+  const pageMenu = (e: React.MouseEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('input, textarea, a') || window.getSelection()?.toString()) return;
+    e.preventDefault();
+  };
+
   const renderMessageContent = (text: string) => {
     // Highlight @mentions and clickable URLs
     const parts = text.split(/(https?:\/\/[^\s<>"']+|@[A-Za-zÀ-ỹ0-9_.-]+(?: [A-Za-zÀ-ỹ0-9_.-]+){0,3})/g);
@@ -441,13 +615,14 @@ export function MessagesPage() {
   };
 
   return (
-    <div className="dc-page" role="region" aria-label="Tin nhắn nội bộ (Discord)">
+    <div className="dc-page" role="region" aria-label="Tin nhắn nội bộ (Discord)" onContextMenu={pageMenu}>
       {/* Column 1: Server / Brand Hub Rail */}
       <nav className="dc-servers" aria-label="Máy chủ và Tin nhắn trực tiếp">
         <button
           type="button"
           className={`dc-srv-btn dc-srv-dm${serverId === 'dm' ? ' is-active' : ''}`}
           onClick={() => setServerId('dm')}
+          onContextMenu={(e) => serverMenu(e, 'dm')}
           title="Tin nhắn trực tiếp (Direct Messages)"
           aria-label="Tin nhắn trực tiếp"
         >
@@ -462,6 +637,7 @@ export function MessagesPage() {
           type="button"
           className={`dc-srv-btn dc-srv-company${serverId === 'company' ? ' is-active' : ''}`}
           onClick={() => setServerId('company')}
+          onContextMenu={(e) => serverMenu(e, 'company')}
           title="DMI Studio (Kênh chung công ty)"
           aria-label="DMI Studio"
         >
@@ -478,12 +654,13 @@ export function MessagesPage() {
               type="button"
               className={`dc-srv-btn${active ? ' is-active' : ''}`}
               onClick={() => setServerId(w.id)}
+              onContextMenu={(e) => serverMenu(e, w.id)}
               title={`${w.name}${w.customerName && w.customerName !== w.name ? ` · ${w.customerName}` : ''}`}
               aria-label={w.name}
             >
               <span className="dc-srv-pill" />
               {w.avatar ? (
-                <img src={w.avatar} alt="" className="dc-srv-img" />
+                <LogoImg src={w.avatar} className="dc-srv-img" />
               ) : (
                 <span className="dc-srv-initial">{(w.name.trim()[0] || 'W').toUpperCase()}</span>
               )}
@@ -491,7 +668,7 @@ export function MessagesPage() {
           );
         })}
 
-        <button
+        {canServer('manage_channels') && <button
           type="button"
           className="dc-srv-btn dc-srv-add"
           onClick={() => {
@@ -502,7 +679,7 @@ export function MessagesPage() {
           aria-label="Tạo kênh trò chuyện mới"
         >
           <Icon name="plus" size={18} />
-        </button>
+        </button>}
       </nav>
 
       {/* Column 2: Channels / Direct Messages Sidebar */}
@@ -526,7 +703,12 @@ export function MessagesPage() {
           ) : (
             <div className="dc-srv-header-row">
               <h2 className="dc-srv-title" title={currentServerTitle}>{currentServerTitle}</h2>
-              <button
+              {canServer('manage_roles') && (
+                <button type="button" className="dc-icon-btn" onClick={() => setSettings({})} title="Cài đặt máy chủ: role và quyền" aria-label="Cài đặt máy chủ">
+                  <Icon name="gear" size={15} />
+                </button>
+              )}
+              {canServer('manage_channels') && <button
                 type="button"
                 className="dc-icon-btn"
                 onClick={() => {
@@ -537,7 +719,7 @@ export function MessagesPage() {
                 aria-label="Tạo kênh mới"
               >
                 <Icon name="plus" size={15} />
-              </button>
+              </button>}
             </div>
           )}
         </header>
@@ -593,6 +775,7 @@ export function MessagesPage() {
                       type="button"
                       className={`dc-dm-row${active ? ' is-active' : ''}${unread > 0 ? ' is-unread' : ''}`}
                       onClick={() => setActiveDmUserId(m.id)}
+                      onContextMenu={(e) => memberMenu(e, m)}
                     >
                       <span className="dc-av-wrap">
                         <Avatar m={{ id: m.id, name: m.name }} size={32} />
@@ -616,7 +799,7 @@ export function MessagesPage() {
                 const folded = !!foldedCats[cat];
                 return (
                   <section key={cat} className="dc-cat-group">
-                    <div className="dc-cat-head">
+                    <div className="dc-cat-head" onContextMenu={(e) => categoryMenu(e, cat)}>
                       <button
                         type="button"
                         className="dc-cat-toggle"
@@ -625,7 +808,7 @@ export function MessagesPage() {
                         <Icon name={folded ? 'right' : 'down'} size={11} />
                         <span>{cat}</span>
                       </button>
-                      <button
+                      {canServer('manage_channels') && <button
                         type="button"
                         className="dc-cat-add"
                         title={`Tạo kênh trong ${cat}`}
@@ -635,14 +818,14 @@ export function MessagesPage() {
                         }}
                       >
                         <Icon name="plus" size={13} />
-                      </button>
+                      </button>}
                     </div>
                     {!folded &&
                       chList.map((ch) => {
                         const active = activeChannel?.id === ch.id;
                         const unread = ch.id === 'general' ? unreadMap.general || 0 : 0;
                         return (
-                          <div key={ch.id} className={`dc-chan-row${active ? ' is-active' : ''}${unread > 0 ? ' is-unread' : ''}`}>
+                          <div key={ch.id} className={`dc-chan-row${active ? ' is-active' : ''}${unread > 0 ? ' is-unread' : ''}`} onContextMenu={(e) => channelMenu(e, ch, unread)}>
                             <button
                               type="button"
                               className="dc-chan-btn"
@@ -653,7 +836,7 @@ export function MessagesPage() {
                               <span className="dc-chan-name">{ch.name}</span>
                               {unread > 0 && <span className="dc-unread-pill">{unread}</span>}
                             </button>
-                            {!ch.builtin && (
+                            {!ch.builtin && (ch.createdBy === me.id || canServer('manage_channels')) && (
                               <button
                                 type="button"
                                 className="dc-chan-del"
@@ -682,6 +865,7 @@ export function MessagesPage() {
             type="button"
             className="dc-me-profile"
             onClick={() => openProfile(me.id)}
+            onContextMenu={(e) => memberMenu(e, me)}
             title="Xem hồ sơ của bạn"
           >
             <span className="dc-av-wrap">
@@ -706,7 +890,24 @@ export function MessagesPage() {
       </aside>
 
       {/* Column 3: Main Chat Stage */}
-      <main className="dc-stage">
+      <main
+        className="dc-stage"
+        onDragEnter={(e) => { if (!dragsFiles(e)) return; e.preventDefault(); dropDepth.current++; setDropping(true); }}
+        onDragOver={(e) => { if (!dragsFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+        onDragLeave={() => { if (--dropDepth.current <= 0) { dropDepth.current = 0; setDropping(false); } }}
+        onDrop={(e) => {
+          if (!dragsFiles(e)) return;
+          e.preventDefault(); dropDepth.current = 0; setDropping(false);
+          attach([...e.dataTransfer.files]);
+        }}
+      >
+        {dropping && (
+          <div className="dc-drop-hint is-stage">
+            <Icon name="up" size={36} />
+            <b>Thả file để gửi</b>
+            <small>{serverId === 'dm' ? `tới @${activeDmMember?.name || ''}` : `vào #${activeChannel?.name || 'general'}`} · lưu trong thư mục của cuộc trò chuyện</small>
+          </div>
+        )}
         {/* Top Channel / DM Header */}
         <header className="dc-top">
           <div className="dc-top-left">
@@ -738,6 +939,16 @@ export function MessagesPage() {
           <div className="dc-top-right">
             <button
               type="button"
+              className={`dc-icon-btn${showFiles ? ' is-active' : ''}`}
+              onClick={() => setShowFiles((v) => !v)}
+              disabled={!convParam}
+              title="Thư mục của cuộc trò chuyện"
+              aria-label="Thư mục của cuộc trò chuyện"
+            >
+              <Icon name="folder" size={16} />
+            </button>
+            <button
+              type="button"
               className={`dc-icon-btn${showPins ? ' is-active' : ''}`}
               onClick={() => setShowPins((v) => !v)}
               title="Tin nhắn đã ghim"
@@ -764,15 +975,15 @@ export function MessagesPage() {
 
             <button
               type="button"
-              className={`dc-icon-btn${showMembers ? ' is-active' : ''}`}
-              onClick={() => setShowMembers((v) => !v)}
+              className={`dc-icon-btn${showMembers && !showFiles ? ' is-active' : ''}`}
+              onClick={() => { setShowFiles(false); setShowMembers((v) => (showFiles ? true : !v)); }}
               title={showMembers ? 'Ẩn danh sách thành viên' : 'Hiện danh sách thành viên'}
               aria-label="Danh sách thành viên"
             >
               <Icon name="users" size={16} />
             </button>
 
-            {(me.role === 'admin' || serverId === 'dm') && messages.length > 0 && (
+            {(serverId === 'dm' || canIn(activeChannel?.id, 'manage_messages')) && messages.length > 0 && (
               <button
                 type="button"
                 className="dc-icon-btn"
@@ -823,7 +1034,11 @@ export function MessagesPage() {
         )}
 
         {/* Messages Stream */}
-        <div className="dc-stream" ref={streamRef}>
+        <div
+          className="dc-stream"
+          ref={streamRef}
+          onScroll={(e) => { const el = e.currentTarget; atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}
+        >
           {loadingMsgs ? (
             <BrandLoading label="Đang tải tin nhắn…" compact />
           ) : (
@@ -887,7 +1102,7 @@ export function MessagesPage() {
                       </div>
                     )}
 
-                    <article className={`dc-msg${grouped ? ' is-grouped' : ''}${msg.pinned ? ' is-pinned' : ''}`}>
+                    <article className={`dc-msg${grouped ? ' is-grouped' : ''}${msg.pinned ? ' is-pinned' : ''}`} onContextMenu={(e) => messageMenu(e, msg)}>
                       {repliedMsg && (
                         <div className="dc-msg-reply-ref">
                           <span className="dc-reply-spine" />
@@ -922,6 +1137,7 @@ export function MessagesPage() {
                               <button
                                 type="button"
                                 className="dc-msg-author"
+                                style={topRole(msg.senderId)?.color ? { color: topRole(msg.senderId)!.color } : undefined}
                                 onClick={() => openProfile(msg.senderId)}
                               >
                                 {msg.senderName}
@@ -968,8 +1184,12 @@ export function MessagesPage() {
                               </div>
                             </div>
                           ) : (
-                            <div className="dc-msg-text">{renderMessageContent(msg.message)}</div>
+                            // Older pictures were sent as the text itself (a data: address): shown as the picture.
+                            /^data:image\//.test(msg.message) ? (
+                              <div className="dc-atts"><div className="dc-att-pics"><span><img src={msg.message} alt="Ảnh" loading="lazy" /></span></div></div>
+                            ) : msg.message && <div className="dc-msg-text">{renderMessageContent(msg.message)}</div>
                           )}
+                          {!!msg.attachments?.length && <Attachments items={msg.attachments} />}
 
                           {reactionEntries.length > 0 && (
                             <div className="dc-reactions">
@@ -1016,15 +1236,15 @@ export function MessagesPage() {
                         >
                           ↩
                         </button>
-                        <button
+                        {canIn(activeChannel?.id, 'manage_messages') && <button
                           type="button"
                           className="dc-act-btn"
                           title={msg.pinned ? 'Bỏ ghim' : 'Ghim tin nhắn'}
                           onClick={() => void handleTogglePin(msg)}
                         >
                           📌
-                        </button>
-                        {(msg.isMe || me.role === 'admin') && (
+                        </button>}
+                        {(msg.isMe || (serverId === 'dm' ? me.role === 'admin' : canIn(activeChannel?.id, 'manage_messages'))) && (
                           <>
                             {msg.isMe && (
                               <button
@@ -1112,7 +1332,36 @@ export function MessagesPage() {
             </div>
           )}
 
+          {pending.length > 0 && (
+            <div className="dc-pending">
+              {pending.map((p) => (
+                <span key={p.id} className={`dc-pending-chip${p.error ? ' is-error' : ''}`} title={p.error || p.name}>
+                  {p.att?.thumb ? <img src={p.att.thumb} alt="" /> : <KindIcon kind={p.att?.kind || 'other'} size={18} />}
+                  <span className="dc-pending-meta">
+                    <b>{p.name}</b>
+                    <small>{p.error ? p.error : p.att ? bytes(p.att.bytes) : `Đang tải ${Math.round(p.progress * 100)}%`}</small>
+                  </span>
+                  {!p.att && !p.error && <i style={{ width: `${Math.round(p.progress * 100)}%` }} />}
+                  <button type="button" className="dc-clear-btn" onClick={() => setPending((x) => x.filter((y) => y.id !== p.id))} aria-label={`Bỏ ${p.name}`}>
+                    <Icon name="x" size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
           <div className="dc-composer">
+            <button
+              type="button"
+              className="dc-comp-btn"
+              title="Đính kèm file"
+              aria-label="Đính kèm file"
+              disabled={!convParam || !canIn(activeChannel?.id, 'attach') || !canIn(activeChannel?.id, 'send')}
+              onClick={() => attachInput.current?.click()}
+            >
+              <Icon name="clip" size={18} />
+            </button>
+            <input ref={attachInput} type="file" multiple hidden onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ''; if (f.length) attach(f); }} />
             <button
               type="button"
               className="dc-comp-btn"
@@ -1131,9 +1380,11 @@ export function MessagesPage() {
               ref={inputRef}
               rows={1}
               value={draft}
-              disabled={sending || (serverId === 'dm' && !activeDmMember)}
+              disabled={sending || (serverId === 'dm' && !activeDmMember) || !canIn(activeChannel?.id, 'send')}
               placeholder={
-                serverId === 'dm'
+                !canIn(activeChannel?.id, 'send')
+                  ? 'Bạn không có quyền gửi tin nhắn trong kênh này'
+                  : serverId === 'dm'
                   ? activeDmMember
                     ? `Nhắn tin tới @${activeDmMember.name} (gõ @ để nhắc tên)…`
                     : 'Chọn một thành viên để nhắn tin…'
@@ -1144,6 +1395,10 @@ export function MessagesPage() {
                 checkComposerMention(e.target.value, e.target.selectionStart || 0);
               }}
               onClick={(e) => checkComposerMention(e.currentTarget.value, e.currentTarget.selectionStart || 0)}
+              onPaste={(e) => {
+                const files = [...(e.clipboardData?.files || [])];
+                if (files.length) { e.preventDefault(); attach(files); }
+              }}
               onKeyDown={(e) => {
                 if (mentionState && mentionCandidates.length > 0) {
                   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -1184,7 +1439,7 @@ export function MessagesPage() {
             <button
               type="button"
               className="btn btn-primary btn-sm dc-send-btn"
-              disabled={!draft.trim() || sending || (serverId === 'dm' && !activeDmMember)}
+              disabled={(!draft.trim() && !ready.length) || uploading || sending || (serverId === 'dm' && !activeDmMember)}
               onClick={() => void handleSend()}
             >
               <Icon name="send" size={14} />
@@ -1195,7 +1450,9 @@ export function MessagesPage() {
       </main>
 
       {/* Column 4: Right Member List / Profile Panel */}
-      {showMembers && (
+      {showFiles && convParam ? (
+        <ChatFilesPanel c={convParam} version={filesVersion} onAttach={attachExisting} onClose={() => setShowFiles(false)} />
+      ) : showMembers && (
         <aside className="dc-members" aria-label="Thành viên">
           {serverId === 'dm' && activeDmMember ? (
             <div className="dc-profile-card">
@@ -1229,14 +1486,14 @@ export function MessagesPage() {
             <div className="dc-member-groups">
               <div className="dc-member-group">
                 <h4>TRỰC TUYẾN — {onlineMembers.length + 1}</h4>
-                <button type="button" className="dc-member-item" onClick={() => openProfile(me.id)}>
+                <button type="button" className="dc-member-item" onClick={() => openProfile(me.id)} onContextMenu={(e) => memberMenu(e, me)}>
                   <span className="dc-av-wrap">
                     <Avatar m={{ id: me.id, userId: me.id, name: me.name || me.email, avatarAt: me.avatarAt }} size={30} />
                     <span className="dc-status-dot is-online" />
                   </span>
                   <span className="dc-member-info">
-                    <b>{me.name} (bạn)</b>
-                    <small>{me.role === 'admin' ? 'Super Admin' : 'Đang hoạt động'}</small>
+                    <b style={topRole(me.id)?.color ? { color: topRole(me.id)!.color } : undefined}>{me.name} (bạn)</b>
+                    <small>{topRole(me.id)?.name || (me.role === 'admin' ? 'Super Admin' : 'Đang hoạt động')}</small>
                   </span>
                 </button>
                 {onlineMembers.map((m) => {
@@ -1251,14 +1508,15 @@ export function MessagesPage() {
                         setActiveDmUserId(m.id);
                       }}
                       title={`Nhắn tin trực tiếp cho ${m.name}`}
+                      onContextMenu={(e) => memberMenu(e, m)}
                     >
                       <span className="dc-av-wrap">
                         <Avatar m={{ id: m.id, name: m.name }} size={30} />
                         <span className="dc-status-dot is-online" />
                       </span>
                       <span className="dc-member-info">
-                        <b>{m.name}</b>
-                        <small>{r ? r.name : 'Đang hoạt động'}</small>
+                        <b style={topRole(m.id)?.color ? { color: topRole(m.id)!.color } : undefined}>{m.name}</b>
+                        <small>{topRole(m.id)?.name || (r ? r.name : 'Đang hoạt động')}</small>
                       </span>
                     </button>
                   );
@@ -1280,14 +1538,15 @@ export function MessagesPage() {
                           setActiveDmUserId(m.id);
                         }}
                         title={`Nhắn tin trực tiếp cho ${m.name}`}
+                        onContextMenu={(e) => memberMenu(e, m)}
                       >
                         <span className="dc-av-wrap">
                           <Avatar m={{ id: m.id, name: m.name }} size={30} />
                           <span className="dc-status-dot" />
                         </span>
                         <span className="dc-member-info">
-                          <b>{m.name}</b>
-                          <small>{r ? r.name : formatOnlineStatus(m.lastActive)}</small>
+                          <b style={topRole(m.id)?.color ? { color: topRole(m.id)!.color } : undefined}>{m.name}</b>
+                          <small>{topRole(m.id)?.name || (r ? r.name : formatOnlineStatus(m.lastActive))}</small>
                         </span>
                       </button>
                     );
@@ -1297,6 +1556,18 @@ export function MessagesPage() {
             </div>
           )}
         </aside>
+      )}
+
+      {ctx && <ContextMenu menu={ctx} onClose={closeCtx} />}
+      {settings && serverId !== 'dm' && (
+        <ServerSettings
+          server={serverId}
+          title={currentServerTitle}
+          channels={allServerChannels.map((c) => ({ id: c.id, name: c.name, category: c.category }))}
+          startChannel={settings.channel}
+          onClose={() => setSettings(null)}
+          onChanged={loadAccess}
+        />
       )}
 
       {/* Create Channel Modal */}

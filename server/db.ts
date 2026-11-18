@@ -145,7 +145,9 @@ async function upgrade() {
     ['brands', 'drive_folder'], ['brands', 'deleted_at', 'INTEGER'],
     ['task_comments', 'reply_to_id'],
     ['workspaces', 'brand_id'],
-    ['chat_messages', 'reply_to_id'], ['chat_messages', 'pinned', 'INTEGER NOT NULL DEFAULT 0'], ['chat_messages', 'reactions']]) {
+    ['chat_messages', 'reply_to_id'], ['chat_messages', 'pinned', 'INTEGER NOT NULL DEFAULT 0'], ['chat_messages', 'reactions'],
+    // Files sent with a message (a JSON list, server/chat-files.ts).
+    ['chat_messages', 'attachments']]) {
     // One look at each table's columns, not one per column: every cold start on D1 runs this.
     const info = columns.get(table) || (await db.execute(`PRAGMA table_info(${table})`)).rows.map(c => c.name as string);
     columns.set(table, info);

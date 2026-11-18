@@ -15,6 +15,8 @@
     "CF_ACCOUNT_ID": "c0cc9b55ee92823b9c517d39cb3fc01b", "CF_D1_DATABASE_ID": "9ad2e189-4940-4d8d-8b71-ccec235311ff" },
   "alias": { "node:sqlite": "./server/no-local-sqlite.ts" },
   "d1_databases": [{ "binding": "DB", "database_name": "dmi-studio-db", "database_id": "9ad2e189-4940-4d8d-8b71-ccec235311ff" }],
+  // Files sent in Tin nhắn (server/chat-files.ts), private: served only through the app.
+  "r2_buckets": [{ "binding": "CHAT_FILES", "bucket_name": "dmi-chat-files" }],
   "build": { "command": "npm run build" },
   "observability": { "enabled": true },
   "triggers": {"crons":["* * * * *"]},

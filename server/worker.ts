@@ -8,6 +8,7 @@ import {projectsAsServices} from './project-services';
 import { handleApi } from './app';
 import { initDatabase, repairData, type D1Binding } from './db';
 import { migrateServiceBoards } from './service-boards';
+import { useChatBucket } from './chat-files';
 
 /** Once per instance after the database is up: the boards from before become their customers' service boards (it does
  *  nothing once done; server/service-boards.ts). */
@@ -25,7 +26,8 @@ export default {
     // it, and the reminders for overdue work and waiting reviews go out.
     ctx.waitUntil((async()=>{await ready(env.DB);if(new Date(event.scheduledTime).getUTCMinutes()%10===0){await repairData();await settleStages();await projectsAsServices();await normalizeAllBoards();await remindTasks();}await drainNotifications();})());
   },
-  async fetch(request: WorkerRequest, env: { ASSETS: Fetcher; DB?: D1Binding }, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: WorkerRequest, env: { ASSETS: Fetcher; DB?: D1Binding; CHAT_FILES?: R2Bucket }, ctx: ExecutionContext): Promise<Response> {
+    useChatBucket(env.CHAT_FILES); // files of Tin nhắn (server/chat-files.ts)
     const url = new URL(request.url);
     if (url.hostname === 'dmi-studio.detailersmovement.workers.dev' && !url.pathname.startsWith('/api/google/callback')) {
       url.hostname = 'dmi-workspace.detailersmovement.workers.dev';

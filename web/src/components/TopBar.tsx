@@ -20,7 +20,7 @@ import { langPref, setLang, type Lang } from '../i18n';
 // sections are a bar along the bottom.
 const WORK: View[] = ['tasks', 'projects', 'workspace'];
 const REPORTS: View[] = ['reports', 'ads'];
-const TOOLS: View[] = ['tools'];
+const TOOLS: View[] = ['tools', 'voice'];
 const NAV_ICON: Record<string, string> = { boards: 'boards', customers: 'users', work: 'checklist', reports: 'file', tools: 'wand', mail: 'mail', messages: 'messenger', admin: 'gear' };
 const KEY: Record<string, string> = { work: 'dms.workView', reports: 'dms.reportsView', tools: 'dms.toolsView' };
 /** The section a page belongs to. */
