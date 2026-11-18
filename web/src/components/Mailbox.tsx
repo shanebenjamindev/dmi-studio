@@ -32,24 +32,48 @@ export function MailboxPage() {
   useEffect(() => {
     // Back from Google with a problem: say it, and keep the plain address.
     const error = new URLSearchParams(location.hash.split('?')[1] || '').get('error');
-    if (error) { toast(error, true); history.replaceState(null, '', '#mail'); }
+    if (error) { toast(error, true); history.replaceState(null, '', '#mail'); try { sessionStorage.removeItem('dms.mailReturn'); } catch { /* private mode */ } }
     void load();
   }, []);
+  // Linked from the profile: back there once Google has answered.
+  useEffect(() => {
+    if (!status?.connected) return;
+    let back: string | null = null;
+    try { back = sessionStorage.getItem('dms.mailReturn'); sessionStorage.removeItem('dms.mailReturn'); } catch { /* private mode */ }
+    if (back) location.hash = back;
+  }, [status?.connected]);
   if (!status) return <BrandLoading />;
   if (!status.connected || status.reconnect) return <MailConnect status={status} />;
   return <Mailbox status={status} onChanged={load} />;
 }
 
+/** Once a session: the profile's email is opened at Google by itself (coming back without allowing does not loop). */
+const AUTO = 'dms.mailAutoConnect';
 function MailConnect({ status }: { status: MailboxStatus }) {
+  // An email linked in the profile for notifications opens straight at Google: only the consent is left to give.
+  const hint = status.googleConfigured && !status.reconnect ? status.hint || null : null;
+  const [auto, setAuto] = useState(() => { try { return !!hint && !sessionStorage.getItem(AUTO); } catch { return false; } });
+  useEffect(() => {
+    if (!auto) return;
+    const t = setTimeout(() => { try { sessionStorage.setItem(AUTO, '1'); } catch { /* private mode */ } location.assign('/api/mailbox/connect?hint=1'); }, 1500);
+    return () => clearTimeout(t);
+  }, [auto]);
   return (
     <main className="mb-page mb-connect">
       <div className="mb-connect-card">
         <span className="mb-connect-icon"><Icon name="mail" size={28} /></span>
-        <h2>{status.reconnect ? 'Kết nối lại Gmail' : 'Kết nối Gmail của bạn'}</h2>
-        {status.reconnect ? <p>{status.reconnect}</p> : <p>Đọc và gửi email từ Gmail của chính bạn ngay trong DMI. Chỉ bạn xem được hộp thư của mình; thư vẫn nằm trong Gmail như cũ.</p>}
-        {status.googleConfigured
-          ? <button className="btn btn-primary" onClick={() => location.assign('/api/mailbox/connect')}><Icon name="mail" size={15} />{status.reconnect ? 'Kết nối lại' : 'Kết nối Gmail'}</button>
-          : <p className="note err">Quản trị viên chưa cấu hình Google cho DMI (Quản trị › Google). Hãy nhờ quản trị viên làm trước.</p>}
+        <h2>{status.reconnect ? 'Kết nối lại Gmail' : hint ? `Mở hộp thư ${hint}` : 'Kết nối Gmail của bạn'}</h2>
+        {status.reconnect ? <p>{status.reconnect}</p>
+          : hint ? <p>{auto ? 'Đang mở Google với email bạn đã liên kết ở hồ sơ để nhận thông báo…' : 'Email này đã liên kết ở hồ sơ để nhận thông báo.'} Bấm <b>Cho phép</b> một lần là thư tải ngay, những lần sau không phải hỏi lại.</p>
+          : <p>Đọc và gửi email từ Gmail của chính bạn ngay trong DMI. Chỉ bạn xem được hộp thư của mình; thư vẫn nằm trong Gmail như cũ.</p>}
+        {!status.googleConfigured ? <p className="note err">Quản trị viên chưa cấu hình Google cho DMI (Quản trị › Google). Hãy nhờ quản trị viên làm trước.</p>
+          : hint ? (
+            <div className="mb-connect-actions">
+              <button className="btn btn-primary" onClick={() => location.assign('/api/mailbox/connect?hint=1')}><Icon name="mail" size={15} />{auto ? 'Mở ngay' : `Mở hộp thư ${hint}`}</button>
+              {auto ? <button className="btn btn-gray" onClick={() => { try { sessionStorage.setItem(AUTO, '1'); } catch { /* private mode */ } setAuto(false); }}>Huỷ</button>
+                : <button className="btn btn-gray" onClick={() => location.assign('/api/mailbox/connect')}>Dùng Gmail khác</button>}
+            </div>
+          ) : <button className="btn btn-primary" onClick={() => location.assign(status.reconnect ? '/api/mailbox/connect?hint=1' : '/api/mailbox/connect')}><Icon name="mail" size={15} />{status.reconnect ? 'Kết nối lại' : 'Kết nối Gmail'}</button>}
         <p className="note">Google sẽ hỏi quyền “đọc, soạn và gửi email”: hãy tích chọn quyền đó. Nếu Google báo “ứng dụng chưa được xác minh”, bấm <b>Advanced → Go to DMI Workspace</b>.</p>
       </div>
     </main>

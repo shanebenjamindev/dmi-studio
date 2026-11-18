@@ -373,14 +373,14 @@ export interface Report extends ReportItem { data: ReportData; autofillWarnings?
 
 export interface UserProfile { id:string;name:string;email?:string;phone?:string;avatarAt?:number|null;role?:Role;level?:Level;department:{id:string;name:string;color:string}|null;position:string|null;createdAt?:number;canEdit:boolean }
 
-export interface NotificationStatus {enabled:boolean;loginEmail:string;email:string|null;verified:boolean;pendingEmail:string|null;codeSent:boolean;sender:string|null;mailReady:boolean;googleConfigured:boolean;gmailSetupUrl?:string;mailIssue?:{code:string;message:string;helpUrl?:string}|null;recent:{id:string;title:string;state:string;createdAt:number;sentAt:number|null;error:string|null}[]}
+export interface NotificationStatus {/** The Gmail connected in Hộp thư, which is also where notifications go. */gmail?:string|null;enabled:boolean;loginEmail:string;email:string|null;verified:boolean;pendingEmail:string|null;codeSent:boolean;sender:string|null;mailReady:boolean;googleConfigured:boolean;gmailSetupUrl?:string;mailIssue?:{code:string;message:string;helpUrl?:string}|null;recent:{id:string;title:string;state:string;createdAt:number;sentAt:number|null;error:string|null}[]}
 
 export interface CustomerMembersData {ownerId:string;level:Level;members:{id:string;name:string;email:string;level:Level}[];people:{id:string;name:string;email:string}[]}
 
 export interface NotificationInbox {unread:number;items:{id:string;taskId:string|null;link:string|null;detail?:{status:string;dueAt:number|null;text:string}|null;title:string;body:string;createdAt:number;read:boolean}[]}
 
 /** Hộp thư (server/mailbox.ts): the account's own Gmail. */
-export interface MailboxStatus { connected: boolean; googleConfigured: boolean; email?: string; name?: string; picture?: string; unread?: number | null; reconnect?: string | null; signature?: string; signatureOn?: boolean }
+export interface MailboxStatus { connected: boolean; googleConfigured: boolean; /** Not connected: the profile's notification email, to open Gmail with. */ hint?: string | null; email?: string; name?: string; picture?: string; unread?: number | null; reconnect?: string | null; signature?: string; signatureOn?: boolean }
 export interface MailThreadRow { id: string; subject: string; snippet: string; from: string[]; count: number; at: number; unread: boolean; starred: boolean; attachments: boolean }
 export interface MailMessage {
   id: string; from: { name: string; email: string }; to: string; cc: string; subject: string; at: number; messageId: string; references: string;

@@ -88,6 +88,10 @@ async function recentPeople(box: Box) {
   return list;
 }
 
+/** The email this person verified in their profile to get notifications by, if any. */
+const profileEmail = async (userId: string) =>
+  (await get<any>('SELECT email FROM notification_preferences WHERE user_id = ? AND email IS NOT NULL AND verified_at IS NOT NULL', userId))?.email as string | undefined || null;
+
 export function registerMailbox(api: Router) {
   // Addresses to suggest as a recipient is typed, as Gmail does: people written to lately, the company's people, and
   // the contacts of the customers this person may see.
@@ -111,16 +115,18 @@ export function registerMailbox(api: Router) {
   });
 
   api.get('/api/mailbox', async (req, res) => {
-    const box = await boxOf((await me(req)).id), c = await G.oauthConfig();
-    if (!box) return json(res, 200, { connected: false, googleConfigured: !!(c.clientId && c.clientSecret) });
+    const u = await me(req), box = await boxOf(u.id), c = await G.oauthConfig();
+    // Not connected yet: the email linked in the profile for notifications (Hồ sơ › Thông báo qua email), to open with.
+    if (!box) return json(res, 200, { connected: false, googleConfigured: !!(c.clientId && c.clientSecret), hint: await profileEmail(u.id) });
     // The unread count asks Gmail; a mailbox that needs connecting again says so instead of failing the page.
     const inbox = await gmail(box, '/labels/INBOX').catch((e) => (e instanceof HttpError && e.need === 'reconnect' ? { reconnect: e.message } : null));
     json(res, 200, { connected: true, googleConfigured: true, email: box.email, name: box.name, picture: box.picture, unread: inbox?.threadsUnread ?? null, reconnect: inbox?.reconnect ?? null,
       signature: box.signature || '', signatureOn: !!box.signature_on });
   });
+  // `hint=1`: straight to the mailbox's own account (connecting again) or the profile's email at Google.
   api.get('/api/mailbox/connect', async (req, res) => {
-    const user = await me(req);
-    res.writeHead(302, { location: await G.authUrl(`${publicOrigin(req)}/api/google/callback`, 'mailbox', user.id) });
+    const user = await me(req), hint = req.query.get('hint') ? (await boxOf(user.id))?.email || await profileEmail(user.id) : null;
+    res.writeHead(302, { location: await G.authUrl(`${publicOrigin(req)}/api/google/callback`, 'mailbox', user.id, hint || undefined) });
     res.end();
   });
   api.delete('/api/mailbox', async (req, res) => {

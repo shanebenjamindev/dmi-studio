@@ -112,7 +112,7 @@ test('each person connects their own Gmail; nothing is sent without one', async 
     await call('POST', '/api/users', { email: 'mia@example.test', name: 'Mia', password: 'Passw0rd!long', role: 'member' }, boss);
     const mia = (await call('POST', '/api/auth/login', { email: 'mia@example.test', password: 'Passw0rd!long' })).cookie;
 
-    assert.deepEqual((await call('GET', '/api/mailbox', undefined, mia)).data, { connected: false, googleConfigured: false });
+    assert.deepEqual((await call('GET', '/api/mailbox', undefined, mia)).data, { connected: false, googleConfigured: false, hint: null });
     assert.equal((await call('GET', '/api/mailbox', undefined)).status, 401);
     // Not connected: nothing to list or send (checked before Google is ever asked).
     assert.equal((await call('GET', '/api/mailbox/threads?folder=inbox', undefined, mia)).status, 400);

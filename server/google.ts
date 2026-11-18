@@ -101,7 +101,8 @@ export async function removeUserAccount(userId: string, emailOrId: string) {
 export type Purpose = 'drive' | 'signin' | 'mail' | 'mailbox';
 export const MAILBOX_SCOPE = 'https://www.googleapis.com/auth/gmail.modify';
 interface OAuthState { redirect: string; purpose: Purpose; owner_id?:string|null }
-export async function authUrl(redirect: string, purpose: Purpose = 'drive', ownerId?:string) {
+/** `hint`: the Google account to open with (Google skips choosing one). */
+export async function authUrl(redirect: string, purpose: Purpose = 'drive', ownerId?:string, hint?: string) {
   const { clientId } = await oauthConfig();
   if (!clientId) throw new HttpError(400, 'Chưa cấu hình Google OAuth Client ID');
   const state = crypto.randomBytes(16).toString('hex');
@@ -112,7 +113,8 @@ export async function authUrl(redirect: string, purpose: Purpose = 'drive', owne
     : {
       client_id: clientId, redirect_uri: redirect, response_type: 'code', scope: purpose==='mail'?'openid email profile https://www.googleapis.com/auth/gmail.send':purpose==='mailbox'?`openid email profile ${MAILBOX_SCOPE}`:SCOPES,
       // A mailbox asks for Gmail alone: its token never carries the Drive access given to the same account.
-      access_type: 'offline', prompt: 'consent select_account', include_granted_scopes: purpose==='mailbox'?'false':'true', state,
+      access_type: 'offline', prompt: hint ? 'consent' : 'consent select_account', include_granted_scopes: purpose==='mailbox'?'false':'true', state,
+      ...(hint ? { login_hint: hint } : {}),
     });
   return `https://accounts.google.com/o/oauth2/v2/auth?${q}`;
 }
@@ -156,6 +158,9 @@ export async function finishLogin(code: string, state: string) {
     if(!refresh)throw new HttpError(400,'Google chưa cấp quyền truy cập lâu dài, hãy kết nối lại');
     await run('INSERT INTO user_gmail(user_id,email,name,picture,refresh,access,expiry,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET email=excluded.email,name=excluded.name,picture=excluded.picture,refresh=excluded.refresh,access=excluded.access,expiry=excluded.expiry',
       p.owner_id,email,me.name||email,me.picture||'',refresh,t.access_token,Date.now()+((t.expires_in||3600)-60)*1000,Date.now());
+    // One Gmail per account: the one just connected (Google has shown it is theirs) is also where their notifications go.
+    if(me.email_verified!==false)await run(`INSERT INTO notification_preferences(user_id,enabled,updated_at,email,verified_at) VALUES(?,1,?,?,?)
+      ON CONFLICT(user_id) DO UPDATE SET email=excluded.email,verified_at=excluded.verified_at,pending_email=NULL,verification_hash=NULL,verification_expires=NULL,verification_attempts=0,updated_at=excluded.updated_at`,p.owner_id,Date.now(),email,Date.now());
     return {purpose:p.purpose,email,name:me.name||email,picture:me.picture||''};
   }
   if (!p.owner_id || !(await get('SELECT 1 FROM users WHERE id=? AND disabled=0', p.owner_id))) {

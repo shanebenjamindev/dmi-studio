@@ -9229,3 +9229,8 @@ dialog.sheet, .qc-dialog, .tm-dialog, .cm, .tk-popup-dialog, .ui-panel-popup, .u
 .mb-sug b { font-size: 14px; font-weight: 500; }
 .mb-sug small { font-size: 12px; color: var(--label-3); }
 .mb-sug em { flex: none; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-style: normal; color: var(--label-3); }
+.mb-connect-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+/* Hồ sơ › Thông báo qua email: the one Gmail of the account, shared with Hộp thư. */
+.notification-gmail { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0 12px; padding: 12px; border: 1px solid var(--sep); border-radius: 10px; background: var(--fill-2, transparent); }
+.notification-gmail > span { flex: 1; min-width: 200px; display: flex; flex-direction: column; }
+.notification-gmail small { color: var(--label-3); }

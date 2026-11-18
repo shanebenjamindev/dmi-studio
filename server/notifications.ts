@@ -100,7 +100,9 @@ export function registerNotifications(api:Router){
   const sender=await getSetting<G.GAccount|null>('notification_mail',null),config=await G.oauthConfig();
   const recent=(await all<any>('SELECT id,payload,state,created_at,sent_at,error FROM mail_outbox WHERE user_id=? AND json_extract(payload,\'$.test\') IS NULL ORDER BY created_at DESC LIMIT 5',user.id)).map(row=>({id:row.id,title:JSON.parse(row.payload).title,state:row.state,createdAt:row.created_at,sentAt:row.sent_at,error:row.error||null}));
   const issue=await getSetting('notification_mail_issue',null);
-  json(res,200,{enabled:!!pref?.enabled,loginEmail:user.email,email:pref?.email||null,verified:!!pref?.verified_at,pendingEmail:pref?.pending_email||null,codeSent:!!pref?.verification_hash,sender:user.role==='admin'?sender?.email||null:null,mailReady:!!sender,googleConfigured:!!(config.clientId&&config.clientSecret),...(user.role==='admin'?{gmailSetupUrl:gmailEnableUrl(config.clientId.match(/^(\d+)-/)?.[1]||''),mailIssue:issue}:{}),recent});
+  // The Gmail connected in Hộp thư: the same one serves both (server/google.ts).
+  const gmail=(await get<any>('SELECT email FROM user_gmail WHERE user_id=?',user.id))?.email||null;
+  json(res,200,{gmail,enabled:!!pref?.enabled,loginEmail:user.email,email:pref?.email||null,verified:!!pref?.verified_at,pendingEmail:pref?.pending_email||null,codeSent:!!pref?.verification_hash,sender:user.role==='admin'?sender?.email||null:null,mailReady:!!sender,googleConfigured:!!(config.clientId&&config.clientSecret),...(user.role==='admin'?{gmailSetupUrl:gmailEnableUrl(config.clientId.match(/^(\d+)-/)?.[1]||''),mailIssue:issue}:{}),recent});
  });
  api.put('/api/notifications',async(req,res)=>{
   const user=(await currentUser(req))!,body=await readJson(req);
