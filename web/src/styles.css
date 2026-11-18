@@ -9166,3 +9166,53 @@ dialog.sheet, .qc-dialog, .tm-dialog, .cm, .tk-popup-dialog, .ui-panel-popup, .u
 .dc-chan-row.is-drop-after, .dc-cat-head.is-drop-after { box-shadow: inset 0 -2px 0 var(--tint); }
 .dc-cat-head.is-drop-in { border-radius: 4px; background: color-mix(in srgb, var(--tint) 14%, transparent); }
 .dc-cat-head[draggable="true"], .dc-chan-row[draggable="true"] { cursor: grab; }
+
+/* ================================================================ Tin nhắn › a brand's customer beside the chat (ChatCustomer.tsx) */
+.dc-cust { position: relative; flex: none; min-width: 300px; max-width: min(760px, 60vw); min-height: 0; display: flex; flex-direction: column; background: var(--dc-side); border-left: 1px solid var(--dc-active); }
+.dc-cust-grip { position: absolute; top: 0; bottom: 0; left: -4px; z-index: 2; width: 8px; cursor: col-resize; touch-action: none; }
+.dc-cust-grip::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .15s; }
+.dc-cust-grip:hover::after, .dc-cust-grip:active::after { background: var(--tint); }
+.dc-cust-top { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--dc-active); }
+.dc-cust-top span { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: var(--dc-text); }
+.dc-cust-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.dc-cust-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 16px; text-align: center; color: var(--dc-faint); }
+.dc-cust-hero { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 12px; background: linear-gradient(135deg, color-mix(in srgb, var(--tint) 16%, var(--dc-chat)), var(--dc-chat)); border: 1px solid var(--dc-active); }
+.dc-cust-logo { flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: var(--dc-chat); box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+.dc-cust-logo img { width: 42px; height: 42px; object-fit: contain; }
+.dc-cust-logo b { font-size: 22px; color: var(--tint); }
+.dc-cust-id { flex: 1; min-width: 0; }
+.dc-cust-id h3 { margin: 0 0 6px; overflow: hidden; font-size: 17px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; color: var(--dc-text); }
+.dc-cust-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.dc-cust-meta small { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dc-muted); }
+.dc-cust-status { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 10px; background: color-mix(in srgb, var(--c) 16%, transparent); color: var(--c); font-size: 11px; font-weight: 700; }
+.dc-cust-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.dc-cust-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.dc-cust-stats > div { display: flex; flex-direction: column; gap: 2px; padding: 10px; border-radius: 10px; background: var(--dc-chat); border: 1px solid var(--dc-active); }
+.dc-cust-stats b { font-size: 18px; color: var(--dc-text); }
+.dc-cust-stats span { font-size: 11px; font-weight: 600; letter-spacing: .02em; color: var(--dc-faint); }
+.dc-cust-stats .is-late b { color: #da373c; }
+.dc-cust-stats progress { grid-column: 1 / -1; width: 100%; height: 6px; appearance: none; border: 0; border-radius: 3px; background: var(--dc-active); overflow: hidden; }
+.dc-cust-stats progress::-webkit-progress-bar { background: var(--dc-active); }
+.dc-cust-stats progress::-webkit-progress-value { background: #23a55a; border-radius: 3px; }
+.dc-cust-stats progress::-moz-progress-bar { background: #23a55a; }
+.dc-cust-card { padding: 12px; border-radius: 10px; background: var(--dc-chat); border: 1px solid var(--dc-active); }
+.dc-cust-card header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.dc-cust-card h4 { margin: 0; font-size: 13px; color: var(--dc-text); }
+.dc-cust-link { display: inline-flex; align-items: center; gap: 2px; padding: 0; border: 0; background: none; color: var(--tint) !important; font-size: 12px !important; cursor: pointer; }
+.dc-cust-tasks { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.dc-cust-tasks button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 6px; border: 0; border-radius: 6px; background: none; text-align: left; cursor: pointer; }
+.dc-cust-tasks button:hover { background: var(--dc-hover); }
+.dc-cust-tasks i { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.dc-cust-tasks span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dc-cust-tasks b, .dc-cust-tasks small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-cust-tasks b { font-size: 13px; font-weight: 500; color: var(--dc-text); }
+.dc-cust-tasks small { font-size: 11px; color: var(--dc-faint); }
+.dc-cust-tasks em { flex: none; font-size: 11px; font-style: normal; color: var(--dc-muted); }
+.dc-cust-tasks em.is-late { color: #da373c; font-weight: 600; }
+/* The customer page's facts, laid out for the panel: one column, cards like the ones above. */
+.dc-cust-context .crm-context { display: flex; flex-direction: column; gap: 12px; }
+.dc-cust-context .crm-ov-card { padding: 12px; gap: 10px; border-radius: 10px; background: var(--dc-chat); border: 1px solid var(--dc-active); }
+.dc-cust-context .crm-ov-card header h3 { font-size: 13px; }
+.dc-cust-context .crm-facts { grid-template-columns: 96px minmax(0, 1fr); gap: 8px; font-size: 12px; }
+@media (max-width: 1100px) { .dc-cust { position: absolute; top: 0; right: 0; bottom: 0; z-index: 20; box-shadow: -8px 0 24px rgba(0,0,0,.12); } }
+.dc-cust-context .crm-ov-card header h3 { display: flex; align-items: center; gap: 6px; }

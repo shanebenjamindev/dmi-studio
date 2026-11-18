@@ -6,6 +6,8 @@ import { askConfirm, askText } from './AskDialog';
 import { Avatar, LogoImg } from './boardkit';
 import { BrandLoading } from './BrandLoading';
 import { ChannelSettings } from './ChannelSettings';
+import { CreateWorkspace } from './Boards';
+import { ChatCustomerPanel } from './ChatCustomer';
 import { ServerSettings } from './ServerSettings';
 import { Attachments, ChatFilesPanel, ContextMenu, KindIcon, bytes, copy, dragsFiles, menuAt, uploadTo, type CtxItem, type CtxState } from './ChatFiles';
 import { formatChatTime, formatOnlineStatus, getConvReadAt, isUserOnline, setConvReadAt } from './Messenger';
@@ -89,6 +91,9 @@ export function MessagesPage() {
 
   // Files: the conversation's folder (right panel) and the files waiting to go with the next message.
   const [showFiles, setShowFiles] = useState(false);
+  // A brand's server shows its customer beside the chat (ChatCustomer.tsx) until closed.
+  const [showCustomer, setShowCustomer] = useState(true);
+  const [newSpace, setNewSpace] = useState(false);
   const [filesVersion, setFilesVersion] = useState(0);
   const [pending, setPending] = useState<{ id: number; name: string; progress: number; att?: ChatAttachment; error?: string }[]>([]);
   const [dropping, setDropping] = useState(false);
@@ -502,6 +507,9 @@ export function MessagesPage() {
   }, [members, dmSearch, dmFilter, unreadMap]);
 
   const companyUnread = (unreadMap.general || 0) + (unreadMap[NEWS] || 0);
+  /** The brand's workspace whose server is open, and whether its customer is shown beside the chat. */
+  const openSpace = serverId === 'dm' || serverId === 'company' ? null : spaces.find((w) => w.id === serverId) || null;
+  const customerShown = !!openSpace?.customerId && showCustomer && !showFiles;
   const totalDmUnread = useMemo(
     () => Object.entries(unreadMap).reduce((sum, [k, v]) => (!CHANNEL_KEYS.has(k) ? sum + (v || 0) : sum), 0),
     [unreadMap],
@@ -690,18 +698,16 @@ export function MessagesPage() {
           );
         })}
 
-        {can.manage && <button
+        {/* As on the Workspace page: a new workspace, which is a new brand's server here. */}
+        <button
           type="button"
           className="dc-srv-btn dc-srv-add"
-          onClick={() => {
-            setNewChanCat(serverId === 'company' || serverId === 'dm' ? 'KÊNH CHUNG' : 'KÊNH NHÃN HÀNG');
-            setCreatingChannel({ category: 'KÊNH CHUNG' });
-          }}
-          title="Tạo kênh trò chuyện mới"
-          aria-label="Tạo kênh trò chuyện mới"
+          onClick={() => setNewSpace(true)}
+          title="Tạo workspace"
+          aria-label="Tạo workspace"
         >
           <Icon name="plus" size={18} />
-        </button>}
+        </button>
       </nav>
 
       {/* Column 2: Channels / Direct Messages Sidebar */}
@@ -1018,10 +1024,21 @@ export function MessagesPage() {
               )}
             </label>
 
+            {openSpace?.customerId && (
+              <button
+                type="button"
+                className={`dc-icon-btn${customerShown ? ' is-active' : ''}`}
+                onClick={() => { setShowFiles(false); setShowCustomer(!customerShown); }}
+                title={`Thông tin khách hàng ${openSpace.customerName || ''}`.trim()}
+                aria-label="Thông tin khách hàng"
+              >
+                <Icon name="user" size={16} />
+              </button>
+            )}
             <button
               type="button"
-              className={`dc-icon-btn${showMembers && !showFiles ? ' is-active' : ''}`}
-              onClick={() => { setShowFiles(false); setShowMembers((v) => (showFiles ? true : !v)); }}
+              className={`dc-icon-btn${showMembers && !showFiles && !customerShown ? ' is-active' : ''}`}
+              onClick={() => { const shown = showMembers && !showFiles && !customerShown; setShowFiles(false); setShowCustomer(false); setShowMembers(!shown); }}
               title={showMembers ? 'Ẩn danh sách thành viên' : 'Hiện danh sách thành viên'}
               aria-label="Danh sách thành viên"
             >
@@ -1500,6 +1517,8 @@ export function MessagesPage() {
       {/* Column 4: Right Member List / Profile Panel */}
       {showFiles && convParam ? (
         <ChatFilesPanel c={convParam} version={filesVersion} onAttach={attachExisting} onClose={() => setShowFiles(false)} />
+      ) : customerShown && openSpace?.customerId ? (
+        <ChatCustomerPanel customerId={openSpace.customerId} logo={openSpace.avatar} onClose={() => setShowCustomer(false)} />
       ) : showMembers && (
         <aside className="dc-members" aria-label="Thành viên">
           {serverId === 'dm' && activeDmMember ? (
@@ -1607,6 +1626,12 @@ export function MessagesPage() {
       )}
 
       {ctx && <ContextMenu menu={ctx} onClose={closeCtx} />}
+      {newSpace && (
+        <CreateWorkspace
+          onClose={() => setNewSpace(false)}
+          onCreated={(w) => { setNewSpace(false); setSpaces((x) => [...x, w]); setServerId(w.id); void loadSidebarData(); toast(`Đã tạo workspace ${w.name}`); }}
+        />
+      )}
       {serverSettings && serverId !== 'dm' && (
         <ServerSettings
           server={serverId}

@@ -1285,7 +1285,8 @@ function WorkspaceClient({ ws, onPick }: { ws: Workspace; onPick: (id: string) =
 }
 
 /** A workspace of one's own: private until its owner shares it; for a customer (picked, or added on the spot) or none. */
-function CreateWorkspace({ initialCustomerId, onClose, onCreated }: { initialCustomerId?: string; onClose: () => void; onCreated: (w: Workspace) => void }) {
+/** Tạo workspace: here, and from the + of Tin nhắn's servers (a workspace is a brand's server there). */
+export function CreateWorkspace({ initialCustomerId, onClose, onCreated }: { initialCustomerId?: string; onClose: () => void; onCreated: (w: Workspace) => void }) {
   const [name, setName] = useState('');
   const [about, setAbout] = useState('');
   const [visibility, setVisibility] = useState<'private' | 'company'>('private');
