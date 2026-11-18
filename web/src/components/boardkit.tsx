@@ -4,7 +4,9 @@ import {TextLinks} from './TextLinks';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from './ui';
 import { langPref } from '../i18n';
-import type { BoardActivity, CardAttachment } from '../types';
+import type { BoardActivity, CardAttachment, CommentReaction, ReactionKind } from '../types';
+import { api } from '../api';
+import { toast } from '../store';
 
 /** Label and cover colours, by the names the server keeps. */
 export const COLOR: Record<string, string> = {
@@ -123,6 +125,48 @@ export function LogoImg({ src, className }: { src: string; className?: string })
     return () => { live = false; };
   }, [src]);
   return <img src={out} alt="" className={className} />;
+}
+
+// ---------------------------------------------------------------- reactions on comments (as on Facebook)
+export const REACTIONS: [ReactionKind, string, string][] = [['like', '👍', 'Thích'], ['love', '❤️', 'Yêu thích'], ['haha', '😆', 'Haha'], ['wow', '😮', 'Wow'], ['sad', '😢', 'Buồn'], ['care', '🥰', 'Thương thương'], ['angry', '😡', 'Phẫn nộ']];
+const REACTION = Object.fromEntries(REACTIONS.map(([k, e, l]) => [k, { emoji: e, label: l }])) as Record<ReactionKind, { emoji: string; label: string }>;
+/** A comment's reactions: "Thích" likes it or takes one's reaction back, resting on it opens the seven to choose from;
+ *  beside it the most given ones and how many, the names on hover. One reaction per person (server/comment-reactions.ts). */
+export function Reactions({ commentId, meId, initial }: { commentId: string; meId: string; initial?: CommentReaction[] }) {
+  const [list, setList] = useState<CommentReaction[]>(initial || []);
+  const [open, setOpen] = useState(false), [at, setAt] = useState({ left: 0, top: 0 });
+  const timer = useRef<any>(null), btn = useRef<HTMLButtonElement>(null);
+  useEffect(() => setList(initial || []), [initial]);
+  // Above the button, kept on screen: comments sit in narrow columns that would cut it off.
+  useLayoutEffect(() => {
+    if (!open || !btn.current) return;
+    const r = btn.current.getBoundingClientRect();
+    setAt({ left: Math.max(8, Math.min(r.left - 6, window.innerWidth - 300)), top: r.top < 64 ? r.bottom + 6 : r.top - 54 });
+  }, [open]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const mine = list.find((x) => x.userId === meId)?.r || null;
+  const give = async (r: ReactionKind | null) => {
+    setOpen(false); clearTimeout(timer.current);
+    const before = list;
+    setList([...list.filter((x) => x.userId !== meId), ...(r ? [{ r, userId: meId, name: 'Bạn' }] : [])]);
+    try { setList((await api.reactComment(commentId, r)).reactions); } catch (e: any) { setList(before); toast(e.message, true); }
+  };
+  const later = (on: boolean, ms: number) => { clearTimeout(timer.current); timer.current = setTimeout(() => setOpen(on), ms); };
+  const counts = REACTIONS.map(([k]) => [k, list.filter((x) => x.r === k).length] as const).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  const names = counts.map(([k]) => `${REACTION[k].emoji} ${list.filter((x) => x.r === k).map((x) => (x.userId === meId ? 'Bạn' : x.name)).join(', ')}`).join('\n');
+  return (
+    <span className="rx" onMouseLeave={() => later(false, 300)}>
+      <button ref={btn} type="button" className={'bk-link rx-btn' + (mine ? ` rx-on rx-${mine}` : '')} onMouseEnter={() => later(true, 450)} onClick={() => void give(mine ? null : 'like')} aria-label={mine ? `Bỏ ${REACTION[mine].label}` : 'Thích'}>
+        {mine && <span className="rx-emoji">{REACTION[mine].emoji}</span>}{mine ? REACTION[mine].label : 'Thích'}
+      </button>
+      {open && (
+        <span className="rx-pick" role="menu" style={at} onMouseEnter={() => clearTimeout(timer.current)}>
+          {REACTIONS.map(([k, e, l]) => <button key={k} type="button" role="menuitem" className={mine === k ? 'on' : ''} title={l} aria-label={l} onClick={() => void give(k)}>{e}</button>)}
+        </span>
+      )}
+      {counts.length > 0 && <span className="rx-sum" title={names}>{counts.slice(0, 3).map(([k]) => <i key={k}>{REACTION[k].emoji}</i>)}<b>{list.length}</b></span>}
+    </span>
+  );
 }
 
 /** A person's picture (when uploaded) or their initials in a coloured circle (the colour follows their id). */

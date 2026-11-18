@@ -181,13 +181,16 @@ export interface TaskItem {
   priority?: { id: string; name: string; color: string; pos?: number } | null; readOnly?: boolean;
   createdBy: { id: string; name: string; userId?: string | null } | null; assignees: TaskPerson[]; cardPeople?: TaskPerson[]; followers: { id: string; name: string; avatarAt?: number | null }[]; labels: string[]; services?: ServiceRef[]; sourceUpdatedAt: number | null; stub: boolean; updatedAt: number; createdAt?: number;
 }
+/** A reaction on a comment (server/comment-reactions.ts): one per person. */
+export type ReactionKind = 'like' | 'love' | 'haha' | 'wow' | 'sad' | 'care' | 'angry';
+export interface CommentReaction { r: ReactionKind; userId: string; name: string }
 export interface TaskDetail extends TaskItem {
   statuses?: string[];
   flow?: TaskFlowInfo;
   description: string; result: string | null; resultHidden: boolean; canEdit: boolean; canEditDescription: boolean; canDelete: boolean; hasBoardLink: boolean; boardLink: { cardId: string; boardId: string; listId: string; boardName: string; listName: string } | null; path: { id: string; title: string }[];
   /** The whole branch under it (subtasks, theirs, …), each with its `parent`, as far as this account sees them. */
   childTasks: TaskItem[];
-  comments?: { id: string; userId: string; userName: string; text: string; createdAt: number; updatedAt?: number; replyToId?: string | null }[];
+  comments?: { id: string; userId: string; userName: string; text: string; createdAt: number; updatedAt?: number; replyToId?: string | null; reactions?: CommentReaction[] }[];
   activity?: { id: string; userId?: string; user: string; text: string; at: number; action?: string }[];
 }
 export interface TaskMeta {
@@ -306,7 +309,7 @@ export interface CardDetail {
   projectId?: string | null; projectName?: string | null;
   checklists: { id: string; title: string; items: { id: string; text: string; done: boolean }[] }[];
   attachments: CardAttachment[];
-  comments: { id: string; userId: string; userName: string; text: string; createdAt: number; edited: boolean; replyToId?: string | null }[];
+  comments: { id: string; userId: string; userName: string; text: string; createdAt: number; edited: boolean; replyToId?: string | null; reactions?: CommentReaction[] }[];
   activity: BoardActivity[];
 }
 /** A top-level page whose access admins can grant or withhold per role. */

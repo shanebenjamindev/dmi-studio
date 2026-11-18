@@ -11,7 +11,7 @@ import {EntitySelect,useEntityRefresh} from './QuickCreate';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { EmployeePicker, EmployeeAvatars, MemberChoices } from './EmployeePicker';
 import { MemberAvatar } from './MemberAvatar';
-import { Avatar, Pop, ago, dueState, fullDate } from './boardkit';
+import { Avatar, Pop, Reactions, ago, dueState, fullDate } from './boardkit';
 import { ClientServiceFields, ClientServicePop, placeOf } from './ClientServicePick';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
@@ -999,6 +999,7 @@ function WeworkTaskView({
                           </div>
                           <div className="wework-comment-body"><RichView text={c.text} /></div>
                           <div className="wework-comment-actions">
+                            <Reactions commentId={c.id} meId={me.id} initial={c.reactions} />
                             <button
                               type="button"
                               className="wework-action-link"
@@ -1033,6 +1034,7 @@ function WeworkTaskView({
                                 </div>
                                 <div className="wework-comment-body"><RichView text={r.text} /></div>
                                 <div className="wework-comment-actions">
+                                  <Reactions commentId={r.id} meId={me.id} initial={r.reactions} />
                                   <button
                                     type="button"
                                     className="wework-action-link"

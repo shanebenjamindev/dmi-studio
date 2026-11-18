@@ -176,6 +176,8 @@ export const api = {
     req<ChatMessage[]>('GET', `/api/chat/messages?channel=${encodeURIComponent(channel)}${recipientId ? `&recipientId=${encodeURIComponent(recipientId)}` : ''}${since ? `&since=${since}` : ''}`),
   sendChatMessage: (message: string, channel: string = 'general', recipientId?: string, replyToId?: string | null, attachments: string[] = []) =>
     req<ChatMessage>('POST', '/api/chat/messages', { message, channel, recipientId, replyToId, attachments }),
+  /** Gives a comment (card or task) this person's reaction, or takes it back with null. */
+  reactComment: (id: string, reaction: import('./types').ReactionKind | null) => req<{ reactions: import('./types').CommentReaction[] }>('PUT', `/api/comment-reactions/${encodeURIComponent(id)}`, { reaction }),
   /** What this person may do in a Tin nhắn server ('company', a workspace id, or 'dm'), by Quản trị › Phân quyền. */
   chatAccess: (server: string) => req<{ send: boolean; manage: boolean }>('GET', `/api/chat/servers/${encodeURIComponent(server)}/access`),
   /** A conversation's folder (`c`: a channel id or "dm:<person>"), or a folder inside it. */

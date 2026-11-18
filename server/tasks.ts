@@ -1,4 +1,5 @@
 import { removeTaskRecord, removeBrandServiceRecord, syncBrandServiceCards } from './work-sync';
+import { reactionsOf, dropReactions } from './comment-reactions';
 import { grantAccess, brandServiceLevels, requireBrandService } from './project-access';
 import { customerLevel, customerLevels, requireCustomer } from './customer-access';
 import { notificationSnapshot, notifyPeople, queueTaskNotifications } from './notifications';
@@ -987,7 +988,8 @@ export function registerTasks(api: Router) {
     const commentRows = linked
       ? await all<any>('SELECT k.id, k.text, k.user_id userId, u.name userName, k.created_at createdAt, k.updated_at updatedAt, k.reply_to_id replyToId FROM card_comments k LEFT JOIN users u ON u.id = k.user_id WHERE k.card_id = ? ORDER BY k.created_at ASC', linked.cardId)
       : await all<any>('SELECT k.id, k.text, k.user_id userId, u.name userName, k.created_at createdAt, k.updated_at updatedAt, k.reply_to_id replyToId FROM task_comments k LEFT JOIN users u ON u.id = k.user_id WHERE k.task_id = ? ORDER BY k.created_at ASC', t.id);
-    const comments = commentRows.map((k) => ({ id: k.id, userId: k.userId, userName: k.userName || 'Thành viên', text: k.text, createdAt: k.createdAt, updatedAt: k.updatedAt, replyToId: k.replyToId || null }));
+    const reactions = await reactionsOf(commentRows.map((k) => k.id));
+    const comments = commentRows.map((k) => ({ id: k.id, userId: k.userId, userName: k.userName || 'Thành viên', text: k.text, createdAt: k.createdAt, updatedAt: k.updatedAt, replyToId: k.replyToId || null, reactions: reactions.get(k.id) || [] }));
 
     // A linked task's history is its card's, with its review moves (kept on the task) among them.
     const activityRows = linked
@@ -1232,6 +1234,7 @@ export function registerTasks(api: Router) {
     if (row && row.user_id !== u.id && u.role !== 'admin') throw new HttpError(403, 'Chỉ người viết hoặc quản trị viên mới được xoá');
     await run('DELETE FROM task_comments WHERE id = ?', req.params.id);
     await run('DELETE FROM card_comments WHERE id = ?', req.params.id).catch(() => {});
+    await dropReactions(req.params.id);
     json(res, 200, { ok: true });
   });
 }

@@ -23,6 +23,7 @@ import { currentUser, PAGES, pagesOf, deptLevel, USER_SQL, type Level } from './
 import { customerFile, clientCustomers } from './workspace';
 import { attachmentsIn, dropConversation } from './chat-files';
 import { needInChannel, needInServer, needToSend } from './chat-perms';
+import { reactionsOf, react, dropReactions } from './comment-reactions';
 import { matcher } from './admin/common';
 import { RICH_MAX, RICH_TOO_LONG } from '../shared/rich';
 import { AUTO, syncBoardGrants, syncBoardPeople } from './board-people';
@@ -350,8 +351,11 @@ async function cardOut(c: any, u: any) {
     members: (await all<any>('SELECT user_id FROM card_members WHERE card_id = ?', c.id)).map((r) => r.user_id),
     checklists: checklists.map((k) => ({ id: k.id, title: k.title, items: items.filter((i) => i.checklist_id === k.id).map((i) => ({ id: i.id, text: i.text, done: !!i.done })) })),
     attachments: (await all<any>('SELECT * FROM card_attachments WHERE card_id = ? ORDER BY created_at DESC', c.id)).map(attachmentOut),
-    comments: (await all<any>('SELECT k.*, u.name FROM card_comments k LEFT JOIN users u ON u.id = k.user_id WHERE k.card_id = ? ORDER BY k.created_at DESC', c.id))
-      .map((k) => ({ id: k.id, userId: k.user_id, userName: k.name || 'Ai đó', text: k.text, createdAt: k.created_at, edited: k.updated_at > k.created_at, replyToId: k.reply_to_id || null })),
+    comments: await (async () => {
+      const rows = await all<any>('SELECT k.*, u.name FROM card_comments k LEFT JOIN users u ON u.id = k.user_id WHERE k.card_id = ? ORDER BY k.created_at DESC', c.id);
+      const reactions = await reactionsOf(rows.map((k) => k.id));
+      return rows.map((k) => ({ id: k.id, userId: k.user_id, userName: k.name || 'Ai đó', text: k.text, createdAt: k.created_at, edited: k.updated_at > k.created_at, replyToId: k.reply_to_id || null, reactions: reactions.get(k.id) || [] }));
+    })(),
     linkedTask,
     // The result note of a card without a task (a linked card's is the task's, read on the task's terms): for those who
     // edit the card, as it can hold logins.
@@ -1555,8 +1559,16 @@ export function registerBoards(api: Router) {
     const { x, card } = await mustPart(req, 'card_comments', req.params.id, 'observer'), u = await me(req);
     if (x.user_id !== u.id && card.level !== 'admin') throw new HttpError(403, 'Chỉ người viết hoặc quản trị board mới xoá được bình luận');
     await run('DELETE FROM card_comments WHERE id = ?', x.id);
+    await dropReactions(x.id);
     await touch(card.board_id);
     json(res, 200, { ok: true });
+  });
+  // A reaction on a comment (null takes it back): a card's comment by whoever may see the card, a task's like its comments.
+  api.put('/api/comment-reactions/:id', async (req, res) => {
+    const u = await me(req), b = await readJson(req);
+    if (await get('SELECT 1 FROM card_comments WHERE id = ?', req.params.id)) await mustPart(req, 'card_comments', req.params.id, 'observer');
+    else if (!(await get('SELECT 1 FROM task_comments WHERE id = ?', req.params.id))) throw new HttpError(404, 'Không tìm thấy bình luận');
+    json(res, 200, { reactions: await react(req.params.id, u.id, b.reaction ?? null) });
   });
   // A link (a Drive file or folder, a sheet, any page) on the card.
   api.post('/api/cards/:id/attachments', async (req, res) => {

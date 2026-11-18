@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS task_comments (
   id TEXT PRIMARY KEY, task_id TEXT NOT NULL, user_id TEXT NOT NULL, text TEXT NOT NULL, reply_to_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS task_comments_task ON task_comments(task_id, created_at);
+-- One reaction per person per comment, card or task comment alike (server/comment-reactions.ts)
+CREATE TABLE IF NOT EXISTS comment_reactions (
+  comment_id TEXT NOT NULL, user_id TEXT NOT NULL, reaction TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (comment_id, user_id)
+);
 CREATE TABLE IF NOT EXISTS task_activity (
   id TEXT PRIMARY KEY, task_id TEXT NOT NULL, user_id TEXT, action TEXT NOT NULL, data TEXT, created_at INTEGER NOT NULL
 );

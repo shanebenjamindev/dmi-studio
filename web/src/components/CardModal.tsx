@@ -18,7 +18,7 @@ import { FlowBadge, FlowPop, FlowSteps } from './TaskFlow';
 import { FLOW_STAGES } from '../../../shared/task-flow';
 import { SpanPop } from './DateRange';
 import { ClientServicePop } from './ClientServicePick';
-import { COLOR, COLOR_NAME, Avatar, Pop, activityText, ago, dueState, fullDate, fileThumb } from './boardkit';
+import { COLOR, COLOR_NAME, Avatar, Pop, Reactions, activityText, ago, dueState, fullDate, fileThumb } from './boardkit';
 import type { Board, BoardLabel, CardDetail, DriveFile, TaskDetail, TaskMeta, User } from '../types';
 import { askConfirm } from './AskDialog';
 
@@ -458,6 +458,7 @@ function Comment({ x, me, who, canDelete, act, onReply, replies }: { x: CardDeta
           : <div className="cm-comment-text"><RichView text={x.text} /></div>}
         {!edit && (
           <span className="cm-comment-a">
+            <Reactions commentId={x.id} meId={me.id} initial={x.reactions} />
             {onReply && <button type="button" className="bk-link" onClick={() => onReply(x.id, x.userName)}>Trả lời</button>}
             {x.userId === me.id && <button type="button" className="bk-link" onClick={() => setEdit(true)}>Sửa</button>}
             {canDelete && <button type="button" className="bk-link" onClick={async () => { if (await askConfirm('Xoá bình luận này?')) act(() => api.deleteComment(x.id)); }}>Xoá</button>}
@@ -472,6 +473,7 @@ function Comment({ x, me, who, canDelete, act, onReply, replies }: { x: CardDeta
                   <p className="cm-comment-h"><b>{r.userName}</b><span>{ago(r.createdAt)}{r.edited ? ' (đã sửa)' : ''}</span></p>
                   <div className="cm-comment-text"><RichView text={r.text} /></div>
                   <span className="cm-comment-a">
+                    <Reactions commentId={r.id} meId={me.id} initial={r.reactions} />
                     {onReply && <button type="button" className="bk-link" onClick={() => onReply(x.id, r.userName)}>Trả lời</button>}
                     {(r.userId === me.id || canDelete) && <button type="button" className="bk-link" onClick={async () => { if (await askConfirm('Xoá câu trả lời này?')) act(() => api.deleteComment(r.id)); }}>Xoá</button>}
                   </span>
