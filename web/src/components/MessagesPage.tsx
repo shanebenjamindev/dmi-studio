@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { openLink, openProfile, toast, useStore } from '../store';
-import type { ChatAttachment, ChatChannel, ChatMember, ChatMessage, Workspace } from '../types';
+import type { ChatAttachment, ChatChannel, ChatMember, ChatMessage, ChatRole, Workspace } from '../types';
 import { askConfirm, askText } from './AskDialog';
 import { Avatar, LogoImg } from './boardkit';
 import { BrandLoading } from './BrandLoading';
 import { ChannelSettings } from './ChannelSettings';
+import { ServerSettings } from './ServerSettings';
 import { Attachments, ChatFilesPanel, ContextMenu, KindIcon, bytes, copy, dragsFiles, menuAt, uploadTo, type CtxItem, type CtxState } from './ChatFiles';
 import { formatChatTime, formatOnlineStatus, getConvReadAt, isUserOnline, setConvReadAt } from './Messenger';
 import { Icon } from './ui';
@@ -145,6 +146,21 @@ export function MessagesPage() {
   useEffect(() => { setCan(OPEN); loadAccess(); }, [loadAccess]); // eslint-disable-line react-hooks/exhaustive-deps
   const [editing, setEditing] = useState<{ channel: ChatChannel; tab: 'overview' | 'perms' } | null>(null);
   const openSettings = (ch: ChatChannel, tab: 'overview' | 'perms' = 'overview') => setEditing({ channel: ch, tab });
+  // The open server's own roles (Cài đặt máy chủ, server/chat-roles.ts): names take the colour of the highest one held.
+  const [serverRoles, setServerRoles] = useState<{ roles: ChatRole[]; members: Record<string, string[]> }>({ roles: [], members: {} });
+  const [serverSettings, setServerSettings] = useState(false);
+  const loadRoles = useCallback(() => {
+    const server = serverId;
+    if (server === 'dm') return setServerRoles({ roles: [], members: {} });
+    api.chatRoles(server).then((r) => server === serverId && setServerRoles(r), () => {});
+  }, [serverId]);
+  useEffect(() => { loadRoles(); }, [loadRoles]);
+  /** A person's highest role in the open server. */
+  const topRole = (userId: string) => {
+    const mine = serverRoles.members[userId];
+    return mine ? serverRoles.roles.find((r) => mine.includes(r.id)) || null : null;
+  };
+  const roleColor = (userId: string) => (topRole(userId)?.color ? { color: topRole(userId)!.color } : undefined);
 
   // Keep activeChannelId valid when switching servers
   useEffect(() => {
@@ -417,6 +433,51 @@ export function MessagesPage() {
     return [...map.entries()];
   }, [currentServerChannels]);
 
+  // Dragging, for who manages the server: a channel to another place or category, a category with its channels.
+  type Drag = { kind: 'channel'; id: string } | { kind: 'cat'; cat: string };
+  type Spot = { kind: 'channel'; id: string; after: boolean } | { kind: 'cat'; cat: string; after: boolean };
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const [spot, setSpot] = useState<Spot | null>(null);
+  const endDrag = () => { setDrag(null); setSpot(null); };
+  const half = (e: React.DragEvent) => { const r = e.currentTarget.getBoundingClientRect(); return e.clientY > r.top + r.height / 2; };
+  const overChannel = (e: React.DragEvent, ch: BuiltinChannel) => {
+    if (!drag) return;
+    e.preventDefault(); e.stopPropagation();
+    setSpot(drag.kind === 'channel' ? { kind: 'channel', id: ch.id, after: half(e) } : { kind: 'cat', cat: ch.category, after: true });
+  };
+  const overCategory = (e: React.DragEvent, cat: string) => {
+    if (!drag) return;
+    e.preventDefault(); e.stopPropagation();
+    // A channel dropped on a category's name goes first in it; a category, before or after this one.
+    setSpot({ kind: 'cat', cat, after: drag.kind === 'cat' && half(e) });
+  };
+  const dropHere = async () => {
+    const d = drag, s = spot;
+    endDrag();
+    if (!d || !s) return;
+    const groups = channelsByCategory.map(([cat, list]) => [cat, list.map((c) => c.id)] as [string, string[]]);
+    if (d.kind === 'channel') {
+      for (const g of groups) g[1] = g[1].filter((id) => id !== d.id);
+      const g = groups.find(([cat, ids]) => (s.kind === 'cat' ? cat === s.cat : ids.includes(s.id)));
+      if (!g) return;
+      const at = s.kind === 'cat' ? 0 : g[1].indexOf(s.id) + (s.after ? 1 : 0);
+      g[1].splice(at, 0, d.id);
+    } else {
+      if (s.kind !== 'cat' || s.cat === d.cat) return;
+      const moved = groups.find(([cat]) => cat === d.cat)!;
+      groups.splice(groups.indexOf(moved), 1);
+      groups.splice(groups.findIndex(([cat]) => cat === s.cat) + (s.after ? 1 : 0), 0, moved);
+    }
+    const order = groups.flatMap(([cat, ids]) => ids.map((id) => ({ id, category: cat })));
+    const before = customChannels, byId = new Map(customChannels.map((c) => [c.id, c]));
+    const placed = order.map((o) => ({ ...byId.get(o.id)!, category: o.category }));
+    if (placed.every((c, i) => c.id === currentServerChannels[i]?.id && c.category === currentServerChannels[i]?.category)) return;
+    setCustomChannels([...customChannels.filter((c) => c.serverId !== serverId), ...placed]);
+    try { await api.orderChatChannels(serverId, order); } catch (err: any) { setCustomChannels(before); toast(err.message, true); }
+  };
+  const spotClass = (k: 'channel' | 'cat', key: string) => (spot && spot.kind === k && (k === 'channel' ? (spot as any).id : (spot as any).cat) === key
+    ? (k === 'cat' && drag?.kind === 'channel' ? ' is-drop-in' : spot.after ? ' is-drop-after' : ' is-drop-before') : '');
+
   // Filter messages by search query
   const filteredMessages = useMemo(() => {
     const q = fold(searchQuery.trim());
@@ -486,6 +547,7 @@ export function MessagesPage() {
       id === 'company' && companyUnread > 0 && { label: 'Đánh dấu đã đọc', icon: 'check', run: () => [...CHANNEL_KEYS].forEach(markRead) },
       'sep',
       id === serverId && can.manage && { label: 'Tạo kênh', icon: 'plus', run: () => newChannelIn(id === 'company' ? 'KÊNH CHUNG' : 'KÊNH NHÃN HÀNG', id) },
+      id === serverId && can.manage && { label: 'Cài đặt máy chủ: role và quyền', icon: 'gear', run: () => setServerSettings(true) },
       ws && { label: 'Thành viên workspace', icon: 'users', run: () => openLink(`#boards/ws/${ws.id}`) },
       'sep',
       { label: 'Sao chép tên', icon: 'copy', run: () => void copy(name, 'tên') },
@@ -663,6 +725,11 @@ export function MessagesPage() {
           ) : (
             <div className="dc-srv-header-row">
               <h2 className="dc-srv-title" title={currentServerTitle}>{currentServerTitle}</h2>
+              {can.manage && (
+                <button type="button" className="dc-icon-btn" onClick={() => setServerSettings(true)} title="Cài đặt máy chủ: role và quyền" aria-label="Cài đặt máy chủ">
+                  <Icon name="gear" size={15} />
+                </button>
+              )}
               {can.manage && <button
                 type="button"
                 className="dc-icon-btn"
@@ -753,8 +820,16 @@ export function MessagesPage() {
               {channelsByCategory.map(([cat, chList]) => {
                 const folded = !!foldedCats[cat];
                 return (
-                  <section key={cat} className="dc-cat-group">
-                    <div className="dc-cat-head" onContextMenu={(e) => categoryMenu(e, cat)}>
+                  <section key={cat} className={`dc-cat-group${drag?.kind === 'cat' && drag.cat === cat ? ' is-dragging' : ''}`}>
+                    <div
+                      className={`dc-cat-head${spotClass('cat', cat)}`}
+                      onContextMenu={(e) => categoryMenu(e, cat)}
+                      draggable={can.manage}
+                      onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', cat); setDrag({ kind: 'cat', cat }); }}
+                      onDragEnd={endDrag}
+                      onDragOver={(e) => overCategory(e, cat)}
+                      onDrop={(e) => { e.preventDefault(); void dropHere(); }}
+                    >
                       <button
                         type="button"
                         className="dc-cat-toggle"
@@ -780,7 +855,16 @@ export function MessagesPage() {
                         const active = activeChannel?.id === ch.id;
                         const unread = CHANNEL_KEYS.has(ch.id) ? unreadMap[ch.id] || 0 : 0;
                         return (
-                          <div key={ch.id} className={`dc-chan-row${active ? ' is-active' : ''}${unread > 0 ? ' is-unread' : ''}`} onContextMenu={(e) => channelMenu(e, ch, unread)}>
+                          <div
+                            key={ch.id}
+                            className={`dc-chan-row${active ? ' is-active' : ''}${unread > 0 ? ' is-unread' : ''}${drag?.kind === 'channel' && drag.id === ch.id ? ' is-dragging' : ''}${spotClass('channel', ch.id)}`}
+                            onContextMenu={(e) => channelMenu(e, ch, unread)}
+                            draggable={can.manage}
+                            onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', `#${ch.name}`); setDrag({ kind: 'channel', id: ch.id }); }}
+                            onDragEnd={endDrag}
+                            onDragOver={(e) => overChannel(e, ch)}
+                            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); void dropHere(); }}
+                          >
                             <button
                               type="button"
                               className="dc-chan-btn"
@@ -841,9 +925,9 @@ export function MessagesPage() {
           <button
             type="button"
             className="dc-icon-btn"
-            onClick={() => openProfile(me.id)}
-            title="Cài đặt hồ sơ"
-            aria-label="Cài đặt hồ sơ"
+            onClick={() => (can.manage && serverId !== 'dm' ? setServerSettings(true) : openProfile(me.id))}
+            title={can.manage && serverId !== 'dm' ? 'Cài đặt máy chủ: role và quyền' : 'Cài đặt hồ sơ'}
+            aria-label={can.manage && serverId !== 'dm' ? 'Cài đặt máy chủ' : 'Cài đặt hồ sơ'}
           >
             <Icon name="gear" size={15} />
           </button>
@@ -1101,6 +1185,7 @@ export function MessagesPage() {
                               <button
                                 type="button"
                                 className="dc-msg-author"
+                                style={roleColor(msg.senderId)}
                                 onClick={() => openProfile(msg.senderId)}
                               >
                                 {msg.senderName}
@@ -1455,8 +1540,8 @@ export function MessagesPage() {
                     <span className="dc-status-dot is-online" />
                   </span>
                   <span className="dc-member-info">
-                    <b>{me.name} (bạn)</b>
-                    <small>{me.role === 'admin' ? 'Super Admin' : 'Đang hoạt động'}</small>
+                    <b style={roleColor(me.id)}>{me.name} (bạn)</b>
+                    <small>{topRole(me.id)?.name || (me.role === 'admin' ? 'Super Admin' : 'Đang hoạt động')}</small>
                   </span>
                 </button>
                 {onlineMembers.map((m) => {
@@ -1478,8 +1563,8 @@ export function MessagesPage() {
                         <span className="dc-status-dot is-online" />
                       </span>
                       <span className="dc-member-info">
-                        <b>{m.name}</b>
-                        <small>{r ? r.name : 'Đang hoạt động'}</small>
+                        <b style={roleColor(m.id)}>{m.name}</b>
+                        <small>{topRole(m.id)?.name || (r ? r.name : 'Đang hoạt động')}</small>
                       </span>
                     </button>
                   );
@@ -1508,8 +1593,8 @@ export function MessagesPage() {
                           <span className="dc-status-dot" />
                         </span>
                         <span className="dc-member-info">
-                          <b>{m.name}</b>
-                          <small>{r ? r.name : formatOnlineStatus(m.lastActive)}</small>
+                          <b style={roleColor(m.id)}>{m.name}</b>
+                          <small>{topRole(m.id)?.name || (r ? r.name : formatOnlineStatus(m.lastActive))}</small>
                         </span>
                       </button>
                     );
@@ -1522,6 +1607,16 @@ export function MessagesPage() {
       )}
 
       {ctx && <ContextMenu menu={ctx} onClose={closeCtx} />}
+      {serverSettings && serverId !== 'dm' && (
+        <ServerSettings
+          server={serverId}
+          title={currentServerTitle}
+          channels={currentServerChannels}
+          onClose={() => setServerSettings(false)}
+          onChanged={() => { loadRoles(); loadAccess(); }}
+          onChannel={(ch) => openSettings(ch, 'perms')}
+        />
+      )}
       {editing && (
         <ChannelSettings
           channel={editing.channel}

@@ -8,6 +8,8 @@
 // On top, each channel may say who sees it (a private channel) and who writes in it (the others only read), as people,
 // departments and roles of the site; those who manage Tin nhắn always see and write, and are the ones who set it.
 // Nobody writes in #co-gi-moi: the system posts there (server/chat-news.ts).
+// Each server also has roles of its own, made in Tin nhắn (server/chat-roles.ts): a role may add Nhắn tin and Quản lý
+// there to what the site gives, and channels name roles in their rules like departments.
 import type { Router } from './http';
 import { HttpError, json, readJson } from './http';
 import { all, get, run, now, getSetting, setSetting } from './db';
@@ -27,10 +29,23 @@ export async function serverOfChannel(channel: string) {
   if (custom) return String(custom.server_id || 'company');
   return /^ws_(.+)_[^_]+$/.exec(channel)?.[1] || 'company';
 }
+/** What a server's roles held by this person add: "send", "manage" (older roles said it in more words). */
+export const ROLE_PERMS = ['send', 'manage'] as const;
+export type RolePerm = (typeof ROLE_PERMS)[number];
+export const rolePerms = (s: string | null | undefined): RolePerm[] => {
+  let v: unknown[] = [];
+  try { v = JSON.parse(s || '[]'); } catch { /* none */ }
+  const has = (...p: string[]) => v.some((x) => p.includes(String(x)));
+  return ROLE_PERMS.filter((p) => (p === 'send' ? has('send') : has('manage', 'admin', 'manage_messages', 'manage_channels', 'manage_roles')));
+};
+async function heldIn(u: User, server: string) {
+  const rows = await all<any>("SELECT r.perms FROM chat_roles r JOIN chat_role_members m ON m.role_id = r.id WHERE r.server_id = ? AND m.user_id = ? AND r.id NOT LIKE '@%'", server, u.id);
+  return new Set(rows.flatMap((r) => rolePerms(r.perms)));
+}
 /** What this person may do in a server ('company' or a workspace id); direct messages ask the company's. */
 export async function chatRights(u: User, server = 'company') {
-  const site = (await accessOf(u)).perms;
-  const send = site.has('messages.create') && !(await muted()).has(u.id), manage = site.has('messages.manage');
+  const site = (await accessOf(u)).perms, roles = await heldIn(u, server);
+  const send = (site.has('messages.create') || roles.has('send')) && !(await muted()).has(u.id), manage = site.has('messages.manage') || roles.has('manage');
   if (server === 'company') return { member: true, send, manage };
   const w = await get<any>('SELECT owner_id, visibility FROM workspaces WHERE id = ?', server);
   const mine = w && await get<any>('SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?', server, u.id);
@@ -40,7 +55,8 @@ export async function chatRights(u: User, server = 'company') {
 }
 
 // ---------------------------------------------------------------- a channel's own rules
-/** Who: people ("u:<id>"), departments ("d:<id>") and roles ("r:<id>"). `all`: everyone (then `who` is unused). */
+/** Who: people ("u:<id>"), departments ("d:<id>"), the site's roles ("r:<id>") and the server's chat roles ("c:<id>").
+ *  `all`: everyone (then `who` is unused). */
 export interface Rule { view: { all: boolean; who: string[] }; send: { all: boolean; who: string[] } }
 const OPEN: Rule = { view: { all: true, who: [] }, send: { all: true, who: [] } };
 async function ruleOf(channel: string): Promise<Rule> {
@@ -54,7 +70,8 @@ async function stored(channel: string): Promise<Rule> {
 /** What this person is, in the terms a rule names them by. */
 async function tagsOf(u: User) {
   const roles = (await all<any>('SELECT role_id FROM user_roles WHERE user_id = ?', u.id)).map((r) => `r:${r.role_id}`);
-  return new Set([`u:${u.id}`, ...(u.team_role ? [`d:${u.team_role}`] : []), ...roles, `r:role_${MEMBER}`]);
+  const chat = (await all<any>('SELECT role_id FROM chat_role_members WHERE user_id = ?', u.id)).map((r) => `c:${r.role_id}`);
+  return new Set([`u:${u.id}`, ...(u.team_role ? [`d:${u.team_role}`] : []), ...roles, ...chat, `r:role_${MEMBER}`]);
 }
 /** In a channel: whether this person sees it and writes in it (its rules on top of the server's rights). */
 export async function channelRights(u: User, channel: string, server?: string) {
@@ -110,15 +127,17 @@ export function registerChatPerms(api: Router) {
     json(res, 200, { send: r.send, manage: r.manage, channels });
   });
 
-  // A channel's rules, and what can be picked for them: people, departments and roles of the site.
+  // A channel's rules, and what can be picked for them: people, departments and roles of the site, the server's roles.
   api.get('/api/chat/channels/:id/rules', async (req, res) => {
-    await needInServer((await currentUser(req))!, await serverOfChannel(req.params.id), 'manage');
+    const server = await serverOfChannel(req.params.id);
+    await needInServer((await currentUser(req))!, server, 'manage');
     json(res, 200, {
       ...await ruleOf(req.params.id),
       options: {
         people: await all<any>('SELECT id, name, email FROM users WHERE disabled = 0 ORDER BY name COLLATE NOCASE'),
         departments: await all<any>('SELECT id, name, color FROM team_roles ORDER BY pos, name'),
         roles: await all<any>('SELECT id, name FROM roles ORDER BY rank DESC, name'),
+        chatRoles: await all<any>("SELECT id, name, color FROM chat_roles WHERE server_id = ? AND id NOT LIKE '@%' ORDER BY position DESC, created_at", server),
       },
     });
   });
@@ -129,6 +148,7 @@ export function registerChatPerms(api: Router) {
       ...(await all<any>('SELECT id FROM users')).map((r) => `u:${r.id}`),
       ...(await all<any>('SELECT id FROM team_roles')).map((r) => `d:${r.id}`),
       ...(await all<any>('SELECT id FROM roles')).map((r) => `r:${r.id}`),
+      ...(await all<any>("SELECT id FROM chat_roles WHERE id NOT LIKE '@%'")).map((r) => `c:${r.id}`),
     ]);
     const part = (v: any) => ({ all: v?.all !== false, who: v?.all === false && Array.isArray(v.who) ? [...new Set<string>(v.who.map(String))].filter((t) => known.has(t)).slice(0, 500) : [] });
     const next: Rule = { view: part(b.view), send: part(b.send) }, before = await ruleOf(req.params.id);

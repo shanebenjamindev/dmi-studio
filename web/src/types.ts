@@ -275,6 +275,9 @@ export interface ChatChannel {
   system?: boolean;
 }
 /** Who sees and who writes in a channel: everyone, or the departments ("d:"), roles ("r:") and people ("u:") picked. */
+/** A server's own role in Tin nhắn (server/chat-roles.ts): what it adds there, and how many hold it. */
+export type ChatRolePerm = 'send' | 'manage';
+export interface ChatRole { id: string; name: string; color: string; position: number; perms: ChatRolePerm[]; members: number }
 export interface ChannelRules { view: { all: boolean; who: string[] }; send: { all: boolean; who: string[] } }
 export interface ChatMember {
   id: string;

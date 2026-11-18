@@ -1,6 +1,6 @@
 // Chỉnh sửa kênh, as Discord's channel settings, for who manages Tin nhắn: its name, topic and category (and deleting
 // it), and its permissions: who sees it (a private channel) and who writes in it (the others only read), picked among
-// the site's departments, roles and people (server/chat-perms.ts).
+// the server's chat roles and the site's departments, roles and people (server/chat-perms.ts).
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { toast } from '../store';
@@ -8,7 +8,7 @@ import type { ChannelRules, ChatChannel } from '../types';
 import { askConfirm } from './AskDialog';
 import { Icon } from './ui';
 
-type Options = { people: { id: string; name: string; email: string }[]; departments: { id: string; name: string; color: string }[]; roles: { id: string; name: string }[] };
+type Options = { people: { id: string; name: string; email: string }[]; departments: { id: string; name: string; color: string }[]; roles: { id: string; name: string }[]; chatRoles: { id: string; name: string; color: string }[] };
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase();
 
 export function ChannelSettings({ channel, categories, startTab = 'overview', onClose, onSaved, onDeleted }: {
@@ -71,7 +71,7 @@ export function ChannelSettings({ channel, categories, startTab = 'overview', on
                 <Rule title="Ai được nhắn trong kênh" all="Mọi người xem được kênh" some="Chỉ những người được chọn (người khác chỉ đọc)"
                   value={rules.send} options={options} onChange={(send) => setRules({ ...rules, send })} />
               )}
-              <p className="note">Người quản lý Tin nhắn (Quản trị › Phân quyền) luôn xem và nhắn được trong mọi kênh.</p>
+              <p className="note">Người quản lý Tin nhắn (Quản trị › Phân quyền, hoặc role chat có quyền Quản lý) luôn xem và nhắn được trong mọi kênh.</p>
             </>
           )}
         </div>
@@ -90,6 +90,7 @@ function Rule({ title, all, some, value, options, onChange }: {
 }) {
   const [q, setQ] = useState('');
   const items = useMemo(() => [
+    ...options.chatRoles.map((r) => ({ tag: `c:${r.id}`, label: r.name, kind: 'Role chat', color: r.color })),
     ...options.departments.map((d) => ({ tag: `d:${d.id}`, label: d.name, kind: 'Phòng ban', color: d.color })),
     ...options.roles.map((r) => ({ tag: `r:${r.id}`, label: r.name, kind: 'Vai trò', color: '' })),
     ...options.people.map((p) => ({ tag: `u:${p.id}`, label: p.name, kind: 'Nhân viên', color: '', sub: p.email })),
@@ -111,7 +112,7 @@ function Rule({ title, all, some, value, options, onChange }: {
             ); })}
             {!value.who.length && <small>Chưa chọn ai: chỉ người quản lý Tin nhắn.</small>}
           </div>
-          <input className="bk-in" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm phòng ban, vai trò hoặc nhân viên…" />
+          <input className="bk-in" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm role chat, phòng ban, vai trò hoặc nhân viên…" />
           {found.length > 0 && <ul className="cs-found">{found.map((i) => (
             <li key={i.tag}><button onClick={() => { toggle(i.tag); setQ(''); }}><em>{i.kind}</em>{i.color && <i style={{ background: i.color }} />}<b>{i.label}</b>{(i as any).sub && <small>{(i as any).sub}</small>}</button></li>
           ))}</ul>}

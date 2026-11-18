@@ -174,8 +174,19 @@ export const api = {
   deleteChatChannel: (id: string) => req('DELETE', `/api/chat/channels/${id}`),
   updateChatChannel: (id: string, b: Partial<{ name: string; topic: string; category: string }>) => req<import('./types').ChatChannel>('PUT', `/api/chat/channels/${encodeURIComponent(id)}`, b),
   renameChatCategory: (server: string, from: string, to: string) => req('PUT', `/api/chat/servers/${encodeURIComponent(server)}/categories`, { from, to }),
-  channelRules: (id: string) => req<import('./types').ChannelRules & { options: { people: { id: string; name: string; email: string }[]; departments: { id: string; name: string; color: string }[]; roles: { id: string; name: string }[] } }>('GET', `/api/chat/channels/${encodeURIComponent(id)}/rules`),
+  channelRules: (id: string) => req<import('./types').ChannelRules & { options: { people: { id: string; name: string; email: string }[]; departments: { id: string; name: string; color: string }[]; roles: { id: string; name: string }[]; chatRoles: { id: string; name: string; color: string }[] } }>('GET', `/api/chat/channels/${encodeURIComponent(id)}/rules`),
+  orderChatChannels: (server: string, order: { id: string; category: string }[]) => req('PUT', `/api/chat/servers/${encodeURIComponent(server)}/channel-order`, { order }),
   setChannelRules: (id: string, b: import('./types').ChannelRules) => req<import('./types').ChannelRules>('PUT', `/api/chat/channels/${encodeURIComponent(id)}/rules`, b),
+  // A server's own roles (Cài đặt máy chủ of Tin nhắn).
+  chatRoles: (server: string) => req<{ roles: import('./types').ChatRole[]; members: Record<string, string[]> }>('GET', `/api/chat/servers/${encodeURIComponent(server)}/roles`),
+  createChatRole: (server: string, b: { name: string; color?: string }) => req<import('./types').ChatRole>('POST', `/api/chat/servers/${encodeURIComponent(server)}/roles`, b),
+  updateChatRole: (server: string, id: string, b: Partial<{ name: string; color: string; perms: import('./types').ChatRolePerm[] }>) =>
+    req<import('./types').ChatRole>('PUT', `/api/chat/servers/${encodeURIComponent(server)}/roles/${encodeURIComponent(id)}`, b),
+  orderChatRoles: (server: string, ids: string[]) => req('PUT', `/api/chat/servers/${encodeURIComponent(server)}/role-order`, { ids }),
+  deleteChatRole: (server: string, id: string) => req('DELETE', `/api/chat/servers/${encodeURIComponent(server)}/roles/${encodeURIComponent(id)}`),
+  chatServerMembers: (server: string) => req<{ id: string; name: string; email: string }[]>('GET', `/api/chat/servers/${encodeURIComponent(server)}/members`),
+  setChatMemberRoles: (server: string, userId: string, roles: string[]) =>
+    req<{ roles: string[] }>('PUT', `/api/chat/servers/${encodeURIComponent(server)}/members/${encodeURIComponent(userId)}/roles`, { roles }),
   chatMessages: (channel: string = 'general', recipientId?: string, since = 0) =>
     req<ChatMessage[]>('GET', `/api/chat/messages?channel=${encodeURIComponent(channel)}${recipientId ? `&recipientId=${encodeURIComponent(recipientId)}` : ''}${since ? `&since=${since}` : ''}`),
   sendChatMessage: (message: string, channel: string = 'general', recipientId?: string, replyToId?: string | null, attachments: string[] = []) =>

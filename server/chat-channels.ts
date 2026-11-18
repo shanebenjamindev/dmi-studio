@@ -1,5 +1,6 @@
 // The channels of Tin nhắn, kept here (not in the page): each server starts with its usual channels, made once (one an
-// admin deletes stays deleted), and those who manage Tin nhắn add, rename, move to another category and delete them.
+// admin deletes stays deleted), and those who manage Tin nhắn add, rename, move to another category and delete them, and
+// drag them into another order or category.
 // #general stays: the small chat window talks there. A channel's list shows only those its viewer may see
 // (server/chat-perms.ts), so a private channel's name stays private. #co-gi-moi, the system's, came later: it is made
 // once on its own (server/chat-news.ts).
@@ -60,7 +61,7 @@ export function registerChatChannels(api: Router) {
     const u = (await currentUser(req))!;
     await seed();
     const rights = rightsMemo(u), list: ReturnType<typeof out>[] = [];
-    for (const r of await all<any>('SELECT * FROM chat_channels ORDER BY created_at ASC')) {
+    for (const r of await all<any>('SELECT * FROM chat_channels ORDER BY position ASC, created_at ASC')) {
       const c = await rights(r.id, r.server_id || 'company');
       if (c.view) list.push(out(r, { private: c.private, readOnly: c.readOnly }));
     }
@@ -72,7 +73,9 @@ export function registerChatChannels(api: Router) {
     const serverId = String(b.serverId || 'company').trim() || 'company';
     await needInServer(u, serverId, 'manage');
     const id = `ch_${uid('').slice(0, 12)}`, t = now();
-    await run('INSERT INTO chat_channels(id, server_id, category, name, topic, created_by, created_at) VALUES(?,?,?,?,?,?,?)', id, serverId, category(b.category), name, String(b.topic || '').trim().slice(0, 200), u.id, t);
+    // Last of its server's list.
+    const last = Number((await get<any>('SELECT MAX(position) p FROM chat_channels WHERE server_id = ?', serverId))?.p) || 0;
+    await run('INSERT INTO chat_channels(id, server_id, category, name, topic, created_by, created_at, position) VALUES(?,?,?,?,?,?,?,?)', id, serverId, category(b.category), name, String(b.topic || '').trim().slice(0, 200), u.id, t, last + 1);
     json(res, 201, out(await mustChannel(id), { private: false, readOnly: false }));
   });
   // Its name, topic and category.
@@ -83,6 +86,15 @@ export function registerChatChannels(api: Router) {
     if (!name) throw new HttpError(400, 'Hãy nhập tên kênh');
     await run('UPDATE chat_channels SET name = ?, topic = ?, category = ? WHERE id = ?', name, b.topic !== undefined ? String(b.topic).trim().slice(0, 200) : ch.topic, b.category !== undefined ? category(b.category, ch.category) : ch.category, ch.id);
     json(res, 200, out(await mustChannel(ch.id), { private: false, readOnly: false }));
+  });
+  // The server's channels in a new order, each with its category (dragged in the list): `order` [{ id, category }].
+  api.put('/api/chat/servers/:server/channel-order', async (req, res) => {
+    const u = (await currentUser(req))!, b = await readJson(req), server = req.params.server;
+    await needInServer(u, server, 'manage');
+    const mine = new Set((await all<any>('SELECT id FROM chat_channels WHERE server_id = ?', server)).map((r) => r.id));
+    const order = (Array.isArray(b.order) ? b.order : []).filter((c: any) => mine.has(String(c?.id)));
+    for (const [i, c] of order.entries()) await run('UPDATE chat_channels SET position = ?, category = ? WHERE id = ?', i + 1, category(c.category), String(c.id));
+    json(res, 200, { ok: true });
   });
   // A category renamed: every channel of the server in it.
   api.put('/api/chat/servers/:server/categories', async (req, res) => {

@@ -311,10 +311,26 @@ CREATE INDEX IF NOT EXISTS chat_items_folder ON chat_items(conversation, parent_
 CREATE TABLE IF NOT EXISTS chat_channel_rules (
   channel_id TEXT PRIMARY KEY, rules TEXT NOT NULL, updated_by TEXT, updated_at INTEGER NOT NULL
 );
--- Tin nhắn had roles of its own for a day: it follows Quản trị › Phân quyền instead (server/chat-perms.ts)
+-- A server's own roles in Tin nhắn, as on Discord: a name, a colour, a place in the order and what they add to the
+-- site's permissions ("send", "manage"), and who holds them. Channels name them in their rules (server/chat-roles.ts)
+CREATE TABLE IF NOT EXISTS chat_roles (
+  id TEXT PRIMARY KEY,
+  server_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL DEFAULT 0,
+  perms TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_roles_server ON chat_roles(server_id, position);
+CREATE TABLE IF NOT EXISTS chat_role_members (
+  role_id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (role_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS chat_role_members_user ON chat_role_members(user_id);
+-- The first roles' per-channel overrides gave way to chat_channel_rules
 DROP TABLE IF EXISTS chat_channel_perms;
-DROP TABLE IF EXISTS chat_role_members;
-DROP TABLE IF EXISTS chat_roles;
 -- When each person last read each conversation (general, or the other person of a direct chat), kept on the server so
 -- unread counts agree on every device. No semicolons in these notes: D1 runs the schema split at each one.
 CREATE TABLE IF NOT EXISTS chat_reads (

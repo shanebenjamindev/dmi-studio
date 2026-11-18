@@ -13,6 +13,8 @@ export const UPDATES: Update[] = [
     id: '2026-11-18-3',
     date: '18/11/2026',
     items: [
+      { kind: 'new', vi: 'Cài đặt máy chủ trong Tin nhắn (nút ⚙ cạnh tên máy chủ): tạo role riêng của từng máy chủ như Discord (tên, màu, thứ tự), bật quyền Nhắn tin hoặc Quản lý cho role, gán role cho thành viên. Tên trong chat mang màu role cao nhất; quyền từng kênh chọn được theo role.', en: 'Server settings in Messages (the ⚙ next to the server name): make each server\'s own roles as on Discord (name, colour, order), give a role Send or Manage, and assign roles to members. Names in the chat take their highest role\'s colour, and each channel\'s permissions can pick roles.' },
+      { kind: 'new', vi: 'Kéo thả kênh để đổi thứ tự hoặc chuyển sang danh mục khác, kéo tên danh mục để đổi thứ tự danh mục (dành cho người quản lý Tin nhắn).', en: 'Drag channels to reorder them or move them to another category, and drag a category\'s name to reorder categories (for who manages Messages).' },
       { kind: 'new', vi: 'Tin nhắn có kênh #co-gi-moi của hệ thống: mỗi lần DMI Workspace cập nhật, bản tin Có gì mới tự đăng vào kênh và kênh hiện số chưa đọc. Mở kênh để xem lại mọi bản cập nhật trước đó; không ai nhắn trong kênh này.', en: 'Messages has the system\'s #co-gi-moi channel: each time DMI Workspace is updated, its What\'s new is posted there and the channel shows it unread. Open it to look back at every earlier update; nobody writes in it.' },
     ],
   },
