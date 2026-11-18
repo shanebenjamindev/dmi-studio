@@ -63,6 +63,8 @@ export const api = {
   mailThread:(id:string)=>req<MailThread>('GET',`/api/mailbox/threads/${encodeURIComponent(id)}`),
   markMailThread:(id:string,change:{unread?:boolean;starred?:boolean;archive?:boolean;spam?:boolean;trash?:boolean})=>req('POST',`/api/mailbox/threads/${encodeURIComponent(id)}/modify`,change),
   mailSettings:(change:{signature?:string;signatureOn?:boolean})=>req('PUT','/api/mailbox/settings',change),
+  /** Addresses suggested as a recipient is typed: written to lately, the company's people, its customers' contacts. */
+  mailContacts:()=>req<{name:string;email:string;kind:'recent'|'staff'|'customer';note?:string}[]>('GET','/api/mailbox/contacts'),
   gmailSignature:()=>req<{signature:string}>('GET','/api/mailbox/gmail-signature'),
   sendMail:(draft:MailDraft)=>req<{id:string;threadId:string}>('POST','/api/mailbox/send',draft),
   notificationInbox:()=>req<NotificationInbox>('GET','/api/notifications/inbox'),

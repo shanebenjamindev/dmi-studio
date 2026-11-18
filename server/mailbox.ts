@@ -6,6 +6,7 @@ import { HttpError, json, readJson, publicOrigin, untrustedHeaders } from './htt
 import { all, get, getSetting, run } from './db';
 import { currentUser } from './auth';
 import * as G from './google';
+import { customerAccessSql } from './customer-access';
 import { buildMime, findPart, header, parseAddresses, person, readParts, type GPart } from './gmail-mime';
 
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
@@ -66,7 +67,49 @@ function threadRow(t: any) {
   };
 }
 
+/** Who this person wrote to lately (To and Cc of their last sent messages), most often first: asked of Gmail at most
+ *  every quarter hour per person. */
+const recentCache = new Map<string, { at: number; list: { name: string; email: string }[] }>();
+async function recentPeople(box: Box) {
+  const hit = recentCache.get(box.user_id);
+  if (hit && Date.now() - hit.at < 15 * 60_000) return hit.list;
+  const ids: string[] = ((await gmail(box, '/messages?labelIds=SENT&maxResults=30')).messages || []).map((m: any) => m.id);
+  const metas = await Promise.all(ids.map((id) => gmail(box, `/messages/${gid(id)}?format=metadata&metadataHeaders=To&metadataHeaders=Cc`).catch(() => null)));
+  const count = new Map<string, { name: string; email: string; n: number }>();
+  for (const m of metas) for (const h of ['To', 'Cc']) for (const raw of (header(m?.payload, h) || '').split(',')) {
+    const p = person(raw.trim());
+    if (!p.email || p.email === box.email.toLowerCase()) continue;
+    const c = count.get(p.email) || { name: '', email: p.email, n: 0 };
+    c.n++; if (p.name && p.name !== p.email) c.name = p.name;
+    count.set(p.email, c);
+  }
+  const list = [...count.values()].sort((a, b) => b.n - a.n).map(({ name, email }) => ({ name, email }));
+  recentCache.set(box.user_id, { at: Date.now(), list });
+  return list;
+}
+
 export function registerMailbox(api: Router) {
+  // Addresses to suggest as a recipient is typed, as Gmail does: people written to lately, the company's people, and
+  // the contacts of the customers this person may see.
+  api.get('/api/mailbox/contacts', async (req, res) => {
+    const u = await me(req), box = await boxOf(u.id);
+    const recent = box ? await recentPeople(box).catch(() => []) : [];
+    const staff = await all<any>('SELECT name, email FROM users WHERE disabled = 0 ORDER BY name COLLATE NOCASE');
+    const customers = await all<any>(`SELECT c.name, c.contact, c.email FROM customers c WHERE c.email IS NOT NULL AND c.email != '' AND ${customerAccessSql()} ORDER BY c.name COLLATE NOCASE`, u.id, u.id, u.id);
+    const out = new Map<string, { name: string; email: string; kind: 'recent' | 'staff' | 'customer'; note?: string }>();
+    const add = (email: string, name: string, kind: 'recent' | 'staff' | 'customer', note?: string) => {
+      const e = String(email || '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) || out.has(e) || e === (box?.email || '').toLowerCase() || e === u.email.toLowerCase()) return;
+      out.set(e, { name: String(name || '').trim(), email: e, kind, ...(note ? { note } : {}) });
+    };
+    for (const p of recent) add(p.email, p.name, 'recent');
+    for (const p of staff) add(p.email, p.name, 'staff');
+    for (const c of customers) add(c.email, c.contact || c.name, 'customer', c.name);
+    // A name learnt from the company or a customer is better than none from Gmail.
+    for (const p of staff) { const r = out.get(String(p.email).toLowerCase()); if (r && !r.name) r.name = p.name; }
+    json(res, 200, [...out.values()]);
+  });
+
   api.get('/api/mailbox', async (req, res) => {
     const box = await boxOf((await me(req)).id), c = await G.oauthConfig();
     if (!box) return json(res, 200, { connected: false, googleConfigured: !!(c.clientId && c.clientSecret) });

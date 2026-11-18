@@ -257,6 +257,70 @@ function MessageView({ m, startOpen }: { m: MailMessage; startOpen: boolean }) {
   );
 }
 
+type Contact = Awaited<ReturnType<typeof api.mailContacts>>[number];
+let contactsOnce: Promise<Contact[]> | null = null;
+/** The suggestions, asked once per page (again after a failure). */
+const mailContacts = () => (contactsOnce ||= api.mailContacts().catch(() => { contactsOnce = null; return []; }));
+const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase();
+const KIND: Record<Contact['kind'], string> = { recent: 'Gần đây', staff: 'Nhân viên', customer: 'Khách hàng' };
+
+/** A recipients field (comma separated) that suggests addresses as the last one is typed, as Gmail does: ↑ ↓ to move,
+ *  Enter or Tab to take one, Esc to close. */
+function Recipients({ value, onChange, label, placeholder, autoFocus }: { value: string; onChange: (v: string) => void; label: string; placeholder?: string; autoFocus?: boolean }) {
+  const [all, setAll] = useState<Contact[]>([]), [open, setOpen] = useState(false), [hi, setHi] = useState(0);
+  const [at, setAt] = useState<{ left: number; top: number; width: number } | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => { void mailContacts().then(setAll); }, []);
+  const parts = value.split(/[,;]/), q = fold(parts[parts.length - 1].trim());
+  const taken = new Set(parts.slice(0, -1).map((p) => (p.match(/<([^>]+)>/)?.[1] ?? p).trim().toLowerCase()));
+  const hits = !q ? [] : all
+    .filter((c) => !taken.has(c.email))
+    .map((c) => {
+      const name = fold(c.name), local = c.email.split('@')[0];
+      // Best first: a name or address that starts with what was typed, then a word of the name, then anywhere.
+      const rank = name.startsWith(q) || c.email.startsWith(q) ? 0 : name.split(/\s+/).some((w) => w.startsWith(q)) || local.split(/[._-]/).some((w) => w.startsWith(q)) ? 1 : name.includes(q) || c.email.includes(q) ? 2 : -1;
+      return { c, rank };
+    })
+    .filter((x) => x.rank >= 0)
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, 8)
+    .map((x) => x.c);
+  const shown = open && hits.length > 0;
+  const place = () => { const r = input.current?.closest('.mb-c-row')?.getBoundingClientRect(); if (r) setAt({ left: r.left, top: r.bottom, width: Math.min(r.width, 460) }); };
+  const pick = (c: Contact) => {
+    const name = c.name.replace(/[,;<>"]/g, ' ').trim();
+    onChange([...parts.slice(0, -1).map((p) => p.trim()).filter(Boolean), name && name.toLowerCase() !== c.email ? `${name} <${c.email}>` : c.email].join(', ') + ', ');
+    setHi(0);
+    input.current?.focus();
+  };
+  const key = (e: React.KeyboardEvent) => {
+    if (!shown) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHi((hi + 1) % hits.length); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHi((hi - 1 + hits.length) % hits.length); }
+    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pick(hits[Math.min(hi, hits.length - 1)]); }
+    else if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); }
+  };
+  return (
+    <>
+      <input ref={input} autoFocus={autoFocus} value={value} placeholder={placeholder} aria-label={label} autoComplete="off" role="combobox" aria-expanded={shown} aria-autocomplete="list"
+        onChange={(e) => { onChange(e.target.value); setHi(0); setOpen(true); place(); }}
+        onFocus={() => { setOpen(true); place(); }} onBlur={() => setTimeout(() => setOpen(false), 150)} onKeyDown={key} />
+      {shown && at && createPortal(
+        <ul className="mb-sug" role="listbox" aria-label={`Gợi ý ${label}`} style={{ left: at.left, top: at.top, width: at.width }}>
+          {hits.map((c, i) => (
+            <li key={c.email} role="option" aria-selected={i === hi}>
+              <button type="button" className={i === hi ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pick(c); }} onMouseEnter={() => setHi(i)}>
+                <i>{(c.name || c.email).slice(0, 1).toUpperCase()}</i>
+                <span><b>{c.name || c.email}</b><small>{c.email}</small></span>
+                <em>{c.kind === 'customer' && c.note ? c.note : KIND[c.kind]}</em>
+              </button>
+            </li>
+          ))}
+        </ul>, document.body)}
+    </>
+  );
+}
+
 /** Writing a message, as Gmail does. `window`: a new message, in a window docked at the bottom right that folds down to
  *  its bar, opens up large or closes, with the page usable around it. `inline`: a reply or forward, at the foot of the
  *  conversation. Plain fields with no boxes (Người nhận, Tiêu đề), the text below, and Gửi with the attachments under it. */
@@ -286,12 +350,12 @@ function Compose({ mode, draft, from, sig, onClose, onSent }: { mode: 'window' |
     <fieldset className="mb-c-body" disabled={busy}>
       <div className="mb-c-row">
         <span>{reply ? <Icon name="undo" size={14} /> : 'Đến'}</span>
-        <input autoFocus={!d.to} value={d.to} onChange={(e) => setD({ ...d, to: e.target.value })} placeholder="Người nhận" aria-label="Người nhận" />
+        <Recipients autoFocus={!d.to} value={d.to} onChange={(to) => setD((x) => ({ ...x, to }))} placeholder="Người nhận" label="Người nhận" />
         {!cc && <button type="button" className="mb-c-link" onClick={() => setCc(true)}>Cc</button>}
         {!bcc && <button type="button" className="mb-c-link" onClick={() => setBcc(true)}>Bcc</button>}
       </div>
-      {cc && <div className="mb-c-row"><span>Cc</span><input value={d.cc || ''} onChange={(e) => setD({ ...d, cc: e.target.value })} aria-label="Cc" /></div>}
-      {bcc && <div className="mb-c-row"><span>Bcc</span><input value={d.bcc || ''} onChange={(e) => setD({ ...d, bcc: e.target.value })} aria-label="Bcc" /></div>}
+      {cc && <div className="mb-c-row"><span>Cc</span><Recipients value={d.cc || ''} onChange={(v) => setD((x) => ({ ...x, cc: v }))} label="Cc" /></div>}
+      {bcc && <div className="mb-c-row"><span>Bcc</span><Recipients value={d.bcc || ''} onChange={(v) => setD((x) => ({ ...x, bcc: v }))} label="Bcc" /></div>}
       {!reply && <div className="mb-c-row"><input value={d.subject} onChange={(e) => setD({ ...d, subject: e.target.value })} maxLength={500} placeholder="Tiêu đề" aria-label="Tiêu đề" /></div>}
       <MailEditor html={start} bar={formatting} autoFocus={!!d.to} onChange={(html, text) => setD((x) => ({ ...x, html, text }))} onSend={() => void send()} minHeight={mode === 'inline' ? 160 : undefined} />
       {!!files.length && <div className="mb-c-files">
