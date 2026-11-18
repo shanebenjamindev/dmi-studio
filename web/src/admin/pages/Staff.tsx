@@ -74,6 +74,8 @@ function StaffDrawer({ id, onClose, onChanged }: { id: string; onClose: () => vo
   const s = load.data, reload = () => { load.reload(); onChanged(); };
   const lock = async () => s && await askConfirm(s.disabled ? `Mở khoá tài khoản của ${s.name}?` : `Khoá tài khoản của ${s.name}? Người này bị đăng xuất khỏi mọi thiết bị và không đăng nhập được cho tới khi mở khoá.`)
     && act(() => admin.lockStaff(s.id, !s.disabled), s.disabled ? 'Đã mở khoá tài khoản' : 'Đã khoá tài khoản', reload);
+  const unlinkMail = async () => s && await askConfirm(`Gỡ email nhận thông báo ${s.notifyEmail} của ${s.name}? Người này chỉ còn nhận thông báo trên web.`)
+    && act(() => admin.updateStaff(s.id, { notifyEmail: null }), 'Đã gỡ email nhận thông báo', reload);
   const signOut = async () => s && await askConfirm(`Đăng xuất ${s.name} khỏi mọi thiết bị (${s.sessions} phiên đang mở)?`) && act(() => admin.signOutStaff(s.id), 'Đã đăng xuất mọi thiết bị', reload);
   if (editing && s) return <StaffForm staff={s} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reload(); }} />;
   return (
@@ -87,7 +89,7 @@ function StaffDrawer({ id, onClose, onChanged }: { id: string; onClose: () => vo
         <div className="ax-profile"><Avatar s={s} canEdit={!!s.canEdit} onChanged={reload} /><div><b>{s.name}</b><span>{s.position?.name || 'Chưa có chức vụ'}{s.department ? ` · ${s.department.name}` : ''}</span><span className="ax-badges"><StatusBadge s={s} /><RoleBadges s={s} /></span></div></div>
         <div className="ax-tabs" role="tablist">{([['profile', 'Hồ sơ'], ['work', 'Công việc'], ['access', 'Đăng nhập'], ['history', 'Lịch sử']] as const).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
         {tab === 'profile' && <dl className="ax-facts">
-          <dt>Email đăng nhập</dt><dd>{s.email}</dd><dt>Điện thoại</dt><dd>{s.phone || '—'}</dd><dt>Email nhận thông báo</dt><dd>{s.notifyEmail || '—'}</dd>
+          <dt>Email đăng nhập</dt><dd>{s.email}</dd><dt>Điện thoại</dt><dd>{s.phone || '—'}</dd><dt>Email nhận thông báo</dt><dd>{s.notifyEmail || '—'}{s.notifyEmail && s.canManage && s.id !== me.id && <> <button className="bk-link" onClick={unlinkMail}>Gỡ</button></>}</dd>
           <dt>Phòng ban</dt><dd>{s.department?.name || '—'}</dd><dt>Chức vụ</dt><dd>{s.position ? `${s.position.name} (${LEVEL[s.position.level] || s.position.level})` : '—'}</dd>
           <dt>Quản lý trực tiếp</dt><dd>{s.manager?.name || '—'}</dd><dt>Nhóm</dt><dd>{s.teams.length ? s.teams.map((t) => t.name + (t.leader ? ' (trưởng nhóm)' : '')).join(', ') : '—'}</dd>
           <dt>Ngày tạo</dt><dd>{fmtDate(s.createdAt)}</dd><dt>Cập nhật</dt><dd>{fmtTime(s.updatedAt)}</dd>

@@ -88,6 +88,7 @@ export function StaffBoard({users,roles,meId,loading,error,onRetry,onEdit,onAdd,
               <div className="staff-card-top"><Avatar m={u} size={36}/><div className="staff-person"><b>{u.name}{u.id===meId&&<em>Bạn</em>}</b><span title="Email đăng nhập">{u.email}</span>{u.notifyEmail?<small className="staff-mail" title="Email nhận thông báo">✉ {u.notifyEmail}</small>:<small className="staff-mail none" title="Thông báo chỉ hiện trên web; bấm Sửa để thêm email nhận thông báo">Chưa có email nhận thông báo</small>}</div>{!saving&&<StaffMenu name={u.name} items={[
                 {label:'Xem hồ sơ',icon:'user',onClick:()=>openProfile(u.id)},
                 {label:'Sửa nhân viên…',icon:'text',onClick:()=>onEdit(u)},
+                {label:'Gỡ email nhận thông báo',icon:'mail',hidden:!u.notifyEmail,onClick:()=>void patch(u,{notifyEmail:null},'Đã gỡ email nhận thông báo')},
                 {label:u.role==='admin'?'Chuyển thành nhân viên':'Cấp quyền quản trị',icon:'badge',hidden:u.id===meId,onClick:()=>void patch(u,{role:u.role==='admin'?'member':'admin'},'Đã cập nhật quyền')},
                 {label:u.disabled?'Mở khoá':'Khoá tài khoản',icon:u.disabled?'check':'x',hidden:u.id===meId,onClick:()=>void patch(u,{disabled:!u.disabled},u.disabled?'Đã mở khoá tài khoản':'Đã khoá tài khoản')},
                 {label:'Xoá nhân viên',icon:'trash',danger:true,hidden:u.id===meId,onClick:()=>void remove(u)}

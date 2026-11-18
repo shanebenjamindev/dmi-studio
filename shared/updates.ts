@@ -10,6 +10,14 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-18-5',
+    date: '18/11/2026',
+    items: [
+      { kind: 'new', vi: 'Gỡ email nhận thông báo dễ hơn: ở Hồ sơ, email đã lưu hay đang chờ mã xác minh đều có nút Gỡ email. Quản trị viên gỡ email của nhân viên ngay trên thẻ nhân viên (menu › Gỡ email nhận thông báo) hoặc trong hồ sơ nhân viên ở Quản trị.', en: 'Removing a notification email is easier: in your profile, a saved email or one still waiting for its code has a Remove email button. Admins remove someone\'s email straight from their staff card (menu › Remove notification email) or from their profile in Admin.' },
+      { kind: 'fix', vi: 'Email nhận thông báo của mọi người đã được gỡ. Vào Hồ sơ để liên kết lại Gmail nếu bạn muốn nhận thông báo qua email.', en: 'Everyone\'s notification email has been removed. Go to your profile to link Gmail again if you want notifications by email.' },
+    ],
+  },
+  {
     id: '2026-11-18-4',
     date: '18/11/2026',
     items: [
