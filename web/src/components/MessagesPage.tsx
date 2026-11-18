@@ -877,12 +877,13 @@ export function MessagesPage() {
               <small>Đang trực tuyến</small>
             </span>
           </button>
+          {/* Settings: the open server's (roles and permissions) for whoever manages them, else one's own profile. */}
           <button
             type="button"
             className="dc-icon-btn"
-            onClick={() => openProfile(me.id)}
-            title="Cài đặt hồ sơ"
-            aria-label="Cài đặt hồ sơ"
+            onClick={() => (canServer('manage_roles') ? setSettings({}) : openProfile(me.id))}
+            title={canServer('manage_roles') ? 'Cài đặt máy chủ: role và quyền' : 'Cài đặt hồ sơ'}
+            aria-label={canServer('manage_roles') ? 'Cài đặt máy chủ' : 'Cài đặt hồ sơ'}
           >
             <Icon name="gear" size={15} />
           </button>
