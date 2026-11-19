@@ -10,6 +10,7 @@ import { initDatabase, repairData, type D1Binding } from './db';
 import { migrateServiceBoards } from './service-boards';
 import { useChatBucket } from './chat-files';
 import { limited, type Limiters } from './edge-limits';
+export { BoardgameRoom } from './boardgame-live';
 
 /** Once per instance after the database is up: the boards from before become their customers' service boards (it does
  *  nothing once done; server/service-boards.ts). */
@@ -30,7 +31,7 @@ export default {
     // it, and the reminders for overdue work and waiting reviews go out.
     ctx.waitUntil((async()=>{await ready(env.DB);if(new Date(event.scheduledTime).getUTCMinutes()%10===0){await repairData();await settleStages();await projectsAsServices();await normalizeAllBoards();await remindTasks();}await drainNotifications();})());
   },
-  async fetch(request: WorkerRequest, env: { ASSETS: Fetcher; DB?: D1Binding; CHAT_FILES?: R2Bucket } & Limiters, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: WorkerRequest, env: { ASSETS: Fetcher; DB?: D1Binding; CHAT_FILES?: R2Bucket; BG_ROOMS?: DurableObjectNamespace } & Limiters, ctx: ExecutionContext): Promise<Response> {
     useChatBucket(env.CHAT_FILES); // files of Tin nhắn (server/chat-files.ts)
     const url = new URL(request.url);
     if (url.hostname === 'dmi-studio.detailersmovement.workers.dev' && !url.pathname.startsWith('/api/google/callback')) {
@@ -46,6 +47,13 @@ export default {
     }
     const refused = await limited(env, request.method, url.pathname, request.headers.get('cf-connecting-ip') || '', request.headers.get('cookie') || '', request.headers.get('x-bg-player') || '').catch(() => null);
     if (refused) return Response.json({ error: refused }, { status: 429, headers: { 'retry-after': '60', 'cache-control': 'no-store' } });
+    // Ma Sói in 3D: each room's live positions go to its own Durable Object over a WebSocket (server/boardgame-live.ts).
+    const live = url.pathname.match(/^\/api\/boardgame\/rooms\/(\d{4})\/live$/);
+    if (live && env.BG_ROOMS) {
+      const origin = request.headers.get('origin');
+      if (origin && origin !== url.origin) return Response.json({ error: 'Origin không hợp lệ' }, { status: 403 });
+      return env.BG_ROOMS.get(env.BG_ROOMS.idFromName(live[1])).fetch(request as unknown as Request);
+    }
     try { await ready(env.DB); }
     catch {
       console.error('Không kết nối được Cloudflare D1; kiểm tra binding DB.');

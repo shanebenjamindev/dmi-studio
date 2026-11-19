@@ -24,6 +24,7 @@
     "scripts/*.ts"
   ],
   "exclude": [
-    "server/worker.ts"
+    "server/worker.ts",
+    "server/boardgame-live.ts"
   ]
 }

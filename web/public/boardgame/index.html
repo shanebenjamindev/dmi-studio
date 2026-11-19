@@ -359,6 +359,27 @@ button.lrow { width: 100%; text-align: left; }
   100% { stroke-dashoffset: 100; stroke: var(--spy); }
 }
 
+/* Làng 3D (village.js): cảnh phủ cả màn hình, bảng game thành khung kéo ở dưới, cần gạt ở góc trái */
+.v-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; z-index: 0; touch-action: none; }
+body.in-village { background: #0b1030; }
+body.in-village #app {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 2;
+  max-height: 46dvh; overflow-y: auto; overscroll-behavior: contain;
+  padding-top: 0; gap: 12px;
+  background: rgba(7, 20, 66, .88); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border-radius: 22px 22px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, .35);
+  transition: max-height .25s;
+}
+body.in-village.v-night #app { max-height: 80dvh; }
+body.in-village.sheet-min #app { max-height: 86px; overflow: hidden; }
+.sheet-handle { display: none; }
+body.in-village .sheet-handle { display: block; flex: none; width: 100%; height: 20px; background: none; position: relative; }
+body.in-village .sheet-handle::before { content: ''; position: absolute; left: 50%; top: 8px; width: 46px; height: 5px; margin-left: -23px; border-radius: 3px; background: rgba(255, 255, 255, .45); }
+.v-stick { position: fixed; z-index: 3; left: 18px; bottom: calc(46dvh + 18px); width: 112px; height: 112px; border-radius: 50%; background: rgba(255, 255, 255, .14); border: 2px solid rgba(255, 255, 255, .4); touch-action: none; }
+body.sheet-min .v-stick { bottom: 104px; }
+body.v-night .v-stick, .v-stick[hidden] { display: none; }
+.v-knob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px; border-radius: 50%; background: rgba(255, 255, 255, .8); box-shadow: 0 4px 12px rgba(0, 0, 0, .3); pointer-events: none; }
+
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 </style>
@@ -483,10 +504,12 @@ const stepper = (act, key, value, min, max) => `
     <button data-act="${act}" data-key="${key}" data-d="1" ${value >= max ? 'disabled' : ''}>+</button>
   </div>`;
 
+// Mỗi tên một màu cố định (avatar và áo của nhân vật 3D)
+const avatarColor = (name) => AVATAR_COLORS[[...name].reduce((h, c) => (h * 31 + c.codePointAt(0)) >>> 0, 7) % AVATAR_COLORS.length];
+
 function avatar(name, cls = '') {
-  const hash = [...name].reduce((h, c) => (h * 31 + c.codePointAt(0)) >>> 0, 7);
   const initials = /^Người \d+$/.test(name) ? name.slice(6) : name.slice(0, 2).toUpperCase();
-  return `<span class="avatar ${cls}" style="background:${AVATAR_COLORS[hash % AVATAR_COLORS.length]}">${esc(initials)}</span>`;
+  return `<span class="avatar ${cls}" style="background:${avatarColor(name)}">${esc(initials)}</span>`;
 }
 
 // Thẻ người chơi trong lưới: số thứ tự, avatar, tên và phần phụ (vai, điểm...)
@@ -533,10 +556,14 @@ function go(name) {
   ENTER[name]?.();
 }
 
+// Việc cần làm sau mỗi lần vẽ lại (đưa trạng thái sang làng 3D)
+const AFTER_RENDER = [];
+
 function render() {
   app.innerHTML = views[view]();
   modalEl.hidden = !modal;
   modalEl.innerHTML = modal ? `<div class="sheet">${modals[modal.type]()}</div>` : '';
+  AFTER_RENDER.forEach((fn) => fn());
 }
 
 /* ---------- Modal & action dùng chung ---------- */
@@ -1892,6 +1919,7 @@ function mpBar(title) {
   const hostGone = room && mpJoined() && !mpMembers().some(([uid]) => uid === room.host);
   const quit = mpIsHost() && room.phase === 'play' && room.g?.step !== 'end';
   return `
+    <button class="sheet-handle" data-act="v.sheet" aria-label="Thu gọn hoặc mở bảng để nhìn làng"></button>
     <div class="topbar">
       <h2>${title}</h2>
       ${quit ? '<button class="link small" data-act="mp.quit">Hủy ván</button>' : `<span class="muted small">Phòng ${esc(mp?.id || '')}</span>`}
@@ -2267,6 +2295,40 @@ views['mp.room'] = () => {
   }
   return MWW_VIEWS[g.step]();
 };
+
+// Làng 3D (village.js): ở trong phòng thì vào làng, đưa sang đó ai đang chơi, ai còn sống, số phiếu và ngày/đêm.
+// Ngoài phòng thì ra khỏi làng.
+function mwwScene() {
+  const village = window.Village;
+  if (!village) return;
+  if (view !== 'mp.room' || !mp?.ready || !mp.room) return village.leave();
+  const room = mp.room;
+  const g = room.phase === 'play' ? room.g : null;
+  const seats = g
+    ? room.seats
+    : [...mpMembers().map(([uid, p]) => ({ uid, name: p.name })), ...mpBots().map((b) => ({ uid: b.id, name: b.name, bot: true }))];
+  const votes = {};
+  if (g?.step === 'vote') mwwVotes().forEach((t) => t >= 0 && (votes[t] = (votes[t] || 0) + 1));
+  village.enter(mp.id, myId);
+  village.sync({
+    night: g?.step === 'night',
+    players: seats.map((s, i) => ({
+      id: s.uid,
+      name: s.name,
+      color: avatarColor(s.name),
+      seat: i,
+      bot: Boolean(s.bot),
+      alive: g ? g.alive[i] : true,
+      votes: votes[i] || 0,
+      isMe: s.uid === myId,
+    })),
+  });
+  // Ban đêm không đi lại được, bảng mở rộng để xem vai và hành động
+  document.body.classList.toggle('v-night', g?.step === 'night');
+}
+AFTER_RENDER.push(mwwScene);
+addEventListener('village-ready', () => render());
+actions['v.sheet'] = () => document.body.classList.toggle('sheet-min');
 
 modals['mp.name'] = () => `
   <h2>Tên của bạn</h2>
@@ -2660,5 +2722,8 @@ actions.resetboardnow = () => {
 render();
 
 </script>
+<!-- Làng 3D của Ma Sói (village.js), dùng three.js -->
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+<script type="module" src="village.js"></script>
 </body>
 </html>

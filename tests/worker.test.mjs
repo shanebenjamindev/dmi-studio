@@ -29,6 +29,7 @@ function workerOptions(name, transport, extra = {}, withDB = true) {
     compatibilityDate: '2026-10-01', compatibilityFlags: ['nodejs_compat', 'enable_nodejs_http_server_modules'],
     bindings: { DMS_RUNTIME: 'cloudflare', CLOUD_STORAGE_ONLY: '1', SETUP_CODE: 'fixture-setup', TURNSTILE_SITE_KEY: 'fixture-site-key', TURNSTILE_SECRET_KEY: 'fixture-secret-key', ...extra },
     ...(withDB ? { d1Databases: { DB: 'fixture-db' } } : {}),
+    durableObjects: { BG_ROOMS: 'BoardgameRoom' },
     outboundService: transport,
     serviceBindings: { ASSETS: () => new Response('<html>DMI Workspace</html>', { headers: { 'content-type': 'text/html' } }) },
   };
@@ -196,5 +197,40 @@ test('Workers: Turnstile configuration cannot silently disable verification', { 
     const login = await call(mf, 'POST', '/api/auth/login', { email: 'test@example.test', password: 'test-password' });
     assert.equal(login.status, 503);
     assert.equal(login.cookie, undefined);
+  } finally { await mf.dispose(); }
+});
+
+test('Workers: Ma Sói 3D rooms relay where everyone stands', { skip: !existsSync(bundle) }, async () => {
+  const mf = new Miniflare(convertV4MiniflareOptions(workerOptions('live', externalTransport())));
+  const room = 'https://studio.example.test/api/boardgame/rooms/1234/live';
+  const open = async (pid) => {
+    const res = await mf.dispatchFetch(`${room}?pid=${pid}`, { headers: { upgrade: 'websocket' } });
+    assert.equal(res.status, 101);
+    const ws = res.webSocket;
+    ws.accept();
+    const got = [];
+    ws.addEventListener('message', (e) => got.push(JSON.parse(e.data)));
+    return { ws, got };
+  };
+  const until = async (cond, what) => {
+    for (let i = 0; i < 150 && !cond(); i++) await new Promise((r) => setTimeout(r, 20));
+    assert.ok(cond(), what);
+  };
+  try {
+    const a = await open('player-a-0000');
+    await until(() => a.got.some((m) => m.type === 'all'), 'a newcomer is told where everyone is');
+    const b = await open('player-b-0000');
+    a.ws.send(JSON.stringify({ type: 'pos', x: 3, z: -2, r: 1.5 }));
+    await until(() => b.got.some((m) => m.type === 'pos' && m.id === 'player-a-0000' && m.x === 3 && m.z === -2), 'positions reach the others');
+    const c = await open('player-c-0000');
+    await until(() => c.got.some((m) => m.type === 'all' && m.spots.some((s) => s.id === 'player-a-0000' && s.x === 3)), 'joining late sees where people stand');
+    b.ws.send(JSON.stringify({ type: 'pos', x: 1e9, z: 'x', r: 0 }));
+    await until(() => a.got.some((m) => m.id === 'player-b-0000' && m.x === 100 && m.z === 0), 'nonsense is clamped');
+    b.ws.close();
+    await until(() => a.got.some((m) => m.type === 'leave' && m.id === 'player-b-0000'), 'leaving is announced');
+    assert.equal((await mf.dispatchFetch(`${room}?pid=player-a-0000`)).status, 426);
+    assert.equal((await mf.dispatchFetch(`${room}?pid=x`, { headers: { upgrade: 'websocket' } })).status, 400);
+    assert.equal((await mf.dispatchFetch(`${room}?pid=player-d-0000`, { headers: { upgrade: 'websocket', origin: 'https://other.example' } })).status, 403);
+    for (const s of [a, c]) s.ws.close();
   } finally { await mf.dispose(); }
 });

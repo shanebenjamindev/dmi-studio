@@ -17,6 +17,9 @@
   "d1_databases": [{ "binding": "DB", "database_name": "dmi-studio-db", "database_id": "9ad2e189-4940-4d8d-8b71-ccec235311ff" }],
   // Files sent in Tin nhắn (server/chat-files.ts), private: served only through the app.
   "r2_buckets": [{ "binding": "CHAT_FILES", "bucket_name": "dmi-chat-files" }],
+  // Ma Sói in 3D: one Durable Object per room relays where everyone is in the village (server/boardgame-live.ts).
+  "durable_objects": { "bindings": [{ "name": "BG_ROOMS", "class_name": "BoardgameRoom" }] },
+  "migrations": [{ "tag": "boardgame-rooms", "new_sqlite_classes": ["BoardgameRoom"] }],
   // Floods and spam turned away before the database (server/edge-limits.ts): per address, sign-ins per address, changes
   // and chat messages per session.
   "ratelimits": [
