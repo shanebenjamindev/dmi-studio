@@ -1,7 +1,7 @@
 import {TextLinks} from './TextLinks';
 // Pieces shared by the Workspace board and the card window: label and cover colours, avatars, dates, the small pop-up
 // windows (Trello's popovers) and the words for what happened on a board.
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from './ui';
 import { langPref } from '../i18n';
 import type { BoardActivity, CardAttachment, CommentReaction, ReactionKind } from '../types';
@@ -145,8 +145,6 @@ export function ReactionGlyph({ kind, size = 20 }: { kind: ReactionKind; size?: 
   if (g.svg) return <span className="rx-glyph" style={{ width: size, height: size, background: g.bg }}><svg viewBox="0 0 24 24" width={Math.round(size * 0.64)} height={Math.round(size * 0.64)} aria-hidden="true">{g.svg}</svg></span>;
   return <span className="rx-face" style={{ fontSize: Math.round(size * 0.94) }}>{g.emoji}</span>;
 }
-// Loaded only when the picker opens (lottie-web is heavy); the animation plays over the static glyph once it is ready.
-const ReactionLottie = lazy(() => import('./ReactionLottie'));
 /** A comment's reactions: "Thích" likes it or takes one's reaction back, resting on it opens the seven to choose from;
  *  beside it the most given ones and how many, the names on hover. One reaction per person (server/comment-reactions.ts). */
 export function Reactions({ commentId, meId, initial }: { commentId: string; meId: string; initial?: CommentReaction[] }) {
@@ -181,7 +179,6 @@ export function Reactions({ commentId, meId, initial }: { commentId: string; meI
           {REACTIONS.map(([k, , l]) => (
             <button key={k} type="button" role="menuitem" className={mine === k ? 'on' : ''} title={l} aria-label={l} onClick={() => void give(k)}>
               <ReactionGlyph kind={k} size={34} />
-              <Suspense fallback={null}><span className="rx-anim"><ReactionLottie kind={k} size={38} /></span></Suspense>
             </button>
           ))}
         </span>

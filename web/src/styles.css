@@ -8996,8 +8996,6 @@ b.dc-msg-author:hover { text-decoration: none; }
 .rx-pick button { position: relative; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%; background: transparent; font-size: 28px; line-height: 1; cursor: pointer; transition: transform 120ms var(--ease); }
 .rx-pick button:hover, .rx-pick button:focus-visible { transform: translateY(-6px) scale(1.3); }
 .rx-pick button.on { background: var(--fill); }
-/* The animated Noto face (web/src/components/ReactionLottie.tsx) sits over the static glyph while the picker is open. */
-.rx-anim { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
 @keyframes rx-in { from { opacity: 0; transform: translateY(6px) scale(.9); } }
 .rx-sum { display: inline-flex; align-items: center; gap: 0; padding: 1px 6px 1px 3px; border-radius: 10px; background: var(--surface); border: 1px solid var(--sep); font-size: 12px; color: var(--label-2); cursor: default; }
 .rx-sum i { font-style: normal; font-size: 13px; margin-right: -3px; }
