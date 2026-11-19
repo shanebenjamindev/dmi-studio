@@ -10,6 +10,13 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-19-4',
+    date: '19/11/2026',
+    items: [
+      { kind: 'new', vi: 'Cảm xúc (reaction) trên bình luận theo phong cách Facebook: Thích là ngón cái trên nền xanh, Yêu là tim trên nền đỏ, còn lại là mặt cười màu. Di chuột vào nút Thích để chọn trong bảy cảm xúc.', en: 'Comment reactions now look Facebook-style: Like is a thumb on blue, Love a heart on red, the rest colourful faces. Hover the Like button to pick from the seven.' },
+    ],
+  },
+  {
     id: '2026-11-19-3',
     date: '19/11/2026',
     items: [

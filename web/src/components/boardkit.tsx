@@ -130,6 +130,21 @@ export function LogoImg({ src, className }: { src: string; className?: string })
 // ---------------------------------------------------------------- reactions on comments (as on Facebook)
 export const REACTIONS: [ReactionKind, string, string][] = [['like', '👍', 'Thích'], ['love', '❤️', 'Yêu thích'], ['haha', '😆', 'Haha'], ['wow', '😮', 'Wow'], ['sad', '😢', 'Buồn'], ['care', '🥰', 'Thương thương'], ['angry', '😡', 'Phẫn nộ']];
 const REACTION = Object.fromEntries(REACTIONS.map(([k, e, l]) => [k, { emoji: e, label: l }])) as Record<ReactionKind, { emoji: string; label: string }>;
+
+// Facebook-style reaction glyphs: Thích is a white thumb on a blue disc, Yêu a white heart on a red disc, the rest the
+// coloured face emoji as the browser draws them. Generic shapes and standard emoji, not Facebook's own artwork.
+const THUMB = <path d="M7.5 10.2v8.3h-2a1 1 0 0 1-1-1v-6.3a1 1 0 0 1 1-1h2Zm2 0 3.1-6.4a1.6 1.6 0 0 1 3 .95l-.6 3.35h3.35a1.8 1.8 0 0 1 1.78 2.12l-1 5.3a2 2 0 0 1-1.97 1.63H9.5v-7Z" fill="currentColor" stroke="none" />;
+const HEART = <path d="M12 20.3S3.3 15.5 3.3 9.6C3.3 6.9 5.2 5 7.6 5c1.8 0 3.3 1.1 4.4 2.6C13.1 6.1 14.6 5 16.4 5c2.4 0 4.3 1.9 4.3 4.6 0 5.9-8.7 10.7-8.7 10.7Z" fill="currentColor" stroke="none" />;
+const GLYPH: Record<ReactionKind, { bg?: string; svg?: ReactNode; emoji?: string }> = {
+  like: { bg: 'linear-gradient(150deg, #58a7ff, #1877f2)', svg: THUMB },
+  love: { bg: 'linear-gradient(150deg, #ff6a86, #f33e58)', svg: HEART },
+  haha: { emoji: '😆' }, wow: { emoji: '😮' }, sad: { emoji: '😢' }, care: { emoji: '🥰' }, angry: { emoji: '😡' },
+};
+export function ReactionGlyph({ kind, size = 20 }: { kind: ReactionKind; size?: number }) {
+  const g = GLYPH[kind];
+  if (g.svg) return <span className="rx-glyph" style={{ width: size, height: size, background: g.bg }}><svg viewBox="0 0 24 24" width={Math.round(size * 0.64)} height={Math.round(size * 0.64)} aria-hidden="true">{g.svg}</svg></span>;
+  return <span className="rx-face" style={{ fontSize: Math.round(size * 0.94) }}>{g.emoji}</span>;
+}
 /** A comment's reactions: "Thích" likes it or takes one's reaction back, resting on it opens the seven to choose from;
  *  beside it the most given ones and how many, the names on hover. One reaction per person (server/comment-reactions.ts). */
 export function Reactions({ commentId, meId, initial }: { commentId: string; meId: string; initial?: CommentReaction[] }) {
@@ -157,14 +172,14 @@ export function Reactions({ commentId, meId, initial }: { commentId: string; meI
   return (
     <span className="rx" onMouseLeave={() => later(false, 300)}>
       <button ref={btn} type="button" className={'bk-link rx-btn' + (mine ? ` rx-on rx-${mine}` : '')} onMouseEnter={() => later(true, 450)} onClick={() => void give(mine ? null : 'like')} aria-label={mine ? `Bỏ ${REACTION[mine].label}` : 'Thích'}>
-        {mine && <span className="rx-emoji">{REACTION[mine].emoji}</span>}{mine ? REACTION[mine].label : 'Thích'}
+        {mine && <span className="rx-emoji"><ReactionGlyph kind={mine} size={16} /></span>}{mine ? REACTION[mine].label : 'Thích'}
       </button>
       {open && (
         <span className="rx-pick" role="menu" style={at} onMouseEnter={() => clearTimeout(timer.current)}>
-          {REACTIONS.map(([k, e, l]) => <button key={k} type="button" role="menuitem" className={mine === k ? 'on' : ''} title={l} aria-label={l} onClick={() => void give(k)}>{e}</button>)}
+          {REACTIONS.map(([k, , l]) => <button key={k} type="button" role="menuitem" className={mine === k ? 'on' : ''} title={l} aria-label={l} onClick={() => void give(k)}><ReactionGlyph kind={k} size={32} /></button>)}
         </span>
       )}
-      {counts.length > 0 && <span className="rx-sum" title={names}>{counts.slice(0, 3).map(([k]) => <i key={k}>{REACTION[k].emoji}</i>)}<b>{list.length}</b></span>}
+      {counts.length > 0 && <span className="rx-sum" title={names}>{counts.slice(0, 3).map(([k]) => <i key={k}><ReactionGlyph kind={k} size={16} /></i>)}<b>{list.length}</b></span>}
     </span>
   );
 }
