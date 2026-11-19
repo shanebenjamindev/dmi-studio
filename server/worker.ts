@@ -14,7 +14,10 @@ import { limited, type Limiters } from './edge-limits';
 /** Once per instance after the database is up: the boards from before become their customers' service boards (it does
  *  nothing once done; server/service-boards.ts). */
 let migrated: Promise<void> | undefined;
-const ready = (binding?: D1Binding) => initDatabase(binding).then(() => migrated ||= migrateServiceBoards().catch((e) => { migrated = undefined; throw e; }));
+// The database must be up to serve (a failure here is the only 503). The one-time service-board migration is already
+// done in production and is idempotent, so a transient failure of it is logged and retried next cold start rather than
+// taking the whole site down with it.
+const ready = (binding?: D1Binding) => initDatabase(binding).then(() => migrated ||= migrateServiceBoards().catch((e) => { migrated = undefined; console.error('Chưa chạy xong migrate service boards; vẫn phục vụ.', e); }));
 
 createServer(handleApi).listen(8787);
 const TOKEN_AUTH = /^\/api\/(mcp|oauth\/(token|register))$/;

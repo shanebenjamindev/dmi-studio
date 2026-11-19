@@ -40,14 +40,29 @@ export const db: SqlClient = {
     initialized = undefined;
   },
 };
+// D1 sometimes drops a query with a passing network/storage error ("Network connection lost", "storage caused object
+// to be reset", "internal error"). Repeating a read is safe, so a read is tried a few times before it fails; a write is
+// never auto-repeated (it might apply twice), so it surfaces at once.
+const TRANSIENT = /network connection|connection (?:lost|closed|reset)|storage caused|reset because|internal error|please try again|overloaded|timed? ?out/i;
+const READ_ONLY = /^\s*(?:select|pragma|with)\b/i;
 function d1Client(binding: D1Binding): SqlClient {
   return {
     async execute(statement) {
       const { sql, args = [] } = typeof statement === 'string' ? { sql: statement } : statement;
       const normalized = args.map(value => typeof value === 'bigint' ? Number(value) : value);
-      const stmt = binding.prepare(sql);
-      const result = await (normalized.length ? stmt.bind(...normalized) : stmt).all();
-      return { rows: result.results || [], rowsAffected: result.meta.changes || 0, lastInsertRowid: result.meta.last_row_id };
+      const runOnce = async () => {
+        const stmt = binding.prepare(sql);
+        const result = await (normalized.length ? stmt.bind(...normalized) : stmt).all();
+        return { rows: result.results || [], rowsAffected: result.meta.changes || 0, lastInsertRowid: result.meta.last_row_id };
+      };
+      const canRetry = READ_ONLY.test(sql);
+      for (let attempt = 0; ; attempt++) {
+        try { return await runOnce(); }
+        catch (e: any) {
+          if (attempt >= 3 || !canRetry || !TRANSIENT.test(String(e?.message || e))) throw e;
+          await new Promise(r => setTimeout(r, 60 * (attempt + 1)));
+        }
+      }
     },
     async executeMultiple(sql) {
       // Only used for the static application schema, never user-provided SQL.
