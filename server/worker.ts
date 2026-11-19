@@ -9,6 +9,7 @@ import { handleApi } from './app';
 import { initDatabase, repairData, type D1Binding } from './db';
 import { migrateServiceBoards } from './service-boards';
 import { useChatBucket } from './chat-files';
+import { limited, type Limiters } from './edge-limits';
 
 /** Once per instance after the database is up: the boards from before become their customers' service boards (it does
  *  nothing once done; server/service-boards.ts). */
@@ -26,7 +27,7 @@ export default {
     // it, and the reminders for overdue work and waiting reviews go out.
     ctx.waitUntil((async()=>{await ready(env.DB);if(new Date(event.scheduledTime).getUTCMinutes()%10===0){await repairData();await settleStages();await projectsAsServices();await normalizeAllBoards();await remindTasks();}await drainNotifications();})());
   },
-  async fetch(request: WorkerRequest, env: { ASSETS: Fetcher; DB?: D1Binding; CHAT_FILES?: R2Bucket }, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: WorkerRequest, env: { ASSETS: Fetcher; DB?: D1Binding; CHAT_FILES?: R2Bucket } & Limiters, ctx: ExecutionContext): Promise<Response> {
     useChatBucket(env.CHAT_FILES); // files of Tin nhắn (server/chat-files.ts)
     const url = new URL(request.url);
     if (url.hostname === 'dmi-studio.detailersmovement.workers.dev' && !url.pathname.startsWith('/api/google/callback')) {
@@ -40,6 +41,8 @@ export default {
       const origin = request.headers.get('origin');
       if (origin && origin !== url.origin) return Response.json({ error: 'Origin không hợp lệ' }, { status: 403 });
     }
+    const refused = await limited(env, request.method, url.pathname, request.headers.get('cf-connecting-ip') || '', request.headers.get('cookie') || '').catch(() => null);
+    if (refused) return Response.json({ error: refused }, { status: 429, headers: { 'retry-after': '60', 'cache-control': 'no-store' } });
     try { await ready(env.DB); }
     catch {
       console.error('Không kết nối được Cloudflare D1; kiểm tra binding DB.');

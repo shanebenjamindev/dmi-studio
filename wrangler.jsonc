@@ -17,6 +17,14 @@
   "d1_databases": [{ "binding": "DB", "database_name": "dmi-studio-db", "database_id": "9ad2e189-4940-4d8d-8b71-ccec235311ff" }],
   // Files sent in Tin nhắn (server/chat-files.ts), private: served only through the app.
   "r2_buckets": [{ "binding": "CHAT_FILES", "bucket_name": "dmi-chat-files" }],
+  // Floods and spam turned away before the database (server/edge-limits.ts): per address, sign-ins per address, changes
+  // and chat messages per session.
+  "ratelimits": [
+    { "name": "API_LIMIT", "namespace_id": "1001", "simple": { "limit": 600, "period": 60 } },
+    { "name": "AUTH_LIMIT", "namespace_id": "1002", "simple": { "limit": 20, "period": 60 } },
+    { "name": "WRITE_LIMIT", "namespace_id": "1003", "simple": { "limit": 300, "period": 60 } },
+    { "name": "CHAT_LIMIT", "namespace_id": "1004", "simple": { "limit": 10, "period": 10 } }
+  ],
   "build": { "command": "npm run build" },
   "observability": { "enabled": true },
   "triggers": {"crons":["* * * * *"]},
