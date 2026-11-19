@@ -641,14 +641,22 @@ export function MessagesPage() {
         );
       }
       if (part.startsWith('@')) {
-        const nameCandidate = part.slice(1).trim();
-        const matchedMember = members.find((m) => m.name.toLowerCase() === nameCandidate.toLowerCase() || nameCandidate.toLowerCase().startsWith(m.name.toLowerCase()));
-        if (matchedMember || part.slice(1).toLowerCase() === me.name.toLowerCase()) {
-          return (
-            <span key={idx} className="dc-mention-pill">
-              {part}
-            </span>
-          );
+        // The capture may have pulled in following words (names can be several words). Keep in the pill only the
+        // longest leading run of words that is exactly someone's name; anything after it is ordinary text ("@Vincent
+        // vin" where the member is "Vincent" shows a @Vincent pill and a plain " vin", not "@Vincent vin").
+        const words = part.slice(1).split(' ');
+        const names = [me.name, ...members.map((m) => m.name)];
+        let matched = '';
+        for (let k = words.length; k >= 1; k--) {
+          const cand = words.slice(0, k).join(' ').toLowerCase();
+          if (names.some((n) => n.toLowerCase() === cand)) { matched = words.slice(0, k).join(' '); break; }
+        }
+        if (matched) {
+          const after = words.slice(matched.split(' ').length).join(' ');
+          return [
+            <span key={idx} className="dc-mention-pill">@{matched}</span>,
+            after ? <span key={`${idx}-after`}>{' ' + after}</span> : null,
+          ];
         }
       }
       return <span key={idx}>{part}</span>;

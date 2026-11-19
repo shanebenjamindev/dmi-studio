@@ -48,7 +48,8 @@ export function WorkArea({ children }: { children: ReactNode }) {
       window.removeEventListener('dms:task-nav-sync', onFilter);
     };
   }, []);
-  if (!def || !pages.length) return <>{children}</>;
+  const isCustomers = section === 'customers';
+  if (!isCustomers && (!def || !pages.length)) return <>{children}</>;
 
   const isWork = section === 'work';
   const hasOrgTasks = user?.role === 'admin' || !!adminAccess?.perms?.['tasks.view'];
@@ -80,8 +81,28 @@ export function WorkArea({ children }: { children: ReactNode }) {
   };
 
   return (
-    <section className="sec-area" aria-label={def.title}>
-      {isWork ? (
+    <section className="sec-area" aria-label={def?.title || 'Khách hàng'}>
+      {isCustomers ? (
+        <aside className={'sec-nav wework-nav' + (folded ? ' folded' : '')} aria-label="Danh sách khách hàng" aria-hidden={folded}>
+          <div className="wework-nav-top">
+            <label className="wework-nav-search">
+              <Icon name="search" size={13} />
+              <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Tìm nhanh" aria-label="Tìm khách hàng" />
+            </label>
+            <button className="bd-icon wework-nav-fold" onClick={() => fold(true)} aria-label="Thu gọn sidebar" title="Thu gọn"><Icon name="left" size={16} /></button>
+          </div>
+          <div className="wework-nav-sec">
+            <h4>Tổng hợp</h4>
+            <nav>
+              <button className="wework-nav-btn" onClick={() => openLink('#customers')}>
+                <Icon name="users" size={16} />
+                <span>Tất cả khách hàng</span>
+              </button>
+            </nav>
+          </div>
+          <CustomerNav query={searchQuery} />
+        </aside>
+      ) : isWork ? (
         <aside className={'sec-nav wework-nav' + (folded ? ' folded' : '')} aria-label="Base Wework Navigation" aria-hidden={folded}>
           <div className="wework-nav-top">
             <label className="wework-nav-search">
@@ -161,6 +182,43 @@ export function WorkArea({ children }: { children: ReactNode }) {
       {folded && <button className="sec-unfold" onClick={() => fold(false)} aria-label={`Mở mục ${def.title}`} title={`Mở mục ${def.title}`}><Icon name="lines" size={16} /></button>}
       <div className="sec-content">{children}</div>
     </section>
+  );
+}
+
+/** Danh sách khách hàng trong sidebar trang Khách hàng: tìm theo tên, bấm để mở hồ sơ (#customers/<id>). */
+function CustomerNav({ query = '' }: { query?: string }) {
+  const [rows, setRows] = useState<{ id: string; name: string }[]>([]);
+  const [selected, setSelected] = useState(() => location.hash.match(/^#customers\/((?:cu|cust|c)_\w+)/)?.[1] || null);
+  useEffect(() => {
+    const load = () => api.customerDirectory().then((list) => setRows(list.map((c) => ({ id: c.id, name: c.name }))), () => {});
+    void load();
+    window.addEventListener('dms:entities-changed', load);
+    return () => window.removeEventListener('dms:entities-changed', load);
+  }, []);
+  useEffect(() => {
+    const onHash = () => setSelected(location.hash.match(/^#customers\/((?:cu|cust|c)_\w+)/)?.[1] || null);
+    window.addEventListener('hashchange', onHash);
+    window.addEventListener('popstate', onHash);
+    return () => { window.removeEventListener('hashchange', onHash); window.removeEventListener('popstate', onHash); };
+  }, []);
+  // Without marks either side: “gui bao gia” finds “Gửi báo giá”.
+  const fold = (t: string) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+  const q = fold(query.trim());
+  const shown = (q ? rows.filter((c) => fold(c.name).includes(q)) : rows).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  if (!rows.length) return null;
+  return (
+    <div className="wework-nav-sec" style={{ minHeight: 0 }}>
+      <h4>Khách hàng</h4>
+      <nav>
+        {shown.map((c) => (
+          <button key={c.id} className={'wework-nav-btn' + (c.id === selected ? ' active' : '')} onClick={() => openLink(`#customers/${c.id}`)} title={c.name}>
+            <Icon name="user" size={16} />
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+          </button>
+        ))}
+        {!shown.length && <p className="note" style={{ padding: '4px 10px', margin: 0 }}>Không tìm thấy khách hàng.</p>}
+      </nav>
+    </div>
   );
 }
 

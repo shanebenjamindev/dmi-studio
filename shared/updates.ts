@@ -10,6 +10,14 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-19-2',
+    date: '19/11/2026',
+    items: [
+      { kind: 'new', vi: 'Trang Khách hàng có thanh bên trái như Công việc: tìm nhanh và bấm thẳng vào một khách hàng để mở, không phải quay lại danh sách.', en: 'The Customers page now has a left sidebar like Work: search and click straight into a customer, instead of going back to the list.' },
+      { kind: 'fix', vi: 'Nhắc tên @ trong Tin nhắn không còn dính chữ đứng sau vào tên (ví dụ “@Vincent vin” chỉ tô “@Vincent”).', en: 'An @mention in Messages no longer pulls the following word into the name (e.g. “@Vincent vin” highlights only “@Vincent”).' },
+    ],
+  },
+  {
     id: '2026-11-19-1',
     date: '19/11/2026',
     items: [
