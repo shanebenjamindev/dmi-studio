@@ -378,6 +378,10 @@ body.in-village .sheet-handle::before { content: ''; position: absolute; left: 5
 .v-stick { position: fixed; z-index: 3; left: 18px; bottom: calc(46dvh + 18px); width: 112px; height: 112px; border-radius: 50%; background: rgba(255, 255, 255, .14); border: 2px solid rgba(255, 255, 255, .4); touch-action: none; }
 body.sheet-min .v-stick { bottom: 104px; }
 body.v-night .v-stick, .v-stick[hidden] { display: none; }
+/* Ban đêm đến lượt mình: đi lại được nên bảng thu bớt và hiện cần gạt */
+body.in-village.v-night.v-roam #app { max-height: 46dvh; }
+body.v-night.v-roam .v-stick { display: block; }
+body.v-night.v-roam.sheet-min .v-stick { bottom: 104px; }
 .v-knob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px; border-radius: 50%; background: rgba(255, 255, 255, .8); box-shadow: 0 4px 12px rgba(0, 0, 0, .3); pointer-events: none; }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -1618,6 +1622,9 @@ function mwwNight(g, seats, prelude = null) {
   g.notes = [];
   g.out = null;
   g.ballots = null;
+  g.accused = null;
+  g.spared = null;
+  g.verdicts = null;
   g.botActs = mwwBotActs(g, seats);
 }
 
@@ -1659,7 +1666,54 @@ function mwwStartVote() {
   mwwNarrate();
 }
 
-// Kiểm phiếu (một lần mỗi ngày): nhiều phiếu nhất thì bị treo cổ, hòa hoặc không ai bị chọn thì không treo
+// Phán xử của từng ghế còn sống (trừ người trên giàn): true treo, false tha, undefined chưa chọn
+function mwwVerdicts() {
+  const g = mp.room.g;
+  return mp.room.seats.map((s, i) => {
+    if (!g.alive[i] || i === g.accused) return undefined;
+    if (s.bot) return g.botVerdicts?.[i];
+    const verdict = mp.players[s.uid]?.verdict;
+    return verdict?.game === g.id && verdict.night === g.night ? verdict.kill : undefined;
+  });
+}
+
+// Bot phán xử: Sói bot tha đồng bọn và treo người khác, bot dân làng nghiêng về treo
+function mwwBotVerdicts(g, seats) {
+  const verdicts = {};
+  seats.forEach((s, i) => {
+    if (!s.bot || !g.alive[i] || i === g.accused) return;
+    verdicts[i] = wwIsWolf(g, i) ? !wwIsWolf(g, g.accused) : Math.random() < 0.6;
+  });
+  return verdicts;
+}
+
+// Kết thúc phán xử (một lần mỗi ngày): Treo nhiều hơn Tha thì bị treo cổ thành hồn ma; hòa hoặc Tha nhiều hơn thì
+// được tha, chơi tiếp
+function mwwJudge() {
+  const g = mp.room.g;
+  const key = `${g.id}:${g.night}:trial`;
+  if (g.step !== 'trial' || mpResolved === key) return;
+  mpResolved = key;
+  const verdicts = mwwVerdicts();
+  mpUpdate((r) => {
+    const g = r.g;
+    const kill = verdicts.filter((v) => v === true).length;
+    const save = verdicts.filter((v) => v === false).length;
+    g.verdicts = verdicts.map((v) => v ?? null);
+    if (kill > save) {
+      g.out = g.accused;
+      wwKill(g, g.out);
+    } else {
+      g.spared = g.accused;
+    }
+    g.deadline = null;
+    g.step = 'reveal';
+  });
+  mwwNarrate();
+}
+
+// Kiểm phiếu (một lần mỗi ngày): người nhiều phiếu nhất lên giàn treo cổ chờ phán xử; hòa hoặc không ai bị chọn thì
+// không ai lên giàn
 function mwwTally() {
   const g = mp.room.g;
   const key = `${g.id}:${g.night}:vote`;
@@ -1673,11 +1727,17 @@ function mwwTally() {
     const top = Math.max(0, ...Object.values(count));
     const leaders = Object.keys(count).filter((t) => count[t] === top).map(Number);
     g.ballots = votes.map((t) => t ?? null);
-    g.out = top > 0 && leaders.length === 1 ? leaders[0] : null;
-    if (g.out !== null) wwKill(g, g.out);
     g.notes = [];
-    g.deadline = null;
-    g.step = 'reveal';
+    if (top > 0 && leaders.length === 1) {
+      g.accused = leaders[0];
+      g.step = 'trial';
+      g.deadline = Date.now() + WW_TIMES.turn;
+      g.botVerdicts = mwwBotVerdicts(g, r.seats);
+    } else {
+      g.out = null;
+      g.deadline = null;
+      g.step = 'reveal';
+    }
   });
   mwwNarrate();
 }
@@ -1894,6 +1954,7 @@ function mwwTick() {
     if (left <= 0) mwwStartVote();
   }
   if (g.step === 'vote' && (left <= 0 || mwwVotes().every((v, i) => !g.alive[i] || v !== undefined))) mwwTally();
+  if (g.step === 'trial' && (left <= 0 || mwwVerdicts().every((v, i) => !g.alive[i] || i === g.accused || v !== undefined))) mwwJudge();
 }
 setInterval(mwwTick, 1000);
 
@@ -2069,13 +2130,17 @@ function mwwActBody(g, i, acts, names) {
            <button class="switch ${mpHeal ? 'on' : ''}" data-act="mww.heal">${mpHeal ? '✓ Sẽ cứu' : 'Dùng thuốc cứu'}</button>`;
   }
   const ready = role === 'witch' || mpPick !== null;
+  const who = mpPick === null ? '' : esc(names[mpPick]);
+  const verb = { wolf: 'Cắn', seer: 'Soi', guard: 'Bảo vệ', witch: 'Đầu độc' }[role];
+  const label = mpPick !== null ? `${verb} ${who}` : role === 'witch' ? (mpHeal ? 'Cứu, không đầu độc ai' : 'Không đầu độc ai') : 'Chọn một người';
   return `
     <div class="role-card ${info.tag}">${wwArt(role)}<h2>Bạn là ${info.label}</h2></div>
-    <div class="info stack">${extra}<p><b>${prompt}</b></p></div>
+    <div class="info stack">${extra}<p><b>${prompt}</b></p>
+      ${targets.length ? '<p class="muted small">Đi tới cửa nhà người đó trong làng, hoặc chạm vào tên bên dưới.</p>' : ''}</div>
     <div class="pgrid grow">
       ${targets.map((k) => playerCard(names[k], { cls: mpPick === k ? 'sel' : '', act: 'mww.pick', i: k })).join('')}
     </div>
-    <button class="btn" data-act="mww.confirm" ${ready ? '' : 'disabled'}>${ready ? 'Xác nhận' : 'Chọn một người'}</button>`;
+    <button class="btn" data-act="mww.confirm" ${ready ? '' : 'disabled'}>${label}</button>`;
 }
 
 // Kết quả hành động đêm của chính mình
@@ -2189,7 +2254,7 @@ function mwwVoteView() {
     ${mpBar(`🗳️ Bỏ phiếu · Ngày ${g.night}`)}
     <div class="card row">
       ${mwwRing(g.deadline, WW_TIMES.turn)}
-      <div><b>${tip}</b><p class="muted small">${done}/${wwAlive(g).length} người đã bỏ phiếu. Nhiều phiếu nhất sẽ bị treo cổ; hòa thì không ai bị treo.</p></div>
+      <div><b>${tip}</b><p class="muted small">${done}/${wwAlive(g).length} người đã bỏ phiếu. Nhiều phiếu nhất sẽ lên giàn treo cổ để cả làng phán xử; hòa thì không ai lên giàn.</p></div>
     </div>
     <div class="pgrid grow">
       ${wwAlive(g).map((k) => playerCard(names[k], {
@@ -2214,6 +2279,48 @@ function mwwBallots(g, names) {
   return `<div class="card stack small">${rows.join('') || '<p class="muted">Không ai bỏ phiếu.</p>'}</div>`;
 }
 
+// Ai treo, ai tha người trên giàn
+function mwwVerdictList(g, names) {
+  const who = (kill) => g.verdicts.map((v, k) => (v === kill ? esc(names[k]) : null)).filter(Boolean);
+  const row = (label, list) => `<p><b>${label}</b>: ${list.length} <span class="muted small">${list.length ? `(${list.join(', ')})` : ''}</span></p>`;
+  return `<div class="card stack small">${row('☠️ Treo', who(true))}${row('🙏 Tha', who(false))}</div>`;
+}
+
+// Phán xử: người nhiều phiếu nhất đứng trên giàn treo cổ, mọi người còn lại chọn Treo hay Tha trong 30 giây
+function mwwTrialView() {
+  const g = mp.room.g;
+  const names = mpNames();
+  const i = mpSeat();
+  const a = g.accused;
+  const verdicts = mwwVerdicts();
+  const kill = verdicts.filter((v) => v === true).length;
+  const save = verdicts.filter((v) => v === false).length;
+  const mine = verdicts[i];
+  const canVote = g.alive[i] && i !== a;
+  const tip = i === a
+    ? 'Bạn đang đứng trên giàn treo cổ. Thanh minh đi!'
+    : !canVote
+      ? 'Bạn đã bị loại nên không phán xử.'
+      : mine === undefined
+        ? `Treo hay tha ${esc(names[a])}?`
+        : 'Đã chọn. Bạn đổi được tới khi hết giờ.';
+  return `
+    ${mpBar(`🪢 Phán xử · Ngày ${g.night}`)}
+    <div class="card row">
+      ${mwwRing(g.deadline, WW_TIMES.turn)}
+      <div class="stack">
+        <p><b>${esc(names[a])}</b> bị đưa lên giàn treo cổ. <b>${tip}</b></p>
+        <p class="muted small">☠️ Treo: ${kill} · 🙏 Tha: ${save}. Treo nhiều hơn Tha thì bị treo cổ; hòa thì được tha.</p>
+      </div>
+    </div>
+    ${canVote ? `
+      <div class="row">
+        <button class="btn ${mine === true ? '' : 'ghost'} grow" data-act="mww.verdict" data-kill="1">${mine === true ? '✓ ' : ''}☠️ Treo</button>
+        <button class="btn ${mine === false ? '' : 'ghost'} grow" data-act="mww.verdict" data-kill="0">${mine === false ? '✓ ' : ''}🙏 Tha</button>
+      </div>` : ''}
+    ${mpIsHost() ? '<button class="link small" data-act="mww.judge">Chủ phòng: kết thúc phán xử ngay</button>' : ''}`;
+}
+
 function mwwRevealView() {
   const g = mp.room.g;
   const names = mpNames();
@@ -2222,13 +2329,16 @@ function mwwRevealView() {
   return `
     ${mpBar('Kết quả bỏ phiếu')}
     <div class="secret reveal">
-      ${i === null
+      ${i === null && g.spared !== null && g.spared !== undefined
+        ? `<div class="emoji">🙏</div><p class="muted">Dân làng tha cho <b>${esc(names[g.spared])}</b></p><p class="muted small">${esc(names[g.spared])} xuống giàn và chơi tiếp.</p>`
+        : i === null
         ? '<div class="emoji">🤝</div><p class="muted">Không ai bị treo cổ</p><p class="muted small">Phiếu hòa hoặc không ai bị chọn.</p>'
         : `${g.shown[i] ? wwArt(g.roles[i]) : '<div class="emoji">⚰️</div>'}
           <p class="muted">${esc(names[i])} bị treo cổ</p>
           ${g.shown[i] ? `<div class="role ${role.tag}">${role.label.toUpperCase()}</div>` : '<p class="muted">Vai trò được giữ kín.</p>'}`}
       ${mwwNotes(g, names)}
     </div>
+    ${g.verdicts ? mwwVerdictList(g, names) : ''}
     ${g.ballots ? mwwBallots(g, names) : ''}
     ${mpIsHost()
       ? `<button class="btn" data-act="mww.after">${mwwAfterLabel(g, '🌙 Sang đêm tiếp theo')}</button>`
@@ -2275,7 +2385,7 @@ function mwwEndView() {
       : '<p class="muted small center">Chờ chủ phòng bắt đầu ván mới…</p>'}`;
 }
 
-const MWW_VIEWS = { night: mwwNightView, day: mwwDayView, vote: mwwVoteView, reveal: mwwRevealView, hunter: mwwHunterView, end: mwwEndView };
+const MWW_VIEWS = { night: mwwNightView, day: mwwDayView, vote: mwwVoteView, trial: mwwTrialView, reveal: mwwRevealView, hunter: mwwHunterView, end: mwwEndView };
 
 views['mp.room'] = () => {
   if (!mp) return views['mp.home']();
@@ -2309,9 +2419,15 @@ function mwwScene() {
     : [...mpMembers().map(([uid, p]) => ({ uid, name: p.name })), ...mpBots().map((b) => ({ uid: b.id, name: b.name, bot: true }))];
   const votes = {};
   if (g?.step === 'vote') mwwVotes().forEach((t) => t >= 0 && (votes[t] = (votes[t] || 0) + 1));
+  const night = g?.step === 'night';
+  const roam = mwwRoam();
+  // Sói biết nhau: máy của Sói thấy đồng bọn đi lại ban đêm và hiện hình người sói
+  const iWolf = Boolean(g) && g.roles[mpSeat()] === 'wolf';
   village.enter(mp.id, myId);
   village.sync({
-    night: g?.step === 'night',
+    night,
+    roam: roam && { picks: roam, picked: mpPick },
+    accused: g ? room.seats[g.step === 'trial' ? g.accused : g.step === 'reveal' ? g.out ?? g.spared ?? -1 : -1]?.uid ?? null : null,
     players: seats.map((s, i) => ({
       id: s.uid,
       name: s.name,
@@ -2321,13 +2437,32 @@ function mwwScene() {
       alive: g ? g.alive[i] : true,
       votes: votes[i] || 0,
       isMe: s.uid === myId,
+      ally: s.uid === myId || (iWolf && g.roles[i] === 'wolf'),
+      wolf: iWolf && g.roles[i] === 'wolf',
     })),
   });
-  // Ban đêm không đi lại được, bảng mở rộng để xem vai và hành động
-  document.body.classList.toggle('v-night', g?.step === 'night');
+  // Ban đêm chỉ vai đang được gọi đi lại được; còn lại bảng mở rộng để xem vai
+  document.body.classList.toggle('v-night', night);
+  document.body.classList.toggle('v-roam', Boolean(roam));
+}
+
+// Ban đêm, đến lượt vai của mình (còn sống, đã mở máy, chưa chọn): những ghế chọn được, không thì null
+function mwwRoam() {
+  const g = mp?.room?.phase === 'play' ? mp.room.g : null;
+  if (g?.step !== 'night' || !mpShow) return null;
+  const i = mpSeat();
+  if (i < 0 || !g.alive[i]) return null;
+  if (g.roles[i] !== g.calls[g.turn] || mwwActs()[i]) return null;
+  return wwTargets(g, i);
 }
 AFTER_RENDER.push(mwwScene);
 addEventListener('village-ready', () => render());
+// Đi tới cửa nhà ai trong làng thì chọn người đó
+addEventListener('village-pick', (e) => {
+  if (!mwwRoam()?.includes(e.detail)) return;
+  mpPick = e.detail;
+  render();
+});
 actions['v.sheet'] = () => document.body.classList.toggle('sheet-min');
 
 modals['mp.name'] = () => `
@@ -2478,6 +2613,11 @@ Object.assign(actions, {
   'mww.after': () => mpUpdate(mwwAfter),
   'mww.votenow': () => mwwStartVote(),
   'mww.tally': () => mwwTally(),
+  'mww.judge': () => mwwJudge(),
+  'mww.verdict': (el) => {
+    const g = mp.room.g;
+    mpWritePlayer({ ...mp.players[myId], verdict: { game: g.id, night: g.night, kill: el.dataset.kill === '1', at: Date.now() } });
+  },
   'mww.vote': (el) => {
     const g = mp.room.g;
     mpWritePlayer({ ...mp.players[myId], vote: { game: g.id, night: g.night, target: Number(el.dataset.i), at: Date.now() } });

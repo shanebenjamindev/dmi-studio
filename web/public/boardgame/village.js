@@ -1,7 +1,10 @@
 // Làng 3D của Ma Sói: mỗi người là một nhân vật đi lại tự do quanh làng (cần gạt trên điện thoại, WASD hoặc phím mũi
 // tên trên máy tính). Vị trí gửi qua WebSocket tới Durable Object của phòng (server/boardgame-live.ts) khoảng 10 lần
 // một giây; máy khác nội suy cho mượt. Bot đi lang thang theo quỹ đạo tính từ mã của bot nên máy nào cũng thấy giống
-// nhau mà không cần gửi. Ban đêm trời tối, ai về nhà nấy và đứng yên; người chết thành bóng ma mờ.
+// nhau mà không cần gửi. Ban đêm trời tối, ai về nhà nấy; chỉ vai đang được gọi mới đi lại được, tới cửa nhà ai thì
+// chọn người đó. Sói thấy nhau (và chính mình) hiện hình người sói; người khác vẫn chỉ thấy mọi người ngủ trong nhà.
+// Người bị bầu nhiều phiếu nhất đứng lên giàn treo cổ ở quảng trường chờ cả làng phán xử. Người chết thành hồn ma
+// bay lơ lửng, đi xuyên nhà, ngày hay đêm đều bay được.
 // Trang game (index.html) gọi window.Village.enter / sync / leave; luật chơi vẫn nằm ở trang game.
 import * as THREE from 'three';
 
@@ -9,6 +12,8 @@ const RADIUS = 26; // đi được trong vòng này
 const HOME_R = 17; // nhà xếp vòng quanh đống lửa
 const SPEED = 4.2; // đơn vị mỗi giây
 const SEND_MS = 100;
+const GALLOWS = { x: 0, z: -6 }; // giàn treo cổ, phía sau đống lửa nhìn từ camera
+const STAGE_Y = 1; // mặt sàn giàn
 
 let renderer, scene, camera, clock, sun, hemi, fire, fireLight, ground;
 let canvas, stick, knob;
@@ -22,7 +27,13 @@ let frame = 0;
 let lastSent = 0;
 let lastSentPos = '';
 let aim = 0; // camera nhìn lệch về phía trước bao nhiêu (bảng game mở thì lệch để nhân vật không bị che)
-const people = new Map(); // id -> { group, body, label, badge, target, seat, bot, alive, name, color, votes }
+let roam = null; // ban đêm đến lượt mình: { picks: Set các ghế chọn được, picked }
+let roamMoved = false; // đã đi khỏi chỗ đứng chưa (đứng ở nhà mình lúc đầu không tính là chọn mình)
+let near = null; // ghế có cửa nhà mình đang đứng gần
+let lamp;
+let accused = null; // id người đang đứng trên giàn
+const people = new Map(); // id -> { group, human, wolf, body, label, badge, target, seat, bot, alive, ally, isWolf, ... }
+const markers = new Map(); // ghế -> vòng sáng trước cửa nhà chọn được
 const houses = [];
 const solids = []; // [x, z, bán kính] chặn đường
 const keys = new Set();
@@ -77,38 +88,36 @@ function buildWorld() {
     stone.position.set(Math.cos((k / 10) * Math.PI * 2) * 1.05, 0.12, Math.sin((k / 10) * Math.PI * 2) * 1.05);
     fire.add(stone);
   }
+  // Đèn lồng theo người đang đi đêm, để còn thấy đường
+  lamp = new THREE.PointLight(0xffd59a, 0, 11, 1.4);
+  scene.add(lamp);
   fireLight = new THREE.PointLight(0xff8a3a, 2, 18, 1.6);
   fireLight.position.y = 1.5;
   fire.add(fireLight);
   scene.add(fire);
   solids.push([0, 0, 1.4]);
 
-  // Nhà: đủ cho 20 người, xếp vòng quanh làng
-  for (let k = 0; k < 20; k++) {
-    const a = (k / 20) * Math.PI * 2;
-    const house = new THREE.Group();
-    const wall = [0xf3e3c3, 0xe9d2a8, 0xf0dccf, 0xd9c8a6][k % 4];
-    const roof = [0xb9562e, 0x8a3a2a, 0x9a6a2a, 0x6a4a8a][k % 4];
-    const base = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2, 2.4), mat(wall));
-    base.position.y = 1;
-    house.add(base);
-    const top = new THREE.Mesh(new THREE.ConeGeometry(2.2, 1.5, 4), mat(roof));
-    top.position.y = 2.75;
-    top.rotation.y = Math.PI / 4;
-    house.add(top);
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.2, 0.05), mat(0x5a3418));
-    door.position.set(0, 0.6, 1.22);
-    house.add(door);
-    const win = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.05), new THREE.MeshBasicMaterial({ color: 0x3a4a6a }));
-    win.position.set(0.8, 1.3, 1.22);
-    win.name = 'window';
-    house.add(win);
-    house.position.set(Math.cos(a) * HOME_R, 0, Math.sin(a) * HOME_R);
-    house.lookAt(0, 0, 0);
-    scene.add(house);
-    houses.push(house);
-    solids.push([house.position.x, house.position.z, 1.8]);
-  }
+  // Giàn treo cổ: sàn gỗ, bậc thang, hai cột, xà ngang và sợi thừng
+  const gallows = new THREE.Group();
+  const wood = mat(0x7a5230);
+  const darkWood = mat(0x5a3a1e);
+  const piece = (geo, m, x, y, z) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(x, y, z);
+    gallows.add(mesh);
+    return mesh;
+  };
+  piece(new THREE.BoxGeometry(2.8, STAGE_Y, 2.4), wood, 0, STAGE_Y / 2, 0);
+  for (let k = 0; k < 3; k++) piece(new THREE.BoxGeometry(1.2, 0.25, 0.4), darkWood, 0, 0.12 + k * 0.3, 1.4 + (2 - k) * 0.4);
+  for (const dx of [-1.15, 1.15]) piece(new THREE.BoxGeometry(0.22, 3.6, 0.22), darkWood, dx, STAGE_Y + 1.8, -0.9);
+  piece(new THREE.BoxGeometry(2.7, 0.24, 0.24), darkWood, 0, STAGE_Y + 3.5, -0.9);
+  piece(new THREE.BoxGeometry(0.2, 0.2, 1.2), darkWood, 0, STAGE_Y + 3.5, -0.4);
+  piece(new THREE.CylinderGeometry(0.03, 0.03, 1.1, 5), mat(0xc8b48a), 0, STAGE_Y + 2.95, 0.15);
+  const noose = piece(new THREE.TorusGeometry(0.18, 0.035, 6, 14), mat(0xc8b48a), 0, STAGE_Y + 2.25, 0.15);
+  noose.rotation.x = Math.PI / 2;
+  gallows.position.set(GALLOWS.x, 0, GALLOWS.z);
+  scene.add(gallows);
+  solids.push([GALLOWS.x, GALLOWS.z, 1.6]);
 
   // Cây ngoài vòng nhà
   for (let k = 0; k < 46; k++) {
@@ -125,6 +134,42 @@ function buildWorld() {
     const s = 0.8 + (hash('s' + k) % 50) / 100;
     tree.scale.set(s, s, s);
     scene.add(tree);
+  }
+}
+
+// Mỗi người chơi (kể cả bot) một nhà, xếp đều quanh đống lửa; số người đổi thì dựng lại
+function setHouses(n) {
+  n = Math.max(n, 1);
+  if (houses.length === n) return;
+  for (const house of houses) scene.remove(house);
+  houses.length = 0;
+  solids.length = 2; // giữ đống lửa và giàn treo cổ
+  for (const ring of markers.values()) scene.remove(ring);
+  markers.clear();
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2;
+    const house = new THREE.Group();
+    const wall = [0xf3e3c3, 0xe9d2a8, 0xf0dccf, 0xd9c8a6][k % 4];
+    const roof = [0xb9562e, 0x8a3a2a, 0x9a6a2a, 0x6a4a8a][k % 4];
+    const base = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2, 2.4), mat(wall));
+    base.position.y = 1;
+    house.add(base);
+    const top = new THREE.Mesh(new THREE.ConeGeometry(2.2, 1.5, 4), mat(roof));
+    top.position.y = 2.75;
+    top.rotation.y = Math.PI / 4;
+    house.add(top);
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.2, 0.05), mat(0x5a3418));
+    door.position.set(0, 0.6, 1.22);
+    house.add(door);
+    const win = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.05), new THREE.MeshBasicMaterial({ color: night ? 0xffd36b : 0x3a4a6a }));
+    win.position.set(0.8, 1.3, 1.22);
+    win.name = 'window';
+    house.add(win);
+    house.position.set(Math.cos(a) * HOME_R, 0, Math.sin(a) * HOME_R);
+    house.lookAt(0, 0, 0);
+    scene.add(house);
+    houses.push(house);
+    solids.push([house.position.x, house.position.z, 1.8]);
   }
 }
 
@@ -192,20 +237,91 @@ function makePerson(p) {
     body.add(leg);
   }
   group.add(body);
+  const wolf = makeWolf(color);
+  wolf.visible = false;
+  group.add(wolf);
   const label = textSprite(p.name, p.isMe ? { bg: 'rgba(255,216,77,.92)', color: '#0b1e63' } : {});
   label.position.y = 2.35;
   group.add(label);
   scene.add(group);
-  return { group, body, label, badge: null, name: p.name, isMe: p.isMe };
+  return { group, human: body, wolf, body, label, badge: null, name: p.name, isMe: p.isMe };
+}
+
+// Người sói: lông xám, mõm dài, tai nhọn, mắt đỏ, đuôi; vòng cổ màu của người chơi để Sói nhận ra nhau
+function makeWolf(color) {
+  const body = new THREE.Group();
+  const fur = mat(0x4d4652);
+  const dark = mat(0x2b2730);
+  const add = (mesh, x, y, z, rx = 0, rz = 0) => {
+    mesh.position.set(x, y, z);
+    mesh.rotation.set(rx, 0, rz);
+    body.add(mesh);
+    return mesh;
+  };
+  add(new THREE.Mesh(new THREE.CapsuleGeometry(0.44, 0.7, 4, 10), fur), 0, 1, 0, 0.25);
+  add(new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.07, 6, 16), mat(color)), 0, 1.5, 0.08, Math.PI / 2 + 0.25);
+  add(new THREE.Mesh(new THREE.SphereGeometry(0.34, 14, 12), fur), 0, 1.78, 0.18);
+  add(new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.5, 8), dark), 0, 1.7, 0.56, Math.PI / 2);
+  add(new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), new THREE.MeshBasicMaterial({ color: 0x111111 })), 0, 1.7, 0.82);
+  for (const dx of [-0.17, 0.17]) {
+    add(new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.34, 6), dark), dx, 2.1, 0.08, 0, -dx);
+    add(new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff3a2a })), dx * 0.8, 1.86, 0.46);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.07, 0.75, 6), fur), dx * 3, 1.05, 0.15, 0.3, dx * 1.4);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.1, 0.6, 6), dark), dx * 1.2, 0.3, 0).name = 'leg';
+  }
+  add(new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.75, 7), fur), 0, 0.75, -0.5, -2.2);
+  return body;
+}
+
+// Ban đêm Sói hiện hình người sói (chỉ máy của Sói vẽ như vậy)
+function setForm(person, wolf) {
+  if ((person.body === person.wolf) === wolf) return;
+  person.human.visible = !wolf;
+  person.wolf.visible = wolf;
+  person.body = wolf ? person.wolf : person.human;
+  placeLabel(person);
+}
+
+// Tên nằm trên đầu: người sói cao hơn, hồn ma bay cao hơn nữa
+function placeLabel(person) {
+  person.label.position.y = (person.body === person.wolf ? 2.65 : 2.35) + (person.alive === false ? 1.1 : 0);
 }
 
 function setGhost(person, ghost) {
-  person.body.traverse((o) => {
-    if (!o.material) return;
-    o.material.transparent = ghost;
-    o.material.opacity = ghost ? 0.35 : 1;
-    o.material.depthWrite = !ghost;
-  });
+  for (const body of [person.human, person.wolf]) {
+    body.traverse((o) => {
+      if (!o.material) return;
+      o.material.transparent = ghost;
+      o.material.opacity = ghost ? 0.35 : 1;
+      o.material.depthWrite = !ghost;
+      o.material.needsUpdate = true;
+    });
+  }
+}
+
+// Vòng sáng trước cửa những nhà đang chọn được; nhà mình đang đứng gần thì sáng rực
+function updateMarkers() {
+  const picks = roam?.picks || new Set();
+  for (const [seat, ring] of markers) {
+    if (picks.has(seat)) continue;
+    scene.remove(ring);
+    markers.delete(seat);
+  }
+  for (const seat of picks) {
+    let ring = markers.get(seat);
+    if (!ring) {
+      ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.25, 32), new THREE.MeshBasicMaterial({ color: 0xffd84d, transparent: true }));
+      ring.rotation.x = -Math.PI / 2;
+      const home = homeSpot(seat);
+      ring.position.set(home.x, 0.03, home.z);
+      scene.add(ring);
+      markers.set(seat, ring);
+    }
+    const on = seat === near || seat === roam.picked;
+    ring.material.color.set(on ? 0xff6b7a : 0xffd84d);
+    ring.material.opacity = on ? 0.95 : 0.55;
+    ring.scale.setScalar(on ? 1.25 : 1);
+  }
 }
 
 function setBadge(person, votes) {
@@ -277,12 +393,13 @@ function input() {
 }
 
 // Đi tới (x, z) nhưng không xuyên qua nhà, đống lửa hay ra khỏi làng
-function walkable(x, z) {
+function walkable(x, z, ghost = false) {
   const r = Math.hypot(x, z);
   if (r > RADIUS) {
     x = (x / r) * RADIUS;
     z = (z / r) * RADIUS;
   }
+  if (ghost) return { x, z }; // hồn ma bay xuyên qua mọi thứ
   for (const [sx, sz, sr] of solids) {
     const dx = x - sx;
     const dz = z - sz;
@@ -326,7 +443,8 @@ function place(s) {
   if (s.id === me) return;
   seen.set(s.id, { x: s.x, z: s.z, r: s.r });
   const p = people.get(s.id);
-  if (p && !night) p.target = { x: s.x, z: s.z, r: s.r };
+  // Ban đêm chỉ thấy đồng bọn đi lại (Sói thấy Sói) và hồn ma bay; người khác vẫn nằm trong nhà
+  if (p && (!night || p.ally || p.alive === false)) p.target = { x: s.x, z: s.z, r: s.r };
 }
 
 function send(pos) {
@@ -357,19 +475,27 @@ function tick() {
   const t = clock.elapsedTime;
   const mine = people.get(me);
   if (mine) {
-    const { x, y } = night || !mine.alive ? { x: 0, y: 0 } : input();
+    // Đi được: ban ngày, hoặc đến lượt mình ban đêm; hồn ma bay lúc nào cũng được; đứng trên giàn thì không
+    const free = accused !== me && (!mine.alive || !night || roam);
+    const { x, y } = free ? input() : { x: 0, y: 0 };
     const moving = x || y;
+    if (accused === me) onStage(mine, dt);
     if (moving) {
-      const next = walkable(mine.group.position.x + x * SPEED * dt, mine.group.position.z + y * SPEED * dt);
+      const next = walkable(mine.group.position.x + x * SPEED * dt, mine.group.position.z + y * SPEED * dt, !mine.alive);
       mine.group.position.x = next.x;
       mine.group.position.z = next.z;
       mine.group.rotation.y = Math.atan2(x, y);
+      if (roam) roamMoved = true;
     }
-    if (!night) send({ x: mine.group.position.x, z: mine.group.position.z, r: mine.group.rotation.y });
+    send({ x: mine.group.position.x, z: mine.group.position.z, r: mine.group.rotation.y });
+    if (roam) checkNear(mine.group.position);
+    lamp.position.set(mine.group.position.x, 2.2, mine.group.position.z);
+    lamp.intensity = night && roam ? 2.2 : 0;
     animateWalk(mine, moving, t);
     // Camera nhìn chéo từ phía sau, đi theo nhân vật của mình. Khi bảng game đang mở (che nửa dưới màn hình),
     // camera nhìn lệch về phía trước để nhân vật nằm ở nửa trên còn thấy được.
-    const p = mine.group.position;
+    // Đang phán xử thì camera quay về giàn treo cổ cho cả làng cùng xem.
+    const p = accused ? new THREE.Vector3(GALLOWS.x, STAGE_Y, GALLOWS.z) : mine.group.position;
     const sheetOpen = !document.body.classList.contains('sheet-min');
     aim += ((sheetOpen ? 4.5 : 0) - aim) * (1 - Math.exp(-dt * 4));
     camera.position.lerp(new THREE.Vector3(p.x, p.y + 9, p.z + 10.5 + aim), 1 - Math.exp(-dt * 5));
@@ -384,6 +510,13 @@ function tick() {
     if (id === me) continue;
     let target = p.target;
     if (p.bot && !night) target = botSpot(id, p.seat, t);
+    if (night && !p.ally && p.alive !== false) target = homeSpot(p.seat);
+    if (id === accused) {
+      onStage(p, dt);
+      animateWalk(p, false, t);
+      continue;
+    }
+    p.group.position.y += (0 - p.group.position.y) * (1 - Math.exp(-dt * 8));
     if (!target) continue;
     const pos = p.group.position;
     const k = 1 - Math.exp(-dt * 8);
@@ -402,12 +535,29 @@ function tick() {
 
 const angleDiff = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 
+// Đứng trước cửa nhà ai chọn được thì báo cho trang game chọn người đó
+function checkNear(p) {
+  let best = null;
+  let bestD = 2.6;
+  if (roamMoved) {
+    for (const seat of roam.picks) {
+      const home = homeSpot(seat);
+      const d = Math.hypot(home.x - p.x, home.z - p.z);
+      if (d < bestD) (best = seat), (bestD = d);
+    }
+  }
+  if (best === near) return;
+  near = best;
+  updateMarkers();
+  if (best !== null) dispatchEvent(new CustomEvent('village-pick', { detail: best }));
+}
+
 // Nhà đứng giữa camera và nhân vật của mình (phía trước, gần) thì mờ đi để không che
 function fadeHouses(p) {
   for (const house of houses) {
     const dx = house.position.x - p.x;
     const dz = house.position.z - p.z;
-    const block = dz > -0.5 && dz < 12 && Math.abs(dx) < 3.2;
+    const block = dz > -0.5 && dz < 12 && Math.abs(dx) < 3.2 + dz * 0.3;
     if (house.userData.faded === block) continue;
     house.userData.faded = block;
     house.traverse((o) => {
@@ -419,8 +569,19 @@ function fadeHouses(p) {
   }
 }
 
+// Người bị phán xử đứng giữa sàn giàn treo cổ, quay mặt về phía dân làng
+function onStage(p, dt) {
+  const pos = p.group.position;
+  const k = 1 - Math.exp(-dt * 6);
+  pos.x += (GALLOWS.x - pos.x) * k;
+  pos.z += (GALLOWS.z + 0.15 - pos.z) * k;
+  pos.y += (STAGE_Y - pos.y) * k;
+  p.group.rotation.y += angleDiff(p.group.rotation.y, 0) * k;
+}
+
 function animateWalk(p, moving, t) {
-  p.body.position.y = p.alive === false ? 0.3 + Math.sin(t * 2) * 0.12 : moving ? Math.abs(Math.sin(t * 12)) * 0.08 : 0;
+  // Hồn ma bay lơ lửng cao hơn mặt đất
+  p.body.position.y = p.alive === false ? 1.1 + Math.sin(t * 2) * 0.25 : moving ? Math.abs(Math.sin(t * 12)) * 0.08 : 0;
   p.body.children.filter((o) => o.name === 'leg').forEach((leg, k) => (leg.rotation.x = moving ? Math.sin(t * 12 + k * Math.PI) * 0.6 : 0));
 }
 
@@ -501,11 +662,19 @@ window.Village = {
     for (const p of people.values()) scene.remove(p.group);
     people.clear();
     seen.clear();
+    roam = null;
+    near = null;
+    accused = null;
+    updateMarkers();
   },
 
-  // players: [{ id, name, color, seat, bot, alive, votes, isMe }], night: đang là đêm
-  sync({ players, night: isNight }) {
+  // players: [{ id, name, color, seat, bot, alive, votes, isMe, ally, wolf }], night: đang là đêm.
+  // ally: ban đêm vẫn thấy người này đi lại; wolf: ban đêm vẽ thành người sói.
+  // roam: ban đêm đến lượt mình thì { picks: [ghế chọn được], picked }, không thì null.
+  // accused: id người đang đứng trên giàn treo cổ, không thì null.
+  sync({ players, night: isNight, roam: nextRoam = null, accused: onStageId = null }) {
     if (!room) return;
+    setHouses(players.length);
     const ids = new Set(players.map((p) => p.id));
     for (const [id, p] of people) {
       if (!ids.has(id)) {
@@ -526,11 +695,30 @@ window.Village = {
       }
       person.seat = p.seat;
       person.bot = p.bot;
+      if (!person.ally && p.ally && night && seen.has(p.id)) person.target = seen.get(p.id);
+      person.ally = Boolean(p.ally);
+      person.isWolf = Boolean(p.wolf);
       if (person.alive !== p.alive) setGhost(person, !p.alive);
       person.alive = p.alive;
+      placeLabel(person);
       setBadge(person, p.votes || 0);
     });
     setNight(Boolean(isNight));
+    for (const person of people.values()) setForm(person, night && person.isWolf);
+    // Hết lượt đi đêm thì về nhà
+    const mine = people.get(me);
+    if (roam && !nextRoam && night && mine) {
+      const home = homeSpot(mine.seat);
+      mine.group.position.set(home.x, 0, home.z);
+      mine.group.rotation.y = home.r;
+    }
+    // Xuống giàn thì đứng ngay trước bậc thang
+    if (accused === me && onStageId !== me && mine) mine.group.position.set(GALLOWS.x, 0, GALLOWS.z + 2.8);
+    accused = onStageId;
+    if (!roam && nextRoam) roamMoved = false;
+    roam = nextRoam && { picks: new Set(nextRoam.picks), picked: nextRoam.picked ?? null };
+    if (!roam) near = null;
+    updateMarkers();
   },
 };
 dispatchEvent(new Event('village-ready'));
