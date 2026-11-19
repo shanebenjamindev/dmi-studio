@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a0b1e"/>
+      <stop offset=".55" stop-color="#5c1430"/>
+      <stop offset="1" stop-color="#140611"/>
+    </linearGradient>
+    <radialGradient id="moon" cx=".45" cy=".4" r=".6">
+      <stop offset="0" stop-color="#fff4e0"/>
+      <stop offset=".7" stop-color="#f6c9a0"/>
+      <stop offset="1" stop-color="#e08a6a"/>
+    </radialGradient>
+    <radialGradient id="halo" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ff9a7a" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#ff9a7a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="eye" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset=".35" stop-color="#ff3b3b"/>
+      <stop offset="1" stop-color="#ff3b3b" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="300" height="400" rx="22" fill="url(#sky)"/>
+  <g fill="#ffd9c4" opacity=".8">
+    <circle cx="40" cy="40" r="1.6"/><circle cx="252" cy="52" r="1.2"/><circle cx="272" cy="150" r="1.8"/>
+    <circle cx="30" cy="214" r="1.2"/><circle cx="220" cy="28" r="1"/><circle cx="56" cy="112" r="1"/>
+  </g>
+  <circle cx="150" cy="146" r="128" fill="url(#halo)"/>
+  <circle cx="150" cy="146" r="88" fill="url(#moon)"/>
+  <g fill="#e9a98a" opacity=".45">
+    <circle cx="186" cy="118" r="13"/><circle cx="200" cy="176" r="9"/><circle cx="170" cy="96" r="6"/>
+  </g>
+  <!-- Rừng thông phía xa -->
+  <path d="M0 330 L0 292 L12 270 L22 292 L30 262 L42 292 L52 276 L62 300 L250 300 L258 274 L268 296 L278 258 L290 290 L300 272 L300 330 Z" fill="#2a0a1c"/>
+  <!-- Mỏm đá -->
+  <path d="M0 400 L0 336 C40 318 84 310 120 312 C164 306 212 312 252 326 C276 334 292 346 300 352 L300 400 Z" fill="#100410"/>
+  <!-- Sói ngồi tru trăng -->
+  <g fill="#14050f">
+    <path d="M86 96 L110 88 L126 78 L132 58 L142 74 L152 60 L158 80 C164 92 172 104 182 118 C194 136 202 156 208 178 C214 200 224 220 232 244 C240 268 238 290 230 304 L248 312 L246 318 L208 318 L206 306 C200 296 196 288 192 280 L184 318 L160 318 L162 300 C156 290 150 262 148 232 L142 318 L118 318 L122 308 C124 280 124 250 122 222 C118 200 116 186 112 172 L118 166 L106 158 L114 150 L102 140 L112 132 L100 122 C96 114 92 108 88 104 L76 106 L88 98 Z"/>
+    <path d="M228 296 C252 306 276 298 282 274 C272 288 258 290 246 286 C254 278 258 268 256 256 C248 274 238 282 224 284 Z"/>
+  </g>
+  <circle cx="124" cy="88" r="7" fill="url(#eye)"/>
+  <circle cx="124" cy="88" r="1.6" fill="#fff"/>
+  <rect x="9" y="9" width="282" height="382" rx="16" fill="none" stroke="#ff9a7a" stroke-opacity=".35" stroke-width="2"/>
+</svg>

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1146"/>
+      <stop offset=".6" stop-color="#3a1f7a"/>
+      <stop offset="1" stop-color="#120a2e"/>
+    </linearGradient>
+    <radialGradient id="orb" cx=".42" cy=".38" r=".62">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset=".35" stop-color="#d6c3ff"/>
+      <stop offset=".75" stop-color="#8a5cff"/>
+      <stop offset="1" stop-color="#4a23b0"/>
+    </radialGradient>
+    <radialGradient id="glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#b99bff" stop-opacity=".8"/>
+      <stop offset="1" stop-color="#b99bff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="robe" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b1760"/>
+      <stop offset="1" stop-color="#0d0724"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="400" rx="22" fill="url(#sky)"/>
+  <g fill="#e6dcff">
+    <path d="M58 58 l3 8 8 3 -8 3 -3 8 -3 -8 -8 -3 8 -3z" opacity=".9"/>
+    <path d="M238 92 l2 6 6 2 -6 2 -2 6 -2 -6 -6 -2 6 -2z" opacity=".8"/>
+    <path d="M250 222 l2 5 5 2 -5 2 -2 5 -2 -5 -5 -2 5 -2z" opacity=".6"/>
+    <circle cx="40" cy="160" r="1.4"/><circle cx="262" cy="40" r="1.6"/><circle cx="96" cy="30" r="1.2"/><circle cx="30" cy="260" r="1.2"/>
+  </g>
+  <!-- Trăng khuyết -->
+  <path d="M226 46 A30 30 0 1 0 256 86 A24 24 0 1 1 226 46 Z" fill="#e6dcff" opacity=".85"/>
+  <!-- Áo choàng và mũ trùm -->
+  <path d="M150 92 C112 92 94 132 96 170 C98 198 92 222 80 250 L60 362 C120 376 180 376 240 362 L220 250 C208 222 202 198 204 170 C206 132 188 92 150 92 Z" fill="url(#robe)"/>
+  <path d="M150 112 C124 112 114 140 116 166 C118 186 130 200 150 200 C170 200 182 186 184 166 C186 140 176 112 150 112 Z" fill="#05020f"/>
+  <!-- Đôi mắt sáng dưới mũ trùm -->
+  <ellipse cx="136" cy="162" rx="5" ry="2.6" fill="#cdb8ff"/>
+  <ellipse cx="164" cy="162" rx="5" ry="2.6" fill="#cdb8ff"/>
+  <!-- Viền mũ trùm -->
+  <path d="M150 92 C112 92 94 132 96 170 C100 140 120 112 150 112 C180 112 200 140 204 170 C206 132 188 92 150 92 Z" fill="#8a5cff" opacity=".35"/>
+  <!-- Quả cầu pha lê -->
+  <circle cx="150" cy="274" r="78" fill="url(#glow)"/>
+  <path d="M112 318 C120 304 180 304 188 318 L196 340 L104 340 Z" fill="#c9a24a"/>
+  <path d="M104 340 L196 340 L190 350 L110 350 Z" fill="#8a6a26"/>
+  <circle cx="150" cy="276" r="40" fill="url(#orb)"/>
+  <path d="M130 260 C136 250 148 246 158 248" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" opacity=".8"/>
+  <!-- Bàn tay ôm quả cầu -->
+  <path d="M104 300 C100 286 106 276 116 278 C112 290 114 302 120 312 Z" fill="#1d0f45"/>
+  <path d="M196 300 C200 286 194 276 184 278 C188 290 186 302 180 312 Z" fill="#1d0f45"/>
+  <rect x="9" y="9" width="282" height="382" rx="16" fill="none" stroke="#b99bff" stroke-opacity=".4" stroke-width="2"/>
+</svg>
