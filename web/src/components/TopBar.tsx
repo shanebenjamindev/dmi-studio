@@ -78,6 +78,8 @@ export function AppHeader() {
   );
 }
 
+/** DMI Boardgame lives outside the app (a claude.ai artifact, where its member list is edited); it opens in a new tab. */
+const BOARDGAME_URL = 'https://claude.ai/artifact/1omsbirJoE7sACgKZwkZTH';
 /** Where each section's link goes when opened in a new tab (a click opens the page last used in it). */
 const SECTION_HASH: Record<string, string> = { boards: '#boards', customers: '#customers', work: '#tasks', reports: '#reports', tools: '#tools', mail: '#mail', messages: '#messages', admin: '#admin' };
 /** The sections, down the left side. */
@@ -125,6 +127,9 @@ export function TopBar() {
       {primary.map(link)}
       <div className={'rail-more' + (more ? ' open' : '')} ref={moreRef} onClickCapture={(e) => { if ((e.target as HTMLElement).closest('.sp-button')) setMore(false); }}>
         {rest.map(link)}
+        <a href={BOARDGAME_URL} target="_blank" rel="noopener noreferrer" className="rail-item" title="DMI Boardgame" onClick={() => setMore(false)}>
+          <Icon name="dice" size={20} /><span>Board Game</span>
+        </a>
         <span className="rail-fill" />
         <SupportButton />
       </div>

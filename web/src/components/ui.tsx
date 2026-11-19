@@ -79,6 +79,7 @@ const P: Record<string, ReactNode> = {
   timeline: <path d="M4 6.5h9M8 12h12M6 17.5h7" />,
   activity: <path d="M5 6.5h14M5 12h14M5 17.5h14M3 6.5h.01M3 12h.01M3 17.5h.01" />,
   star: <path d="m12 3.8 2.5 5.2 5.7.8-4.1 4 1 5.7L12 16.8l-5.1 2.7 1-5.7-4.1-4 5.7-.8Z" />,
+  dice: <><rect x="4" y="4" width="16" height="16" rx="3" /><circle cx="8.5" cy="8.5" r=".9" fill="currentColor" /><circle cx="15.5" cy="8.5" r=".9" fill="currentColor" /><circle cx="12" cy="12" r=".9" fill="currentColor" /><circle cx="8.5" cy="15.5" r=".9" fill="currentColor" /><circle cx="15.5" cy="15.5" r=".9" fill="currentColor" /></>,
   info: <><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5.5M12 8h.01" /></>,
   card: <><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="M7 9.5h6M7 13h9" /></>,
   arrow: <path d="M5 12h14M13 6l6 6-6 6" />,
