@@ -1,0 +1,2619 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DMI Boardgame</title>
+<link rel="icon" href="/brand/mark.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;800;900&display=swap">
+<style>
+/* Nền gradient xanh chéo (chàm dưới-trái → cyan trên-phải), thẻ người chơi dạng lưới 3 cột trên nền kính tối */
+:root {
+  --g1: #1A4FE0;
+  --g2: #1E88F0;
+  --g3: #2EC5F5;
+  --card: rgba(7, 20, 66, .62);
+  --card-2: rgba(255, 255, 255, .16);
+  --field: rgba(3, 10, 40, .45);
+  --sheet: #0e2a8c;
+  --line: rgba(255, 255, 255, .2);
+  --text: #ffffff;
+  --muted: #d9e8ff;
+  --accent: #ffffff;
+  --on-accent: #1A4FE0;
+  --civ: #5cf2a5;
+  --spy: #ff6b7a;
+  --white: #f1f5f9;
+  --gold: #ffd84d;
+  --on-gold: #0b1e63;
+  --radius: 16px;
+  --font: "Be Vietnam Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html { height: 100%; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+html { background: var(--g1); }
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--g2) linear-gradient(to top right, var(--g1) 0%, var(--g2) 50%, var(--g3) 100%);
+}
+
+#app {
+  flex: 1;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  padding-block: 20px 24px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+h1, h2, h3, p { margin: 0; }
+h2 { font-size: 1.35rem; text-wrap: balance; }
+.muted { color: var(--muted); }
+.small { font-size: .85rem; }
+.center { text-align: center; }
+.grow { flex: 1; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.row { display: flex; align-items: center; gap: 12px; }
+.row.between { justify-content: space-between; }
+
+/* Buttons */
+button, select { font: inherit; color: inherit; cursor: pointer; border: 0; }
+.btn {
+  width: 100%;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 800;
+  font-size: 1.05rem;
+  box-shadow: 0 6px 18px rgba(4, 16, 70, .28);
+  transition: transform .08s, opacity .15s;
+}
+.btn:active { transform: scale(.98); opacity: .9; }
+.btn:disabled { opacity: .45; pointer-events: none; }
+.btn.ghost { background: var(--card-2); color: var(--text); box-shadow: none; }
+.link { background: none; color: var(--muted); padding: 8px; text-decoration: underline; }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+/* Home */
+.hero { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; }
+.hero .logo { font-size: 5.5rem; line-height: 1; filter: drop-shadow(0 10px 24px rgba(4, 16, 70, .45)); }
+.hero h1 { font-size: 2.8rem; letter-spacing: .08em; font-weight: 900; }
+.hero h1 span { color: var(--gold); }
+
+.topbar { display: flex; align-items: center; gap: 8px; }
+.topbar h2 { flex: 1; }
+.back { width: 40px; height: 40px; flex: none; border-radius: 12px; background: var(--card); font-size: 1.2rem; }
+
+.stepper { display: flex; align-items: center; gap: 4px; }
+.stepper button { width: 40px; height: 40px; border-radius: 12px; background: var(--card-2); font-size: 1.3rem; font-weight: 700; }
+.stepper button:disabled { opacity: .3; }
+.stepper b { min-width: 36px; text-align: center; font-size: 1.2rem; font-variant-numeric: tabular-nums; }
+
+input[type="text"], .guess input {
+  flex: 1; min-width: 0; width: 100%;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--field);
+  color: var(--text);
+  font: inherit; font-size: 16px;
+}
+input:focus { outline: 2px solid var(--gold); outline-offset: 0; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .9rem;
+}
+.chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
+
+.role-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.role-dot.civ { background: var(--civ); }
+.role-dot.spy { background: var(--spy); }
+.role-dot.white { background: var(--white); }
+
+/* Lưới thẻ người chơi */
+.pgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-content: start; }
+.pcard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 22px 6px 10px;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 2px solid transparent;
+  text-align: center;
+}
+.pcard .seat {
+  position: absolute; top: 6px; left: 9px;
+  font-size: .72rem; font-weight: 700; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.pcard .pname { max-width: 100%; font-weight: 700; font-size: .92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcard .score { font-size: .85rem; font-weight: 800; color: var(--gold); }
+.pcard.sel { border-color: var(--spy); background: rgba(90, 10, 40, .6); }
+.pcard.first { border-color: var(--gold); }
+.pcard.out { opacity: .5; }
+.pcard.out .pname { text-decoration: line-through; }
+.pcard select {
+  width: 100%;
+  padding: 7px 4px;
+  border-radius: 10px;
+  background: var(--card-2);
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  text-align-last: center;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.pcard.empty .avatar { background: var(--card-2) !important; }
+
+.avatar {
+  width: 54px; height: 54px; flex: none;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  color: #fff;
+  font-weight: 700; font-size: 1.05rem; letter-spacing: .02em;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .22);
+}
+.avatar.big { width: 96px; height: 96px; font-size: 1.9rem; }
+
+.tag { padding: 2px 8px; border-radius: 999px; font-size: .7rem; font-weight: 700; white-space: nowrap; }
+.tag.civ { background: rgba(92, 242, 165, .16); color: var(--civ); }
+.tag.spy { background: rgba(255, 107, 122, .2); color: var(--spy); }
+.tag.white { background: rgba(241, 245, 249, .18); color: var(--white); }
+.tag.first { background: var(--gold); color: var(--on-gold); }
+
+/* Deal & reveal */
+.secret {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 28px 20px;
+  min-height: 340px;
+}
+.secret .emoji { font-size: 4rem; line-height: 1; }
+.secret .who { font-size: 1.9rem; font-weight: 800; }
+.secret .word {
+  font-size: 2.3rem;
+  font-weight: 900;
+  color: var(--gold);
+  word-break: break-word;
+  animation: pop .25s ease-out;
+}
+.progress { height: 6px; border-radius: 3px; background: var(--card); overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--gold); transition: width .3s; }
+
+@keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+.reveal .role { font-size: 2rem; font-weight: 900; animation: pop .3s ease-out; }
+.role.civ { color: var(--civ); }
+.role.spy { color: var(--spy); }
+.role.white { color: var(--white); }
+
+.guess { display: flex; gap: 8px; width: 100%; }
+.guess .btn { width: auto; padding: 14px 18px; }
+
+.words { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.words .card { text-align: center; padding: 14px 8px; }
+.words b { display: block; font-size: 1.25rem; margin-top: 4px; word-break: break-word; }
+
+/* Modal */
+.modal {
+  position: fixed; inset: 0;
+  background: rgba(3, 10, 40, .72);
+  display: flex; align-items: flex-end; justify-content: center;
+  z-index: 10;
+}
+.modal[hidden] { display: none; }
+.sheet {
+  width: 100%; max-width: 480px; max-height: 88dvh;
+  overflow-y: auto;
+  background: var(--sheet);
+  border-radius: 24px 24px 0 0;
+  padding-block: 20px calc(20px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 14px;
+}
+.rules li { margin-bottom: 8px; }
+.rules ul { margin: 0; padding-left: 20px; }
+
+/* Trang chủ & bảng xếp hạng */
+.brand { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding-block: 18px 6px; }
+.brand .logo { font-size: 4rem; line-height: 1; filter: drop-shadow(0 10px 24px rgba(4, 16, 70, .45)); }
+.brand h1 { font-size: 2.1rem; font-weight: 900; letter-spacing: .06em; }
+.brand h1 span { color: var(--gold); }
+
+.games { display: flex; flex-direction: column; gap: 12px; }
+.gcard {
+  display: flex; align-items: center; gap: 14px;
+  width: 100%;
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.gcard .gicon { font-size: 2.6rem; line-height: 1; flex: none; }
+.gcard .gbody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gcard .gname { font-size: 1.2rem; font-weight: 800; }
+.gcard .go { font-size: 1.6rem; color: var(--gold); }
+.gcard.soon { opacity: .7; border-style: dashed; }
+
+.list { display: flex; flex-direction: column; gap: 8px; }
+.lrow { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; background: var(--card); }
+.lrow .rank { width: 26px; flex: none; text-align: center; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lrow .avatar { width: 40px; height: 40px; font-size: .85rem; }
+.lrow .lname { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lrow .lname b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lrow .pts { font-weight: 800; color: var(--gold); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hrow { display: flex; gap: 10px; align-items: baseline; font-size: .9rem; }
+.hrow time { flex: none; color: var(--muted); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.hrow span { min-width: 0; }
+
+/* Ma Sói */
+.switch {
+  flex: none;
+  min-width: 64px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-weight: 700; font-size: .85rem;
+}
+.switch.on { background: var(--gold); border-color: var(--gold); color: var(--on-gold); }
+.tag.wolf { background: rgba(255, 107, 122, .2); color: var(--spy); }
+.tag.special { background: rgba(255, 216, 77, .18); color: var(--gold); }
+.tag.villager { background: rgba(92, 242, 165, .16); color: var(--civ); }
+.role.wolf { color: var(--spy); }
+.role.special { color: var(--gold); }
+.role.villager { color: var(--civ); }
+.secret.night { background: rgba(4, 10, 44, .78); }
+.info { padding: 12px 14px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); font-size: .95rem; }
+.info .switch { align-self: flex-start; }
+.result { font-size: 1.5rem; font-weight: 800; color: var(--gold); text-wrap: balance; }
+
+/* Chơi nhiều máy */
+.code { font-size: 2.8rem; font-weight: 900; letter-spacing: .25em; color: var(--gold); font-variant-numeric: tabular-nums; }
+.field { width: 100%; padding: 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--field); font-size: 16px; }
+button.lrow { width: 100%; text-align: left; }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+</style>
+</head>
+<body>
+<main id="app"></main>
+<div id="modal" class="modal" hidden></div>
+<script>
+// Phần dùng chung của DMI Boardgame: lưu trữ, bàn chơi (danh sách thành viên), bảng điểm, khung giao diện.
+// Mỗi game tự đăng ký vào GAMES, views, modals, actions, forms.
+const MAX_PLAYERS = 20;
+// Danh sách dự phòng, chỉ dùng khi chưa lấy được danh sách nhân viên từ DMI Workspace (xem phần Dữ liệu online)
+const DEFAULT_ROSTER = [
+  'Aeris', 'Alfie', 'Annie', 'Arthur', 'Bang', 'Brian', 'Duke', 'Dylan', 'Ed', 'Editor',
+  'Fender', 'Jason', 'Jesse', 'Kris', 'Maelyn', 'Maxx', 'Ryan', 'Steve', 'Vincent',
+];
+const AVATAR_COLORS = ['#6b5bc2', '#b5551d', '#2456c8', '#8a3a6e', '#45506b', '#3f8457', '#35657d', '#a2342a'];
+const NEW_NAME = '__new';
+const LOG_LIMIT = 50;
+
+const app = document.querySelector('#app');
+const modalEl = document.querySelector('#modal');
+
+const load = (key, fallback) => {
+  try {
+    const v = JSON.parse(localStorage.getItem(key));
+    return v ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+const save = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+};
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const rand = (n) => Math.floor(Math.random() * n);
+const shuffle = (arr) => {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = rand(i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+};
+
+const GAMES = [];
+const views = {};
+const modals = {};
+const actions = {};
+const forms = {};
+// Việc cần làm mỗi khi mở một màn (tải dữ liệu mới nhất), theo tên màn
+const ENTER = {};
+let view = 'home';
+let modal = null;
+
+/* ---------- Dữ liệu dùng chung ---------- */
+
+// Chuyển dữ liệu từ bản Gián Điệp cũ (khóa gd.*) sang hệ thống mới
+const oldCfg = load('gd.cfg', null);
+const oldScores = load('gd.scores', {});
+let table = load('dmi.table', null) || { n: oldCfg?.n || 5, names: oldCfg?.names || [], extra: oldCfg?.extra || [] };
+// stats[gameId][tên] = { p: điểm, g: số ván, w: số ván thắng }
+let stats = load('dmi.stats', null) || {
+  spy: Object.fromEntries(Object.entries(oldScores).map(([name, p]) => [name, { p, g: 0, w: 0 }])),
+};
+let gameLog = load('dmi.log', []);
+
+// Danh sách nhân viên DMI Workspace (null khi chưa lấy được), cộng thêm các tên khác thêm trên máy này
+let sharedRoster = null;
+const baseRoster = () => sharedRoster || DEFAULT_ROSTER;
+const roster = () => [...new Set([...baseRoster(), ...table.extra])];
+const seatName = (i) => table.names[i] || `Người ${i + 1}`;
+const tableNames = () => Array.from({ length: table.n }, (_, i) => seatName(i));
+
+function fixTable(min) {
+  table.n = Math.min(MAX_PLAYERS, Math.max(min, table.n));
+  save('dmi.table', table);
+}
+
+// Gán tên cho một ghế; nếu tên đang ở ghế khác thì ghế đó bị bỏ trống
+function assignName(seat, name) {
+  table.names = Array.from({ length: MAX_PLAYERS }, (_, i) => (table.names[i] === name ? '' : table.names[i] || ''));
+  table.names[seat] = name;
+  save('dmi.table', table);
+}
+
+// results: [{ name, pts, win }]
+function addResults(gameId, results) {
+  const board = (stats[gameId] ||= {});
+  results.forEach(({ name, pts, win }) => {
+    const row = (board[name] ||= { p: 0, g: 0, w: 0 });
+    row.p += pts;
+    row.g += 1;
+    row.w += win ? 1 : 0;
+  });
+}
+
+function recordGame(gameId, text, results) {
+  const t = Date.now();
+  addResults(gameId, results);
+  gameLog.unshift({ t, game: gameId, text, n: results.length });
+  gameLog = gameLog.slice(0, LOG_LIMIT);
+  // Có bảng xếp hạng online thì ghi lên đó, không thì chỉ lưu trên máy này
+  if (online) return void saveGame({ t, game: gameId, text, results });
+  save('dmi.stats', stats);
+  save('dmi.log', gameLog);
+}
+
+// Số người dùng để giới hạn số vai Ma Sói: bàn chơi một máy, hoặc số người trong phòng khi chơi nhiều máy
+const seatCount = () => (view.startsWith('mp.') && mp?.room ? Math.max(mpCount(), WW_MIN) : table.n);
+
+const pointsOf = (gameId, name) => stats[gameId]?.[name]?.p || 0;
+
+/* ---------- Thành phần giao diện ---------- */
+
+const stepper = (act, key, value, min, max) => `
+  <div class="stepper">
+    <button data-act="${act}" data-key="${key}" data-d="-1" ${value <= min ? 'disabled' : ''}>−</button>
+    <b>${value}</b>
+    <button data-act="${act}" data-key="${key}" data-d="1" ${value >= max ? 'disabled' : ''}>+</button>
+  </div>`;
+
+function avatar(name, cls = '') {
+  const hash = [...name].reduce((h, c) => (h * 31 + c.codePointAt(0)) >>> 0, 7);
+  const initials = /^Người \d+$/.test(name) ? name.slice(6) : name.slice(0, 2).toUpperCase();
+  return `<span class="avatar ${cls}" style="background:${AVATAR_COLORS[hash % AVATAR_COLORS.length]}">${esc(initials)}</span>`;
+}
+
+// Thẻ người chơi trong lưới: số thứ tự, avatar, tên và phần phụ (vai, điểm...)
+function playerCard(name, { seat = 0, cls = '', extra = '', act = '', i = '' } = {}) {
+  const tag = act ? 'button' : 'div';
+  return `
+    <${tag} class="pcard ${cls}" ${act ? `data-act="${act}" data-i="${i}"` : ''}>
+      ${seat ? `<span class="seat">#${seat}</span>` : ''}
+      ${avatar(name)}
+      <span class="pname">${esc(name)}</span>
+      ${extra}
+    </${tag}>`;
+}
+
+function seatCard(i) {
+  const current = table.names[i] || '';
+  const taken = table.names.slice(0, table.n).filter((name, k) => name && k !== i);
+  const options = roster().filter((name) => !taken.includes(name));
+  if (current && !options.includes(current)) options.unshift(current);
+  return `
+    <div class="pcard ${current ? '' : 'empty'}">
+      <span class="seat">#${i + 1}</span>
+      ${avatar(seatName(i))}
+      <select id="seat-${i}" data-seat="${i}" aria-label="Tên người chơi ${i + 1}">
+        <option value="">Chọn tên</option>
+        ${options.map((name) => `<option ${name === current ? 'selected' : ''}>${esc(name)}</option>`).join('')}
+        <option value="${NEW_NAME}">＋ Tên khác…</option>
+      </select>
+    </div>`;
+}
+
+// Khối chọn số người và tên từng ghế, dùng chung cho màn thiết lập của mọi game
+function tableSection(min) {
+  fixTable(min);
+  return `
+    <div class="card row between"><b>Số người chơi</b>${stepper('tstep', 'n', table.n, min, MAX_PLAYERS)}</div>
+    <div class="pgrid">${Array.from({ length: table.n }, (_, i) => seatCard(i)).join('')}</div>
+    <p class="muted small center">Danh sách thành viên được lưu lại cho các ván sau.</p>`;
+}
+
+function go(name) {
+  view = name;
+  window.scrollTo(0, 0);
+  ENTER[name]?.();
+}
+
+function render() {
+  app.innerHTML = views[view]();
+  modalEl.hidden = !modal;
+  modalEl.innerHTML = modal ? `<div class="sheet">${modals[modal.type]()}</div>` : '';
+}
+
+/* ---------- Modal & action dùng chung ---------- */
+
+modals.rules = () => `
+  ${GAMES.find((game) => game.id === modal.game).rules()}
+  <button class="btn" data-act="close">Đã hiểu</button>`;
+
+// modal = { type: 'confirm', title, text, yes, act }: act là action chạy khi đồng ý
+modals.confirm = () => `
+  <h2>${modal.title}</h2>
+  <p class="muted">${modal.text}</p>
+  <button class="btn" data-act="${modal.act}">${modal.yes}</button>
+  <button class="btn ghost" data-act="close">Hủy</button>`;
+
+modals.newname = () => `
+  <h2>Thêm tên mới</h2>
+  <p class="muted">Tên sẽ được lưu vào danh sách để chọn cho các ván sau.</p>
+  <form class="guess" data-form="newname">
+    <input id="newname-input" name="name" type="text" maxlength="16" autocomplete="off" placeholder="Tên người chơi">
+    <button class="btn">Thêm</button>
+  </form>
+  <button class="btn ghost" data-act="close">Hủy</button>`;
+
+actions.go = (el) => go(el.dataset.view);
+actions.close = () => (modal = null);
+actions.rules = (el) => (modal = { type: 'rules', game: el.dataset.game });
+actions.tstep = (el) => {
+  table.n += Number(el.dataset.d);
+  save('dmi.table', table);
+};
+
+forms.newname = (form) => {
+  const typed = form.elements.name.value.trim();
+  if (!typed) return;
+  // Trùng tên có sẵn (không phân biệt hoa/thường) thì dùng lại tên đó
+  const name = roster().find((r) => r.toLowerCase() === typed.toLowerCase()) || typed;
+  if (!roster().includes(name)) table.extra.push(name);
+  assignName(modal.seat, name);
+  modal = null;
+};
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]');
+  if (!el || el.disabled) return;
+  actions[el.dataset.act](el);
+  render();
+});
+
+document.addEventListener('change', (e) => {
+  const seat = e.target.dataset.seat;
+  if (seat === undefined) return;
+  if (e.target.value === NEW_NAME) modal = { type: 'newname', seat: Number(seat) };
+  else assignName(Number(seat), e.target.value);
+  render();
+  if (modal) document.querySelector('#newname-input')?.focus();
+});
+
+document.addEventListener('submit', (e) => {
+  const handler = forms[e.target.dataset.form];
+  if (!handler) return;
+  e.preventDefault();
+  handler(e.target);
+  render();
+});
+
+</script>
+<script>
+// Kho từ khóa: mỗi cặp "A|B" gồm 2 từ khóa cùng loại, giống nhau nhiều điểm.
+// Mỗi từ khóa dài tối đa 2 tiếng.
+// Mỗi ván, ngẫu nhiên một từ cho phe Dân, từ còn lại cho phe Gián điệp.
+const WORD_PACKS = [
+  {
+    id: 'food', name: 'Món ăn', icon: '🍜',
+    pairs: [
+      'Phở|Bún bò', 'Bánh mì|Bánh bao', 'Cơm tấm|Cơm gà', 'Bánh xèo|Bánh khọt',
+      'Gỏi cuốn|Chả giò', 'Bún riêu|Canh bún', 'Bánh chưng|Bánh tét', 'Xôi gấc|Xôi đậu',
+      'Mì tôm|Miến', 'Hủ tiếu|Mì Quảng', 'Bánh cuốn|Bánh ướt', 'Chè|Tàu hũ',
+      'Kem|Đá bào', 'Hamburger|Sandwich', 'Gà rán|Gà nướng', 'Khoai chiên|Bim bim',
+      'Sushi|Kimbap', 'Lẩu|Nướng', 'Bánh flan|Rau câu', 'Bánh kem|Bánh su',
+      'Kẹo dẻo|Kẹo mút', 'Bánh quy|Bánh quế', 'Nước mắm|Nước tương', 'Tương ớt|Tương cà',
+      'Muối|Bột canh', 'Vịt lộn|Cút lộn', 'Xúc xích|Lạp xưởng', 'Chả lụa|Chả bò',
+      'Bò kho|Cà ri', 'Cháo|Súp', 'Mứt|Ô mai', 'Bắp luộc|Bắp nướng',
+      'Mì Ý|Mì xào', 'Bít tết|Bò né', 'Canh chua|Lẩu Thái', 'Thịt kho|Cá kho',
+      'Bánh canh|Bánh đa', 'Bánh bèo|Bánh nậm', 'Trứng chiên|Trứng ốp', 'Cá viên|Bò viên',
+      'Bánh giò|Bánh ít', 'Dầu ăn|Mỡ heo', 'Bơ|Phô mai', 'Mật ong|Siro',
+    ],
+  },
+  {
+    id: 'fruit', name: 'Trái cây & Rau củ', icon: '🍉',
+    pairs: [
+      'Cam|Quýt', 'Chanh|Tắc', 'Dưa hấu|Dưa lưới', 'Táo|Lê',
+      'Nho|Việt quất', 'Dâu tây|Cherry', 'Sầu riêng|Mít', 'Chôm chôm|Vải',
+      'Nhãn|Bòn bon', 'Măng cụt|Vú sữa', 'Dừa|Thốt nốt', 'Mận|Đào',
+      'Ổi|Cóc', 'Khế|Me', 'Cà chua|Cà tím', 'Dưa leo|Bí ngòi',
+      'Mướp|Bầu', 'Cà rốt|Củ cải', 'Khoai tây|Khoai lang', 'Hành|Tỏi',
+      'Gừng|Nghệ', 'Rau muống|Mồng tơi', 'Bắp cải|Xà lách', 'Bí đỏ|Bí đao',
+      'Đậu phộng|Hạt điều', 'Nấm rơm|Nấm hương', 'Ớt|Tiêu', 'Xoài|Đu đủ',
+      'Thanh long|Kiwi', 'Hành lá|Hẹ', 'Rau răm|Húng quế',
+    ],
+  },
+  {
+    id: 'drink', name: 'Đồ uống', icon: '🧋',
+    pairs: [
+      'Cà phê|Trà', 'Trà sữa|Trà đào', 'Bia|Rượu', 'Nước mía|Nước dừa',
+      'Coca|Pepsi', 'Sinh tố|Nước ép', 'Nâu đá|Bạc xỉu', 'Trà đá|Nước lọc',
+      'Rượu vang|Sâm panh', 'Sữa tươi|Sữa đặc', 'Bò húc|Sting', 'Trà xanh|Matcha',
+      'Ca cao|Milo', 'Soda|Nước khoáng', 'Yakult|Sữa chua', 'Cocktail|Mocktail',
+      'Trà chanh|Trà tắc', 'Rượu cần|Rượu nếp', '7Up|Sprite', 'Trà sen|Trà lài',
+      'Latte|Cappuccino', 'Nước cam|Nước chanh',
+    ],
+  },
+  {
+    id: 'animal', name: 'Động vật', icon: '🐯',
+    pairs: [
+      'Chó|Sói', 'Sư tử|Hổ', 'Mèo|Báo', 'Ngựa|Lừa',
+      'Trâu|Bò', 'Dê|Cừu', 'Gà|Vịt', 'Ngỗng|Thiên nga',
+      'Chuột|Sóc', 'Thỏ|Hamster', 'Tê giác|Hà mã', 'Voi|Ma mút',
+      'Khỉ|Vượn', 'Gấu|Gấu trúc', 'Cá sấu|Kỳ đà', 'Thằn lằn|Tắc kè',
+      'Rắn|Trăn', 'Lươn|Chạch', 'Ếch|Cóc', 'Rùa|Ba ba',
+      'Cá heo|Cá voi', 'Cá mập|Cá kiếm', 'Tôm|Tép', 'Cua|Ghẹ',
+      'Mực|Bạch tuộc', 'Sò|Nghêu', 'Bướm|Chuồn chuồn', 'Muỗi|Ruồi',
+      'Kiến|Mối', 'Gián|Dế', 'Nhện|Bọ cạp', 'Đại bàng|Diều hâu',
+      'Cú mèo|Dơi', 'Vẹt|Yểng', 'Chim sẻ|Bồ câu', 'Công|Trĩ',
+      'Hươu|Nai', 'Hải cẩu|Rái cá', 'Heo|Heo rừng', 'Châu chấu|Cào cào',
+      'Sứa|Sao biển', 'Cá chép|Cá koi', 'Khủng long|Rồng', 'Cò|Hạc',
+      'Nhím|Tê tê', 'Sâu|Giun',
+    ],
+  },
+  {
+    id: 'object', name: 'Đồ vật', icon: '🎒',
+    pairs: [
+      'Bút bi|Bút chì', 'Sách|Vở', 'Sofa|Ghế bành', 'Giường|Võng',
+      'Gối|Gối ôm', 'Chăn|Nệm', 'Quạt|Máy lạnh', 'Tủ lạnh|Tủ đông',
+      'Bếp ga|Bếp từ', 'Nồi|Chảo', 'Chén|Tô', 'Đũa|Nĩa',
+      'Muỗng|Vá', 'Dao|Kéo', 'Ly|Tách', 'Chổi|Giẻ lau',
+      'Xà phòng|Sữa tắm', 'Dầu gội|Dầu xả', 'Khăn tắm|Khăn mặt', 'Khăn giấy|Khăn ướt',
+      'Gương|Kính', 'Đồng hồ|Vòng tay', 'Nhẫn|Bông tai', 'Ví|Túi xách',
+      'Ba lô|Cặp sách', 'Dù|Áo mưa', 'Nón lá|Mũ cối', 'Giày|Dép',
+      'Áo thun|Sơ mi', 'Quần jean|Quần tây', 'Áo dài|Sườn xám', 'Váy|Đầm',
+      'Kính mát|Kính cận', 'Son môi|Son dưỡng', 'Nước hoa|Lăn nách', 'Nến|Đèn dầu',
+      'Đèn pin|Đèn bàn', 'Chìa khóa|Ổ khóa', 'Búa|Rìu', 'Kìm|Cờ lê',
+      'Thang|Cầu thang', 'Bật lửa|Diêm', 'Cửa sổ|Cửa chính', 'Thảm|Chiếu',
+      'Lược|Bàn chải', 'Băng keo|Keo dán', 'Thước kẻ|Ê ke', 'Cục tẩy|Bút xóa',
+      'Máy giặt|Máy sấy', 'Bàn học|Bàn ăn', 'Bình hoa|Chậu cây', 'Tất|Găng tay',
+      'Khăn quàng|Cà vạt', 'Ấm trà|Phích nước', 'Rổ|Rá', 'Xô|Chậu',
+    ],
+  },
+  {
+    id: 'vehicle', name: 'Phương tiện', icon: '🛵',
+    pairs: [
+      'Xe máy|Xe đạp', 'Ô tô|Xe tải', 'Xe buýt|Xe khách', 'Máy bay|Trực thăng',
+      'Tàu hỏa|Tàu điện', 'Thuyền|Ca nô', 'Taxi|Xe ôm', 'Xích lô|Ba gác',
+      'Tàu ngầm|Tàu thủy', 'Cứu thương|Cứu hỏa', 'Nhảy dù|Dù lượn', 'Xe số|Xe ga',
+      'Ván trượt|Patin', 'Tên lửa|Phi thuyền', 'Xe lu|Xe ủi', 'Cáp treo|Tàu lượn',
+      'Thang máy|Thang cuốn', 'Bè|Phà', 'Xe lăn|Xe đẩy',
+    ],
+  },
+  {
+    id: 'place', name: 'Địa điểm', icon: '🏝️',
+    pairs: [
+      'Mầm non|Tiểu học', 'Đại học|Cao đẳng', 'Bệnh viện|Phòng khám', 'Chợ|Siêu thị',
+      'Nhà hàng|Quán nhậu', 'Khách sạn|Nhà nghỉ', 'Rạp phim|Nhà hát', 'Công viên|Sở thú',
+      'Bãi biển|Hồ bơi', 'Núi|Đồi', 'Sông|Suối', 'Hồ|Ao',
+      'Rừng|Vườn', 'Sa mạc|Thảo nguyên', 'Sân bay|Nhà ga', 'Bến xe|Bến cảng',
+      'Ngân hàng|Tiệm vàng', 'Thư viện|Nhà sách', 'Chùa|Đền', 'Nhà thờ|Thánh đường',
+      'Bảo tàng|Triển lãm', 'Tiệm tóc|Tiệm nail', 'Hà Nội|Sài Gòn', 'Đà Lạt|Sa Pa',
+      'Nha Trang|Đà Nẵng', 'Hội An|Huế', 'Vũng Tàu|Phan Thiết', 'Cần Thơ|Cà Mau',
+      'Hạ Long|Phú Quốc', 'Nhật Bản|Hàn Quốc', 'Pháp|Ý', 'Thái Lan|Lào',
+      'Mỹ|Canada', 'Nhà bếp|Phòng ăn', 'Phòng ngủ|Phòng khách', 'Ban công|Sân thượng',
+      'Karaoke|Quán bar', 'Đảo|Bán đảo', 'Thác|Ghềnh', 'Hang động|Đường hầm',
+      'Nhà trọ|Chung cư', 'Biệt thự|Lâu đài', 'Cánh đồng|Trang trại', 'Nhà kho|Gác mái',
+      'Cây xăng|Trạm sạc',
+    ],
+  },
+  {
+    id: 'people', name: 'Nghề nghiệp & Con người', icon: '🧑‍🚀',
+    pairs: [
+      'Bác sĩ|Y tá', 'Giáo viên|Gia sư', 'Cảnh sát|Bảo vệ', 'Bộ đội|Công an',
+      'Đầu bếp|Phụ bếp', 'Ca sĩ|Rapper', 'Diễn viên|Người mẫu', 'Phi công|Tiếp viên',
+      'Tài xế|Shipper', 'Nông dân|Ngư dân', 'Thợ may|Thợ thêu', 'Luật sư|Thẩm phán',
+      'Nhà báo|MC', 'Coder|Hacker', 'Kế toán|Thu ngân', 'Nha sĩ|Thú y',
+      'Thợ điện|Thợ nước', 'Kỹ sư|Thợ xây', 'Họa sĩ|Thợ ảnh', 'Nhà văn|Nhà thơ',
+      'YouTuber|TikToker', 'Giám đốc|Trưởng phòng', 'Cầu thủ|Trọng tài', 'Chú hề|Diễn xiếc',
+      'Thám tử|Điệp viên', 'Vua|Hoàng tử', 'Công chúa|Hoàng hậu', 'Ông Địa|Thần Tài',
+      'Ma|Quỷ', 'Zombie|Xác ướp', 'Người Dơi|Người Nhện', 'Phù thủy|Bà tiên',
+      'Cô dâu|Phù dâu', 'Bạn thân|Người yêu', 'Tình cũ|Crush', 'Mẹ chồng|Mẹ vợ',
+      'Ông nội|Ông ngoại', 'Hàng xóm|Bạn trọ', 'Sếp|Chủ nhiệm', 'Sinh viên|Học sinh',
+      'Cướp biển|Sơn tặc', 'Anh trai|Em trai', 'Chị gái|Em gái', 'Dì|Cô',
+      'Chú|Cậu', 'Tiên cá|Nàng tiên', 'Ninja|Samurai', 'Cao bồi|Thợ săn',
+    ],
+  },
+  {
+    id: 'fun', name: 'Thể thao & Giải trí', icon: '⚽',
+    pairs: [
+      'Bóng đá|Futsal', 'Bóng rổ|Bóng chuyền', 'Cầu lông|Tennis', 'Bóng bàn|Pickleball',
+      'Bơi|Lặn', 'Chạy bộ|Đi bộ', 'Yoga|Thiền', 'Aerobic|Zumba',
+      'Karate|Taekwondo', 'Boxing|Muay Thái', 'Cờ vua|Cờ tướng', 'Cờ caro|Cờ vây',
+      'Tiến lên|Phỏm', 'Bi-a|Golf', 'Bowling|Phi tiêu', 'Câu cá|Thả lưới',
+      'Leo núi|Cắm trại', 'Trượt tuyết|Trượt băng', 'Guitar|Ukulele', 'Piano|Organ',
+      'Sáo|Kèn', 'Violin|Cello', 'Anime|Manga', 'Phim ma|Nhà ma',
+      'Phim Hàn|Phim Trung', 'Doraemon|Conan', 'Pikachu|Hello Kitty', 'Mickey|Jerry',
+      'Liên Quân|Liên Minh', 'PUBG|Free Fire', 'Nhảy dây|Lắc vòng', 'Kéo co|Vật tay',
+      'Trốn tìm|Đuổi bắt', 'Lô tô|Bầu cua', 'Rubik|Lego', 'Ảo thuật|Xiếc',
+      'Múa|Nhảy', 'World Cup|Euro', 'Olympic|SEA Games', 'Bắn cung|Bắn súng',
+      'Thả diều|Đèn trời', 'Cầu mây|Đá cầu', 'Hòa nhạc|Nhạc kịch', 'Ma sói|Gián điệp',
+      'Xổ số|Vietlott', 'Đấu vật|Sumo', 'Lướt sóng|Lướt ván', 'Đạp xe|Đua xe',
+      'Cải lương|Chèo',
+    ],
+  },
+  {
+    id: 'nature', name: 'Thiên nhiên', icon: '🌋',
+    pairs: [
+      'Mặt trời|Mặt trăng', 'Ngôi sao|Hành tinh', 'Mưa|Mưa đá', 'Tuyết|Băng',
+      'Gió|Bão', 'Sấm|Chớp', 'Cầu vồng|Cực quang', 'Bình minh|Hoàng hôn',
+      'Mây|Sương mù', 'Động đất|Sóng thần', 'Núi lửa|Núi đá', 'Biển|Đại dương',
+      'Hoa hồng|Hoa trà', 'Hoa sen|Hoa súng', 'Hoa mai|Hoa đào', 'Hướng dương|Hoa cúc',
+      'Cây tre|Cây trúc', 'Cây dừa|Cây cau', 'Cỏ|Rêu', 'Mùa xuân|Mùa thu',
+      'Mùa hè|Mùa đông', 'Lũ lụt|Triều cường', 'Đá|Sỏi', 'Cát|Đất',
+      'Vàng|Bạc', 'Kim cương|Pha lê', 'Nhật thực|Nguyệt thực', 'Sao băng|Sao chổi',
+      'Cây thông|Cây tùng', 'Hoa ly|Hoa huệ', 'Sương|Mưa phùn', 'Lốc xoáy|Vòi rồng',
+    ],
+  },
+  {
+    id: 'tech', name: 'Công nghệ', icon: '📱',
+    pairs: [
+      'Điện thoại|Tablet', 'Laptop|Máy bàn', 'iPhone|Samsung', 'Facebook|Zalo',
+      'TikTok|Reels', 'YouTube|Netflix', 'Instagram|Threads', 'Messenger|Telegram',
+      'Google|ChatGPT', 'Shopee|Lazada', 'Grab|Be', 'Wifi|4G',
+      'Tai nghe|Loa', 'Chuột|Bàn phím', 'USB|Thẻ nhớ', 'Cục sạc|Dây sạc',
+      'Máy ảnh|Máy quay', 'Tivi|Máy chiếu', 'Email|Tin nhắn', 'Mật khẩu|Mã PIN',
+      'Vân tay|Face ID', 'Robot|AI', 'MoMo|ZaloPay', 'Mã QR|Mã vạch',
+      'Windows|macOS', 'Excel|Word', 'Zoom|Google Meet', 'Selfie|Livestream',
+      'Podcast|Radio', 'Bitcoin|Cổ phiếu', 'Emoji|Sticker', 'Camera|Webcam',
+      'Android|iOS', 'Chrome|Safari', 'Gmail|Outlook', 'Like|Thả tim',
+      'Story|Bài đăng',
+    ],
+  },
+  {
+    id: 'life', name: 'Đời sống', icon: '🎉',
+    pairs: [
+      'Tết|Giao thừa', 'Giáng sinh|Halloween', 'Sinh nhật|Kỷ niệm', 'Đám cưới|Đám hỏi',
+      '8/3|20/10', 'Lì xì|Tiền mừng', 'Múa lân|Múa rồng', 'Thi cử|Kiểm tra',
+      'Họp lớp|Tất niên', 'Đi làm|Đi học', 'Ngủ trưa|Ngủ nướng', 'Tắm|Gội đầu',
+      'Rửa chén|Lau bàn', 'Giặt đồ|Phơi đồ', 'Dọn nhà|Chuyển nhà', 'Đi chợ|Shopping',
+      'Hẹn hò|Xem mắt', 'Tỏ tình|Cầu hôn', 'Chia tay|Ly hôn', 'Lương|Thưởng',
+      'Vay|Trả góp', 'Kẹt xe|Ngập nước', 'Cúp điện|Cúp nước', 'Mất wifi|Hết data',
+      'Đi trễ|Về sớm', 'Ăn kiêng|Nhịn ăn', 'Cảm|Cúm', 'Đau đầu|Chóng mặt',
+      'Thuốc|Vitamin', 'Tiêm|Lấy máu', 'Giấc mơ|Ác mộng', 'Ngáy|Nói mớ',
+      'Hắt xì|Ho', 'Ôm|Hôn', 'Tiền mặt|Chuyển khoản', 'Hộ chiếu|Visa',
+      'Học bổng|Giải thưởng', 'Bài tập|Đề thi', 'Du lịch|Công tác', 'Tân gia|Thôi nôi',
+      'Tăng ca|Trực đêm', 'Thuê nhà|Mua nhà', 'Ngáp|Thở dài', 'Thất tình|Cô đơn',
+      'Buồn ngủ|Mệt mỏi', 'Giận|Ghen', 'Ăn sáng|Ăn khuya', 'Nghỉ hè|Nghỉ Tết',
+    ],
+  },
+];
+
+</script>
+<script>
+// Game Gián Điệp: Dân và Gián điệp nhận 2 từ khóa na ná nhau, Mũ trắng không có từ.
+const SPY_MIN = 3;
+const SPY_ROLES = {
+  civ: { label: 'Dân thường', emoji: '🧑‍🌾' },
+  spy: { label: 'Gián điệp', emoji: '🕵️' },
+  white: { label: 'Mũ trắng', emoji: '🎩' },
+};
+const SPY_POINTS = { civ: 2, spy: 10, white: 6 };
+const SPY_CATS = WORD_PACKS.map((p) => p.id);
+const SPY_TOTAL = WORD_PACKS.reduce((sum, p) => sum + p.pairs.length, 0);
+
+let spyCfg = {
+  spies: oldCfg?.spies ?? 1,
+  whites: oldCfg?.whites ?? 0,
+  cats: oldCfg?.cats || SPY_CATS,
+  ...load('dmi.spy', {}),
+};
+let spyUsed = load('gd.used', []);
+let sg = null;
+
+// So khớp lời đoán của Mũ trắng: bỏ dấu, hoa/thường, khoảng trắng
+const spyNorm = (s) =>
+  s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+const spyMaxHidden = (n) => Math.floor((n - 1) / 2);
+
+function fixSpy() {
+  const max = spyMaxHidden(table.n);
+  spyCfg.spies = Math.min(max, Math.max(0, spyCfg.spies));
+  spyCfg.whites = Math.min(max - spyCfg.spies, Math.max(0, spyCfg.whites));
+  if (spyCfg.spies + spyCfg.whites === 0) spyCfg.spies = 1;
+  spyCfg.cats = spyCfg.cats.filter((id) => SPY_CATS.includes(id));
+  if (!spyCfg.cats.length) spyCfg.cats = [...SPY_CATS];
+  save('dmi.spy', spyCfg);
+}
+
+/* ---------- Game logic ---------- */
+
+// Không ra lại cặp đã chơi (danh sách đồng bộ online, xem loadSpyUsed) cho tới khi dùng hết các chủ đề đang chọn.
+// Ưu tiên cặp mà cả 2 từ chưa từng xuất hiện, vì một từ có thể nằm trong nhiều cặp (Ổi|Cóc và Ếch|Cóc).
+function spyPickPair() {
+  const all = WORD_PACKS.filter((p) => spyCfg.cats.includes(p.id)).flatMap((p) => p.pairs);
+  const usedWords = new Set(spyUsed.flatMap((pair) => pair.split('|')));
+  const fresh = all.filter((pair) => !spyUsed.includes(pair));
+  let pool = fresh.filter((pair) => pair.split('|').every((word) => !usedWords.has(word)));
+  if (!pool.length) pool = fresh;
+  let forget = [];
+  if (!pool.length) {
+    forget = all;
+    spyUsed = spyUsed.filter((pair) => !all.includes(pair));
+    pool = all;
+  }
+  const pair = pool[rand(pool.length)];
+  spyUsed.push(pair);
+  save('gd.used', spyUsed);
+  saveSpyUsed(pair, forget);
+  return pair;
+}
+
+function spyNewGame() {
+  fixTable(SPY_MIN);
+  fixSpy();
+  const n = table.n;
+  const words = spyPickPair().split('|');
+  if (Math.random() < 0.5) words.reverse();
+  const roles = shuffle([
+    ...Array(spyCfg.spies).fill('spy'),
+    ...Array(spyCfg.whites).fill('white'),
+    ...Array(n - spyCfg.spies - spyCfg.whites).fill('civ'),
+  ]);
+  // Mũ trắng không bao giờ phải nói đầu tiên
+  const starters = roles.map((r, i) => (r === 'white' ? -1 : i)).filter((i) => i >= 0);
+  sg = {
+    names: tableNames(),
+    civWord: words[0],
+    spyWord: words[1],
+    roles,
+    alive: Array(n).fill(true),
+    start: starters[rand(starters.length)],
+    dealIdx: 0,
+    shown: false,
+    round: 1,
+    sel: null,
+    out: null,
+    guess: null,
+    winner: null,
+    winnerIdx: null,
+  };
+  go('spy.deal');
+}
+
+const spyWordOf = (i) => (sg.roles[i] === 'civ' ? sg.civWord : sg.roles[i] === 'spy' ? sg.spyWord : null);
+const spyAlive = (...roles) => sg.roles.filter((r, i) => sg.alive[i] && roles.includes(r)).length;
+const spyOrder = () => sg.roles.map((_, k) => (sg.start + k) % sg.roles.length).filter((i) => sg.alive[i]);
+
+function spyCheckWin() {
+  if (spyAlive('spy', 'white') === 0) return 'civ';
+  if (spyAlive('civ') <= 1) return 'inf';
+  return null;
+}
+
+function spyFinish(winner, winnerIdx = null) {
+  sg.winner = winner;
+  sg.winnerIdx = winnerIdx;
+  const results = sg.roles.map((role, i) => {
+    const win =
+      (winner === 'civ' && role === 'civ') || (winner === 'inf' && role !== 'civ') || (winner === 'white' && i === winnerIdx);
+    return { name: sg.names[i], pts: win ? SPY_POINTS[role] : 0, win };
+  });
+  const who = { civ: 'Phe Dân thắng', inf: 'Phe Gián điệp thắng', white: `Mũ trắng ${sg.names[winnerIdx]} thắng` }[winner];
+  recordGame('spy', `${who} · ${sg.civWord} / ${sg.spyWord}`, results);
+  go('spy.end');
+}
+
+/* ---------- Views ---------- */
+
+const spyTag = (role) => `<span class="tag ${role}">${SPY_ROLES[role].label}</span>`;
+
+views['spy.setup'] = () => {
+  const tableHtml = tableSection(SPY_MIN);
+  fixSpy();
+  const max = spyMaxHidden(table.n);
+  const civs = table.n - spyCfg.spies - spyCfg.whites;
+  const selected = WORD_PACKS.filter((p) => spyCfg.cats.includes(p.id)).reduce((s, p) => s + p.pairs.length, 0);
+  return `
+    <div class="topbar">
+      <button class="back" data-act="go" data-view="home">←</button>
+      <h2>🕵️ Gián Điệp</h2>
+      <button class="link small" data-act="rules" data-game="spy">Luật chơi</button>
+    </div>
+    ${tableHtml}
+
+    <div class="card stack">
+      <div class="row between">
+        <span><i class="role-dot civ"></i><b>Dân thường</b></span><b>${civs}</b>
+      </div>
+      <div class="row between">
+        <span><i class="role-dot spy"></i><b>Gián điệp</b><br><span class="muted small">Nhận từ khóa na ná phe Dân</span></span>
+        ${stepper('spy.step', 'spies', spyCfg.spies, spyCfg.whites ? 0 : 1, max - spyCfg.whites)}
+      </div>
+      <div class="row between">
+        <span><i class="role-dot white"></i><b>Mũ trắng</b><br><span class="muted small">Không có từ khóa, phải đoán mò</span></span>
+        ${stepper('spy.step', 'whites', spyCfg.whites, spyCfg.spies ? 0 : 1, max - spyCfg.spies)}
+      </div>
+    </div>
+
+    <div class="card stack">
+      <div class="row between">
+        <b>Chủ đề</b>
+        <button class="link small" data-act="spy.allcats">Chọn tất cả</button>
+      </div>
+      <div class="chips">
+        ${WORD_PACKS.map((p) => `
+          <button class="chip ${spyCfg.cats.includes(p.id) ? 'on' : ''}" data-act="spy.cat" data-id="${p.id}">
+            ${p.icon} ${p.name} · ${p.pairs.length}
+          </button>`).join('')}
+      </div>
+      <p class="muted small">Đang chọn ${selected} cặp từ khóa</p>
+    </div>
+
+    <button class="btn" data-act="spy.start">Bắt đầu chia từ</button>`;
+};
+
+views['spy.deal'] = () => {
+  const i = sg.dealIdx;
+  const n = sg.roles.length;
+  const name = sg.names[i];
+  const word = spyWordOf(i);
+  const body = !sg.shown
+    ? `<p class="muted">Đưa máy cho</p>
+       ${avatar(name, 'big')}
+       <div class="who">${esc(name)}</div>
+       <p class="muted small">Đừng để ai khác nhìn thấy màn hình!</p>`
+    : word
+      ? `<p class="muted">Từ khóa của ${esc(name)}</p>
+         <div class="word">${esc(word)}</div>
+         <p class="muted small">Ghi nhớ rồi bấm ẩn trước khi chuyền máy.</p>`
+      : `<div class="emoji">🎩</div>
+         <div class="word">MŨ TRẮNG</div>
+         <p class="muted">Bạn không có từ khóa. Hãy lắng nghe, nói thật mơ hồ và đoán từ của mọi người!</p>`;
+  return `
+    <div class="topbar">
+      <h2>Chia từ khóa</h2>
+      <span class="muted">${i + 1}/${n}</span>
+      <button class="back" data-act="spy.quit">✕</button>
+    </div>
+    <div class="progress"><i style="width:${(i / n) * 100}%"></i></div>
+    <div class="secret">${body}</div>
+    ${sg.shown
+      ? `<button class="btn ghost" data-act="spy.hide">Đã nhớ, ẩn đi</button>`
+      : `<button class="btn" data-act="spy.show">Xem từ khóa</button>`}`;
+};
+
+views['spy.discuss'] = () => {
+  const order = spyOrder();
+  const outs = sg.roles.map((_, i) => i).filter((i) => !sg.alive[i]);
+  const spies = spyAlive('spy');
+  const whites = spyAlive('white');
+  const hidden = [spies && `${spies} gián điệp`, whites && `${whites} mũ trắng`].filter(Boolean).join(', ');
+  return `
+    <div class="topbar">
+      <h2>Vòng ${sg.round} · Mô tả</h2>
+      <button class="back" data-act="spy.quit">✕</button>
+    </div>
+    <div class="card stack">
+      <p>Lần lượt mỗi người mô tả từ của mình bằng <b>một từ hoặc một câu ngắn</b>, không nói thẳng từ khóa.</p>
+      <p class="small muted">Còn ẩn nấp: <b>${hidden}</b></p>
+    </div>
+    <div class="pgrid grow">
+      ${order.map((i, k) => playerCard(sg.names[i], {
+        seat: k + 1,
+        cls: k === 0 ? 'first' : '',
+        extra: k === 0 ? '<span class="tag first">Nói trước</span>' : '',
+      })).join('')}
+      ${outs.map((i) => playerCard(sg.names[i], { cls: 'out', extra: spyTag(sg.roles[i]) })).join('')}
+    </div>
+    <button class="btn" data-act="spy.tovote">🗳️ Bỏ phiếu</button>
+    <button class="btn ghost" data-act="spy.peek">👁️ Quên từ? Xem lại</button>`;
+};
+
+views['spy.vote'] = () => `
+  <div class="topbar">
+    <button class="back" data-act="go" data-view="spy.discuss">←</button>
+    <h2>Ai bị loại?</h2>
+  </div>
+  <div class="card"><p>Cả nhóm đếm 3-2-1 rồi cùng chỉ tay. Chọn người nhận nhiều phiếu nhất.</p></div>
+  <div class="pgrid grow">
+    ${sg.roles.map((_, i) => (sg.alive[i]
+      ? playerCard(sg.names[i], { seat: i + 1, cls: sg.sel === i ? 'sel' : '', act: 'spy.select', i })
+      : '')).join('')}
+  </div>
+  <button class="btn" data-act="spy.eliminate" ${sg.sel === null ? 'disabled' : ''}>
+    ${sg.sel === null ? 'Chọn một người' : `Loại ${esc(sg.names[sg.sel])}`}
+  </button>`;
+
+views['spy.reveal'] = () => {
+  const i = sg.out;
+  const role = sg.roles[i];
+  const canGuess = role === 'white' && !sg.guess;
+  return `
+    <div class="topbar"><h2>Kết quả bỏ phiếu</h2></div>
+    <div class="secret reveal">
+      <div class="emoji">${SPY_ROLES[role].emoji}</div>
+      <p class="muted">${esc(sg.names[i])} là</p>
+      <div class="role ${role}">${SPY_ROLES[role].label.toUpperCase()}</div>
+      ${canGuess ? `
+        <p class="muted">Cơ hội cuối: đoán đúng từ của phe Dân để thắng ngay!</p>
+        <form class="guess" data-form="spy.guess">
+          <input id="guess-input" name="guess" type="text" autocomplete="off" placeholder="Từ của phe Dân là...">
+          <button class="btn">Đoán</button>
+        </form>` : ''}
+      ${sg.guess ? `<p>Đoán "<b>${esc(sg.guess)}</b>" là sai rồi! 😅</p>` : ''}
+    </div>
+    ${canGuess ? '' : `<button class="btn" data-act="spy.continue">Tiếp tục</button>`}`;
+};
+
+views['spy.end'] = () => {
+  const title = {
+    civ: ['🎉', 'Phe Dân thắng!', 'Đã lôi hết kẻ ẩn nấp ra ánh sáng.'],
+    inf: ['🕵️', 'Phe Gián điệp thắng!', 'Kẻ ẩn nấp đã trụ lại đến cuối cùng.'],
+    white: ['🎩', 'Mũ trắng thắng!', `${esc(sg.names[sg.winnerIdx ?? 0])} đã đoán trúng từ khóa.`],
+  }[sg.winner];
+  return `
+    <div class="center stack">
+      <div style="font-size:4rem;line-height:1">${title[0]}</div>
+      <h2>${title[1]}</h2>
+      <p class="muted">${title[2]}</p>
+    </div>
+    <div class="words">
+      <div class="card"><span class="muted small">Từ của Dân</span><b style="color:var(--civ)">${esc(sg.civWord)}</b></div>
+      <div class="card"><span class="muted small">Từ của Gián điệp</span><b style="color:var(--spy)">${esc(sg.spyWord)}</b></div>
+    </div>
+    <div class="pgrid grow">
+      ${sg.roles.map((role, i) => playerCard(sg.names[i], {
+        seat: i + 1,
+        extra: `${spyTag(role)}<span class="score">${pointsOf('spy', sg.names[i])} điểm</span>`,
+      })).join('')}
+    </div>
+    <button class="btn" data-act="spy.start">Ván mới</button>
+    <button class="btn ghost" data-act="go" data-view="spy.setup">Đổi người chơi / thiết lập</button>
+    <button class="btn ghost" data-act="go" data-view="home">Về trang chủ</button>`;
+};
+
+modals['spy.peek'] = () => {
+  if (modal.idx === null) {
+    return `
+      <h2>Ai muốn xem lại từ?</h2>
+      <div class="pgrid">
+        ${sg.roles.map((_, i) => (sg.alive[i] ? playerCard(sg.names[i], { act: 'spy.peekwho', i }) : '')).join('')}
+      </div>
+      <button class="btn ghost" data-act="close">Đóng</button>`;
+  }
+  const word = spyWordOf(modal.idx);
+  return `
+    <div class="secret" style="min-height:220px">
+      <p class="muted">${esc(sg.names[modal.idx])}</p>
+      <div class="word">${word ? esc(word) : '🎩 MŨ TRẮNG'}</div>
+    </div>
+    <button class="btn" data-act="close">Ẩn đi</button>`;
+};
+
+/* ---------- Actions ---------- */
+
+Object.assign(actions, {
+  'spy.step': (el) => {
+    spyCfg[el.dataset.key] += Number(el.dataset.d);
+    fixSpy();
+  },
+  'spy.cat': (el) => {
+    const id = el.dataset.id;
+    const on = spyCfg.cats.includes(id);
+    if (on && spyCfg.cats.length === 1) return;
+    spyCfg.cats = on ? spyCfg.cats.filter((c) => c !== id) : [...spyCfg.cats, id];
+    save('dmi.spy', spyCfg);
+  },
+  'spy.allcats': () => {
+    spyCfg.cats = [...SPY_CATS];
+    save('dmi.spy', spyCfg);
+  },
+  'spy.start': () => spyNewGame(),
+  'spy.quit': () =>
+    (modal = {
+      type: 'confirm',
+      title: 'Thoát ván đang chơi?',
+      text: 'Ván này sẽ bị hủy và không tính điểm.',
+      yes: 'Thoát ván',
+      act: 'spy.quitnow',
+    }),
+  'spy.quitnow': () => {
+    modal = null;
+    sg = null;
+    go('spy.setup');
+  },
+  'spy.show': () => (sg.shown = true),
+  'spy.hide': () => {
+    sg.shown = false;
+    if (++sg.dealIdx >= sg.roles.length) go('spy.discuss');
+  },
+  'spy.peek': () => (modal = { type: 'spy.peek', idx: null }),
+  'spy.peekwho': (el) => (modal.idx = Number(el.dataset.i)),
+  'spy.tovote': () => {
+    sg.sel = null;
+    go('spy.vote');
+  },
+  'spy.select': (el) => (sg.sel = Number(el.dataset.i)),
+  'spy.eliminate': () => {
+    sg.out = sg.sel;
+    sg.alive[sg.out] = false;
+    sg.sel = null;
+    sg.guess = null;
+    go('spy.reveal');
+  },
+  'spy.continue': () => {
+    const winner = spyCheckWin();
+    if (winner) return spyFinish(winner);
+    sg.round++;
+    go('spy.discuss');
+  },
+});
+
+forms['spy.guess'] = (form) => {
+  const text = form.elements.guess.value.trim();
+  if (!text) return;
+  if (spyNorm(text) === spyNorm(sg.civWord)) spyFinish('white', sg.out);
+  else sg.guess = text;
+};
+
+GAMES.push({
+  id: 'spy',
+  name: 'Gián Điệp',
+  icon: '🕵️',
+  desc: 'Ai đang giữ từ khóa khác với mọi người?',
+  meta: `${SPY_MIN}–${MAX_PLAYERS} người · ${SPY_TOTAL} cặp từ khóa`,
+  setup: 'spy.setup',
+  rules: () => `
+    <h2>Luật chơi Gián Điệp</h2>
+    <div class="rules">
+      <ul>
+        <li>Mỗi người bí mật nhận một từ khóa. <b>Dân thường</b> có chung một từ, <b>Gián điệp</b> nhận một từ na ná, còn <b>Mũ trắng</b> không có từ nào.</li>
+        <li>Không ai biết mình thuộc phe nào (trừ Mũ trắng), hãy suy luận qua lời mô tả của người khác.</li>
+        <li>Mỗi vòng, từng người mô tả từ của mình bằng một từ hoặc một câu ngắn. Đừng lộ quá rõ, cũng đừng mơ hồ quá!</li>
+        <li>Sau mỗi vòng, cả nhóm bỏ phiếu loại một người và vai của người đó được lật.</li>
+        <li>Mũ trắng bị loại được đoán từ của phe Dân, đoán đúng là thắng ngay.</li>
+        <li><b>Phe Dân thắng</b> khi loại hết Gián điệp và Mũ trắng. <b>Phe Gián điệp thắng</b> khi chỉ còn lại 1 Dân thường.</li>
+        <li>Điểm: Dân thắng +${SPY_POINTS.civ}, Gián điệp thắng +${SPY_POINTS.spy}, Mũ trắng thắng +${SPY_POINTS.white}.</li>
+      </ul>
+    </div>`,
+});
+
+</script>
+<script>
+// Game Ma Sói không cần quản trò: máy được chuyền tay trong đêm, app tự điều khiển và phân xử.
+// Ban đêm ai cũng phải cầm máy và chọn một người (kể cả Dân làng) để không lộ vai qua thao tác.
+const WW_MIN = 5;
+const WW_ROLES = {
+  wolf: { label: 'Ma Sói', emoji: '🐺', tag: 'wolf', desc: 'Mỗi đêm cùng bầy chọn cắn một người' },
+  seer: { label: 'Tiên tri', emoji: '🔮', tag: 'special', desc: 'Mỗi đêm soi một người có phải Sói không' },
+  guard: { label: 'Bảo vệ', emoji: '🛡️', tag: 'special', desc: 'Mỗi đêm bảo vệ một người, không lặp lại 2 đêm liền' },
+  witch: { label: 'Phù thủy', emoji: '🧪', tag: 'special', desc: 'Có 1 thuốc cứu và 1 thuốc độc cho cả ván' },
+  hunter: { label: 'Thợ săn', emoji: '🏹', tag: 'special', desc: 'Khi chết được bắn một người đi cùng' },
+  villager: { label: 'Dân làng', emoji: '🧑‍🌾', tag: 'villager', desc: 'Không có chức năng, tìm Sói bằng suy luận' },
+};
+const WW_SPECIALS = ['seer', 'guard', 'witch', 'hunter'];
+const WW_POINTS = { village: 2, wolf: 6 };
+
+let wwCfg = { wolves: 0, seer: true, guard: true, witch: false, hunter: false, reveal: true, ...load('dmi.ww', {}) };
+let wg = null;
+
+const wwMaxWolves = (n) => Math.floor((n - 1) / 2);
+
+function fixWW() {
+  const n = seatCount();
+  if (!wwCfg.wolves) wwCfg.wolves = Math.max(1, Math.floor(n / 4));
+  // Phòng chơi nhiều máy còn đang có người vào nên không tự giảm vai, chỉ chặn nút bắt đầu (wwNeed)
+  if (!view.startsWith('mp.')) {
+    wwCfg.wolves = Math.min(wwMaxWolves(n), Math.max(1, wwCfg.wolves));
+    // Không đủ chỗ thì tắt dần vai đặc biệt từ cuối danh sách
+    for (const role of [...WW_SPECIALS].reverse()) {
+      if (wwCfg.wolves + WW_SPECIALS.filter((r) => wwCfg[r]).length > n) wwCfg[role] = false;
+    }
+  }
+  save('dmi.ww', wwCfg);
+}
+
+// Số người tối thiểu cho thiết lập hiện tại: đủ ghế cho các vai, và Sói ít hơn số còn lại
+const wwNeed = () =>
+  Math.max(WW_MIN, 2 * wwCfg.wolves + 1, wwCfg.wolves + WW_SPECIALS.filter((r) => wwCfg[r]).length);
+
+/* ---------- Game logic ---------- */
+
+const wwIdx = () => wg.roles.map((_, i) => i);
+const wwAlive = () => wwIdx().filter((i) => wg.alive[i]);
+const wwIsWolf = (i) => wg.roles[i] === 'wolf';
+
+// Chia vai cho n người theo thiết lập hiện tại, dùng chung cho chơi một máy và nhiều máy
+function wwDeal(n) {
+  fixWW();
+  const specials = WW_SPECIALS.filter((r) => wwCfg[r]);
+  return shuffle([
+    ...Array(wwCfg.wolves).fill('wolf'),
+    ...specials,
+    ...Array(n - wwCfg.wolves - specials.length).fill('villager'),
+  ]);
+}
+
+function wwNewGame() {
+  fixTable(WW_MIN);
+  const n = table.n;
+  wg = {
+    names: tableNames(),
+    roles: wwDeal(n),
+    reveal: wwCfg.reveal,
+    alive: Array(n).fill(true),
+    shown: Array(n).fill(false),
+    night: 0,
+    lastGuard: null,
+    healUsed: false,
+    poisonUsed: false,
+    hunterShot: false,
+    hunterPending: null,
+    deaths: [],
+    notes: [],
+    sel: null,
+    out: null,
+    winner: null,
+  };
+  wwStartNight();
+}
+
+function wwStartNight() {
+  wg.night++;
+  // Thứ tự cầm máy xáo trộn mỗi đêm; Phù thủy luôn đi sau mọi Sói để biết ai bị cắn
+  const order = shuffle(wwAlive());
+  const witch = order.find((i) => wg.roles[i] === 'witch');
+  if (witch !== undefined) {
+    order.splice(order.indexOf(witch), 1);
+    const lastWolf = Math.max(...order.map((i, k) => (wwIsWolf(i) ? k : -1)));
+    order.splice(lastWolf + 1 + rand(order.length - lastWolf), 0, witch);
+  }
+  Object.assign(wg, {
+    order,
+    turn: 0,
+    step: 'intro',
+    pick: null,
+    healPick: false,
+    result: '',
+    wolfVotes: [],
+    guardTarget: null,
+    healTonight: false,
+    poisonTarget: null,
+    notes: [],
+  });
+  go('ww.night');
+}
+
+// Nạn nhân của bầy sói: người được chọn nhiều nhất; nếu hòa, Sói chọn sau cùng quyết định
+function wwVictim() {
+  const votes = wg.wolfVotes;
+  if (!votes.length) return null;
+  const tally = {};
+  votes.forEach((t) => (tally[t] = (tally[t] || 0) + 1));
+  const top = Math.max(...Object.values(tally));
+  const tied = Object.keys(tally).filter((t) => tally[t] === top).map(Number);
+  const last = votes[votes.length - 1];
+  return tied.includes(last) ? last : tied[0];
+}
+
+function wwTargets(i) {
+  const role = wg.roles[i];
+  if (role === 'wolf') return wwAlive().filter((k) => !wwIsWolf(k));
+  if (role === 'guard') return wwAlive().filter((k) => k !== wg.lastGuard);
+  if (role === 'witch') return wg.poisonUsed ? [] : wwAlive().filter((k) => k !== i);
+  return wwAlive().filter((k) => k !== i);
+}
+
+function wwKill(i) {
+  wg.alive[i] = false;
+  if (wg.reveal) wg.shown[i] = true;
+  if (wg.roles[i] === 'hunter' && !wg.hunterShot) {
+    wg.hunterPending = i;
+    wg.shown[i] = true;
+  }
+}
+
+function wwConfirmTurn() {
+  const i = wg.order[wg.turn];
+  const role = wg.roles[i];
+  const target = wg.pick;
+  const name = target === null ? '' : `<b>${esc(wg.names[target])}</b>`;
+  if (role === 'wolf') {
+    wg.wolfVotes.push(target);
+    wg.result = `Bầy sói đang nhắm vào <b>${esc(wg.names[wwVictim()])}</b>.`;
+  } else if (role === 'seer') {
+    wg.result = wwIsWolf(target) ? `${name} LÀ MA SÓI 🐺` : `${name} không phải Sói ✅`;
+  } else if (role === 'guard') {
+    wg.guardTarget = target;
+    wg.result = `Đêm nay bạn bảo vệ ${name}.`;
+  } else if (role === 'witch') {
+    const done = [];
+    if (wg.healPick) {
+      wg.healTonight = true;
+      wg.healUsed = true;
+      done.push('đã dùng thuốc cứu');
+    }
+    if (target !== null) {
+      wg.poisonTarget = target;
+      wg.poisonUsed = true;
+      done.push(`đã đầu độc ${name}`);
+    }
+    wg.result = done.length ? `Bạn ${done.join(' và ')}.` : 'Đêm nay bạn không dùng thuốc.';
+  } else {
+    wg.result = 'Đã ghi nhận. Giữ bí mật vai của bạn nhé!';
+  }
+  wg.step = 'done';
+}
+
+function wwResolveNight() {
+  const victim = wwVictim();
+  const dead = [];
+  if (victim !== null && victim !== wg.guardTarget && !wg.healTonight) dead.push(victim);
+  if (wg.poisonTarget !== null && !dead.includes(wg.poisonTarget)) dead.push(wg.poisonTarget);
+  wg.lastGuard = wg.guardTarget;
+  dead.forEach(wwKill);
+  wg.deaths = shuffle(dead);
+  wg.notes = [];
+  go('ww.day');
+}
+
+function wwCheckWin() {
+  const wolves = wwAlive().filter(wwIsWolf).length;
+  if (wolves === 0) return 'village';
+  if (wolves >= wwAlive().length - wolves) return 'wolf';
+  return null;
+}
+
+// Kết quả ván (wg.winner đã có): dòng lịch sử và điểm từng người
+function wwOutcome(names) {
+  const results = wg.roles.map((role, i) => {
+    const win = (role === 'wolf') === (wg.winner === 'wolf');
+    return { name: names[i], pts: win ? WW_POINTS[wg.winner] : 0, win };
+  });
+  return [`${wg.winner === 'wolf' ? 'Ma Sói thắng' : 'Dân làng thắng'} sau ${wg.night} đêm`, results];
+}
+
+function wwFinish(winner) {
+  wg.winner = winner;
+  recordGame('ww', ...wwOutcome(wg.names));
+  go('ww.end');
+}
+
+// Bước tiếp theo sau màn thông báo ban ngày hoặc sau khi treo cổ
+function wwAfter() {
+  if (wg.hunterPending !== null) {
+    wg.back = view;
+    wg.sel = null;
+    return go('ww.hunter');
+  }
+  const winner = wwCheckWin();
+  if (winner) return wwFinish(winner);
+  if (view === 'ww.reveal') return wwStartNight();
+  wg.sel = null;
+  go('ww.vote');
+}
+
+/* ---------- Views ---------- */
+
+const wwTag = (role) => `<span class="tag ${WW_ROLES[role].tag}">${WW_ROLES[role].label}</span>`;
+const wwShownTag = (i) => (wg.shown[i] ? wwTag(wg.roles[i]) : '');
+const wwSwitch = (key) => `
+  <button class="switch ${wwCfg[key] ? 'on' : ''}" data-act="ww.toggle" data-key="${key}" aria-pressed="${wwCfg[key]}">
+    ${wwCfg[key] ? 'Bật' : 'Tắt'}
+  </button>`;
+
+// Thẻ chỉnh số vai và lật vai, dùng ở màn thiết lập và phòng chờ chơi nhiều máy
+function wwCfgCards() {
+  fixWW();
+  const n = seatCount();
+  const specials = WW_SPECIALS.filter((r) => wwCfg[r]).length;
+  const villagers = Math.max(0, n - wwCfg.wolves - specials);
+  const maxWolves = view.startsWith('mp.') ? wwMaxWolves(MAX_PLAYERS) : Math.min(wwMaxWolves(n), n - specials);
+  const roleRow = (role, control) => `
+    <div class="row between">
+      <span><b>${WW_ROLES[role].emoji} ${WW_ROLES[role].label}</b><br><span class="muted small">${WW_ROLES[role].desc}</span></span>
+      ${control}
+    </div>`;
+  return `
+    <div class="card stack">
+      ${roleRow('wolf', stepper('ww.step', 'wolves', wwCfg.wolves, 1, maxWolves))}
+      ${WW_SPECIALS.map((role) => roleRow(role, wwSwitch(role))).join('')}
+      ${roleRow('villager', `<b>${villagers}</b>`)}
+    </div>
+
+    <div class="card row between">
+      <span><b>Lật vai khi chết</b><br><span class="muted small">Công khai vai của người bị loại</span></span>
+      ${wwSwitch('reveal')}
+    </div>`;
+}
+
+views['ww.setup'] = () => `
+  <div class="topbar">
+    <button class="back" data-act="go" data-view="home">←</button>
+    <h2>🐺 Ma Sói</h2>
+    <button class="link small" data-act="rules" data-game="ww">Luật chơi</button>
+  </div>
+  ${tableSection(WW_MIN)}
+  ${wwCfgCards()}
+  <button class="btn" data-act="ww.start">Bắt đầu đêm đầu tiên</button>`;
+
+function wwActBody(i) {
+  const role = wg.roles[i];
+  const info = WW_ROLES[role];
+  const targets = wwTargets(i);
+  let prompt = '';
+  let extra = '';
+  if (role === 'wolf') {
+    const mates = wwAlive().filter((k) => wwIsWolf(k) && k !== i).map((k) => esc(wg.names[k]));
+    const picked = wg.wolfVotes.map((t) => esc(wg.names[t]));
+    prompt = 'Chọn người để cắn đêm nay.';
+    extra = `
+      <p>Đồng bọn: <b>${mates.length ? mates.join(', ') : 'không còn ai'}</b></p>
+      ${picked.length ? `<p>Đồng bọn đã chọn: <b>${picked.join(', ')}</b>. Nếu hòa phiếu, Sói chọn sau cùng quyết định.</p>` : ''}`;
+  } else if (role === 'seer') {
+    prompt = 'Chọn một người để soi.';
+  } else if (role === 'guard') {
+    prompt = 'Chọn một người để bảo vệ (có thể là chính bạn).';
+    if (wg.lastGuard !== null && wg.alive[wg.lastGuard]) {
+      extra = `<p>Đêm trước bạn đã bảo vệ <b>${esc(wg.names[wg.lastGuard])}</b> nên đêm nay không chọn lại được.</p>`;
+    }
+  } else if (role === 'witch') {
+    const victim = wwVictim();
+    prompt = wg.poisonUsed ? 'Bạn đã hết thuốc độc.' : 'Muốn đầu độc ai thì chọn người đó (không bắt buộc).';
+    extra = wg.healUsed
+      ? '<p>Bạn đã hết thuốc cứu.</p>'
+      : victim === null
+        ? '<p>Đêm nay không ai bị Sói cắn.</p>'
+        : `<p>Đêm nay Sói cắn <b>${esc(wg.names[victim])}</b>.</p>
+           <button class="switch ${wg.healPick ? 'on' : ''}" data-act="ww.heal">${wg.healPick ? '✓ Sẽ cứu' : 'Dùng thuốc cứu'}</button>`;
+  } else {
+    prompt = 'Chọn một người bạn nghi là Sói.';
+    extra = `<p>Lựa chọn này không ảnh hưởng gì đến ván chơi, chỉ để không ai đoán được vai của bạn.${
+      role === 'hunter' ? ' Khi bạn chết, bạn sẽ được bắn một người.' : ''}</p>`;
+  }
+  const ready = role === 'witch' || wg.pick !== null;
+  return `
+    <div class="center stack">
+      <div style="font-size:3rem;line-height:1">${info.emoji}</div>
+      <h2>Bạn là ${info.label}</h2>
+    </div>
+    <div class="info stack">${extra}<p><b>${prompt}</b></p></div>
+    <div class="pgrid grow">
+      ${targets.map((k) => playerCard(wg.names[k], { cls: wg.pick === k ? 'sel' : '', act: 'ww.pick', i: k })).join('')}
+    </div>
+    <button class="btn" data-act="ww.confirm" ${ready ? '' : 'disabled'}>${ready ? 'Xác nhận' : 'Chọn một người'}</button>`;
+}
+
+views['ww.night'] = () => {
+  const total = wg.order.length;
+  const i = wg.order[wg.turn];
+  const bar = `
+    <div class="topbar">
+      <h2>🌙 Đêm ${wg.night}</h2>
+      ${wg.step === 'intro' ? '' : `<span class="muted">${wg.turn + 1}/${total}</span>`}
+      <button class="back" data-act="ww.quit">✕</button>
+    </div>`;
+  if (wg.step === 'intro') {
+    return `${bar}
+      <div class="secret night">
+        <div class="emoji">🌙</div>
+        <div class="who">Màn đêm buông xuống</div>
+        <p class="muted">Máy sẽ được chuyền lần lượt cho từng người. Đến lượt ai, người đó cầm máy ra chỗ kín, làm theo hướng dẫn rồi chuyền tiếp.</p>
+        ${wg.night === 1 ? '<p class="muted small">Đêm đầu tiên, mỗi người sẽ biết vai của mình khi cầm máy.</p>' : ''}
+      </div>
+      <button class="btn" data-act="ww.begin">Bắt đầu đêm</button>`;
+  }
+  const progress = `<div class="progress"><i style="width:${(wg.turn / total) * 100}%"></i></div>`;
+  if (wg.step === 'pass') {
+    return `${bar}${progress}
+      <div class="secret night">
+        <p class="muted">Đưa máy cho</p>
+        ${avatar(wg.names[i], 'big')}
+        <div class="who">${esc(wg.names[i])}</div>
+        <p class="muted small">Chỉ ${esc(wg.names[i])} được nhìn màn hình.</p>
+      </div>
+      <button class="btn" data-act="ww.open">Tôi là ${esc(wg.names[i])}</button>`;
+  }
+  if (wg.step === 'act') return `${bar}${progress}${wwActBody(i)}`;
+  return `${bar}${progress}
+    <div class="secret night">
+      <div class="emoji">${WW_ROLES[wg.roles[i]].emoji}</div>
+      <div class="result">${wg.result}</div>
+      <p class="muted small">Bấm nút bên dưới trước khi chuyền máy.</p>
+    </div>
+    <button class="btn ghost" data-act="ww.next">Xong, ẩn đi</button>`;
+};
+
+const wwGrid = () => `
+  <div class="pgrid grow">
+    ${wwAlive().map((i) => playerCard(wg.names[i], { seat: i + 1 })).join('')}
+    ${wwIdx().filter((i) => !wg.alive[i]).map((i) => playerCard(wg.names[i], { seat: i + 1, cls: 'out', extra: wwShownTag(i) })).join('')}
+  </div>`;
+
+const wwNotes = () => wg.notes.map((note) => `<p>${note}</p>`).join('');
+
+// Nhãn nút chính tùy theo việc sắp xảy ra: Thợ săn bắn, kết thúc ván, hay bước kế tiếp
+function wwAfterLabel(normal) {
+  if (wg.hunterPending !== null) return '🏹 Thợ săn ra tay';
+  return wwCheckWin() ? 'Xem kết quả' : normal;
+}
+
+views['ww.day'] = () => `
+  <div class="topbar">
+    <h2>☀️ Ngày ${wg.night}</h2>
+    <button class="back" data-act="ww.quit">✕</button>
+  </div>
+  <div class="card stack">
+    ${wg.deaths.length
+      ? wg.deaths.map((i) => `<p>💀 Đêm qua <b>${esc(wg.names[i])}</b> đã chết. ${wwShownTag(i)}</p>`).join('')
+      : '<p>🌤️ Đêm qua bình yên, không ai chết.</p>'}
+    ${wwNotes()}
+    <p class="muted small">Còn ${wwAlive().length} người sống. Cả làng thảo luận rồi bỏ phiếu treo cổ một người.</p>
+  </div>
+  ${wwGrid()}
+  <button class="btn" data-act="ww.after">${wwAfterLabel('🗳️ Bỏ phiếu treo cổ')}</button>`;
+
+views['ww.vote'] = () => `
+  <div class="topbar">
+    <button class="back" data-act="go" data-view="ww.day">←</button>
+    <h2>Treo cổ ai?</h2>
+  </div>
+  <div class="card"><p>Cả làng đếm 3-2-1 rồi cùng chỉ tay. Chọn người nhận nhiều phiếu nhất, hoặc bỏ qua nếu hòa phiếu.</p></div>
+  <div class="pgrid grow">
+    ${wwAlive().map((i) => playerCard(wg.names[i], { seat: i + 1, cls: wg.sel === i ? 'sel' : '', act: 'ww.select', i })).join('')}
+  </div>
+  <button class="btn" data-act="ww.hang" ${wg.sel === null ? 'disabled' : ''}>
+    ${wg.sel === null ? 'Chọn một người' : `Treo cổ ${esc(wg.names[wg.sel])}`}
+  </button>
+  <button class="btn ghost" data-act="ww.nohang">Không treo ai</button>`;
+
+views['ww.reveal'] = () => {
+  const i = wg.out;
+  const role = WW_ROLES[wg.roles[i]];
+  return `
+    <div class="topbar"><h2>Kết quả bỏ phiếu</h2></div>
+    <div class="secret reveal">
+      <div class="emoji">${wg.shown[i] ? role.emoji : '⚰️'}</div>
+      <p class="muted">${esc(wg.names[i])} bị treo cổ</p>
+      ${wg.shown[i]
+        ? `<div class="role ${role.tag}">${role.label.toUpperCase()}</div>`
+        : '<p class="muted">Vai trò được giữ kín.</p>'}
+      ${wwNotes()}
+    </div>
+    <button class="btn" data-act="ww.after">${wwAfterLabel('🌙 Sang đêm tiếp theo')}</button>`;
+};
+
+views['ww.hunter'] = () => {
+  const hunter = wg.names[wg.hunterPending];
+  return `
+    <div class="topbar"><h2>🏹 Thợ săn ra tay</h2></div>
+    <div class="card stack">
+      <p><b>${esc(hunter)}</b> là Thợ săn! Trước khi chết, Thợ săn được bắn một người.</p>
+      <p class="muted small">Đưa máy cho ${esc(hunter)} để chọn.</p>
+    </div>
+    <div class="pgrid grow">
+      ${wwAlive().map((i) => playerCard(wg.names[i], { seat: i + 1, cls: wg.sel === i ? 'sel' : '', act: 'ww.select', i })).join('')}
+    </div>
+    <button class="btn" data-act="ww.shoot" ${wg.sel === null ? 'disabled' : ''}>
+      ${wg.sel === null ? 'Chọn một người' : `Bắn ${esc(wg.names[wg.sel])}`}
+    </button>`;
+};
+
+views['ww.end'] = () => {
+  const wolfWin = wg.winner === 'wolf';
+  return `
+    <div class="center stack">
+      <div style="font-size:4rem;line-height:1">${wolfWin ? '🐺' : '🎉'}</div>
+      <h2>${wolfWin ? 'Ma Sói thắng!' : 'Dân làng thắng!'}</h2>
+      <p class="muted">${wolfWin ? 'Bầy sói đã áp đảo dân làng.' : 'Con sói cuối cùng đã bị tiêu diệt.'} Ván chơi kéo dài ${wg.night} đêm.</p>
+    </div>
+    <div class="pgrid grow">
+      ${wwIdx().map((i) => playerCard(wg.names[i], {
+        seat: i + 1,
+        cls: wg.alive[i] ? '' : 'out',
+        extra: `${wwTag(wg.roles[i])}<span class="score">${pointsOf('ww', wg.names[i])} điểm</span>`,
+      })).join('')}
+    </div>
+    <button class="btn" data-act="ww.start">Ván mới</button>
+    <button class="btn ghost" data-act="go" data-view="ww.setup">Đổi người chơi / thiết lập</button>
+    <button class="btn ghost" data-act="go" data-view="home">Về trang chủ</button>`;
+};
+
+/* ---------- Actions ---------- */
+
+Object.assign(actions, {
+  'ww.step': (el) => {
+    wwCfg[el.dataset.key] += Number(el.dataset.d);
+    fixWW();
+  },
+  'ww.toggle': (el) => {
+    wwCfg[el.dataset.key] = !wwCfg[el.dataset.key];
+    fixWW();
+  },
+  'ww.start': () => wwNewGame(),
+  'ww.quit': () =>
+    (modal = {
+      type: 'confirm',
+      title: 'Thoát ván đang chơi?',
+      text: 'Ván này sẽ bị hủy và không tính điểm.',
+      yes: 'Thoát ván',
+      act: 'ww.quitnow',
+    }),
+  'ww.quitnow': () => {
+    modal = null;
+    wg = null;
+    go('ww.setup');
+  },
+  'ww.begin': () => (wg.step = 'pass'),
+  'ww.open': () => (wg.step = 'act'),
+  'ww.pick': (el) => {
+    const k = Number(el.dataset.i);
+    // Phù thủy được bỏ chọn vì thuốc độc không bắt buộc
+    wg.pick = wg.pick === k && wg.roles[wg.order[wg.turn]] === 'witch' ? null : k;
+  },
+  'ww.heal': () => (wg.healPick = !wg.healPick),
+  'ww.confirm': () => wwConfirmTurn(),
+  'ww.next': () => {
+    wg.turn++;
+    wg.pick = null;
+    wg.healPick = false;
+    wg.result = '';
+    if (wg.turn >= wg.order.length) wwResolveNight();
+    else wg.step = 'pass';
+  },
+  'ww.after': () => wwAfter(),
+  'ww.select': (el) => (wg.sel = Number(el.dataset.i)),
+  'ww.hang': () => {
+    wg.out = wg.sel;
+    wg.sel = null;
+    wg.notes = [];
+    wwKill(wg.out);
+    go('ww.reveal');
+  },
+  'ww.nohang': () => wwStartNight(),
+  'ww.shoot': () => {
+    const hunter = wg.names[wg.hunterPending];
+    wg.hunterShot = true;
+    wg.hunterPending = null;
+    wwKill(wg.sel);
+    wg.notes.push(`🏹 Thợ săn <b>${esc(hunter)}</b> đã bắn <b>${esc(wg.names[wg.sel])}</b>. ${wwShownTag(wg.sel)}`);
+    wg.sel = null;
+    go(wg.back);
+  },
+});
+
+GAMES.push({
+  id: 'ww',
+  name: 'Ma Sói',
+  icon: '🐺',
+  desc: 'Không cần quản trò, app tự điều khiển đêm và ngày.',
+  meta: `${WW_MIN}–${MAX_PLAYERS} người · 6 vai`,
+  setup: 'ww.setup',
+  rules: () => `
+    <h2>Luật chơi Ma Sói</h2>
+    <div class="rules">
+      <ul>
+        <li>Không cần quản trò. <b>Ban đêm</b> máy được chuyền lần lượt cho từng người còn sống theo thứ tự ngẫu nhiên.</li>
+        <li>Đến lượt ai, người đó xem vai và chọn một người. Dân làng cũng phải chọn (không có tác dụng) để không ai lộ vai qua thao tác.</li>
+        ${Object.values(WW_ROLES).map((r) => `<li><b>${r.emoji} ${r.label}</b>: ${r.desc}.</li>`).join('')}
+        <li>Nhiều Sói: nạn nhân là người được chọn nhiều nhất; nếu hòa, Sói chọn sau cùng quyết định.</li>
+        <li><b>Ban ngày</b> app thông báo ai đã chết, cả làng thảo luận rồi bỏ phiếu treo cổ một người (hoặc không treo ai).</li>
+        <li><b>Dân làng thắng</b> khi diệt hết Sói. <b>Ma Sói thắng</b> khi số Sói bằng hoặc nhiều hơn số người còn lại.</li>
+        <li>Điểm: phe Dân thắng +${WW_POINTS.village} mỗi người, phe Sói thắng +${WW_POINTS.wolf} mỗi Sói.</li>
+      </ul>
+    </div>`,
+});
+
+</script>
+<script>
+// Dữ liệu online trên DMI Workspace (server/boardgame.ts), chơi không cần đăng nhập:
+// - danh sách người chơi là nhân viên đang làm việc trong DMI Workspace (thêm, bớt nhân viên ở trang Quản trị);
+// - bảng xếp hạng chung của mọi máy (đặt lại cần tài khoản quản trị DMI Workspace đang đăng nhập trên trình duyệt);
+// - các cặp từ Gián Điệp đã ra, để máy nào chơi cũng không gặp lại.
+// Không kết nối được máy chủ thì vẫn chơi được một máy với dữ liệu lưu trên máy này.
+let online = false;
+let onlineDone = false;
+let canReset = false;
+
+// Mã người chơi ẩn danh của trình duyệt này, kèm khóa bí mật để chỉ trình duyệt này sửa được lượt của mình
+const newId = () => crypto.randomUUID().replace(/-/g, '');
+const myId = load('dmi.pid', null) || newId();
+const myKey = load('dmi.pkey', null) || newId() + newId();
+save('dmi.pid', myId);
+save('dmi.pkey', myKey);
+
+async function api(method, path, body) {
+  const res = await fetch(`/api/boardgame${path}`, {
+    method,
+    headers: { 'content-type': 'application/json', 'x-bg-player': myId, 'x-bg-key': myKey },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.error || 'Không kết nối được máy chủ'), { status: res.status });
+  return data;
+}
+
+// Không vẽ lại khi đang gõ để khỏi mất chữ trong ô nhập
+const renderIfIdle = () => {
+  if (!document.activeElement?.matches('input')) render();
+};
+
+async function loadRoster() {
+  try {
+    const { names } = await api('GET', '/roster');
+    sharedRoster = names.length ? names : null;
+    renderIfIdle();
+  } catch {}
+}
+
+// Bảng xếp hạng và lịch sử cộng lại từ các ván trên máy chủ
+async function loadBoard() {
+  try {
+    const board = await api('GET', '/board');
+    canReset = board.canReset;
+    stats = {};
+    board.games.forEach(({ game, results }) => addResults(game, results));
+    gameLog = board.games.slice(0, LOG_LIMIT).map(({ t, game, text, results }) => ({ t, game, text, n: results.length }));
+    online = true;
+    renderIfIdle();
+  } catch {}
+}
+
+// Ghi không được thì giữ trên máy này như khi không có mạng
+const saveGame = (record) =>
+  api('POST', '/games', record).then(loadBoard, () => {
+    save('dmi.stats', stats);
+    save('dmi.log', gameLog);
+  });
+
+// Lần đầu gửi kèm các cặp đã ra trên máy này, sau đó danh sách trên máy chủ là chuẩn
+let spySynced = false;
+async function loadSpyUsed() {
+  try {
+    const { pairs } = spySynced ? await api('GET', '/spy-used') : await api('POST', '/spy-used', { add: spyUsed });
+    spySynced = true;
+    spyUsed = pairs;
+    save('gd.used', spyUsed);
+  } catch {}
+}
+
+function saveSpyUsed(pair, forget) {
+  if (!online) return;
+  api('POST', '/spy-used', { add: [pair], forget }).then(({ pairs }) => {
+    spyUsed = pairs;
+    save('gd.used', spyUsed);
+  }, () => {});
+}
+
+ENTER.home = loadBoard;
+ENTER.board = loadBoard;
+ENTER['spy.setup'] = loadSpyUsed;
+
+(async () => {
+  await Promise.all([loadRoster(), loadBoard(), loadSpyUsed()]);
+  onlineDone = true;
+  if (online) mpResume();
+  renderIfIdle();
+})();
+
+</script>
+<script>
+// Ma Sói chơi nhiều máy: mỗi người dùng điện thoại riêng, cùng vào một phòng có mã 4 số (API /api/boardgame/rooms).
+// Chủ phòng chia vai, ghi kết quả bỏ phiếu ban ngày và đưa ván sang bước tiếp; trạng thái ván nằm trong phòng.
+// Ban đêm mọi người chọn cùng lúc, mỗi người ghi lựa chọn vào phần của mình để không ghi đè nhau; máy chủ phòng thấy đủ
+// lựa chọn thì xử lý đêm. Mỗi máy hỏi máy chủ khoảng 1,5 giây một lần xem phòng có gì mới.
+// Vai nằm chung trong dữ liệu phòng, mỗi máy chỉ hiện vai của mình: đủ cho chơi vui trong team, không chặn được người
+// cố tình mở công cụ lập trình của trình duyệt để xem.
+let openRooms = [];
+let roomsTimer = null;
+let mp = null; // phòng đang ở: { id, room, players, v, join, ready, key, timer }
+let mpName = load('dmi.me', '');
+let mpMsg = '';
+// Lựa chọn tạm trên máy này, xóa khi ván sang bước mới
+let mpSel = null;
+let mpPick = null;
+let mpHeal = false;
+let mpShow = false;
+let mpResolved = '';
+// Các lần ghi chạy lần lượt; trong lúc ghi, kết quả hỏi phòng (có thể đã cũ) bị bỏ qua
+let mpWriting = Promise.resolve();
+let mpBusy = 0;
+let mpSeq = 0;
+
+// Người trong phòng theo thứ tự vào phòng
+const mpMembers = () => Object.entries(mp.players).sort((a, b) => a[1].at - b[1].at);
+const mpCount = () => mpMembers().length;
+const mpJoined = () => mpMembers().some(([uid]) => uid === myId);
+const mpIsHost = () => mp?.room?.host === myId;
+const mpNames = () => mp.room.seats.map((s) => s.name);
+const mpSeat = () => mp.room.seats.findIndex((s) => s.uid === myId);
+const mpSetName = (name) => {
+  mpName = name;
+  save('dmi.me', name);
+};
+const mpFail = (e) => {
+  mpMsg = e?.status && e.status < 500 ? e.message : 'Không lưu được thao tác. Kiểm tra mạng rồi thử lại.';
+  renderIfIdle();
+};
+
+// Chạy các hàm Ma Sói sẵn có (đọc biến wg) trên trạng thái ván của phòng
+function withWG(g, fn) {
+  const keep = wg;
+  wg = g;
+  try {
+    return fn();
+  } finally {
+    wg = keep;
+  }
+}
+
+/* ---------- Phòng ---------- */
+
+// Danh sách phòng, hỏi lại mỗi 4 giây khi đang ở màn chọn phòng
+async function loadRooms() {
+  try {
+    openRooms = (await api('GET', '/rooms')).rooms;
+  } catch {}
+  if (view !== 'mp.home') return;
+  renderIfIdle();
+  clearTimeout(roomsTimer);
+  roomsTimer = setTimeout(loadRooms, 4000);
+}
+ENTER['mp.home'] = loadRooms;
+
+// Tải lại trang giữa ván thì vào lại phòng cũ
+async function mpResume() {
+  const last = load('dmi.room', null);
+  if (!last || mp) return;
+  await loadRooms();
+  if (openRooms.some((r) => r.id === last)) mpEnter(last);
+  else save('dmi.room', null);
+}
+
+async function mpCreate() {
+  for (let k = 0; k < 5; k++) {
+    const id = String(1000 + rand(9000));
+    try {
+      await api('PUT', `/rooms/${id}`, { create: true, state: { host: myId, hostName: mpName, phase: 'lobby', seats: [], g: null } });
+      return mpEnter(id, true);
+    } catch (e) {
+      // Mã đang có phòng khác dùng thì thử mã khác
+      if (e.status !== 409) return mpFail(e);
+    }
+  }
+}
+
+function mpEnter(id, join = false) {
+  mpStop();
+  const state = (mp = { id, room: null, players: {}, v: -1, join, ready: false, key: '' });
+  save('dmi.room', id);
+  mpMsg = '';
+  go('mp.room');
+  renderIfIdle();
+  mpPoll(state);
+}
+
+function mpStop() {
+  clearTimeout(mp?.timer);
+  mp = null;
+  save('dmi.room', null);
+}
+
+async function mpPoll(state) {
+  if (mp !== state) return;
+  const seq = mpSeq;
+  try {
+    const r = await api('GET', `/rooms/${state.id}?v=${state.v}`);
+    if (mp === state && !r.same && !mpBusy && seq === mpSeq) {
+      Object.assign(state, { v: r.v, room: r.room, players: r.players, ready: true });
+      mpChanged();
+    }
+  } catch (e) {
+    if (mp === state && e.status === 404) {
+      Object.assign(state, { room: null, ready: true });
+      mpChanged();
+    }
+  }
+  if (mp === state) state.timer = setTimeout(() => mpPoll(state), document.hidden ? 5000 : 1500);
+}
+
+function mpChanged() {
+  if (!mp.ready) return;
+  const room = mp.room;
+  if (room && mp.join) {
+    mp.join = false;
+    if (!mpJoined()) mpJoin();
+  }
+  const g = room?.g;
+  const key = g ? `${g.id}:${g.night}:${g.step}` : room?.phase;
+  if (key !== mp.key) {
+    mp.key = key;
+    mpSel = null;
+    mpPick = null;
+    mpHeal = false;
+    mpShow = false;
+  }
+  if (g?.step === 'night' && mpIsHost()) mwwResolve();
+  renderIfIdle();
+}
+
+function mpJoin() {
+  const taken = mpMembers().some(([uid, p]) => uid !== myId && p.name.toLowerCase() === mpName.toLowerCase());
+  if (taken) return void (mpMsg = `Đã có người tên ${mpName} trong phòng. Chọn tên khác rồi bấm Vào phòng.`);
+  mpMsg = '';
+  mpWritePlayer({ name: mpName, at: Date.now(), act: null });
+}
+
+function mpSend(write) {
+  mpBusy++;
+  mpSeq++;
+  mpWriting = mpWriting
+    .then(write)
+    .catch(mpFail)
+    .finally(() => {
+      mpBusy--;
+      mpSeq++;
+    });
+}
+
+// Mỗi máy chỉ ghi phần của mình; hiện ngay trên máy này rồi ghi lần lượt
+function mpWritePlayer(data) {
+  mp.players = { ...mp.players, [myId]: data };
+  const id = mp.id;
+  mpSend(() => api('PUT', `/rooms/${id}/players/me`, { data }));
+}
+
+// Đổi trạng thái phòng bằng fn trên một bản sao, rồi ghi cả phòng
+function mpUpdate(fn) {
+  const room = structuredClone(mp.room);
+  fn(room);
+  mp.room = room;
+  const id = mp.id;
+  mpSend(() => api('PUT', `/rooms/${id}`, { state: room }));
+}
+
+/* ---------- Luật Ma Sói trên trạng thái phòng ---------- */
+
+function mwwNew(n) {
+  return {
+    id: Date.now(),
+    roles: wwDeal(n),
+    reveal: wwCfg.reveal,
+    alive: Array(n).fill(true),
+    shown: Array(n).fill(false),
+    night: 1,
+    step: 'night',
+    lastGuard: null,
+    healUsed: false,
+    poisonUsed: false,
+    hunterShot: false,
+    hunterPending: null,
+    deaths: [],
+    notes: [],
+    out: null,
+    back: null,
+    winner: null,
+  };
+}
+
+// Lựa chọn đêm nay của từng ghế, null nếu người đó chưa chọn
+function mwwActs() {
+  const g = mp.room.g;
+  return mp.room.seats.map(({ uid }) => {
+    const act = mp.players[uid]?.act;
+    return act?.game === g.id && act.night === g.night ? act : null;
+  });
+}
+
+const mwwWaiting = (g, acts) => g.roles.filter((_, i) => g.alive[i] && !acts[i]).length;
+
+// Nạn nhân của bầy sói theo thứ tự các Sói đã chọn (hòa phiếu thì Sói chọn sau cùng quyết định)
+const mwwVictim = (g, acts) => {
+  const votes = acts
+    .filter((a, i) => a && g.alive[i] && g.roles[i] === 'wolf' && a.pick !== null)
+    .sort((a, b) => a.at - b.at)
+    .map((a) => a.pick);
+  return withWG({ ...g, wolfVotes: votes }, wwVictim);
+};
+
+// Máy chủ phòng xử lý đêm khi mọi người còn sống đã chọn (force: bỏ qua người chưa chọn)
+function mwwResolve(force = false) {
+  const g = mp.room.g;
+  const acts = mwwActs();
+  const night = `${g.id}:${g.night}`;
+  if ((mwwWaiting(g, acts) && !force) || mpResolved === night) return;
+  mpResolved = night;
+  mpUpdate((r) => {
+    const g = r.g;
+    const victim = mwwVictim(g, acts);
+    const actOf = (role) => acts.find((a, i) => a && g.alive[i] && g.roles[i] === role);
+    const guard = actOf('guard')?.pick ?? null;
+    const witch = actOf('witch');
+    const heal = Boolean(witch?.heal) && victim !== null && !g.healUsed;
+    const poison = g.poisonUsed ? null : witch?.pick ?? null;
+    g.healUsed ||= heal;
+    g.poisonUsed ||= poison !== null;
+    const dead = [];
+    if (victim !== null && victim !== guard && !heal) dead.push(victim);
+    if (poison !== null && !dead.includes(poison)) dead.push(poison);
+    g.lastGuard = guard;
+    withWG(g, () => dead.forEach(wwKill));
+    g.deaths = shuffle(dead);
+    g.notes = [];
+    g.step = 'day';
+  });
+}
+
+function mwwNight(g) {
+  g.night++;
+  g.step = 'night';
+  g.deaths = [];
+  g.notes = [];
+  g.out = null;
+}
+
+function mwwFinish(r, winner) {
+  r.g.winner = winner;
+  r.g.step = 'end';
+  recordGame('ww', ...withWG(r.g, () => wwOutcome(r.seats.map((s) => s.name))));
+}
+
+// Sau màn ban ngày hoặc sau khi treo cổ: Thợ săn bắn, kết thúc ván, hoặc sang đêm mới
+function mwwAfter(r) {
+  const g = r.g;
+  if (g.hunterPending !== null) {
+    g.back = g.step;
+    g.step = 'hunter';
+    return;
+  }
+  const winner = withWG(g, wwCheckWin);
+  if (winner) mwwFinish(r, winner);
+  else if (g.step === 'reveal') mwwNight(g);
+}
+
+/* ---------- Views ---------- */
+
+function mpBar(title) {
+  const room = mp?.room;
+  const hostGone = room && mpJoined() && !mpMembers().some(([uid]) => uid === room.host);
+  const quit = mpIsHost() && room.phase === 'play' && room.g?.step !== 'end';
+  return `
+    <div class="topbar">
+      <h2>${title}</h2>
+      ${quit ? '<button class="link small" data-act="mp.quit">Hủy ván</button>' : `<span class="muted small">Phòng ${esc(mp?.id || '')}</span>`}
+      <button class="back" data-act="mp.leave" aria-label="Rời phòng">✕</button>
+    </div>
+    ${hostGone ? '<button class="btn ghost" data-act="mp.takehost">Chủ phòng đã rời, nhận làm chủ phòng</button>' : ''}
+    ${mpMsg ? `<p class="small" style="color:var(--spy)">${esc(mpMsg)}</p>` : ''}`;
+}
+
+function mpNamePicker() {
+  const names = roster();
+  const options = mpName && !names.includes(mpName) ? [mpName, ...names] : names;
+  return `
+    <label class="stack"><b>Tên của bạn</b>
+      <select id="mp-name" class="field">
+        <option value="">Chọn tên</option>
+        ${options.map((name) => `<option ${name === mpName ? 'selected' : ''}>${esc(name)}</option>`).join('')}
+        <option value="${NEW_NAME}">＋ Tên khác…</option>
+      </select>
+    </label>`;
+}
+
+const mwwTag = (g, i) => (g.shown[i] ? wwTag(g.roles[i]) : '');
+const mwwNotes = (g, names) =>
+  g.notes
+    .map(({ hunter, target }) =>
+      `<p>🏹 Thợ săn <b>${esc(names[hunter])}</b> đã bắn <b>${esc(names[target])}</b>. ${mwwTag(g, target)}</p>`)
+    .join('');
+
+// Lưới người chơi; select: chủ phòng / thợ săn chọn một người còn sống
+function mwwGrid(g, names, select = false) {
+  const seats = g.roles.map((_, i) => i);
+  return `
+    <div class="pgrid grow">
+      ${seats.filter((i) => g.alive[i]).map((i) => playerCard(names[i], {
+        seat: i + 1,
+        cls: select && mpSel === i ? 'sel' : '',
+        act: select ? 'mp.sel' : '',
+        i,
+      })).join('')}
+      ${select ? '' : seats.filter((i) => !g.alive[i]).map((i) => playerCard(names[i], { seat: i + 1, cls: 'out', extra: mwwTag(g, i) })).join('')}
+    </div>`;
+}
+
+views['mp.home'] = () => {
+  const bar = `
+    <div class="topbar">
+      <button class="back" data-act="go" data-view="home">←</button>
+      <h2>📱 Ma Sói nhiều máy</h2>
+    </div>`;
+  if (!onlineDone) return `${bar}<div class="card"><p class="muted">Đang kết nối…</p></div>`;
+  if (!online) {
+    return `${bar}
+      <div class="card stack">
+        <p>Không kết nối được máy chủ DMI Workspace. Kiểm tra mạng rồi mở lại trang.</p>
+        <p class="muted small">Muốn chơi ngay trên một máy thì chọn 🐺 Ma Sói ở trang chủ.</p>
+      </div>`;
+  }
+  return `${bar}
+    <p class="muted small">Mỗi người dùng điện thoại riêng: tự xem vai, ban đêm cùng chọn trên máy mình, không cần chuyền máy.</p>
+    <div class="card stack">${mpNamePicker()}</div>
+    ${mpMsg ? `<p class="small" style="color:var(--spy)">${esc(mpMsg)}</p>` : ''}
+    <h3>Phòng đang mở</h3>
+    <div class="list">
+      ${openRooms.length ? openRooms.map((r) => `
+        <button class="lrow" data-act="mp.enter" data-id="${esc(r.id)}">
+          <span class="rank">🐺</span>
+          <span class="lname"><b>Phòng ${esc(r.id)}</b><span class="muted small">Chủ phòng ${esc(r.hostName || '')} · ${r.phase === 'play' ? 'Đang chơi' : 'Đang chờ'}</span></span>
+          <span class="pts">Vào ›</span>
+        </button>`).join('')
+      : '<div class="card"><p class="muted">Chưa có phòng nào đang mở.</p></div>'}
+    </div>
+    <button class="btn" data-act="mp.create">＋ Tạo phòng mới</button>`;
+};
+
+function mpLobby() {
+  const members = mpMembers();
+  const enough = members.length >= wwNeed();
+  return `
+    ${mpBar('🐺 Phòng chờ')}
+    <div class="card center stack">
+      <span class="muted small">Mã phòng</span>
+      <div class="code">${esc(mp.id)}</div>
+      <p class="muted small">Mọi người mở DMI Boardgame → 📱 Ma Sói nhiều máy → bấm vào phòng này.</p>
+    </div>
+    ${mpJoined() ? '' : `<div class="card stack">${mpNamePicker()}<button class="btn" data-act="mp.join">Vào phòng</button></div>`}
+    <div class="pgrid">
+      ${members.map(([uid, p]) => playerCard(p.name, {
+        extra: uid === mp.room.host ? '<span class="tag first">Chủ phòng</span>' : uid === myId ? '<span class="tag villager">Bạn</span>' : '',
+      })).join('')}
+    </div>
+    <p class="muted small center">${members.length} người trong phòng</p>
+    ${mpIsHost()
+      ? `${wwCfgCards()}
+        <button class="btn" data-act="mp.start" ${enough ? '' : 'disabled'}>${enough ? 'Chia vai và bắt đầu đêm 1' : `Cần ít nhất ${wwNeed()} người cho các vai đã chọn`}</button>`
+      : '<p class="muted center">Chờ chủ phòng bắt đầu ván…</p>'}`;
+}
+
+function mwwActBody(g, i, acts, names) {
+  const role = g.roles[i];
+  const info = WW_ROLES[role];
+  const targets = withWG(g, () => wwTargets(i));
+  let prompt = '';
+  let extra = '';
+  if (role === 'wolf') {
+    const mates = g.roles.map((_, k) => k).filter((k) => k !== i && g.alive[k] && g.roles[k] === 'wolf');
+    const picked = mates.filter((k) => acts[k]).map((k) => `${esc(names[k])} → ${esc(names[acts[k].pick])}`);
+    prompt = 'Chọn người để cắn đêm nay.';
+    extra = `
+      <p>Đồng bọn: <b>${mates.length ? mates.map((k) => esc(names[k])).join(', ') : 'không còn ai'}</b></p>
+      ${picked.length ? `<p>Đồng bọn đã chọn: <b>${picked.join(', ')}</b>. Nếu hòa phiếu, Sói chọn sau cùng quyết định.</p>` : ''}`;
+  } else if (role === 'seer') {
+    prompt = 'Chọn một người để soi.';
+  } else if (role === 'guard') {
+    prompt = 'Chọn một người để bảo vệ (có thể là chính bạn).';
+    if (g.lastGuard !== null && g.alive[g.lastGuard]) {
+      extra = `<p>Đêm trước bạn đã bảo vệ <b>${esc(names[g.lastGuard])}</b> nên đêm nay không chọn lại được.</p>`;
+    }
+  } else if (role === 'witch') {
+    // Phù thủy chờ bầy Sói chọn xong mới biết ai bị cắn
+    if (g.roles.some((r, k) => r === 'wolf' && g.alive[k] && !acts[k])) {
+      return `
+        <div class="secret night">
+          <div class="emoji">${info.emoji}</div>
+          <div class="who">Bạn là ${info.label}</div>
+          <p class="muted">Chờ bầy Sói chọn xong để biết ai bị cắn…</p>
+        </div>
+        <button class="btn ghost" data-act="mww.show">Ẩn đi</button>`;
+    }
+    const victim = mwwVictim(g, acts);
+    prompt = g.poisonUsed ? 'Bạn đã hết thuốc độc.' : 'Muốn đầu độc ai thì chọn người đó (không bắt buộc).';
+    extra = g.healUsed
+      ? '<p>Bạn đã hết thuốc cứu.</p>'
+      : victim === null
+        ? '<p>Đêm nay không ai bị Sói cắn.</p>'
+        : `<p>Đêm nay Sói cắn <b>${esc(names[victim])}</b>.</p>
+           <button class="switch ${mpHeal ? 'on' : ''}" data-act="mww.heal">${mpHeal ? '✓ Sẽ cứu' : 'Dùng thuốc cứu'}</button>`;
+  } else {
+    prompt = 'Chọn một người bạn nghi là Sói.';
+    extra = `<p>Lựa chọn này không ảnh hưởng gì đến ván chơi, chỉ để không ai đoán được vai của bạn.${
+      role === 'hunter' ? ' Khi bạn chết, bạn sẽ được bắn một người.' : ''}</p>`;
+  }
+  const ready = role === 'witch' || mpPick !== null;
+  return `
+    <div class="center stack">
+      <div style="font-size:3rem;line-height:1">${info.emoji}</div>
+      <h2>Bạn là ${info.label}</h2>
+    </div>
+    <div class="info stack">${extra}<p><b>${prompt}</b></p></div>
+    <div class="pgrid grow">
+      ${targets.map((k) => playerCard(names[k], { cls: mpPick === k ? 'sel' : '', act: 'mww.pick', i: k })).join('')}
+    </div>
+    <button class="btn" data-act="mww.confirm" ${ready ? '' : 'disabled'}>${ready ? 'Xác nhận' : 'Chọn một người'}</button>`;
+}
+
+// Kết quả hành động đêm của chính mình
+function mwwResult(g, i, acts, names) {
+  const act = acts[i];
+  const role = g.roles[i];
+  const name = act.pick === null ? '' : `<b>${esc(names[act.pick])}</b>`;
+  if (role === 'wolf') {
+    const victim = mwwVictim(g, acts);
+    return victim === null ? 'Đã ghi nhận.' : `Bầy sói đang nhắm vào <b>${esc(names[victim])}</b>.`;
+  }
+  if (role === 'seer') return g.roles[act.pick] === 'wolf' ? `${name} LÀ MA SÓI 🐺` : `${name} không phải Sói ✅`;
+  if (role === 'guard') return `Đêm nay bạn bảo vệ ${name}.`;
+  if (role === 'witch') {
+    const done = [act.heal && 'đã dùng thuốc cứu', act.pick !== null && `đã đầu độc ${name}`].filter(Boolean);
+    return done.length ? `Bạn ${done.join(' và ')}.` : 'Đêm nay bạn không dùng thuốc.';
+  }
+  return 'Đã ghi nhận. Giữ bí mật vai của bạn nhé!';
+}
+
+function mwwNightView() {
+  const g = mp.room.g;
+  const names = mpNames();
+  const i = mpSeat();
+  const acts = mwwActs();
+  const total = g.alive.filter(Boolean).length;
+  const waiting = mwwWaiting(g, acts);
+  let body;
+  if (!g.alive[i]) {
+    body = `
+      <div class="secret night">
+        <div class="emoji">👻</div>
+        <div class="who">Bạn đã bị loại</div>
+        <p class="muted">Giữ im lặng và chờ trời sáng nhé.</p>
+      </div>`;
+  } else if (acts[i]) {
+    body = mpShow
+      ? `<div class="secret night">
+          <div class="emoji">${WW_ROLES[g.roles[i]].emoji}</div>
+          <div class="result">${mwwResult(g, i, acts, names)}</div>
+        </div>
+        <button class="btn ghost" data-act="mww.show">Ẩn đi</button>`
+      : `<div class="secret night">
+          <div class="emoji">✅</div>
+          <div class="who">Bạn đã chọn xong</div>
+          <p class="muted">Mọi người chọn xong là trời sáng.</p>
+        </div>
+        <button class="btn ghost" data-act="mww.show">Xem lại kết quả của bạn</button>`;
+  } else if (!mpShow) {
+    body = `
+      <div class="secret night">
+        <div class="emoji">🌙</div>
+        <div class="who">Màn đêm buông xuống</div>
+        <p class="muted">Che màn hình rồi bấm xem vai và hành động đêm nay.${g.night === 1 ? ' Đêm đầu tiên, bạn sẽ biết vai của mình.' : ''}</p>
+      </div>
+      <button class="btn" data-act="mww.show">Xem vai của tôi</button>`;
+  } else {
+    body = mwwActBody(g, i, acts, names);
+  }
+  return `
+    ${mpBar(`🌙 Đêm ${g.night}`)}
+    <div class="progress"><i style="width:${((total - waiting) / total) * 100}%"></i></div>
+    <p class="muted small center">${total - waiting}/${total} người đã chọn xong</p>
+    ${body}
+    ${mpIsHost() && waiting ? `<button class="link small" data-act="mww.skip">Bỏ qua ${waiting} người chưa chọn và sang ngày</button>` : ''}`;
+}
+
+function mwwDayView() {
+  const g = mp.room.g;
+  const names = mpNames();
+  const host = mpIsHost();
+  const blocked = g.hunterPending !== null || Boolean(withWG(g, wwCheckWin));
+  return `
+    ${mpBar(`☀️ Ngày ${g.night}`)}
+    <div class="card stack">
+      ${g.deaths.length
+        ? g.deaths.map((i) => `<p>💀 Đêm qua <b>${esc(names[i])}</b> đã chết. ${mwwTag(g, i)}</p>`).join('')
+        : '<p>🌤️ Đêm qua bình yên, không ai chết.</p>'}
+      ${mwwNotes(g, names)}
+      <p class="muted small">Còn ${g.alive.filter(Boolean).length} người sống. Cả làng thảo luận, đếm 3-2-1 rồi cùng chỉ tay bỏ phiếu treo cổ.</p>
+    </div>
+    ${host && !blocked ? '<p class="small"><b>Chủ phòng chọn người nhận nhiều phiếu nhất:</b></p>' : ''}
+    ${mwwGrid(g, names, host && !blocked)}
+    ${!host
+      ? '<p class="muted small center">Chủ phòng sẽ ghi kết quả bỏ phiếu.</p>'
+      : blocked
+        ? `<button class="btn" data-act="mww.after">${withWG(g, () => wwAfterLabel(''))}</button>`
+        : `<button class="btn" data-act="mww.hang" ${mpSel === null ? 'disabled' : ''}>
+            ${mpSel === null ? 'Chọn một người' : `Treo cổ ${esc(names[mpSel])}`}
+          </button>
+          <button class="btn ghost" data-act="mww.nohang">Không treo ai</button>`}`;
+}
+
+function mwwRevealView() {
+  const g = mp.room.g;
+  const names = mpNames();
+  const i = g.out;
+  const role = WW_ROLES[g.roles[i]];
+  return `
+    ${mpBar('Kết quả bỏ phiếu')}
+    <div class="secret reveal">
+      <div class="emoji">${g.shown[i] ? role.emoji : '⚰️'}</div>
+      <p class="muted">${esc(names[i])} bị treo cổ</p>
+      ${g.shown[i] ? `<div class="role ${role.tag}">${role.label.toUpperCase()}</div>` : '<p class="muted">Vai trò được giữ kín.</p>'}
+      ${mwwNotes(g, names)}
+    </div>
+    ${mpIsHost()
+      ? `<button class="btn" data-act="mww.after">${withWG(g, () => wwAfterLabel('🌙 Sang đêm tiếp theo'))}</button>`
+      : '<p class="muted small center">Chờ chủ phòng sang bước tiếp theo…</p>'}`;
+}
+
+function mwwHunterView() {
+  const g = mp.room.g;
+  const names = mpNames();
+  const hunter = names[g.hunterPending];
+  const me = mpSeat() === g.hunterPending;
+  return `
+    ${mpBar('🏹 Thợ săn ra tay')}
+    <div class="card stack">
+      <p><b>${esc(hunter)}</b> là Thợ săn! Trước khi chết, Thợ săn được bắn một người.</p>
+      ${me ? '' : `<p class="muted small">Chờ ${esc(hunter)} chọn trên máy của mình…</p>`}
+    </div>
+    ${mwwGrid(g, names, me)}
+    ${me ? `<button class="btn" data-act="mww.shoot" ${mpSel === null ? 'disabled' : ''}>
+        ${mpSel === null ? 'Chọn một người' : `Bắn ${esc(names[mpSel])}`}
+      </button>` : ''}
+    ${!me && mpIsHost() ? '<button class="link small" data-act="mww.noshot">Thợ săn đã rời phòng? Bỏ qua lượt bắn</button>' : ''}`;
+}
+
+function mwwEndView() {
+  const g = mp.room.g;
+  const names = mpNames();
+  const wolfWin = g.winner === 'wolf';
+  return `
+    ${mpBar('Kết thúc ván')}
+    <div class="center stack">
+      <div style="font-size:4rem;line-height:1">${wolfWin ? '🐺' : '🎉'}</div>
+      <h2>${wolfWin ? 'Ma Sói thắng!' : 'Dân làng thắng!'}</h2>
+      <p class="muted">${wolfWin ? 'Bầy sói đã áp đảo dân làng.' : 'Con sói cuối cùng đã bị tiêu diệt.'} Ván chơi kéo dài ${g.night} đêm.</p>
+    </div>
+    <div class="pgrid grow">
+      ${g.roles.map((role, i) => playerCard(names[i], {
+        seat: i + 1,
+        cls: g.alive[i] ? '' : 'out',
+        extra: `${wwTag(role)}<span class="score">${pointsOf('ww', names[i])} điểm</span>`,
+      })).join('')}
+    </div>
+    ${mpIsHost()
+      ? `<button class="btn" data-act="mp.start" ${mpCount() >= wwNeed() ? '' : 'disabled'}>Ván mới với người đang trong phòng</button>
+        <button class="btn ghost" data-act="mp.lobby">Về phòng chờ, đổi thiết lập</button>`
+      : '<p class="muted small center">Chờ chủ phòng bắt đầu ván mới…</p>'}`;
+}
+
+const MWW_VIEWS = { night: mwwNightView, day: mwwDayView, reveal: mwwRevealView, hunter: mwwHunterView, end: mwwEndView };
+
+views['mp.room'] = () => {
+  if (!mp) return views['mp.home']();
+  if (!mp.ready) return `${mpBar('Đang vào phòng…')}<div class="card"><p class="muted">Đang tải phòng ${esc(mp.id)}…</p></div>`;
+  if (!mp.room) {
+    return `${mpBar('Phòng đã đóng')}
+      <div class="card"><p>Chủ phòng đã đóng phòng này.</p></div>
+      <button class="btn" data-act="mp.leavenow">Về danh sách phòng</button>`;
+  }
+  const g = mp.room.g;
+  if (mp.room.phase !== 'play' || !g) return mpLobby();
+  if (mpSeat() < 0) {
+    return `${mpBar('🐺 Đang chơi')}
+      <div class="card"><p>Ván đang diễn ra. Bạn sẽ được chia vai ở ván sau.</p></div>
+      ${mwwGrid(g, mpNames())}`;
+  }
+  return MWW_VIEWS[g.step]();
+};
+
+modals['mp.name'] = () => `
+  <h2>Tên của bạn</h2>
+  <form class="guess" data-form="mp.name">
+    <input id="mp-name-input" name="name" type="text" maxlength="16" autocomplete="off" placeholder="Tên người chơi">
+    <button class="btn">Lưu</button>
+  </form>
+  <button class="btn ghost" data-act="close">Hủy</button>`;
+
+forms['mp.name'] = (form) => {
+  const typed = form.elements.name.value.trim();
+  if (!typed) return;
+  mpSetName(roster().find((r) => r.toLowerCase() === typed.toLowerCase()) || typed);
+  modal = null;
+};
+
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'mp-name') return;
+  if (e.target.value === NEW_NAME) modal = { type: 'mp.name' };
+  else mpSetName(e.target.value);
+  mpMsg = '';
+  render();
+  if (modal) document.querySelector('#mp-name-input')?.focus();
+});
+
+/* ---------- Actions ---------- */
+
+const needName = () => !mpName && (mpMsg = 'Chọn tên của bạn trước.');
+
+Object.assign(actions, {
+  'mp.create': () => {
+    if (!needName()) mpCreate();
+  },
+  'mp.enter': (el) => {
+    if (needName()) return;
+    mpEnter(el.dataset.id, true);
+  },
+  'mp.join': () => {
+    if (!needName()) mpJoin();
+  },
+  'mp.takehost': () =>
+    mpUpdate((r) => {
+      r.host = myId;
+      r.hostName = mpName;
+    }),
+  'mp.leave': () =>
+    (modal = {
+      type: 'confirm',
+      title: 'Rời phòng?',
+      text: mpIsHost() && mp.room?.phase !== 'play'
+        ? 'Bạn là chủ phòng nên phòng sẽ được đóng.'
+        : 'Nếu ván đang chơi, chủ phòng có thể bỏ qua lượt của bạn.',
+      yes: 'Rời phòng',
+      act: 'mp.leavenow',
+    }),
+  'mp.leavenow': () => {
+    modal = null;
+    if (mp?.room) {
+      const path = mpIsHost() && mp.room.phase !== 'play' ? `/rooms/${mp.id}` : `/rooms/${mp.id}/players/me`;
+      mpWriting.then(() => api('DELETE', path)).catch(() => {});
+    }
+    mpStop();
+    mpMsg = '';
+    go('mp.home');
+  },
+  'mp.start': () =>
+    mpUpdate((r) => {
+      r.seats = mpMembers().map(([uid, p]) => ({ uid, name: p.name }));
+      r.phase = 'play';
+      r.g = mwwNew(r.seats.length);
+    }),
+  'mp.quit': () =>
+    (modal = {
+      type: 'confirm',
+      title: 'Hủy ván đang chơi?',
+      text: 'Ván này sẽ bị hủy và không tính điểm. Mọi người quay về phòng chờ.',
+      yes: 'Hủy ván',
+      act: 'mp.lobby',
+    }),
+  'mp.lobby': () => {
+    modal = null;
+    mpUpdate((r) => {
+      r.phase = 'lobby';
+      r.g = null;
+    });
+  },
+  'mp.sel': (el) => (mpSel = Number(el.dataset.i)),
+  'mww.show': () => (mpShow = !mpShow),
+  'mww.pick': (el) => {
+    const k = Number(el.dataset.i);
+    // Phù thủy được bỏ chọn vì thuốc độc không bắt buộc
+    mpPick = mpPick === k && mp.room.g.roles[mpSeat()] === 'witch' ? null : k;
+  },
+  'mww.heal': () => (mpHeal = !mpHeal),
+  'mww.confirm': () => {
+    const g = mp.room.g;
+    mpWritePlayer({ ...mp.players[myId], act: { game: g.id, night: g.night, pick: mpPick, heal: mpHeal, at: Date.now() } });
+  },
+  'mww.skip': () => mwwResolve(true),
+  'mww.after': () => mpUpdate(mwwAfter),
+  'mww.hang': () =>
+    mpUpdate((r) => {
+      r.g.out = mpSel;
+      r.g.notes = [];
+      withWG(r.g, () => wwKill(mpSel));
+      r.g.step = 'reveal';
+    }),
+  'mww.nohang': () => mpUpdate((r) => mwwNight(r.g)),
+  'mww.shoot': () =>
+    mpUpdate((r) => {
+      const g = r.g;
+      g.notes.push({ hunter: g.hunterPending, target: mpSel });
+      g.hunterShot = true;
+      g.hunterPending = null;
+      withWG(g, () => wwKill(mpSel));
+      g.step = g.back;
+    }),
+  'mww.noshot': () =>
+    mpUpdate((r) => {
+      r.g.hunterShot = true;
+      r.g.hunterPending = null;
+      r.g.step = r.g.back;
+    }),
+});
+
+</script>
+<script>
+// Trang chủ DMI Boardgame và bảng xếp hạng. Nạp sau core.js và các file game.
+let boardTab = 'all';
+
+const boardRows = () => {
+  const ids = boardTab === 'all' ? GAMES.map((game) => game.id) : [boardTab];
+  const rows = {};
+  ids.forEach((id) => {
+    Object.entries(stats[id] || {}).forEach(([name, s]) => {
+      const row = (rows[name] ||= { name, p: 0, g: 0, w: 0 });
+      row.p += s.p;
+      row.g += s.g;
+      row.w += s.w;
+    });
+  });
+  return Object.values(rows).sort((a, b) => b.p - a.p || b.w - a.w || a.name.localeCompare(b.name));
+};
+
+const logDate = (t) => {
+  const d = new Date(t);
+  const pad = (x) => String(x).padStart(2, '0');
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+views.home = () => `
+  <header class="brand">
+    <div class="logo">🎲</div>
+    <h1>DMI <span>BOARDGAME</span></h1>
+    <p class="muted">Bộ trò chơi chuyền tay một máy cho cả team</p>
+  </header>
+  <div class="games grow">
+    ${GAMES.map((game) => `
+      <button class="gcard" data-act="go" data-view="${game.setup}">
+        <span class="gicon">${game.icon}</span>
+        <span class="gbody">
+          <span class="gname">${game.name}</span>
+          <span class="muted small">${game.desc}</span>
+          <span class="muted small">${game.meta}</span>
+        </span>
+        <span class="go">›</span>
+      </button>`).join('')}
+    <button class="gcard" data-act="go" data-view="${mp ? 'mp.room' : 'mp.home'}">
+      <span class="gicon">📱</span>
+      <span class="gbody">
+        <span class="gname">Ma Sói nhiều máy</span>
+        <span class="muted small">Mỗi người dùng điện thoại riêng, vào chung một phòng.</span>
+        <span class="muted small">${WW_MIN}–${MAX_PLAYERS} người · không cần chuyền máy</span>
+      </span>
+      <span class="go">›</span>
+    </button>
+    <div class="gcard soon">
+      <span class="gicon">➕</span>
+      <span class="gbody">
+        <span class="gname">Sắp có thêm game</span>
+        <span class="muted small">Các trò chơi mới sẽ dùng chung danh sách thành viên và bảng xếp hạng.</span>
+      </span>
+    </div>
+  </div>
+  <button class="btn ghost" data-act="go" data-view="board">🏆 Bảng xếp hạng</button>`;
+
+views.board = () => {
+  const rows = boardRows();
+  const tabs = [{ id: 'all', name: 'Tất cả' }, ...GAMES];
+  return `
+    <div class="topbar">
+      <button class="back" data-act="go" data-view="home">←</button>
+      <h2>🏆 Bảng xếp hạng</h2>
+    </div>
+    <div class="chips">
+      ${tabs.map((tab) => `
+        <button class="chip ${boardTab === tab.id ? 'on' : ''}" data-act="boardtab" data-id="${tab.id}">${tab.name}</button>`).join('')}
+    </div>
+    <div class="list">
+      ${rows.length ? rows.map((row, k) => `
+        <div class="lrow">
+          <span class="rank">${k + 1}</span>
+          ${avatar(row.name)}
+          <span class="lname"><b>${esc(row.name)}</b><span class="muted small">${row.w} thắng / ${row.g} ván</span></span>
+          <span class="pts">${row.p} điểm</span>
+        </div>`).join('')
+      : '<div class="card"><p class="muted">Chưa có ván nào. Chơi xong một ván là tên và điểm sẽ hiện ở đây.</p></div>'}
+    </div>
+    <h3>Lịch sử ván chơi</h3>
+    <div class="card stack grow">
+      ${gameLog.length ? gameLog.map((item) => `
+        <div class="hrow">
+          <time>${logDate(item.t)}</time>
+          <span>${GAMES.find((game) => game.id === item.game)?.icon || '🎲'} ${esc(item.text)} · ${item.n} người</span>
+        </div>`).join('')
+      : '<p class="muted">Chưa có ván nào được ghi lại.</p>'}
+    </div>
+    ${(rows.length || gameLog.length) && (!online || canReset)
+      ? '<button class="link small" data-act="resetboard">Đặt lại bảng xếp hạng</button>' : ''}`;
+};
+
+actions.boardtab = (el) => (boardTab = el.dataset.id);
+actions.resetboard = () =>
+  (modal = {
+    type: 'confirm',
+    title: 'Đặt lại bảng xếp hạng?',
+    text: 'Toàn bộ điểm và lịch sử ván chơi sẽ bị xóa. Danh sách thành viên vẫn được giữ.',
+    yes: 'Xóa điểm và lịch sử',
+    act: 'resetboardnow',
+  });
+actions.resetboardnow = () => {
+  modal = null;
+  stats = {};
+  gameLog = [];
+  // Bảng online: chỉ ghi mốc đặt lại, các ván cũ vẫn còn trên máy chủ nhưng không được cộng nữa
+  if (online) return void api('POST', '/board/reset').then(loadBoard, () => {});
+  save('dmi.stats', stats);
+  save('dmi.log', gameLog);
+};
+
+render();
+
+</script>
+</body>
+</html>

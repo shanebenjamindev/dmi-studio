@@ -44,7 +44,7 @@ export default {
       const origin = request.headers.get('origin');
       if (origin && origin !== url.origin) return Response.json({ error: 'Origin không hợp lệ' }, { status: 403 });
     }
-    const refused = await limited(env, request.method, url.pathname, request.headers.get('cf-connecting-ip') || '', request.headers.get('cookie') || '').catch(() => null);
+    const refused = await limited(env, request.method, url.pathname, request.headers.get('cf-connecting-ip') || '', request.headers.get('cookie') || '', request.headers.get('x-bg-player') || '').catch(() => null);
     if (refused) return Response.json({ error: refused }, { status: 429, headers: { 'retry-after': '60', 'cache-control': 'no-store' } });
     try { await ready(env.DB); }
     catch {

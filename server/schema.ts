@@ -376,4 +376,20 @@ CREATE TABLE IF NOT EXISTS user_google_accounts (
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, UNIQUE(user_id, email)
 );
 CREATE INDEX IF NOT EXISTS user_google_accounts_user ON user_google_accounts(user_id);
+-- DMI Boardgame (server/boardgame.ts), played without signing in: Ma Sói rooms for several phones (state is the room
+-- as JSON, v counts every change to it or its players), each player's own part, the games played, and small values
+-- (spy_used: Gián Điệp pairs already dealt, board_reset: when the leaderboard was last reset).
+-- No semicolons in these comments: on D1 the schema is split into statements at every one (server/db.ts).
+CREATE TABLE IF NOT EXISTS bg_rooms (
+  id TEXT PRIMARY KEY, state TEXT NOT NULL, v INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bg_players (
+  room_id TEXT NOT NULL, player_id TEXT NOT NULL, secret TEXT NOT NULL, data TEXT NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY(room_id, player_id)
+);
+CREATE TABLE IF NOT EXISTS bg_games (
+  id TEXT PRIMARY KEY, game TEXT NOT NULL, text TEXT NOT NULL, results TEXT NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS bg_games_created ON bg_games(created_at);
+CREATE TABLE IF NOT EXISTS bg_kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 `;

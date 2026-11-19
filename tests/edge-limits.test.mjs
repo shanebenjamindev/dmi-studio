@@ -21,3 +21,18 @@ test('edge limits: per address, sign-ins, changes per session and chat messages'
   assert.equal(await limited(chat, 'POST', '/api/chat/messages', '3.3.3.3', 'dms_sid=s2'), null, 'per session, not per office');
   assert.deepEqual(chat.CHAT_LIMIT.keys, ['s1', 's1', 's2']);
 });
+
+test('edge limits: board game phones count per player, not against the office address', async () => {
+  const env = { API_LIMIT: fake(2), WRITE_LIMIT: fake(1) };
+  const room = '/api/boardgame/rooms/1234';
+  for (const p of ['player-aaaa', 'player-bbbb', 'player-cccc']) {
+    assert.equal(await limited(env, 'GET', room, '1.1.1.1', '', p), null);
+    assert.equal(await limited(env, 'GET', room, '1.1.1.1', '', p), null);
+  }
+  assert.match(await limited(env, 'GET', room, '1.1.1.1', '', 'player-aaaa'), /Quá nhiều yêu cầu/, 'each phone has its own allowance');
+  assert.equal(await limited(env, 'GET', '/api/live', '1.1.1.1', ''), null, 'the office address is untouched');
+  assert.equal(await limited(env, 'PUT', `${room}/players/me`, '1.1.1.1', '', 'player-dddd'), null);
+  assert.match(await limited(env, 'PUT', `${room}/players/me`, '1.1.1.1', '', 'player-dddd'), /thao tác quá nhanh/);
+  assert.equal(await limited(env, 'GET', '/api/live', '9.9.9.9', '', 'player-eeee'), null);
+  assert.ok(env.API_LIMIT.keys.includes('9.9.9.9'), 'the player header only counts on board game paths');
+});

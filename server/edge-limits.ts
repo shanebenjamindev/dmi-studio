@@ -8,16 +8,20 @@ export interface Limiters { API_LIMIT?: Limiter; AUTH_LIMIT?: Limiter; WRITE_LIM
 // Signing in, password resets, a first admin, and Claude's connector registering itself: few per minute from one address.
 const AUTH = /^\/api\/(auth\/(login|setup|forgot|reset)|oauth\/(register|token))$/;
 const COOKIE = 'dms_sid'; // the session cookie (server/auth.ts)
+// DMI Boardgame's phones each ask for their room every second or two: counted per player (x-bg-player), so a table of
+// phones on the office Wi-Fi does not use up the address's allowance for the Workspace itself.
+const BOARDGAME = /^\/api\/boardgame\//;
 
 /** The reason a request is turned away, or null to let it through. */
-export async function limited(env: Limiters, method: string, path: string, ip: string, cookie: string): Promise<string | null> {
+export async function limited(env: Limiters, method: string, path: string, ip: string, cookie: string, player = ''): Promise<string | null> {
   const ok = async (l: Limiter | undefined, key: string) => !l || (await l.limit({ key })).success;
+  const game = BOARDGAME.test(path) && /^[\w-]{8,64}$/.test(player) ? `bg:${player}` : '';
   // Every request from one address (an office shares one, so this is generous).
-  if (!await ok(env.API_LIMIT, ip)) return 'Quá nhiều yêu cầu từ địa chỉ này, hãy thử lại sau ít phút.';
+  if (!await ok(env.API_LIMIT, game || ip)) return 'Quá nhiều yêu cầu từ địa chỉ này, hãy thử lại sau ít phút.';
   if (method === 'GET' || method === 'HEAD') return null;
   if (AUTH.test(path) && !await ok(env.AUTH_LIMIT, ip)) return 'Thử quá nhiều lần, hãy đợi một phút rồi thử lại.';
   // Changes, per signed-in session (or per address without one), and chat messages more tightly.
-  const who = cookie.split(/;\s*/).find((c) => c.startsWith(COOKIE + '='))?.slice(COOKIE.length + 1) || ip;
+  const who = game || cookie.split(/;\s*/).find((c) => c.startsWith(COOKIE + '='))?.slice(COOKIE.length + 1) || ip;
   if (!await ok(env.WRITE_LIMIT, who)) return 'Bạn thao tác quá nhanh, hãy đợi một chút rồi thử lại.';
   if (path === '/api/chat/messages' && !await ok(env.CHAT_LIMIT, who)) return 'Bạn gửi tin quá nhanh, hãy đợi vài giây.';
   return null;

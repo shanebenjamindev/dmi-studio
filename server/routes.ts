@@ -23,6 +23,7 @@ import { registerSupport } from './support';
 import { registerMcp } from './mcp';
 import { registerAssistant } from './assistant';
 import { registerMailbox } from './mailbox';
+import { registerBoardgame } from './boardgame';
 
 export const api = new Router();
 
@@ -50,3 +51,4 @@ registerSupport(api);
 registerMcp(api);
 registerAssistant(api);
 registerMailbox(api);
+registerBoardgame(api);

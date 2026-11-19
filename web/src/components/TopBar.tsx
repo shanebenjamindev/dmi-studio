@@ -78,8 +78,9 @@ export function AppHeader() {
   );
 }
 
-/** DMI Boardgame lives outside the app (a claude.ai artifact, where its member list is edited); it opens in a new tab. */
-const BOARDGAME_URL = 'https://claude.ai/artifact/1omsbirJoE7sACgKZwkZTH';
+/** DMI Boardgame is a page of its own beside the app (web/public/boardgame, server/boardgame.ts), played without
+ *  signing in; it opens in a new tab. */
+const BOARDGAME_URL = '/boardgame/';
 /** Where each section's link goes when opened in a new tab (a click opens the page last used in it). */
 const SECTION_HASH: Record<string, string> = { boards: '#boards', customers: '#customers', work: '#tasks', reports: '#reports', tools: '#tools', mail: '#mail', messages: '#messages', admin: '#admin' };
 /** The sections, down the left side. */

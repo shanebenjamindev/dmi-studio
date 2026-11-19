@@ -88,7 +88,9 @@ const LABELS: [string, RegExp, string][] = [
 const QUIET = [/^\/api\/quick-notes(\/|$)/, /^\/api\/auth\/(prefs|login|setup)$/, /^\/api\/notifications\/read$/, /^\/api\/sheets\//,
   /^\/api\/customers\/[^/]+\/videos\/session/, /^\/api\/workspace\/browse$/, /^\/api\/sources\/scan$/,
   // The assistant streams its answer (held responses would stop the stream); each tool it runs is logged on its own.
-  /^\/api\/assistant\//];
+  /^\/api\/assistant\//,
+  // A board game's every move is not work.
+  /^\/api\/boardgame\//];
 
 async function snapshot(e: Entity, id: string) {
   const row = await get<any>(`SELECT * FROM ${e.table} WHERE id = ?`, id);
