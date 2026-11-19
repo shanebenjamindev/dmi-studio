@@ -6,6 +6,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
+import { quietly } from '../loading';
+import { onLive } from '../live';
 import { goto, openCard, openLink, openTask } from '../store';
 import { langPref, tr } from '../i18n';
 import { Icon } from './ui';
@@ -71,9 +73,10 @@ export function Reminders() {
   useEffect(() => {
     load();
     // Fresh when the panel opens, after changes elsewhere, and every few minutes as time passes.
-    const t = setInterval(() => document.visibilityState === 'visible' && load(), 5 * 60e3);
+    const t = setInterval(() => document.visibilityState === 'visible' && quietly(load), 5 * 60e3);
     window.addEventListener('dms:entities-changed', soon);
-    return () => { clearInterval(t); clearTimeout(later.current); window.removeEventListener('dms:entities-changed', soon); };
+    const off = onLive('work', soon);
+    return () => { off(); clearInterval(t); clearTimeout(later.current); window.removeEventListener('dms:entities-changed', soon); };
   }, [load, soon]);
   useEffect(() => { if (open) loadItems().then(setItems, () => {}); }, [open]);
   useEffect(() => {

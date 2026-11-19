@@ -4,6 +4,7 @@
 // and balanced vector SVG Messenger branding.
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { api } from '../api';
+import { onLive } from '../live';
 import { useStore, toast } from '../store';
 import { Icon } from './ui';
 import { Avatar } from './boardkit';
@@ -354,13 +355,8 @@ function ChatWindowView({
     loadMessages();
   }, [loadMessages]);
 
-  // Background polling for this conversation
-  useEffect(() => {
-    const timer = setInterval(() => {
-      loadMessages(true);
-    }, 3500);
-    return () => clearInterval(timer);
-  }, [loadMessages]);
+  // Reloaded when a chat changes on the server (web/src/live.ts)
+  useEffect(() => onLive('chat', () => void loadMessages(true)), [loadMessages]);
 
   // Auto-scroll
   useEffect(() => {
@@ -945,8 +941,10 @@ export function Messenger() {
 
   useEffect(() => {
     loadMembers();
-    const interval = setInterval(loadMembers, 8000);
-    return () => clearInterval(interval);
+    // Again when a chat moves (each one's last message), and every two minutes while in view for who is online.
+    const off = onLive('chat', loadMembers);
+    const interval = setInterval(() => { if (document.visibilityState === 'visible') void loadMembers(); }, 120_000);
+    return () => { off(); clearInterval(interval); };
   }, [loadMembers]);
 
   // Periodic unread check across general and all DMs
@@ -999,8 +997,7 @@ export function Messenger() {
     };
 
     checkUnread();
-    const timer = setInterval(checkUnread, 4000);
-    return () => clearInterval(timer);
+    return onLive('chat', checkUnread);
   }, [openWindows, currentUserId, allMembers]);
 
   const totalGeneralUnread = unreadMap.general || 0;

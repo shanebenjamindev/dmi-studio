@@ -2,6 +2,7 @@
 // including a card dragged from the board), the dock at the bottom that shows or hides each, and "Switch boards".
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import { onLive } from '../live';
 import { toast } from '../store';
 import { Icon } from './ui';
 import { dueState } from './boardkit';
@@ -45,8 +46,7 @@ export function PlannerPanel({ bgOf, onOpen, onHide }: { bgOf: (k: string) => st
   const load = () => api.planner(week, end).then(setCards).catch((e) => toast(e.message, true));
   useEffect(() => {
     setCards(null); load();
-    const t = setInterval(() => document.visibilityState === 'visible' && load(), 15000);
-    return () => clearInterval(t);
+    return onLive('work', load);
   }, [week]); // eslint-disable-line react-hooks/exhaustive-deps
   useChanged('planner', load);
   const when = (c: PlannerCard) => c.dueAt ?? c.startAt!;

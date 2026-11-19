@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
+import { onLive } from '../live';
 import { toast } from '../store';
 import { Icon } from './ui';
 import type { NoteColor, QuickNote } from '../types';
@@ -75,7 +76,7 @@ export function QuickNotes() {
   const [listVersion, setListVersion] = useState(0);
   const changed = useCallback(() => setListVersion((v) => v + 1), []);
   // When each note last changed, as the server says: open windows reload what changed on another computer, the list
-  // refreshes, and a note deleted elsewhere closes here. Asked every 15 s while the page is in view and on coming back.
+  // refreshes, and a note deleted elsewhere closes here. Asked when this person's notes change (web/src/live.ts).
   const [stamps, setStamps] = useState<Record<string, number>>({});
   useEffect(() => {
     let alive = true, prev: Record<string, number> | null = null;
@@ -92,9 +93,8 @@ export function QuickNotes() {
       }, () => {});
     };
     tick();
-    const t = setInterval(tick, 15_000);
-    window.addEventListener('focus', tick); document.addEventListener('visibilitychange', tick);
-    return () => { alive = false; clearInterval(t); window.removeEventListener('focus', tick); document.removeEventListener('visibilitychange', tick); };
+    const off = onLive('notes', tick);
+    return () => { alive = false; off(); };
   }, [changed]);
   // ✕ only hides a note; a blank hidden one is opened again rather than another blank one made.
   const create = async (near?: { x: number; y: number }) => {

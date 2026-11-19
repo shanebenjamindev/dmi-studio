@@ -69,6 +69,7 @@ export const api = {
   sendMail:(draft:MailDraft)=>req<{id:string;threadId:string}>('POST','/api/mailbox/send',draft),
   notificationInbox:()=>req<NotificationInbox>('GET','/api/notifications/inbox'),
   notificationLatest:()=>req<{latest:number;unread:number}>('GET','/api/notifications/latest'),
+  live:()=>req<Record<'chat'|'work'|'notes'|'notifications',number|string>>('GET','/api/live'),
   readNotifications:(id?:string)=>req('POST','/api/notifications/read',{id}),
   requestNotificationEmail:(email:string)=>req<{sent:boolean}>('POST','/api/notifications/email/request',{email}),
   verifyNotificationEmail:(code:string)=>req('POST','/api/notifications/email/verify',{code}),

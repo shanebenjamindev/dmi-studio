@@ -15,6 +15,7 @@ import { Avatar, Pop, Reactions, ago, dueState, fullDate } from './boardkit';
 import { ClientServiceFields, ClientServicePop, placeOf } from './ClientServicePick';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
+import { onLive } from '../live';
 import { admin as adminApi, type TaskRow as AdminTaskRow, type TaskDetail as AdminTaskDetail } from '../admin/api';
 import { useStore, toast, getState, goto, openLink } from '../store';
 import { Icon, Menu } from './ui';
@@ -147,9 +148,8 @@ export function TasksPage({ initialProject = '', initialCampaign = '', projectNa
   useEffect(() => { loadMeta(); }, []);
   useEffect(() => {
     const t = setTimeout(load, q ? 250 : 0);
-    const interval = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 15000);
-    const focus = () => load(); window.addEventListener('focus', focus);
-    return () => { clearTimeout(t); clearInterval(interval); window.removeEventListener('focus', focus); };
+    const off = onLive('work', load);
+    return () => { clearTimeout(t); off(); };
   }, [listed, rel, teamId, state, project, campaign, person, q]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

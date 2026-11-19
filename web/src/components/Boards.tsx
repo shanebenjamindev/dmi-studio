@@ -10,6 +10,7 @@ import { ResizeHandle } from './ResizeHandle';
 // (about, activity, archived items, background, labels). People who only view a board read it and comment.
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
+import { onLive } from '../live';
 import { remember } from '../prefs';
 import { useStore, toast, openLink } from '../store';
 import { Icon } from './ui';
@@ -1680,7 +1681,7 @@ function BoardView({ id, card, me, roles, ws, onStar, onGone, onChanged, onCard 
   const load = () => api.board(id).then((x) => { if (!drag.current && !busy.current) setB(x); }, (e) => setErr(e.message));
   useEntityRefresh(load);
   // Others' changes show up within a few seconds.
-  useEffect(() => { load(); const t = setInterval(() => document.visibilityState === 'visible' && load(), 15000); return () => clearInterval(t); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); return onLive('work', load); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   useChanged('board', () => load());
   // A drag from another panel (the Inbox) that ends anywhere leaves no gap behind.
   useEffect(() => { const f = () => { if (!drag.current) setPh(null); }; window.addEventListener('dragend', f); return () => window.removeEventListener('dragend', f); }, []);

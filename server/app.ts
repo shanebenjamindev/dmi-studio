@@ -4,6 +4,7 @@ import { api } from './routes';
 import { guard, type User } from './auth';
 import { withTrail, logError } from './audit';
 import { useApiEntry } from './mcp';
+import { stampChange } from './live';
 
 export async function handleApi(req0: IncomingMessage, res: ServerResponse) {
   const req = req0 as Req;
@@ -22,6 +23,7 @@ export async function handleApi(req0: IncomingMessage, res: ServerResponse) {
     if (!route) throw new HttpError(404, 'Không có API này');
     req.params = route.params;
     await withTrail(req, res, user, () => route.h(req, res));
+    if (res.statusCode < 400) await stampChange(req.method || 'GET', req.path, user?.id).catch(() => console.error('Không ghi được dấu thay đổi'));
   } catch (e: any) {
     const status = e instanceof HttpError ? e.status : 500;
     if (status >= 500) { console.error('API error:', req.method, req.path); await logError(req, user, e, status); }

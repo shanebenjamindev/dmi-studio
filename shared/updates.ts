@@ -10,6 +10,13 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-19-1',
+    date: '19/11/2026',
+    items: [
+      { kind: 'fix', vi: 'Trang nhẹ hơn và bớt hiện “Đang tải…”: thay vì từng phần tự hỏi máy chủ mỗi vài giây, trang chỉ hỏi một lần xem có gì mới rồi tải lại đúng phần đã đổi (tin nhắn, thông báo, bảng, công việc, ghi chú), không hiện biểu tượng tải. Khi tab bị ẩn trang không hỏi gì, quay lại là cập nhật ngay.', en: 'A lighter page with less “Loading…”: instead of each part asking the server every few seconds, the page asks once what is new and reloads only what changed (messages, notifications, boards, tasks, notes), without the loading sign. While the tab is hidden it asks nothing, and it catches up as soon as you come back.' },
+    ],
+  },
+  {
     id: '2026-11-18-5',
     date: '18/11/2026',
     items: [

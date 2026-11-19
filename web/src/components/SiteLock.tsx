@@ -2,13 +2,14 @@
 // itself once the site opens again; the pill that reminds Super Admins and opens it; and the switch in Cấu hình chung.
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { quietly } from '../loading';
 import { setState, signOut, toast, useStore } from '../store';
 import { Icon } from './ui';
 import { askConfirm } from './AskDialog';
 
 export function SiteLocked({ message }: { message: string }) {
   useEffect(() => {
-    const t = setInterval(() => { api.me().then((m) => { if (!m.siteLock) location.reload(); }, () => {}); }, 30000);
+    const t = setInterval(() => { quietly(api.me).then((m) => { if (!m.siteLock) location.reload(); }, () => {}); }, 30000);
     return () => clearInterval(t);
   }, []);
   return (

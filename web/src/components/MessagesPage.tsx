@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
+import { onLive } from '../live';
 import { openLink, openProfile, toast, useStore } from '../store';
 import type { ChatAttachment, ChatChannel, ChatMember, ChatMessage, ChatRole, Workspace } from '../types';
 import { askConfirm, askText } from './AskDialog';
@@ -138,10 +139,7 @@ export function MessagesPage() {
 
   useEffect(() => {
     void loadSidebarData();
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') void loadSidebarData();
-    }, 8000);
-    return () => clearInterval(timer);
+    return onLive('chat', () => void loadSidebarData());
   }, [loadSidebarData]);
 
   // Channels for current server
@@ -252,10 +250,7 @@ export function MessagesPage() {
     setEditingMsgId(null);
     setShowPins(false);
     void loadMessages(true);
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') void loadMessages(false);
-    }, 3500);
-    return () => clearInterval(timer);
+    return onLive('chat', () => void loadMessages(false));
   }, [loadMessages]);
 
   // Other members for @mention (excluding yourself `me.id` — "trừ bản thân")

@@ -250,6 +250,8 @@ CREATE TABLE IF NOT EXISTS quick_notes (
  open INTEGER NOT NULL DEFAULT 0, x INTEGER, y INTEGER, w INTEGER, h INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS quick_notes_user ON quick_notes(user_id,updated_at);
+-- When each area last changed (chat, work, a person's quick notes), for the pages to know what to reload (server/live.ts).
+CREATE TABLE IF NOT EXISTS live_changes (topic TEXT PRIMARY KEY, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS notification_templates (
  id TEXT PRIMARY KEY, name TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', link TEXT NOT NULL DEFAULT '',
  created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
