@@ -3,7 +3,7 @@ import { Icon } from './ui';
 
 // A small floating button that plays the office music (web/public). Nothing plays until someone clicks it — browsers
 // block autoplay with sound anyway — and the choice (playing or not) is remembered per person on this device.
-const SRC = '/' + encodeURIComponent('anhTaTriDat&AnhMaxx.mp4');
+const SRC = '/' + encodeURIComponent('anhTaTriDat&AnhMaxx.mp3');
 const LS_ON = 'dms.musicOn';
 
 export function MusicButton() {
