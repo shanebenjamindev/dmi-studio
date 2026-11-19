@@ -330,10 +330,17 @@ button.lrow { width: 100%; text-align: left; }
 .role-mini .role-art { width: 44px; border-radius: 10px; box-shadow: none; }
 .role-mini .role-art.emoji { font-size: 1.5rem; }
 .role-card { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
-.timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.timeline li { display: flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px; background: var(--field); border: 1px solid var(--line); color: var(--muted); font-size: .8rem; }
+/* Timeline ngang: mỗi bước một vòng tròn, nối với bước trước bằng một vạch */
+.timeline { list-style: none; margin: 0; padding: 6px 0 2px; display: flex; }
+.timeline li { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--muted); font-size: .7rem; font-weight: 600; text-align: center; }
+.timeline li + li::before { content: ''; position: absolute; top: 19px; right: 50%; width: 100%; height: 3px; border-radius: 2px; background: var(--line); }
+.timeline li.done::before, .timeline li.now::before { background: var(--civ); }
+.timeline .dot { position: relative; z-index: 1; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; overflow: hidden; background: var(--sheet); border: 2px solid var(--line); font-size: 1.15rem; transition: transform .2s; }
+.timeline .dot img { width: 100%; height: 100%; object-fit: cover; }
 .timeline li.done { color: var(--civ); }
-.timeline li.now { background: var(--gold); border-color: var(--gold); color: var(--on-gold); font-weight: 800; }
+.timeline li.done .dot { border-color: var(--civ); background: #0f5a3c; color: var(--civ); font-weight: 900; }
+.timeline li.now { color: var(--gold); font-weight: 800; }
+.timeline li.now .dot { border-color: var(--gold); transform: scale(1.18); box-shadow: 0 0 0 4px rgba(255, 216, 77, .28); }
 .calling { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: var(--radius); background: var(--card); border: 1px solid var(--line); font-size: 1.15rem; }
 .calling.wolf { border-color: var(--spy); }
 .calling.special { border-color: var(--gold); }
@@ -1784,17 +1791,23 @@ function mwwGrid(g, names, select = false) {
     </div>`;
 }
 
-// Timeline của đêm: lời dẫn, từng vai theo thứ tự gọi, trời sáng
+// Timeline ngang của đêm: lời dẫn, từng vai theo thứ tự gọi (vòng tròn là ảnh của vai), trời sáng
 function mwwTimeline(g) {
-  const steps = [['🌙', 'Màn đêm'], ...g.calls.map((role) => [WW_ROLES[role].emoji, WW_ROLES[role].label]), ['☀️', 'Trời sáng']];
+  const steps = [
+    ['🌙', 'Màn đêm'],
+    ...g.calls.map((role) => [`<img src="${WW_ROLES[role].img}" alt="">`, WW_ROLES[role].label]),
+    ['☀️', 'Trời sáng'],
+  ];
   const at = g.turn + 1;
   return `
-    <ol class="timeline" aria-label="Thứ tự gọi vai đêm nay">
-      ${steps.map(([emoji, label], k) => `
-        <li class="${k < at ? 'done' : k === at ? 'now' : ''}" ${k === at ? 'aria-current="step"' : ''}>
-          <span>${k < at ? '✓' : emoji}</span>${label}
-        </li>`).join('')}
-    </ol>`;
+    <div class="card">
+      <ol class="timeline" aria-label="Thứ tự gọi vai đêm nay">
+        ${steps.map(([icon, label], k) => `
+          <li class="${k < at ? 'done' : k === at ? 'now' : ''}" ${k === at ? 'aria-current="step"' : ''}>
+            <span class="dot">${k < at ? '✓' : icon}</span>${label}
+          </li>`).join('')}
+      </ol>
+    </div>`;
 }
 
 views['mp.home'] = () => {
