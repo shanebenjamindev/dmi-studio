@@ -10,6 +10,13 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-19-3',
+    date: '19/11/2026',
+    items: [
+      { kind: 'new', vi: 'Có nút nhạc nổi ở góc trái dưới: bấm để phát, bấm lần nữa để tắt. Nhạc chỉ phát khi bạn bấm, và trang nhớ lựa chọn của bạn trên máy này.', en: 'A floating music button sits at the bottom-left: click to play, click again to stop. Music plays only when you click, and the page remembers your choice on this device.' },
+    ],
+  },
+  {
     id: '2026-11-19-2',
     date: '19/11/2026',
     items: [

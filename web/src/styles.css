@@ -9234,3 +9234,10 @@ dialog.sheet, .qc-dialog, .tm-dialog, .cm, .tk-popup-dialog, .ui-panel-popup, .u
 .notification-gmail { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0 12px; padding: 12px; border: 1px solid var(--sep); border-radius: 10px; background: var(--fill-2, transparent); }
 .notification-gmail > span { flex: 1; min-width: 200px; display: flex; flex-direction: column; }
 .notification-gmail small { color: var(--label-3); }
+
+/* Nút phát nhạc nổi (web/src/components/MusicButton.tsx): góc trái dưới, tránh dock Tin nhắn ở phải. */
+.music-btn { position: fixed; left: calc(var(--rail-w) + 12px); bottom: 16px; z-index: 95; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--surface); color: var(--label-2); border: 1px solid var(--sep); box-shadow: 0 2px 10px rgba(0, 0, 0, .14); cursor: pointer; transition: transform .15s var(--ease), color .15s ease, background .15s ease; }
+.music-btn:hover { color: var(--tint); transform: translateY(-1px); }
+.music-btn.is-playing { background: var(--tint); color: #fff; border-color: transparent; animation: musicPulse 2s ease-in-out infinite; }
+@keyframes musicPulse { 0%, 100% { box-shadow: 0 2px 10px rgba(0, 0, 0, .14); } 50% { box-shadow: 0 2px 16px var(--tint-soft); } }
+@media (max-width: 760px) { .music-btn { left: 12px; bottom: calc(var(--bn-h) + 12px); } }

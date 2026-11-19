@@ -11,6 +11,7 @@ import { QuickNotes } from './components/QuickNotes';
 import { WhatsNew } from './components/WhatsNew';
 import { GlobalSearch } from './components/GlobalSearch';
 import { Messenger } from './components/Messenger';
+import { MusicButton } from './components/MusicButton';
 import { Assistant } from './components/Assistant';
 
 /** A page that fails to draw says so (and offers a reload) instead of leaving the whole window blank. */
@@ -73,7 +74,7 @@ export function App() {
               </div>
             </div>
           </div>
-          <QuickNotes key={user.id} /><GlobalSearch key={'s' + user.id} /><Messenger key={'msg' + user.id} /><WhatsNew key={'wn' + user.id} /><Assistant key={'ai' + user.id} />
+          <QuickNotes key={user.id} /><GlobalSearch key={'s' + user.id} /><Messenger key={'msg' + user.id} /><WhatsNew key={'wn' + user.id} /><Assistant key={'ai' + user.id} /><MusicButton />
         </>
       ) : <LoginPage />)}
       {ready&&<NetworkLoading busy={busy}/>}
