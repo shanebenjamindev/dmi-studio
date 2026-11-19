@@ -1195,24 +1195,26 @@ const WW_POINTS = { village: 2, wolf: 6 };
 // Thứ tự quản trò gọi vai trong đêm; Phù thủy luôn sau Sói để biết ai bị cắn
 const WW_CALLS = ['guard', 'wolf', 'seer', 'witch'];
 
-// Lời dẫn của quản trò (voice/*.mp3, đoạn cắt từ file dài nằm trong voice/cuts/)
+// Lời dẫn của quản trò (voice/*.mp3, đoạn cắt từ file dài nằm trong voice/cuts/). Chỉ giữ câu khớp với cách chơi bằng
+// điện thoại: không nhắc thẻ bài hay lật bài, không nhắc luật mà máy đã tự chặn, không kể chuyện dài mỗi đêm.
 const WW_VOICE = {
-  firstNight: ['voice_07', 'voice_08', 'voice_09', 'voice_10', 'voice_11', 'voice_12', 'voice_13', 'voice_14'],
-  nights: [['voice_54'], ['cuts/dem-suong-mu', 'voice_14'], ['cuts/dem-trang-mau', 'voice_14'], ['cuts/dem-ngon-den', 'voice_14']],
+  // Giữ bí mật nhé · Ván chơi bắt đầu · Đêm đầu tiên · Màn đêm buông xuống ngôi làng · Cả làng đi ngủ · Tất cả nhắm mắt lại
+  firstNight: ['voice_08', 'voice_09', 'voice_10', 'voice_12', 'voice_13', 'voice_14'],
+  nights: ['voice_12', 'voice_13', 'voice_14'],
   calls: {
-    guard: { wake: ['voice_24', 'voice_25', 'voice_26'], sleep: ['voice_27'] },
-    wolf: { wake: ['voice_28', 'voice_30'], first: ['voice_28', 'voice_29', 'voice_30'], sleep: ['voice_31'] },
+    guard: { wake: ['voice_24', 'voice_25'], sleep: ['voice_27'] },
+    wolf: { wake: ['voice_28', 'voice_30'], sleep: ['voice_31'] },
     seer: { wake: ['voice_32', 'voice_33'], sleep: ['voice_34'] },
     witch: { wake: ['voice_35'], heal: ['voice_36'], poison: ['voice_38'], sleep: ['voice_39'] },
   },
   dawn: ['voice_41'],
-  deaths: [['voice_43', 'voice_44'], ['voice_45'], ['voice_48']],
+  deaths: [['voice_43'], ['voice_45'], ['voice_48']],
   hanged: ['cuts/da-quyet-dinh'],
   noHang: ['cuts/khong-treo'],
   hunter: ['voice_57', 'cuts/tho-san'],
   shot: ['cuts/phang'],
-  village: ['voice_60', 'voice_66'],
-  wolf: ['voice_61', 'voice_62', 'voice_66'],
+  village: ['voice_60'],
+  wolf: ['voice_61', 'voice_62'],
 };
 
 let wwCfg = { wolves: 0, seer: true, guard: true, witch: false, hunter: false, reveal: true, ...load('dmi.ww', {}) };
@@ -1674,7 +1676,6 @@ const narSpoken = new Set();
 
 function mwwWakeClips(g, role, acts) {
   const c = WW_VOICE.calls[role];
-  if (role === 'wolf' && g.night === 1) return c.first;
   if (role === 'witch') return [c.wake, mwwVictim(g, acts) !== null && !g.healUsed ? c.heal : [], g.poisonUsed ? [] : c.poison];
   return c.wake;
 }
@@ -1705,7 +1706,7 @@ function mwwNarrate() {
   if (nar.key !== key) {
     nar = { key, phase: 'speak', waited: false };
     if (g.turn < 0) {
-      const intro = g.night === 1 ? WW_VOICE.firstNight : WW_VOICE.nights[rand(WW_VOICE.nights.length)];
+      const intro = g.night === 1 ? WW_VOICE.firstNight : WW_VOICE.nights;
       return wwSay([WW_VOICE[g.prelude] || [], intro], () => mwwTurn(g, 0));
     }
     if (g.turn >= g.calls.length) return mwwResolve();
