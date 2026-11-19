@@ -346,6 +346,19 @@ button.lrow { width: 100%; text-align: left; }
 .calling.special { border-color: var(--gold); }
 .calling .role-art { margin: 0; }
 
+/* Vòng tròn đếm ngược: vạch chạy hết vòng trong --total, bắt đầu từ chỗ đã trôi qua (--delay âm) */
+.ring { position: relative; flex: none; width: 58px; height: 58px; display: grid; place-items: center; }
+.ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 4; }
+.ring .track { stroke: var(--line); }
+.ring .bar { stroke: var(--gold); stroke-linecap: round; stroke-dasharray: 100; animation: ring-run var(--total) linear var(--delay) forwards; }
+.ring span { position: relative; font-weight: 800; font-size: 1rem; font-variant-numeric: tabular-nums; }
+@keyframes ring-run {
+  0% { stroke-dashoffset: 0; stroke: var(--gold); }
+  75% { stroke: var(--gold); }
+  100% { stroke-dashoffset: 100; stroke: var(--spy); }
+}
+
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 </style>
@@ -1194,6 +1207,8 @@ const WW_SPECIALS = ['seer', 'guard', 'witch', 'hunter'];
 const WW_POINTS = { village: 2, wolf: 6 };
 // Thứ tự quản trò gọi vai trong đêm; Phù thủy luôn sau Sói để biết ai bị cắn
 const WW_CALLS = ['guard', 'wolf', 'seer', 'witch'];
+// Mỗi lượt gọi vai ban đêm và lượt bỏ phiếu có 30 giây; hết giờ thì quản trò sang lượt kế
+const WW_TIMES = { turn: 30 * 1000 };
 
 // Lời dẫn của quản trò (voice/*.mp3, đoạn cắt từ file dài nằm trong voice/cuts/). Chỉ giữ câu khớp với cách chơi bằng
 // điện thoại: không nhắc thẻ bài hay lật bài, không nhắc luật mà máy đã tự chặn, không kể chuyện dài mỗi đêm.
@@ -1213,11 +1228,17 @@ const WW_VOICE = {
   noHang: ['cuts/khong-treo'],
   hunter: ['voice_57', 'cuts/tho-san'],
   shot: ['cuts/phang'],
-  village: ['voice_60'],
-  wolf: ['voice_61', 'voice_62'],
+  // Bây giờ là lúc cả làng ngồi bàn… · Còn một phút nữa… · Hết giờ thảo luận!
+  talk: ['cuts/thao-luan'],
+  oneMin: ['cuts/con-1-phut'],
+  timeUp: ['cuts/het-gio'],
+  // Kết thúc ván chỉ nói bên nào thắng
+  village: ['cuts/dan-lang-thang'],
+  wolf: ['voice_61'],
 };
 
-let wwCfg = { wolves: 0, seer: true, guard: true, witch: false, hunter: false, reveal: true, ...load('dmi.ww', {}) };
+// talk: số phút thảo luận ban ngày trước khi bỏ phiếu
+let wwCfg = { wolves: 0, seer: true, guard: true, witch: false, hunter: false, reveal: true, talk: 3, ...load('dmi.ww', {}) };
 // Giọng quản trò bật/tắt trên từng máy (chỉ máy chủ phòng đọc)
 let wwVoiceOn = load('dmi.voice', true);
 
@@ -1345,6 +1366,10 @@ function wwCfgCards() {
       <div class="row between">
         <span><b>🤖 Bot</b><br><span class="muted small">Thêm cho đủ người. Bot tự chọn ban đêm, không biết nói và không được tính điểm.</span></span>
         ${stepper('mp.bot', 'bots', mpBots().length, 0, MAX_PLAYERS - humans)}
+      </div>
+      <div class="row between">
+        <span><b>⏱️ Thảo luận ban ngày</b><br><span class="muted small">${wwCfg.talk} phút, hết giờ thì cả làng bỏ phiếu trên máy (30 giây)</span></span>
+        ${stepper('ww.num', 'talk', wwCfg.talk, 1, 10)}
       </div>
       <div class="row between">
         <span><b>Lật vai khi chết</b><br><span class="muted small">Công khai vai của người bị loại</span></span>
@@ -1534,6 +1559,9 @@ function mwwNew(seats) {
     roles,
     calls: WW_CALLS.filter((role) => roles.includes(role)),
     reveal: wwCfg.reveal,
+    talk: wwCfg.talk * 60 * 1000,
+    // Giờ hết lượt hiện tại (lượt gọi vai, thảo luận, bỏ phiếu), theo đồng hồ máy chủ phòng
+    deadline: null,
     alive: Array(n).fill(true),
     shown: Array(n).fill(false),
     night: 0,
@@ -1558,10 +1586,73 @@ function mwwNight(g, seats, prelude = null) {
   g.step = 'night';
   g.turn = -1;
   g.prelude = prelude;
+  g.deadline = null;
   g.deaths = [];
   g.notes = [];
   g.out = null;
+  g.ballots = null;
   g.botActs = mwwBotActs(g, seats);
+}
+
+// Bắt đầu giờ thảo luận ban ngày, trừ khi Thợ săn còn chờ bắn hoặc ván đã ngã ngũ
+function mwwTalk(g) {
+  g.deadline = g.hunterPending === null && !wwCheckWin(g) ? Date.now() + g.talk : null;
+}
+
+// Bot bỏ phiếu ngẫu nhiên một người còn sống khác mình (Sói bot không treo Sói)
+function mwwBotVotes(g, seats) {
+  const votes = {};
+  seats.forEach((s, i) => {
+    if (!s.bot || !g.alive[i]) return;
+    const pool = wwAlive(g).filter((k) => k !== i && !(wwIsWolf(g, i) && wwIsWolf(g, k)));
+    votes[i] = pool.length ? pool[rand(pool.length)] : -1;
+  });
+  return votes;
+}
+
+// Phiếu hôm nay của từng ghế còn sống: số ghế bị chọn, -1 là bỏ qua, undefined là chưa bỏ phiếu
+function mwwVotes() {
+  const g = mp.room.g;
+  return mp.room.seats.map((s, i) => {
+    if (!g.alive[i]) return undefined;
+    if (s.bot) return g.botVotes?.[i];
+    const vote = mp.players[s.uid]?.vote;
+    return vote?.game === g.id && vote.night === g.night ? vote.target : undefined;
+  });
+}
+
+// Chủ phòng mở bỏ phiếu: 30 giây, bot bỏ phiếu ngay
+function mwwStartVote() {
+  if (mp.room.g.step !== 'day') return;
+  mpUpdate((r) => {
+    r.g.step = 'vote';
+    r.g.deadline = Date.now() + WW_TIMES.turn;
+    r.g.botVotes = mwwBotVotes(r.g, r.seats);
+  });
+  mwwNarrate();
+}
+
+// Kiểm phiếu (một lần mỗi ngày): nhiều phiếu nhất thì bị treo cổ, hòa hoặc không ai bị chọn thì không treo
+function mwwTally() {
+  const g = mp.room.g;
+  const key = `${g.id}:${g.night}:vote`;
+  if (g.step !== 'vote' || mpResolved === key) return;
+  mpResolved = key;
+  const votes = mwwVotes();
+  mpUpdate((r) => {
+    const g = r.g;
+    const count = {};
+    votes.forEach((t) => t >= 0 && (count[t] = (count[t] || 0) + 1));
+    const top = Math.max(0, ...Object.values(count));
+    const leaders = Object.keys(count).filter((t) => count[t] === top).map(Number);
+    g.ballots = votes.map((t) => t ?? null);
+    g.out = top > 0 && leaders.length === 1 ? leaders[0] : null;
+    if (g.out !== null) wwKill(g, g.out);
+    g.notes = [];
+    g.deadline = null;
+    g.step = 'reveal';
+  });
+  mwwNarrate();
 }
 
 // Bot: Sói cắn ngẫu nhiên một người không phải Sói, Bảo vệ che ngẫu nhiên, Phù thủy không dùng thuốc.
@@ -1621,6 +1712,7 @@ function mwwResolve() {
     g.deaths = shuffle(dead);
     g.notes = [];
     g.step = 'day';
+    mwwTalk(g);
   });
 }
 
@@ -1643,6 +1735,7 @@ function mwwShoot(g, target) {
   g.notes.push({ hunter: g.hunterPending, target });
   g.hunterShot = true;
   g.hunterPending = null;
+  g.deadline = null;
   wwKill(g, target);
 }
 
@@ -1656,7 +1749,9 @@ function mwwAfter(r) {
       return;
     }
     const targets = wwAlive(g);
-    return mwwShoot(g, targets[rand(targets.length)]);
+    mwwShoot(g, targets[rand(targets.length)]);
+    if (g.step === 'day') mwwTalk(g);
+    return;
   }
   const winner = wwCheckWin(g);
   if (winner) mwwFinish(r, winner);
@@ -1694,9 +1789,16 @@ function mwwNarrate() {
     if (!narSpoken.has(step)) {
       narSpoken.add(step);
       if (g.step === 'day') clips.push(WW_VOICE.dawn, WW_VOICE.deaths[Math.min(g.deaths.length, 2)]);
-      if (g.step === 'reveal') clips.push(WW_VOICE.hanged);
+      if (g.step === 'vote') clips.push(WW_VOICE.timeUp);
+      if (g.step === 'reveal') clips.push(g.out === null ? WW_VOICE.noHang : WW_VOICE.hanged);
       if (g.step === 'hunter') clips.push(WW_VOICE.hunter);
       if (g.step === 'end') clips.push(WW_VOICE[g.winner]);
+    }
+    // Mời thảo luận khi giờ thảo luận bắt đầu (có thể sau khi Thợ săn bắn xong)
+    const talk = `${g.id}:${g.night}:talk`;
+    if (g.step === 'day' && g.deadline && !narSpoken.has(talk)) {
+      narSpoken.add(talk);
+      clips.push(WW_VOICE.talk);
     }
     if (clips.length) wwSay(clips);
     return;
@@ -1713,7 +1815,13 @@ function mwwNarrate() {
     const role = g.calls[g.turn];
     const people = mwwHolders(g, role).filter((i) => !mp.room.seats[i].bot);
     return wwSay(mwwWakeClips(g, role, acts), () => {
+      if (nar.key !== key) return;
       nar.phase = 'wait';
+      // Đọc xong lời gọi thì bắt đầu đếm 30 giây (vai đã chết cũng vậy, để không ai đoán ra)
+      mpUpdate((r) => {
+        r.g.deadline = Date.now() + WW_TIMES.turn;
+      });
+      renderIfIdle();
       // Vai đã chết hoặc chỉ có bot: vẫn chờ một lúc như có người đang chọn
       setTimeout(() => {
         if (nar.key !== key) return;
@@ -1737,9 +1845,44 @@ function mwwTurn(g, turn) {
   if (now?.id !== g.id || now.night !== g.night || now.turn !== g.turn) return;
   mpUpdate((r) => {
     r.g.turn = turn;
+    r.g.deadline = null;
   });
   mwwNarrate();
   renderIfIdle();
+}
+
+// Mỗi giây: cập nhật số giây trên các vòng đếm ngược; máy chủ phòng chuyển lượt khi hết giờ hoặc khi ai cũng đã bỏ phiếu
+function mwwTick() {
+  document.querySelectorAll('[data-deadline]').forEach((el) => (el.textContent = mwwClock(Number(el.dataset.deadline) - Date.now())));
+  const g = mp?.room?.g;
+  if (!g || !mpIsHost() || mp.room.phase !== 'play') return;
+  const left = g.deadline ? g.deadline - Date.now() : Infinity;
+  if (g.step === 'night' && nar.phase === 'wait' && left <= 0) mwwSleep(g);
+  if (g.step === 'day' && g.deadline) {
+    const warn = `${g.id}:${g.night}:oneMin`;
+    if (g.talk > 60 * 1000 && left <= 60 * 1000 && !narSpoken.has(warn)) {
+      narSpoken.add(warn);
+      wwSay(WW_VOICE.oneMin);
+    }
+    if (left <= 0) mwwStartVote();
+  }
+  if (g.step === 'vote' && (left <= 0 || mwwVotes().every((v, i) => !g.alive[i] || v !== undefined))) mwwTally();
+}
+setInterval(mwwTick, 1000);
+
+const mwwClock = (ms) => {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : String(s);
+};
+
+// Vòng tròn đếm ngược tới deadline (tổng thời gian total). Vòng chạy bằng CSS, số giây do mwwTick cập nhật.
+function mwwRing(deadline, total) {
+  const left = Math.max(0, deadline - Date.now());
+  return `
+    <div class="ring" style="--total:${total}ms;--delay:${left - total}ms" role="timer" aria-label="Thời gian còn lại">
+      <svg viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="19" class="track"/><circle cx="22" cy="22" r="19" class="bar" pathLength="100"/></svg>
+      <span data-deadline="${deadline}">${mwwClock(left)}</span>
+    </div>`;
 }
 
 /* ---------- Views ---------- */
@@ -1929,8 +2072,9 @@ function mwwNightView() {
   const acts = mwwActs();
   const role = g.roles[i];
   const calling = g.calls[g.turn];
+  const ring = calling && g.deadline ? mwwRing(g.deadline, WW_TIMES.turn) : '';
   const head = calling
-    ? `<div class="calling ${WW_ROLES[calling].tag}">${wwArt(calling, 'small')}<b>${WW_ROLES[calling].label} thức dậy</b></div>`
+    ? `<div class="calling ${WW_ROLES[calling].tag}">${wwArt(calling, 'small')}<b class="grow">${WW_ROLES[calling].label} thức dậy</b>${ring}</div>`
     : `<div class="calling"><div class="role-art emoji small">${g.turn < 0 ? '🌙' : '☀️'}</div><b>${g.turn < 0 ? 'Màn đêm buông xuống' : 'Trời sắp sáng'}</b></div>`;
   const hide = '<button class="btn ghost" data-act="mww.show">Ẩn đi</button>';
   let body;
@@ -1970,6 +2114,7 @@ function mwwNightView() {
     ${mpIsHost() && g.turn < g.calls.length ? '<button class="link small" data-act="mww.skip">Quản trò: bỏ qua lượt này</button>' : ''}`;
 }
 
+// Ban ngày: báo ai đã chết, rồi thảo luận theo giờ đã đặt; hết giờ tự sang bỏ phiếu
 function mwwDayView() {
   const g = mp.room.g;
   const names = mpNames();
@@ -1982,33 +2127,81 @@ function mwwDayView() {
         ? g.deaths.map((i) => `<p>💀 Đêm qua <b>${esc(names[i])}</b> đã chết. ${mwwTag(g, i)}</p>`).join('')
         : '<p>🌤️ Đêm qua bình yên, không ai chết.</p>'}
       ${mwwNotes(g, names)}
-      <p class="muted small">Còn ${wwAlive(g).length} người sống. Cả làng thảo luận, đếm 3-2-1 rồi cùng chỉ tay bỏ phiếu treo cổ.</p>
     </div>
-    ${host && !blocked ? '<p class="small"><b>Chủ phòng chọn người nhận nhiều phiếu nhất:</b></p>' : ''}
-    ${mwwGrid(g, names, host && !blocked)}
+    ${g.deadline ? `
+      <div class="card row">
+        ${mwwRing(g.deadline, g.talk)}
+        <div><b>Thảo luận</b><p class="muted small">Còn ${wwAlive(g).length} người sống. Hết giờ, mọi người bỏ phiếu treo cổ trên máy của mình.</p></div>
+      </div>` : ''}
+    ${mwwGrid(g, names)}
     ${!host
-      ? '<p class="muted small center">Chủ phòng sẽ ghi kết quả bỏ phiếu.</p>'
+      ? ''
       : blocked
         ? `<button class="btn" data-act="mww.after">${mwwAfterLabel(g, '')}</button>`
-        : `<button class="btn" data-act="mww.hang" ${mpSel === null ? 'disabled' : ''}>
-            ${mpSel === null ? 'Chọn một người' : `Treo cổ ${esc(names[mpSel])}`}
-          </button>
-          <button class="btn ghost" data-act="mww.nohang">Không treo ai</button>`}`;
+        : '<button class="btn" data-act="mww.votenow">🗳️ Bỏ phiếu ngay</button>'}`;
+}
+
+// Bỏ phiếu: ai còn sống cũng bấm chọn trên máy mình (đổi được tới khi hết 30 giây), số phiếu hiện ngay cho mọi người
+function mwwVoteView() {
+  const g = mp.room.g;
+  const names = mpNames();
+  const i = mpSeat();
+  const votes = mwwVotes();
+  const count = {};
+  votes.forEach((t) => t >= 0 && (count[t] = (count[t] || 0) + 1));
+  const mine = votes[i];
+  const canVote = g.alive[i];
+  const done = votes.filter((v, k) => g.alive[k] && v !== undefined).length;
+  const tip = !canVote
+    ? 'Bạn đã bị loại nên không bỏ phiếu.'
+    : mine === undefined
+      ? 'Bấm vào người bạn muốn treo cổ.'
+      : 'Đã bỏ phiếu. Bạn đổi được tới khi hết giờ.';
+  return `
+    ${mpBar(`🗳️ Bỏ phiếu · Ngày ${g.night}`)}
+    <div class="card row">
+      ${mwwRing(g.deadline, WW_TIMES.turn)}
+      <div><b>${tip}</b><p class="muted small">${done}/${wwAlive(g).length} người đã bỏ phiếu. Nhiều phiếu nhất sẽ bị treo cổ; hòa thì không ai bị treo.</p></div>
+    </div>
+    <div class="pgrid grow">
+      ${wwAlive(g).map((k) => playerCard(names[k], {
+        seat: k + 1,
+        cls: mine === k ? 'sel' : '',
+        act: canVote && k !== i ? 'mww.vote' : '',
+        i: k,
+        extra: count[k] ? `<span class="score">${count[k]} phiếu</span>` : '',
+      })).join('')}
+    </div>
+    ${canVote ? `<button class="btn ghost" data-act="mww.vote" data-i="-1">${mine === -1 ? '✓ Bạn đã chọn bỏ qua' : 'Bỏ qua, không treo ai'}</button>` : ''}
+    ${mpIsHost() ? '<button class="link small" data-act="mww.tally">Chủ phòng: kết thúc bỏ phiếu ngay</button>' : ''}`;
+}
+
+// Ai bỏ phiếu cho ai, để cả làng cùng xem lại
+function mwwBallots(g, names) {
+  const by = {};
+  g.ballots.forEach((t, k) => t !== null && (by[t] ||= []).push(esc(names[k])));
+  const rows = Object.entries(by)
+    .sort(([a, x], [b, y]) => (a < 0) - (b < 0) || y.length - x.length)
+    .map(([t, who]) => `<p><b>${t < 0 ? 'Bỏ qua' : esc(names[t])}</b>: ${who.length} phiếu <span class="muted small">(${who.join(', ')})</span></p>`);
+  return `<div class="card stack small">${rows.join('') || '<p class="muted">Không ai bỏ phiếu.</p>'}</div>`;
 }
 
 function mwwRevealView() {
   const g = mp.room.g;
   const names = mpNames();
   const i = g.out;
-  const role = WW_ROLES[g.roles[i]];
+  const role = i === null ? null : WW_ROLES[g.roles[i]];
   return `
     ${mpBar('Kết quả bỏ phiếu')}
     <div class="secret reveal">
-      ${g.shown[i] ? wwArt(g.roles[i]) : '<div class="emoji">⚰️</div>'}
-      <p class="muted">${esc(names[i])} bị treo cổ</p>
-      ${g.shown[i] ? `<div class="role ${role.tag}">${role.label.toUpperCase()}</div>` : '<p class="muted">Vai trò được giữ kín.</p>'}
+      ${i === null
+        ? '<div class="emoji">🤝</div><p class="muted">Không ai bị treo cổ</p><p class="muted small">Phiếu hòa hoặc không ai bị chọn.</p>'
+        : `${g.shown[i] ? wwArt(g.roles[i]) : '<div class="emoji">⚰️</div>'}
+          <p class="muted">${esc(names[i])} bị treo cổ</p>
+          ${g.shown[i] ? `<div class="role ${role.tag}">${role.label.toUpperCase()}</div>` : '<p class="muted">Vai trò được giữ kín.</p>'}`}
       ${mwwNotes(g, names)}
     </div>
+    ${g.ballots ? mwwBallots(g, names) : ''}
     ${mpIsHost()
       ? `<button class="btn" data-act="mww.after">${mwwAfterLabel(g, '🌙 Sang đêm tiếp theo')}</button>`
       : '<p class="muted small center">Chờ chủ phòng sang bước tiếp theo…</p>'}`;
@@ -2054,7 +2247,7 @@ function mwwEndView() {
       : '<p class="muted small center">Chờ chủ phòng bắt đầu ván mới…</p>'}`;
 }
 
-const MWW_VIEWS = { night: mwwNightView, day: mwwDayView, reveal: mwwRevealView, hunter: mwwHunterView, end: mwwEndView };
+const MWW_VIEWS = { night: mwwNightView, day: mwwDayView, vote: mwwVoteView, reveal: mwwRevealView, hunter: mwwHunterView, end: mwwEndView };
 
 views['mp.room'] = () => {
   if (!mp) return views['mp.home']();
@@ -2130,6 +2323,10 @@ Object.assign(actions, {
   },
   'ww.toggle': (el) => {
     wwCfg[el.dataset.key] = !wwCfg[el.dataset.key];
+    fixWW();
+  },
+  'ww.num': (el) => {
+    wwCfg[el.dataset.key] = Math.min(10, Math.max(1, wwCfg[el.dataset.key] + Number(el.dataset.d)));
     fixWW();
   },
   'mww.voice': () => {
@@ -2217,24 +2414,24 @@ Object.assign(actions, {
     else mwwSleep(g);
   },
   'mww.after': () => mpUpdate(mwwAfter),
-  'mww.hang': () =>
-    mpUpdate((r) => {
-      r.g.out = mpSel;
-      r.g.notes = [];
-      wwKill(r.g, mpSel);
-      r.g.step = 'reveal';
-    }),
-  'mww.nohang': () => mpUpdate((r) => mwwNight(r.g, r.seats, 'noHang')),
+  'mww.votenow': () => mwwStartVote(),
+  'mww.tally': () => mwwTally(),
+  'mww.vote': (el) => {
+    const g = mp.room.g;
+    mpWritePlayer({ ...mp.players[myId], vote: { game: g.id, night: g.night, target: Number(el.dataset.i), at: Date.now() } });
+  },
   'mww.shoot': () =>
     mpUpdate((r) => {
       mwwShoot(r.g, mpSel);
       r.g.step = r.g.back;
+      if (r.g.step === 'day') mwwTalk(r.g);
     }),
   'mww.noshot': () =>
     mpUpdate((r) => {
       r.g.hunterShot = true;
       r.g.hunterPending = null;
       r.g.step = r.g.back;
+      if (r.g.step === 'day') mwwTalk(r.g);
     }),
 });
 
@@ -2253,7 +2450,8 @@ GAMES.push({
         <li><b>Ban đêm</b> quản trò gọi lần lượt: Bảo vệ → Ma Sói → Tiên tri → Phù thủy. Vai được gọi che màn hình, mở máy và chọn; các vai khác nhắm mắt. Vai đã chết vẫn được gọi để không ai đoán ra.</li>
         ${Object.values(WW_ROLES).map((r) => `<li><b>${r.emoji} ${r.label}</b>: ${r.desc}.</li>`).join('')}
         <li>Nhiều Sói: nạn nhân là người được chọn nhiều nhất; nếu hòa, Sói chọn sau cùng quyết định.</li>
-        <li><b>Ban ngày</b> quản trò báo ai đã chết, cả làng thảo luận rồi chỉ tay bỏ phiếu; chủ phòng ghi người bị treo cổ (hoặc không treo ai).</li>
+        <li>Mỗi lượt gọi vai có 30 giây (vòng tròn đếm ngược); hết giờ thì quản trò gọi vai tiếp theo.</li>
+        <li><b>Ban ngày</b> quản trò báo ai đã chết, cả làng thảo luận theo số phút chủ phòng đặt. Hết giờ, ai còn sống bỏ phiếu treo cổ trên máy mình trong 30 giây; nhiều phiếu nhất bị treo, hòa thì không ai bị treo.</li>
         <li>Thiếu người thì chủ phòng thêm bot: bot chọn ngẫu nhiên ban đêm, không biết nói và không được tính điểm.</li>
         <li><b>Dân làng thắng</b> khi diệt hết Sói. <b>Ma Sói thắng</b> khi số Sói bằng hoặc nhiều hơn số người còn lại.</li>
         <li>Điểm: phe Dân thắng +${WW_POINTS.village} mỗi người, phe Sói thắng +${WW_POINTS.wolf} mỗi Sói.</li>
