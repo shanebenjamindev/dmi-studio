@@ -9,13 +9,14 @@
 import * as THREE from 'three';
 
 const RADIUS = 26; // đi được trong vòng này
-const HOME_R = 17; // nhà xếp vòng quanh đống lửa
+const HOUSE_GAP = 4.4; // khoảng cách giữa hai nhà cạnh nhau
 const SPEED = 4.2; // đơn vị mỗi giây
 const SEND_MS = 100;
 const GALLOWS = { x: 0, z: -6 }; // giàn treo cổ, phía sau đống lửa nhìn từ camera
 const STAGE_Y = 1; // mặt sàn giàn
 
-let renderer, scene, camera, clock, sun, hemi, fire, fireLight, ground;
+let renderer, scene, camera, clock, sun, hemi, fire, fireLight, ground, road;
+let homeR = 10.5; // bán kính vòng nhà, tùy số người
 let canvas, stick, knob;
 let room = null;
 let me = null;
@@ -62,7 +63,7 @@ function buildWorld() {
   plaza.rotation.x = -Math.PI / 2;
   plaza.position.y = 0.01;
   scene.add(plaza);
-  const road = new THREE.Mesh(new THREE.RingGeometry(HOME_R - 4.2, HOME_R - 2.6, 48), mat(0xc9a46b));
+  road = new THREE.Mesh(new THREE.RingGeometry(homeR - 3.2, homeR - 1.8, 48), mat(0xc9a46b));
   road.rotation.x = -Math.PI / 2;
   road.position.y = 0.01;
   scene.add(road);
@@ -137,17 +138,22 @@ function buildWorld() {
   }
 }
 
-// Mỗi người chơi (kể cả bot) một nhà, xếp đều quanh đống lửa; số người đổi thì dựng lại
+// Mỗi người chơi (kể cả bot) một nhà, các nhà sát nhau thành dãy cong phía sau giàn treo cổ; đông người thì vòng nhà
+// rộng ra cho đủ chỗ. Số người đổi thì dựng lại.
 function setHouses(n) {
   n = Math.max(n, 1);
   if (houses.length === n) return;
+  homeR = Math.max(10.5, (n * HOUSE_GAP) / (Math.PI * 2));
+  const step = Math.min(HOUSE_GAP / homeR, (Math.PI * 2) / n);
+  road.geometry.dispose();
+  road.geometry = new THREE.RingGeometry(homeR - 3.2, homeR - 1.8, 48);
   for (const house of houses) scene.remove(house);
   houses.length = 0;
   solids.length = 2; // giữ đống lửa và giàn treo cổ
   for (const ring of markers.values()) scene.remove(ring);
   markers.clear();
   for (let k = 0; k < n; k++) {
-    const a = (k / n) * Math.PI * 2;
+    const a = -Math.PI / 2 + (k - (n - 1) / 2) * step;
     const house = new THREE.Group();
     const wall = [0xf3e3c3, 0xe9d2a8, 0xf0dccf, 0xd9c8a6][k % 4];
     const roof = [0xb9562e, 0x8a3a2a, 0x9a6a2a, 0x6a4a8a][k % 4];
@@ -165,7 +171,7 @@ function setHouses(n) {
     win.position.set(0.8, 1.3, 1.22);
     win.name = 'window';
     house.add(win);
-    house.position.set(Math.cos(a) * HOME_R, 0, Math.sin(a) * HOME_R);
+    house.position.set(Math.cos(a) * homeR, 0, Math.sin(a) * homeR);
     house.lookAt(0, 0, 0);
     scene.add(house);
     houses.push(house);
@@ -176,7 +182,7 @@ function setHouses(n) {
 // Cửa nhà của ghế seat: ban đêm mỗi người về đây
 function homeSpot(seat) {
   const house = houses[seat % houses.length];
-  const p = house.position.clone().multiplyScalar((HOME_R - 2) / HOME_R);
+  const p = house.position.clone().multiplyScalar((homeR - 2) / homeR);
   return { x: p.x, z: p.z, r: Math.atan2(-p.x, -p.z) };
 }
 

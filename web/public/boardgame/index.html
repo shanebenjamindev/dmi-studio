@@ -382,6 +382,14 @@ body.v-night .v-stick, .v-stick[hidden] { display: none; }
 body.in-village.v-night.v-roam #app { max-height: 46dvh; }
 body.v-night.v-roam .v-stick { display: block; }
 body.v-night.v-roam.sheet-min .v-stick { bottom: 104px; }
+/* Nút hành động ở góc phải, đối diện cần gạt: chọn và xác nhận ngay trên làng */
+.v-hud { position: fixed; z-index: 3; right: 14px; bottom: calc(46dvh + 14px); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: calc(100vw - 150px); }
+body.sheet-min .v-hud { bottom: 100px; }
+.v-hud[hidden], body:not(.in-village) .v-hud { display: none; }
+.v-hud .v-target { display: flex; align-items: center; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(7, 20, 66, .85); color: #fff; font-size: .95rem; }
+.v-hud .v-target b { padding: 0 6px; }
+.v-hud .v-round { width: 36px; height: 36px; border-radius: 50%; background: rgba(255, 255, 255, .18); font-weight: 800; }
+.v-hud .btn { width: auto; padding: 12px 20px; border-radius: 999px; box-shadow: 0 6px 18px rgba(0, 0, 0, .4); }
 .v-knob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px; border-radius: 50%; background: rgba(255, 255, 255, .8); box-shadow: 0 4px 12px rgba(0, 0, 0, .3); pointer-events: none; }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -390,6 +398,7 @@ body.v-night.v-roam.sheet-min .v-stick { bottom: 104px; }
 </head>
 <body>
 <main id="app"></main>
+<div id="hud" class="v-hud" hidden></div>
 <div id="modal" class="modal" hidden></div>
 <script>
 // Phần dùng chung của DMI Boardgame: lưu trữ, bàn chơi (danh sách thành viên), bảng điểm, khung giao diện.
@@ -1239,7 +1248,8 @@ const WW_POINTS = { village: 2, wolf: 6 };
 // Thứ tự quản trò gọi vai trong đêm; Phù thủy luôn sau Sói để biết ai bị cắn
 const WW_CALLS = ['guard', 'wolf', 'seer', 'witch'];
 // Mỗi lượt gọi vai ban đêm và lượt bỏ phiếu có 30 giây; hết giờ thì quản trò sang lượt kế
-const WW_TIMES = { turn: 30 * 1000 };
+// turn: mỗi lượt đêm, bỏ phiếu, phán xử, Thợ săn bắn · next: xem kết quả trước khi ván tự đi tiếp
+const WW_TIMES = { turn: 30 * 1000, next: 10 * 1000, ready: 20 * 1000 };
 
 // Lời dẫn của quản trò (voice/*.mp3, đoạn cắt từ file dài nằm trong voice/cuts/). Chỉ giữ câu khớp với cách chơi bằng
 // điện thoại: không nhắc thẻ bài hay lật bài, không nhắc luật mà máy đã tự chặn, không kể chuyện dài mỗi đêm.
@@ -1253,7 +1263,8 @@ const WW_VOICE = {
     seer: { wake: ['voice_32', 'voice_33'], sleep: ['voice_34'] },
     witch: { wake: ['voice_35'], heal: ['voice_36'], poison: ['voice_38'], sleep: ['voice_39'] },
   },
-  dawn: ['voice_41'],
+  // Trời đã sáng (bỏ đoạn gà gáy và phần sau)
+  dawn: ['cuts/troi-sang'],
   deaths: [['voice_43'], ['voice_45'], ['voice_48']],
   hanged: ['cuts/da-quyet-dinh'],
   noHang: ['cuts/khong-treo'],
@@ -1299,6 +1310,19 @@ function wwSayNext() {
   wwDone = null;
   done?.();
 }
+
+// Điện thoại chỉ cho phát tiếng sau một lần chạm: chạm đầu tiên vào trang phát thử không tiếng, để máy nào cũng sẵn sàng
+// làm quản trò khi được nhận làm chủ phòng
+document.addEventListener('pointerdown', () => {
+  if (wwAudio.src) return;
+  wwAudio.muted = true;
+  wwAudio.src = 'voice/cuts/troi-sang.mp3';
+  wwAudio.play().catch(() => {}).finally(() => {
+    if (!wwAudio.src.endsWith('cuts/troi-sang.mp3') || wwQueue.length || wwDone) return void (wwAudio.muted = false);
+    wwAudio.pause();
+    wwAudio.muted = false;
+  });
+}, { once: true });
 
 wwAudio.addEventListener('ended', wwSayNext);
 wwAudio.addEventListener('error', wwSayNext);
@@ -1425,6 +1449,8 @@ let mpSel = null;
 let mpPick = null;
 let mpHeal = false;
 let mpShow = false;
+// Chuyển giữa làng 3D và giao diện 2D (chỉ bảng), nhớ trên máy này
+let mww3d = load('dmi.3d', true);
 let mpResolved = '';
 // Các lần ghi chạy lần lượt; trong lúc ghi, kết quả hỏi phòng (có thể đã cũ) bị bỏ qua
 let mpWriting = Promise.resolve();
@@ -1435,10 +1461,16 @@ let mpSeq = 0;
 const mpMembers = () => (mp ? Object.entries(mp.players).sort((a, b) => a[1].at - b[1].at) : []);
 const mpBots = () => mp?.room?.bots || [];
 const mpCount = () => mpMembers().length + mpBots().length;
+const mpLast = () => mpMembers().every(([uid]) => uid === myId);
 const mpJoined = () => mpMembers().some(([uid]) => uid === myId);
 const mpIsHost = () => mp?.room?.host === myId;
 const mpNames = () => mp.room.seats.map((s) => s.name);
 const mpSeat = () => mp.room.seats.findIndex((s) => s.uid === myId);
+// Sẵn sàng ở phòng chờ và khi hết ván. round tăng mỗi lần bắt đầu ván hay về phòng chờ, nên mỗi lần phải bấm lại.
+const mpRound = () => mp.room.round || 0;
+const mpReadyCount = () => mpMembers().filter(([, p]) => p.ready === mpRound()).length;
+// Ai còn sống (người thật) đã bấm xong thảo luận trong ngày này
+const mwwDoneKey = (g) => `${g.id}:${g.night}`;
 const mpSetName = (name) => {
   mpName = name;
   save('dmi.me', name);
@@ -1491,7 +1523,8 @@ async function mpCreate() {
 
 function mpEnter(id, join = false) {
   mpStop();
-  const state = (mp = { id, room: null, players: {}, v: -1, join, ready: false, key: '' });
+  // polledAt: lần cuối lấy được phòng; seenAt: lần cuối phòng đổi
+  const state = (mp = { id, room: null, players: {}, v: -1, join, ready: false, key: '', polledAt: performance.now(), seenAt: performance.now() });
   save('dmi.room', id);
   mpMsg = '';
   go('mp.room');
@@ -1511,8 +1544,9 @@ async function mpPoll(state) {
   const seq = mpSeq;
   try {
     const r = await api('GET', `/rooms/${state.id}?v=${state.v}`);
+    if (mp === state) state.polledAt = performance.now();
     if (mp === state && !r.same && !mpBusy && seq === mpSeq) {
-      Object.assign(state, { v: r.v, room: r.room, players: r.players, ready: true });
+      Object.assign(state, { v: r.v, room: r.room, players: r.players, ready: true, seenAt: performance.now() });
       mpChanged();
     }
   } catch (e) {
@@ -1575,6 +1609,7 @@ function mpUpdate(fn) {
   const room = structuredClone(mp.room);
   fn(room);
   mp.room = room;
+  mp.seenAt = performance.now();
   const id = mp.id;
   mpSend(() => api('PUT', `/rooms/${id}`, { state: room }));
 }
@@ -1628,9 +1663,24 @@ function mwwNight(g, seats, prelude = null) {
   g.botActs = mwwBotActs(g, seats);
 }
 
-// Bắt đầu giờ thảo luận ban ngày, trừ khi Thợ săn còn chờ bắn hoặc ván đã ngã ngũ
+// Bắt đầu giờ thảo luận ban ngày. Thợ săn còn chờ bắn hoặc ván đã ngã ngũ thì chỉ dừng một lúc để đọc tin rồi tự đi
+// tiếp, không cần chủ phòng bấm.
 function mwwTalk(g) {
-  g.deadline = g.hunterPending === null && !wwCheckWin(g) ? Date.now() + g.talk : null;
+  g.talking = g.hunterPending === null && !wwCheckWin(g);
+  g.deadline = Date.now() + (g.talking ? g.talk : WW_TIMES.next);
+}
+
+// Thợ săn bắn xong (hoặc hết giờ không bắn): quay lại bước trước, đồng hồ chạy lại
+function mwwBack(g) {
+  g.step = g.back;
+  if (g.step === 'day') mwwTalk(g);
+  else g.deadline = Date.now() + WW_TIMES.next;
+}
+
+function mwwNoShot(g) {
+  g.hunterShot = true;
+  g.hunterPending = null;
+  mwwBack(g);
 }
 
 // Bot bỏ phiếu ngẫu nhiên một người còn sống khác mình (Sói bot không treo Sói)
@@ -1706,7 +1756,7 @@ function mwwJudge() {
     } else {
       g.spared = g.accused;
     }
-    g.deadline = null;
+    g.deadline = Date.now() + WW_TIMES.next;
     g.step = 'reveal';
   });
   mwwNarrate();
@@ -1735,7 +1785,7 @@ function mwwTally() {
       g.botVerdicts = mwwBotVerdicts(g, r.seats);
     } else {
       g.out = null;
-      g.deadline = null;
+      g.deadline = Date.now() + WW_TIMES.next;
       g.step = 'reveal';
     }
   });
@@ -1833,11 +1883,13 @@ function mwwAfter(r) {
     if (!r.seats[g.hunterPending].bot) {
       g.back = g.step;
       g.step = 'hunter';
+      g.deadline = Date.now() + WW_TIMES.turn;
       return;
     }
     const targets = wwAlive(g);
     mwwShoot(g, targets[rand(targets.length)]);
     if (g.step === 'day') mwwTalk(g);
+    else g.deadline = Date.now() + WW_TIMES.next;
     return;
   }
   const winner = wwCheckWin(g);
@@ -1858,8 +1910,8 @@ const narSpoken = new Set();
 
 function mwwWakeClips(g, role, acts) {
   const c = WW_VOICE.calls[role];
-  if (role === 'witch') return [c.wake, mwwVictim(g, acts) !== null && !g.healUsed ? c.heal : [], g.poisonUsed ? [] : c.poison];
-  return c.wake;
+  // Phù thủy: luôn đọc cả hai bình, kể cả bình đã dùng, để không ai đoán ra Phù thủy đã dùng gì
+  return role === 'witch' ? [c.wake, c.heal, c.poison] : c.wake;
 }
 
 // Gọi mỗi khi phòng đổi: đọc lời dẫn và đưa đêm qua từng lượt
@@ -1883,7 +1935,7 @@ function mwwNarrate() {
     }
     // Mời thảo luận khi giờ thảo luận bắt đầu (có thể sau khi Thợ săn bắn xong)
     const talk = `${g.id}:${g.night}:talk`;
-    if (g.step === 'day' && g.deadline && !narSpoken.has(talk)) {
+    if (g.step === 'day' && g.talking && !narSpoken.has(talk)) {
       narSpoken.add(talk);
       clips.push(WW_VOICE.talk);
     }
@@ -1941,22 +1993,58 @@ function mwwTurn(g, turn) {
 // Mỗi giây: cập nhật số giây trên các vòng đếm ngược; máy chủ phòng chuyển lượt khi hết giờ hoặc khi ai cũng đã bỏ phiếu
 function mwwTick() {
   document.querySelectorAll('[data-deadline]').forEach((el) => (el.textContent = mwwClock(Number(el.dataset.deadline) - Date.now())));
-  const g = mp?.room?.g;
-  if (!g || !mpIsHost() || mp.room.phase !== 'play') return;
+  mpKeepHost();
+  if (!mp?.ready || !mp.room || !mpIsHost()) return;
+  // Máy vừa ngủ dậy (lâu không lấy được phòng): chờ lấy bản mới rồi mới làm quản trò, kẻo ghi đè lên ván đã đi tiếp
+  if (performance.now() - mp.polledAt > 8000) return;
+  if (mp.room.phase !== 'play' || mp.room.g?.step === 'end') return mpAutoStart();
+  const g = mp.room.g;
   const left = g.deadline ? g.deadline - Date.now() : Infinity;
   if (g.step === 'night' && nar.phase === 'wait' && left <= 0) mwwSleep(g);
   if (g.step === 'day' && g.deadline) {
     const warn = `${g.id}:${g.night}:oneMin`;
-    if (g.talk > 60 * 1000 && left <= 60 * 1000 && !narSpoken.has(warn)) {
+    if (g.talking && g.talk > 60 * 1000 && left <= 60 * 1000 && !narSpoken.has(warn)) {
       narSpoken.add(warn);
       wwSay(WW_VOICE.oneMin);
     }
-    if (left <= 0) mwwStartVote();
+    // Ai còn sống cũng đã bấm xong thảo luận thì bỏ phiếu luôn
+    const done = mp.room.seats.every((s, i) => s.bot || !g.alive[i] || mp.players[s.uid]?.done === mwwDoneKey(g));
+    if (left <= 0 || (g.talking && done)) g.talking ? mwwStartVote() : mpUpdate(mwwAfter);
   }
+  if (g.step === 'reveal' && left <= 0) mpUpdate(mwwAfter);
+  if (g.step === 'hunter' && left <= 0) mpUpdate((r) => mwwNoShot(r.g));
   if (g.step === 'vote' && (left <= 0 || mwwVotes().every((v, i) => !g.alive[i] || v !== undefined))) mwwTally();
   if (g.step === 'trial' && (left <= 0 || mwwVerdicts().every((v, i) => !g.alive[i] || i === g.accused || v !== undefined))) mwwJudge();
 }
 setInterval(mwwTick, 1000);
+
+// Ván tự chạy kể cả khi máy chủ phòng tắt hay rời phòng: máy chủ phòng ghi một nhịp mỗi 10 giây. Phòng im quá 30 giây,
+// hoặc chủ phòng đã rời, thì người chơi đầu tiên còn trong phòng tự nhận làm chủ phòng (và làm quản trò); người đó cũng
+// im thì 30 giây sau tới lượt người kế tiếp.
+function mpKeepHost() {
+  if (!mp?.ready || !mp.room || !mpJoined()) return;
+  const quiet = performance.now() - mp.seenAt;
+  if (mpIsHost()) {
+    if (quiet > 10000 && performance.now() - mp.polledAt < 8000) mpUpdate((r) => (r.beat = Date.now()));
+    return;
+  }
+  const gone = !mpMembers().some(([uid]) => uid === mp.room.host);
+  if (!gone && quiet < 30000) return;
+  const next = mpMembers().map(([uid]) => uid).filter((uid) => uid !== mp.room.host);
+  const k = gone ? 0 : Math.floor(quiet / 30000) - 1;
+  if (next[Math.min(k, next.length - 1)] === myId) actions['mp.takehost']();
+}
+
+// Không cần chủ phòng bấm bắt đầu: ai cũng sẵn sàng thì bắt đầu ngay; quá nửa sẵn sàng thì đếm 20 giây rồi bắt đầu với
+// những người đang trong phòng (thiếu người thì thêm bot)
+function mpAutoStart() {
+  const all = mpMembers().length;
+  const ready = mpReadyCount();
+  if (all && ready === all) return mpStart();
+  if (ready * 2 <= all) return void (mp.room.startAt && mpUpdate((r) => (r.startAt = null)));
+  if (!mp.room.startAt) return mpUpdate((r) => (r.startAt = Date.now() + WW_TIMES.ready));
+  if (Date.now() >= mp.room.startAt) mpStart();
+}
 
 const mwwClock = (ms) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -1984,6 +2072,7 @@ function mpBar(title) {
     <div class="topbar">
       <h2>${title}</h2>
       ${quit ? '<button class="link small" data-act="mp.quit">Hủy ván</button>' : `<span class="muted small">Phòng ${esc(mp?.id || '')}</span>`}
+      ${window.Village ? `<button class="link small" data-act="v.mode">${mww3d ? 'Xem 2D' : 'Xem 3D'}</button>` : ''}
       <button class="back" data-act="mp.leave" aria-label="Rời phòng">✕</button>
     </div>
     ${hostGone ? '<button class="btn ghost" data-act="mp.takehost">Chủ phòng đã rời, nhận làm chủ phòng</button>' : ''}
@@ -2092,11 +2181,29 @@ function mpLobby() {
       ${bots.map((b) => playerCard(b.name, { extra: '<span class="tag special">Bot</span>' })).join('')}
     </div>
     <p class="muted small center">${members.length} người${bots.length ? ` · ${bots.length} bot` : ''}</p>
+    ${mpReadyBox('bắt đầu')}
     ${mpIsHost()
       ? `${wwCfgCards()}
-        ${missing > 0 ? `<button class="btn ghost" data-act="mp.fillbots">🤖 Thêm ${missing} bot cho đủ ${need} người</button>` : ''}
-        <button class="btn" data-act="mp.start" ${missing > 0 ? 'disabled' : ''}>${missing > 0 ? `Cần ít nhất ${need} người cho các vai đã chọn` : 'Chia vai và bắt đầu đêm 1'}</button>`
-      : '<p class="muted center">Chờ chủ phòng bắt đầu ván…</p>'}`;
+        ${missing > 0 ? `<button class="btn ghost" data-act="mp.fillbots">🤖 Thêm ${missing} bot cho đủ ${need} người</button>` : ''}`
+      : ''}`;
+}
+
+// Khung Sẵn sàng: đếm người đã bấm, vòng đếm ngược khi quá nửa đã sẵn sàng
+function mpReadyBox(what) {
+  const all = mpMembers().length;
+  const ready = mpReadyCount();
+  const mine = mp.players[myId]?.ready === mpRound();
+  const at = mp.room.startAt;
+  return `
+    <div class="card stack">
+      <div class="row">
+        ${at ? mwwRing(at, WW_TIMES.ready) : ''}
+        <div class="grow"><b>${ready}/${all} người sẵn sàng</b>
+          <p class="muted small">${at ? 'Hết giờ thì bắt đầu với những người đang trong phòng.' : 'Ai cũng sẵn sàng thì bắt đầu ngay; quá nửa sẵn sàng thì 20 giây sau tự bắt đầu.'} Thiếu người thì tự thêm bot.</p>
+        </div>
+      </div>
+      ${mpJoined() ? `<button class="btn ${mine ? 'ghost' : ''}" data-act="mp.ready">${mine ? '✓ Đã sẵn sàng (bấm để hủy)' : `✋ Sẵn sàng ${what}`}</button>` : ''}
+    </div>`;
 }
 
 function mwwActBody(g, i, acts, names) {
@@ -2136,7 +2243,7 @@ function mwwActBody(g, i, acts, names) {
   return `
     <div class="role-card ${info.tag}">${wwArt(role)}<h2>Bạn là ${info.label}</h2></div>
     <div class="info stack">${extra}<p><b>${prompt}</b></p>
-      ${targets.length ? '<p class="muted small">Đi tới cửa nhà người đó trong làng, hoặc chạm vào tên bên dưới.</p>' : ''}</div>
+      ${targets.length && mww3d && window.Village ? '<p class="muted small">Đi tới cửa nhà người đó trong làng (hoặc bấm ‹ › ở góc phải), rồi bấm nút làm ngay trên làng.</p>' : ''}</div>
     <div class="pgrid grow">
       ${targets.map((k) => playerCard(names[k], { cls: mpPick === k ? 'sel' : '', act: 'mww.pick', i: k })).join('')}
     </div>
@@ -2221,17 +2328,26 @@ function mwwDayView() {
         : '<p>🌤️ Đêm qua bình yên, không ai chết.</p>'}
       ${mwwNotes(g, names)}
     </div>
-    ${g.deadline ? `
+    ${g.talking ? `
       <div class="card row">
         ${mwwRing(g.deadline, g.talk)}
         <div><b>Thảo luận</b><p class="muted small">Còn ${wwAlive(g).length} người sống. Hết giờ, mọi người bỏ phiếu treo cổ trên máy của mình.</p></div>
       </div>` : ''}
+    ${blocked && g.deadline ? mwwNext(g, mwwAfterLabel(g, '')) : ''}
     ${mwwGrid(g, names)}
-    ${!host
-      ? ''
-      : blocked
-        ? `<button class="btn" data-act="mww.after">${mwwAfterLabel(g, '')}</button>`
-        : '<button class="btn" data-act="mww.votenow">🗳️ Bỏ phiếu ngay</button>'}`;
+    ${g.talking ? mwwDoneBox(g) : ''}
+    ${host && !blocked ? '<button class="link small" data-act="mww.votenow">Chủ phòng: bỏ phiếu ngay</button>' : ''}`;
+}
+
+// Thảo luận xong sớm: ai còn sống cũng bấm thì bỏ phiếu luôn, không phải chờ hết giờ
+function mwwDoneBox(g) {
+  const people = mp.room.seats.map((s, i) => [s, i]).filter(([s, i]) => !s.bot && g.alive[i]);
+  const done = people.filter(([s]) => mp.players[s.uid]?.done === mwwDoneKey(g)).length;
+  const i = mpSeat();
+  const mine = mp.players[myId]?.done === mwwDoneKey(g);
+  return `
+    <p class="muted small center">${done}/${people.length} người muốn bỏ phiếu luôn. Ai cũng bấm thì bỏ phiếu ngay.</p>
+    ${i >= 0 && g.alive[i] ? `<button class="btn ${mine ? 'ghost' : ''}" data-act="mww.done">${mine ? '✓ Đã xong (bấm để hủy)' : '🗳️ Xong thảo luận, bỏ phiếu luôn'}</button>` : ''}`;
 }
 
 // Bỏ phiếu: ai còn sống cũng bấm chọn trên máy mình (đổi được tới khi hết 30 giây), số phiếu hiện ngay cho mọi người
@@ -2321,6 +2437,16 @@ function mwwTrialView() {
     ${mpIsHost() ? '<button class="link small" data-act="mww.judge">Chủ phòng: kết thúc phán xử ngay</button>' : ''}`;
 }
 
+// Bước tiếp theo tự đến khi hết giờ; chủ phòng bấm được để đi ngay
+function mwwNext(g, label) {
+  return `
+    <div class="card row">
+      ${mwwRing(g.deadline, WW_TIMES.next)}
+      <div class="grow"><b>${label}</b><p class="muted small">Tự chuyển khi hết giờ.</p></div>
+      ${mpIsHost() ? '<button class="link small" data-act="mww.after">Đi ngay</button>' : ''}
+    </div>`;
+}
+
 function mwwRevealView() {
   const g = mp.room.g;
   const names = mpNames();
@@ -2340,9 +2466,7 @@ function mwwRevealView() {
     </div>
     ${g.verdicts ? mwwVerdictList(g, names) : ''}
     ${g.ballots ? mwwBallots(g, names) : ''}
-    ${mpIsHost()
-      ? `<button class="btn" data-act="mww.after">${mwwAfterLabel(g, '🌙 Sang đêm tiếp theo')}</button>`
-      : '<p class="muted small center">Chờ chủ phòng sang bước tiếp theo…</p>'}`;
+    ${g.deadline ? mwwNext(g, mwwAfterLabel(g, '🌙 Sang đêm tiếp theo')) : ''}`;
 }
 
 function mwwHunterView() {
@@ -2358,7 +2482,10 @@ function mwwHunterView() {
     ${me ? `<button class="btn" data-act="mww.shoot" ${mpSel === null ? 'disabled' : ''}>
         ${mpSel === null ? 'Chọn một người' : `Bắn ${esc(names[mpSel])}`}
       </button>` : ''}
-    ${!me && mpIsHost() ? '<button class="link small" data-act="mww.noshot">Thợ săn đã rời phòng? Bỏ qua lượt bắn</button>' : ''}`;
+    <div class="card row">
+      ${mwwRing(g.deadline, WW_TIMES.turn)}
+      <p class="muted small">Hết giờ mà Thợ săn chưa bắn thì bỏ lượt bắn.</p>
+    </div>`;
 }
 
 function mwwEndView() {
@@ -2379,10 +2506,8 @@ function mwwEndView() {
         extra: `${wwTag(role)}${mp.room.seats[i].bot ? '' : `<span class="score">${pointsOf('ww', names[i])} điểm</span>`}`,
       })).join('')}
     </div>
-    ${mpIsHost()
-      ? `<button class="btn" data-act="mp.start" ${mpCount() >= wwNeed() ? '' : 'disabled'}>Ván mới với người đang trong phòng</button>
-        <button class="btn ghost" data-act="mp.lobby">Về phòng chờ, đổi thiết lập</button>`
-      : '<p class="muted small center">Chờ chủ phòng bắt đầu ván mới…</p>'}`;
+    ${mpReadyBox('chơi ván mới')}
+    ${mpIsHost() ? '<button class="btn ghost" data-act="mp.lobby">Về phòng chờ, đổi thiết lập</button>' : ''}`;
 }
 
 const MWW_VIEWS = { night: mwwNightView, day: mwwDayView, vote: mwwVoteView, trial: mwwTrialView, reveal: mwwRevealView, hunter: mwwHunterView, end: mwwEndView };
@@ -2411,7 +2536,11 @@ views['mp.room'] = () => {
 function mwwScene() {
   const village = window.Village;
   if (!village) return;
-  if (view !== 'mp.room' || !mp?.ready || !mp.room) return village.leave();
+  if (view !== 'mp.room' || !mp?.ready || !mp.room || !mww3d) {
+    mwwHud(null);
+    document.body.classList.remove('v-night', 'v-roam', 'sheet-min');
+    return village.leave();
+  }
   const room = mp.room;
   const g = room.phase === 'play' ? room.g : null;
   const seats = g
@@ -2443,7 +2572,39 @@ function mwwScene() {
   });
   // Ban đêm chỉ vai đang được gọi đi lại được; còn lại bảng mở rộng để xem vai
   document.body.classList.toggle('v-night', night);
-  document.body.classList.toggle('v-roam', Boolean(roam));
+  // Hồn ma bay được cả ban đêm
+  document.body.classList.toggle('v-roam', Boolean(roam) || (night && !g.alive[mpSeat()] && mpSeat() >= 0));
+  mwwHud(roam);
+}
+
+// Nút hành động trên làng: đến lượt vai của mình thì chọn người (đi tới cửa nhà, hoặc bấm ‹ ›) và bấm làm ngay trên cảnh
+function mwwHud(roam) {
+  const hud = document.getElementById('hud');
+  hud.hidden = !roam;
+  if (!roam) return void (hud.innerHTML = '');
+  const g = mp.room.g;
+  const names = mpNames();
+  const role = g.roles[mpSeat()];
+  const who = mpPick === null ? '' : esc(names[mpPick]);
+  const target = roam.length
+    ? `<div class="v-target">
+        <button class="v-round" data-act="mww.cycle" data-d="-1" aria-label="Người trước">‹</button>
+        <b>${mpPick === null ? '👣 Đi tới cửa nhà ai đó' : `🎯 ${who}`}</b>
+        <button class="v-round" data-act="mww.cycle" data-d="1" aria-label="Người sau">›</button>
+      </div>`
+    : '';
+  let buttons = '';
+  if (role === 'witch') {
+    const victim = mwwVictim(g, mwwActs());
+    const heal = !g.healUsed && victim !== null;
+    if (heal) buttons += `<button class="btn ${mpHeal ? '' : 'ghost'}" data-act="mww.heal">💚 ${mpHeal ? '✓ Sẽ cứu' : 'Cứu'} ${esc(names[victim])}</button>`;
+    const label = mpPick !== null ? `☠️ Đầu độc ${who}` : mpHeal ? '✓ Xong, chỉ cứu' : '🌙 Không dùng thuốc';
+    buttons += `<button class="btn" data-act="mww.confirm">${label}</button>`;
+  } else {
+    const verb = { wolf: '🐺 Cắn', seer: '🔮 Soi', guard: '🛡️ Bảo vệ' }[role];
+    buttons = `<button class="btn" data-act="mww.confirm" ${mpPick === null ? 'disabled' : ''}>${verb} ${who}</button>`;
+  }
+  hud.innerHTML = target + buttons;
 }
 
 // Ban đêm, đến lượt vai của mình (còn sống, đã mở máy, chưa chọn): những ghế chọn được, không thì null
@@ -2464,6 +2625,10 @@ addEventListener('village-pick', (e) => {
   render();
 });
 actions['v.sheet'] = () => document.body.classList.toggle('sheet-min');
+actions['v.mode'] = () => {
+  mww3d = !mww3d;
+  save('dmi.3d', mww3d);
+};
 
 modals['mp.name'] = () => `
   <h2>Tên của bạn</h2>
@@ -2502,6 +2667,10 @@ function mpNewBot(bots) {
 
 function mpStart() {
   mpUpdate((r) => {
+    r.bots ||= [];
+    while (mpMembers().length + r.bots.length < wwNeed()) r.bots.push(mpNewBot(r.bots));
+    r.round = (r.round || 0) + 1;
+    r.startAt = null;
     r.seats = [
       ...mpMembers().map(([uid, p]) => ({ uid, name: p.name })),
       ...(r.bots || []).map((b) => ({ uid: b.id, name: b.name, bot: true })),
@@ -2511,6 +2680,7 @@ function mpStart() {
   });
   // Đọc ngay trong lúc bấm để trình duyệt cho phép phát tiếng các lượt sau
   mwwNarrate();
+  renderIfIdle();
 }
 
 Object.assign(actions, {
@@ -2560,16 +2730,16 @@ Object.assign(actions, {
     (modal = {
       type: 'confirm',
       title: 'Rời phòng?',
-      text: mpIsHost() && mp.room?.phase !== 'play'
-        ? 'Bạn là chủ phòng nên phòng sẽ được đóng.'
-        : 'Nếu ván đang chơi, người khác có thể nhận làm chủ phòng hoặc bỏ qua lượt của bạn.',
+      text: mpLast()
+        ? 'Bạn là người cuối cùng trong phòng nên phòng sẽ được đóng.'
+        : 'Những người còn lại chơi tiếp; nếu bạn là chủ phòng, máy người khác tự nhận làm chủ phòng.',
       yes: 'Rời phòng',
       act: 'mp.leavenow',
     }),
   'mp.leavenow': () => {
     modal = null;
     if (mp?.room) {
-      const path = mpIsHost() && mp.room.phase !== 'play' ? `/rooms/${mp.id}` : `/rooms/${mp.id}/players/me`;
+      const path = mpLast() ? `/rooms/${mp.id}` : `/rooms/${mp.id}/players/me`;
       mpWriting.then(() => api('DELETE', path)).catch(() => {});
     }
     mpStop();
@@ -2591,6 +2761,8 @@ Object.assign(actions, {
     mpUpdate((r) => {
       r.phase = 'lobby';
       r.g = null;
+      r.round = (r.round || 0) + 1;
+      r.startAt = null;
     });
   },
   'mp.sel': (el) => (mpSel = Number(el.dataset.i)),
@@ -2611,6 +2783,18 @@ Object.assign(actions, {
     else mwwSleep(g);
   },
   'mww.after': () => mpUpdate(mwwAfter),
+  'mp.ready': () => mpWritePlayer({ ...mp.players[myId], ready: mp.players[myId]?.ready === mpRound() ? null : mpRound() }),
+  'mww.done': () => {
+    const key = mwwDoneKey(mp.room.g);
+    mpWritePlayer({ ...mp.players[myId], done: mp.players[myId]?.done === key ? null : key });
+  },
+  // Nút ‹ › trên làng: đổi người đang chọn mà không cần đi tới nhà
+  'mww.cycle': (el) => {
+    const picks = mwwRoam() || [];
+    if (!picks.length) return;
+    const k = picks.indexOf(mpPick);
+    mpPick = picks[(k < 0 ? 0 : k + Number(el.dataset.d) + picks.length) % picks.length];
+  },
   'mww.votenow': () => mwwStartVote(),
   'mww.tally': () => mwwTally(),
   'mww.judge': () => mwwJudge(),
@@ -2625,15 +2809,7 @@ Object.assign(actions, {
   'mww.shoot': () =>
     mpUpdate((r) => {
       mwwShoot(r.g, mpSel);
-      r.g.step = r.g.back;
-      if (r.g.step === 'day') mwwTalk(r.g);
-    }),
-  'mww.noshot': () =>
-    mpUpdate((r) => {
-      r.g.hunterShot = true;
-      r.g.hunterPending = null;
-      r.g.step = r.g.back;
-      if (r.g.step === 'day') mwwTalk(r.g);
+      mwwBack(r.g);
     }),
 });
 
