@@ -33,6 +33,7 @@ function lazyPage<M extends Record<K, ComponentType>, K extends keyof M>(load: (
 
 const PAGES = {
   home: lazyPage(() => import('./components/Home'), 'HomePage'),
+  help: lazyPage(() => import('./components/Help'), 'HelpPage'),
   boards: lazyPage(() => import('./components/Boards'), 'BoardsPage'),
   tasks: lazyPage(() => import('./components/Tasks'), 'TasksPage'),
   projects: lazyPage(() => import('./components/WorkProjects'), 'WorkProjects'),

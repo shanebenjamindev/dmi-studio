@@ -1,4 +1,5 @@
 import {drainNotifications} from './notifications';
+import {automationTick} from './automation';
 import {remindTasks,settleStages} from './task-flow';
 import {normalizeAllBoards} from './board-flow';
 import {projectsAsServices} from './project-services';
@@ -97,7 +98,7 @@ server.listen(PORT, HOST, () => {
   console.log(`    ffmpeg: ${FFMPEG ? 'có' : 'không có'}\n`);
 });
 
-const mailTimer=setInterval(()=>{void drainNotifications().catch(()=>console.error('Chưa xử lý được hàng đợi email'));},60000);
+const mailTimer=setInterval(()=>{void drainNotifications().catch(()=>console.error('Chưa xử lý được hàng đợi email'));void automationTick().catch(()=>console.error('Chưa chạy được tự động hoá'));},60000);
 mailTimer.unref();
 // As the cloud's cron does: data a change may leave out of step is set right every ten minutes.
 const repairTimer=setInterval(()=>{void repairData().catch(()=>console.error('Chưa sửa được dữ liệu lệch'));void settleStages().then(()=>projectsAsServices()).then(()=>normalizeAllBoards()).then(()=>remindTasks()).catch(()=>console.error('Chưa gửi được nhắc việc'));},600000);

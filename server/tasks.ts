@@ -1,3 +1,4 @@
+import { automationTaskChanged, automationTaskComment } from './automation';
 import { removeTaskRecord, removeBrandServiceRecord, syncBrandServiceCards } from './work-sync';
 import { reactionsOf, dropReactions } from './comment-reactions';
 import { grantAccess, brandServiceLevels, requireBrandService } from './project-access';
@@ -1038,6 +1039,7 @@ export function registerTasks(api: Router) {
     await inheritFollowers(id,input.project,input.parent,u.id);
     await routeTaskToWorkspace(id,u.id);
     await queueTaskNotifications(id,undefined,u.id).catch(()=>console.error('Không xếp được thông báo công việc'));
+    await automationTaskChanged(id,true);
     json(res,201,{ id });
   });
   api.put('/api/tasks/:id', async (req, res) => {
@@ -1065,6 +1067,7 @@ export function registerTasks(api: Router) {
     // Moved to another brand_service: its card goes to that service's board.
     if (linked && (input.project || null) !== (t.brand_service_id || null)) await placeTaskCard(t.id);
     await queueTaskNotifications(t.id,beforeNotification,(await me(req)).id).catch(()=>console.error('Không xếp được thông báo công việc'));
+    await automationTaskChanged(t.id,false);
     json(res,200,{ ok:true });
   });
   api.delete('/api/tasks/:id', async (req,res) => {
@@ -1135,6 +1138,7 @@ export function registerTasks(api: Router) {
     const canEdit = (!t.brand_service_id || (await brandServiceLevels(u.id)).get(t.brand_service_id) !== 'observer') && await mine(req, t);
     await applyFlow(t, u, canEdit, String(b.action || '') as any, b);
     if (await get('SELECT 1 FROM task_board_links WHERE task_id=?', t.id)) await syncTaskToCard(t.id);
+    await automationTaskChanged(t.id, false);
     json(res, 200, { ok: true });
   });
   // Importing (admins): the export as text, from a paste or a file read in the browser.
@@ -1215,6 +1219,7 @@ export function registerTasks(api: Router) {
       }).catch(() => {});
     }
 
+    await automationTaskComment(t.id, String(b.text || ''));
     json(res, 201, { id: commentId });
   });
 

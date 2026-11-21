@@ -8,6 +8,7 @@ import { ensureDefaultBrand } from './brands';
 import { Router, HttpError, json, readJson } from './http';
 import type { Req } from './http';
 import { all, get, run, uid, now } from './db';
+import { automationTaskChanged } from './automation';
 import { assertCardFlow, assertLinkedTaskEditable, syncCardToTask, cardDescriptionWriter, mayWriteDescription, assertDescriptionWriter, nextDescriptionWriter } from './tasklinks';
 import { statusKey } from './taskimport';
 import { boardServices, ensureFallbackCatalogService, oneService, saveBoardServices, saveBrandServiceCatalog } from './project-services';
@@ -1239,6 +1240,7 @@ export function registerBoards(api: Router) {
       // Given to no one yet (its maker gives it out), at the step of its column.
       await atColumnStep(taskId, l.name, null, doneAt);
       await run('INSERT OR IGNORE INTO task_board_links(task_id, card_id) VALUES(?,?)', taskId, id);
+      await automationTaskChanged(taskId, true);
     }
 
     json(res, 201, (await fronts(l.board_id,0,(await me(req)).id)).find((c) => c.id === id));
@@ -1331,6 +1333,7 @@ export function registerBoards(api: Router) {
           taskId, c.title, list?.name || '', c.start_at, c.due_at, isDone ? t : null, prj.id, null, c.description || '', null, creator.id, t, t);
         await atColumnStep(taskId, list?.name || '', c.due_at, isDone ? t : null);
         await run('INSERT OR IGNORE INTO task_board_links(task_id, card_id) VALUES(?,?)', taskId, c.id);
+        await automationTaskChanged(taskId, true);
       }
       const parentCard = prj ? await get<any>('SELECT id FROM board_cards WHERE board_id=? AND brand_service_id=?', c.board_id, prj.id) : null;
       set.push(['service_card_id', parentCard?.id || null]);
@@ -1356,6 +1359,7 @@ export function registerBoards(api: Router) {
         await run('INSERT INTO tasks(id,title,status,stage,start_at,due_at,done_at,brand_service_id,parent_id,description,result,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
           taskId, c.title, status, step, c.start_at, c.due_at, doneAt, project, null, c.description || '', null, creator.id, t, t);
         await run('INSERT OR IGNORE INTO task_board_links(task_id, card_id) VALUES(?,?)', taskId, c.id);
+        await automationTaskChanged(taskId, true);
       }
     }
     if (b.archived !== undefined && !!b.archived !== !!c.archived) {

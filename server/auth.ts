@@ -82,7 +82,7 @@ async function readUser(req: http.IncomingMessage): Promise<User | null> {
 // ---------------------------------------------------------------- access rules
 // The Claude connector checks its own tokens (server/mcp.ts).
 // DMI Boardgame is played without an account (server/boardgame.ts checks its own players and admins).
-const PUBLIC = [/^\/api\/auth\//, /^\/api\/health$/, /^\/api\/google\/callback$/, /^\/api\/oauth\//, /^\/api\/mcp$/, /^\/\.well-known\/(oauth-|openid-configuration)/, /^\/api\/boardgame\//];
+const PUBLIC = [/^\/api\/auth\//, /^\/api\/health$/, /^\/api\/google\/callback$/, /^\/api\/oauth\//, /^\/api\/mcp$/, /^\/\.well-known\/(oauth-|openid-configuration)/, /^\/api\/boardgame\//, /^\/api\/automation\/hooks\//];
 /** What someone already signed in can still reach while the site is locked: enough to see the notice and sign out. */
 const LOCK_OPEN = /^\/api\/(auth\/(me|config|login|logout|google|setup|forgot|reset)|health|google\/callback)$/;
 // Settings that affect everyone (company admins only): who can sign in, departments and their roles, which Google

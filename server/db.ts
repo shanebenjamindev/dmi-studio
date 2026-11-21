@@ -164,7 +164,9 @@ async function upgrade() {
     // Files sent with a message (a JSON list, server/chat-files.ts).
     ['chat_messages', 'attachments'],
     // A channel's place in its server's list, dragged in Tin nhắn (server/chat-channels.ts).
-    ['chat_channels', 'position', 'INTEGER NOT NULL DEFAULT 0']]) {
+    ['chat_channels', 'position', 'INTEGER NOT NULL DEFAULT 0'],
+    // Where a rule's filter node sits on Tự động hoá's canvas (server/automation.ts).
+    ['automation_rules', 'layout'], ['automation_seen', 'snap']]) {
     // One look at each table's columns, not one per column: every cold start on D1 runs this.
     const info = columns.get(table) || (await db.execute(`PRAGMA table_info(${table})`)).rows.map(c => c.name as string);
     columns.set(table, info);

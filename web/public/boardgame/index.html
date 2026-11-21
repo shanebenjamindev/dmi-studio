@@ -643,15 +643,19 @@ body.salem-room #app > * { pointer-events: auto; }
 .tc-aims i { flex: none; padding: 1px 8px; border-radius: 999px; background: #8F2929; color: #fff; font-style: normal; font-weight: 800; font-size: .8rem; }
 .tc-note { font-size: .78rem; color: var(--muted); }
 .tc-chip.plain { padding: 2px 8px; background: rgba(216, 196, 154, .1); border-color: var(--line); color: var(--text); font-weight: 600; font-size: .78rem; }
-/* Kết quả bỏ phiếu và phán xử: mỗi lựa chọn một dòng có số phiếu, người bầu bên dưới */
-.tally { display: flex; flex-direction: column; gap: 8px; }
-.tally ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.tally li { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 8px; background: rgba(216, 196, 154, .07); }
-.tally li.top, .tally li.kill { background: rgba(143, 41, 41, .3); border: 1px solid #8F2929; }
-.tally li.save { background: rgba(82, 107, 82, .25); border: 1px solid #526B52; }
-.tally .tl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 1rem; }
-.tally .tl-row i { flex: none; min-width: 1.8em; padding: 1px 8px; border-radius: 999px; background: #8F2929; color: #fff; font-style: normal; font-weight: 800; text-align: center; }
-.tally li.save .tl-row i { background: #526B52; }
+/* Kết quả gọn: người bị treo, rồi phán xử và phiếu bầu mỗi thứ một hàng nhãn số */
+.rv { display: flex; flex-direction: column; gap: 14px; }
+.rv-head { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 6px 0 2px; text-align: center; }
+.rv-head p { margin: 0; font-size: 1.05rem; }
+.rv-head .role-art { width: 96px; }
+.rv-emoji { font-size: 2.6rem; line-height: 1; }
+.rv-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.rv-label { width: 100%; color: var(--gold); font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.rv-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; border-radius: 999px; background: rgba(216, 196, 154, .08); font-weight: 700; }
+.rv-pill i { min-width: 1.6em; padding: 1px 7px; border-radius: 999px; background: rgba(216, 196, 154, .18); font-style: normal; font-weight: 800; font-size: .82rem; text-align: center; }
+.rv-pill.kill { background: rgba(143, 41, 41, .32); } .rv-pill.kill i { background: #8F2929; color: #fff; }
+.rv-pill.save { background: rgba(82, 107, 82, .3); } .rv-pill.save i { background: #526B52; color: #fff; }
+.result-cover .rs-head .ring { width: 34px; height: 34px; }
 .turned-note { color: #ff6b5b; font-weight: 700; }
 .tc-chip.village { background: rgba(82, 107, 82, .3); border-color: rgba(140, 190, 140, .4); color: #c4e6c4; }
 /* Điểm nhấn cuối ván */
@@ -4280,31 +4284,8 @@ function mwwVoteView() {
   });
 }
 
-// Ai bỏ phiếu cho ai, để cả làng cùng xem lại
-// Tên ngắn trong thẻ người bầu (bỏ biểu tượng bot cho gọn)
+// Tên ngắn của người bầu (bỏ biểu tượng bot cho gọn)
 const mwwShort = (name) => esc(String(name).replace(/^🤖\s*/, ''));
-// Một dòng kết quả: nhãn, số phiếu nổi bật, bên dưới là thẻ tên người bầu (ẩn khi Ẩn phiếu)
-const mwwTallyRow = (g, label, voters, cls = '') => `
-  <li class="${cls}">
-    <div class="tl-row"><b>${label}</b><i>${voters.length}</i></div>
-    ${voters.length && !g.hideVotes ? `<div class="tc-chips">${voters.map((n) => `<span class="tc-chip plain">${mwwShort(n)}</span>`).join('')}</div>` : ''}
-  </li>`;
-
-function mwwBallots(g, names) {
-  const by = {};
-  g.ballots.forEach((t, k) => t !== null && (by[t] ||= []).push(names[k]));
-  const rows = Object.entries(by)
-    .sort(([a, x], [b, y]) => (a < 0) - (b < 0) || y.length - x.length)
-    .map(([t, who], r) => mwwTallyRow(g, t < 0 ? 'Bỏ qua' : esc(names[t]), who, r === 0 && t >= 0 ? 'top' : ''));
-  return `<div class="info tally"><span class="tc-label">Phiếu bầu</span>${rows.length ? `<ul>${rows.join('')}</ul>` : '<p class="muted">Không ai bỏ phiếu</p>'}</div>`;
-}
-
-// Ai treo, ai tha người trên giàn
-function mwwVerdictList(g, names) {
-  const who = (kill) => g.verdicts.map((v, k) => (v === kill ? names[k] : null)).filter(Boolean);
-  return `<div class="info tally"><span class="tc-label">Phán xử</span><ul>${mwwTallyRow(g, '☠️ Treo', who(true), 'kill')}${mwwTallyRow(g, '🙏 Tha', who(false), 'save')}</ul></div>`;
-}
-
 // Phán xử: người nhiều phiếu nhất đứng trên giàn treo cổ, mọi người còn lại chọn Treo hay Tha trong 30 giây
 function mwwTrialView() {
   const g = mp.room.g;
@@ -4339,49 +4320,64 @@ function mwwTrialView() {
   });
 }
 
+// Kết quả gọn: một dòng người bị treo (kèm vai nếu được lật), một dòng phán xử, một dòng phiếu bầu; tên người bầu hiện khi
+// rê chuột vào số (trừ khi Ẩn phiếu)
+function mwwRevealSummary(g, names) {
+  const i = g.out, role = i === null ? null : WW_ROLES[g.roles[i]];
+  const head = i === null && g.spared !== null && g.spared !== undefined
+    ? `<div class="rv-head"><span class="rv-emoji">🙏</span><p>Dân làng tha cho <b>${esc(names[g.spared])}</b></p></div>`
+    : i === null
+    ? '<div class="rv-head"><span class="rv-emoji">🤝</span><p>Không ai bị treo cổ</p></div>'
+    : `<div class="rv-head">${g.shown[i] ? wwArt(g.roles[i], 'small') : '<span class="rv-emoji">⚰️</span>'}
+        <p><b>${esc(names[i])}</b> bị treo cổ</p>${g.shown[i] ? `<div class="role ${role.tag}">${role.label.toUpperCase()}</div>` : ''}</div>`;
+  const pill = (label, voters, cls = '') => `<span class="rv-pill ${cls}"${voters.length && !g.hideVotes ? ` title="${voters.map(mwwShort).join(', ')}"` : ''}>${label}<i>${voters.length}</i></span>`;
+  const verdictWho = (kill) => (g.verdicts || []).map((v, k) => (v === kill ? names[k] : null)).filter(Boolean);
+  const verdict = g.verdicts ? `<div class="rv-row"><span class="rv-label">Phán xử</span>${pill('☠️ Treo', verdictWho(true), 'kill')}${pill('🙏 Tha', verdictWho(false), 'save')}</div>` : '';
+  const by = {};
+  (g.ballots || []).forEach((t, k) => t !== null && (by[t] ||= []).push(names[k]));
+  const votes = Object.entries(by).sort(([a, x], [b, y]) => (a < 0) - (b < 0) || y.length - x.length)
+    .map(([t, who], r) => pill(t < 0 ? 'Bỏ qua' : esc(names[t]), who, r === 0 && t >= 0 ? 'kill' : ''));
+  const ballots = g.ballots ? `<div class="rv-row"><span class="rv-label">Phiếu bầu</span>${votes.join('') || '<span class="muted small">Không ai bỏ phiếu</span>'}</div>` : '';
+  return `<div class="rv">${head}${verdict}${ballots}</div>`;
+}
+
 function mwwRevealView() {
   const g = mp.room.g;
   const names = mpNames();
-  const i = g.out;
-  const role = i === null ? null : WW_ROLES[g.roles[i]];
   const next = mwwAfterLabel(g, '🌙 Sang đêm tiếp theo');
-  const body = `
-      <div class="secret reveal">
-        ${i === null && g.spared !== null && g.spared !== undefined
-          ? `<div class="emoji">🙏</div><p class="muted">Dân làng tha cho <b>${esc(names[g.spared])}</b></p>`
-          : i === null
-          ? '<div class="emoji">🤝</div><p class="muted">Không ai bị treo cổ</p>'
-          : `${g.shown[i] ? wwArt(g.roles[i], 'small') : '<div class="emoji">⚰️</div>'}
-            <p class="muted">${esc(names[i])} bị treo cổ</p>
-            ${g.shown[i] ? `<div class="role ${role.tag}">${role.label.toUpperCase()}</div>` : ''}`}
-      </div>
-      ${g.verdicts ? mwwVerdictList(g, names) : ''}
-      ${g.ballots ? mwwBallots(g, names) : ''}`;
+  const summary = mwwRevealSummary(g, names);
   const ring = g.deadline ? mwwRing(g.deadline, WW_TIMES.next) : '';
+  const go = g.deadline ? mwwGoNow(next) : '';
+  const cover = mwwResultCover(`${g.id}:${g.night}:reveal`, 'Kết quả', summary, go, ring);
+  // Cửa sổ kết quả đang mở thì phía sau không lặp lại nội dung và nút của nó
   return mwwFrame({
     sub: next,
     ring,
     title: 'Kết quả',
-    body,
-    bar: g.deadline ? mwwGoNow(next) : '',
-    cover: mwwResultCover(`${g.id}:${g.night}:reveal`, 'Kết quả', `${ring}${body}`, g.deadline ? mwwGoNow(next) : ''),
+    body: cover ? '' : summary,
+    bar: cover ? '' : go,
+    cover,
   });
 }
 
-// Kết quả (treo cổ, hết ván) hiện ngay toàn màn hình, không phải bấm; đóng lại thì xem làng như thường
-let mwwResultShut = '';
-function mwwResultCover(key, title, body, foot = '') {
+// Kết quả (treo cổ, hết ván) hiện ngay toàn màn hình, không phải bấm; đóng lại thì xem làng như thường. Đã đóng thì không
+// tự mở lại, cả khi tải lại trang.
+let mwwResultShut = (() => { try { return sessionStorage.getItem('mww.resultShut') || ''; } catch { return ''; } })();
+function mwwResultCover(key, title, body, foot = '', ring = '') {
   if (mwwResultShut === key) return '';
   return `
     <div class="result-cover" role="dialog" aria-label="${title}">
       <div class="rs-box">
-        <div class="rs-head"><h2>${title}</h2><button class="hud-close" data-act="mww.resultshut" data-key="${key}" aria-label="Đóng">✕</button></div>
+        <div class="rs-head"><h2>${title}</h2>${ring}<button class="hud-close" data-act="mww.resultshut" data-key="${key}" aria-label="Đóng">✕</button></div>
         <div class="rs-body stack" data-scroll="result">${body}</div>
         ${foot ? `<div class="rs-foot">${foot}</div>` : ''}
       </div>
     </div>`;
 }
-actions['mww.resultshut'] = (el) => (mwwResultShut = el.dataset.key);
+actions['mww.resultshut'] = (el) => {
+  mwwResultShut = el.dataset.key;
+  try { sessionStorage.setItem('mww.resultShut', mwwResultShut); } catch { /* chế độ riêng tư */ }
+};
 
 // Điểm nhấn của ván, rút từ nhật ký và vai đã lật
 function mwwHighlights(g) {
@@ -4451,13 +4447,14 @@ function mwwEndView() {
       </div>
       ${mwwHighlights(g)}`;
   const lobby = mpIsHost() ? '<button class="link small" data-act="mp.lobby">Về phòng chờ, đổi thiết lập</button>' : '';
+  // Hết ván: kết quả, điểm nhấn và lật vai cả làng hiện ngay toàn màn hình; phía sau không lặp lại khi cửa sổ đang mở
+  const cover = mwwResultCover(`${g.id}:end`, 'Hết ván', `${body}${mwwReveal(g)}${lobby}`, `<div class="hud-bar">${mpReadyBar('chơi ván mới')}</div>`);
   return mwwFrame({
     sub: wolfWin ? 'Ma Sói thắng' : 'Dân làng thắng',
     title: 'Hết ván',
-    body: `${body}<button class="btn ghost" data-act="mww.panel" data-panel="reveal">⚜️ Lật vai cả làng</button>${lobby}`,
-    bar: mpReadyBar('chơi ván mới'),
-    // Hết ván: kết quả, điểm nhấn và lật vai cả làng hiện ngay toàn màn hình
-    cover: mwwResultCover(`${g.id}:end`, 'Hết ván', `${body}${mwwReveal(g)}${lobby}`, `<div class="hud-bar">${mpReadyBar('chơi ván mới')}</div>`),
+    body: cover ? '' : `${body}<button class="btn ghost" data-act="mww.panel" data-panel="reveal">⚜️ Lật vai cả làng</button>${lobby}`,
+    bar: cover ? '' : mpReadyBar('chơi ván mới'),
+    cover,
   });
 }
 

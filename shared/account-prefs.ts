@@ -2,5 +2,6 @@
  *  out. They follow the person to any device, and someone else signing in on the same browser gets their own. */
 // How a board looks (background, label names, folded lists) is the board's own, set by its admins (server/boards.ts).
 // dms.seenUpdate: the last Có gì mới update the person has seen (components/WhatsNew.tsx). dms.wsView: how a workspace lists
-// its boards (tiles, a list, or the work by client: components/WorkspaceViews.tsx).
-export const ACCOUNT_PREFS=['dms.theme','dms.lang','dms.panels','dms.driveView','dms.seenUpdate','dms.wsView','dms.globalWsView','dms.wsFolded','dms.clientSort','dms.timelineBy'];
+// its boards (tiles, a list, or the work by client: components/WorkspaceViews.tsx). dms.homeWidgets: the widgets of Trang chủ
+// and how each is set up (components/Home.tsx).
+export const ACCOUNT_PREFS=['dms.theme','dms.lang','dms.panels','dms.driveView','dms.seenUpdate','dms.wsView','dms.globalWsView','dms.wsFolded','dms.clientSort','dms.timelineBy','dms.homeWidgets'];

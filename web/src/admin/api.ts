@@ -88,6 +88,16 @@ const dict = (path: string) => ({
 export type DictApi = ReturnType<typeof dict>;
 
 export const admin = {
+  automation: () => req<{ rules: import('../../../shared/automation').Rule[]; people: Ref[]; customers: Ref[]; services: Ref[]; statuses: (Ref & { color: string })[]; settings: import('../../../shared/automation').AutomationSettings }>('GET', '/api/admin/automation'),
+  automationStats: (id: string) => req<{ stats: import('../../../shared/automation').StepStats; jobs: import('../../../shared/automation').RuleJob[] }>('GET', `/api/admin/automation/${id}/stats`),
+  saveAutomationSettings: (b: import('../../../shared/automation').AutomationSettings) => req('PUT', '/api/admin/automation/settings', b),
+  backfillAutomation: (id: string) => req<{ checked: number; ran: number; failed: number }>('POST', `/api/admin/automation/${id}/backfill`, {}),
+  cancelAutomationJob: (id: string) => req('DELETE', `/api/admin/automation/jobs/${id}`),
+  automationRuns: (id: string) => req<import('../../../shared/automation').RuleRun[]>('GET', `/api/admin/automation/${id}/runs`),
+  createAutomation: (b: import('../../../shared/automation').RuleInput) => req('POST', '/api/admin/automation', b),
+  saveAutomation: (id: string, b: Partial<import('../../../shared/automation').RuleInput>) => req('PUT', `/api/admin/automation/${id}`, b),
+  deleteAutomation: (id: string) => req('DELETE', `/api/admin/automation/${id}`),
+  testAutomation: (id: string, recordId?: string) => req<{ ok: boolean; message: string } | null>('POST', `/api/admin/automation/${id}/test`, { recordId }),
   chat: () => req<{ roles: ChatRoleRow[]; people: ChatPerson[] }>('GET', '/api/admin/chat'),
   setChatBlocked: (userIds: string[]) => req<{ blocked: string[] }>('PUT', '/api/admin/chat/blocked', { userIds }),
   q,

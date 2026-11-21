@@ -2,6 +2,7 @@
 import { createServer } from 'node:http';
 import { httpServerHandler } from 'cloudflare:node';
 import {drainNotifications} from './notifications';
+import {automationTick} from './automation';
 import {remindTasks,settleStages} from './task-flow';
 import {normalizeAllBoards} from './board-flow';
 import {projectsAsServices} from './project-services';
@@ -29,7 +30,7 @@ export default {
   async scheduled(event:ScheduledEvent,env:{DB?:D1Binding},ctx:ExecutionContext){
     // Every tenth minute the data repairs run as well (they read whole tables), tasks not yet in the review workflow join
     // it, and the reminders for overdue work and waiting reviews go out.
-    ctx.waitUntil((async()=>{await ready(env.DB);if(new Date(event.scheduledTime).getUTCMinutes()%10===0){await repairData();await settleStages();await projectsAsServices();await normalizeAllBoards();await remindTasks();}await drainNotifications();})());
+    ctx.waitUntil((async()=>{await ready(env.DB);if(new Date(event.scheduledTime).getUTCMinutes()%10===0){await repairData();await settleStages();await projectsAsServices();await normalizeAllBoards();await remindTasks();}await drainNotifications();await automationTick().catch(()=>console.error('Chưa chạy được tự động hoá'));})());
   },
   async fetch(request: WorkerRequest, env: { ASSETS: Fetcher; DB?: D1Binding; CHAT_FILES?: R2Bucket; BG_ROOMS?: DurableObjectNamespace } & Limiters, ctx: ExecutionContext): Promise<Response> {
     useChatBucket(env.CHAT_FILES); // files of Tin nhắn (server/chat-files.ts)

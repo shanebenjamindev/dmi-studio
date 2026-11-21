@@ -9,7 +9,7 @@ import type { AdminAccess, TeamRole, User, Page } from './types';
 
 /** Công việc: personal tasks, services and department boards; Drive holds the customers' folders;
  *  'tools': file conversion, open to everyone (it runs in the browser). */
-export type View = 'home' | 'profile' | 'customers' | 'boards' | 'tasks' | 'projects' | 'workspace' | 'admin' | 'tools' | 'reports' | 'ads' | 'mail' | 'messages' | 'voice';
+export type View = 'home' | 'help' | 'profile' | 'customers' | 'boards' | 'tasks' | 'projects' | 'workspace' | 'admin' | 'tools' | 'reports' | 'ads' | 'mail' | 'messages' | 'voice';
 export interface AppState {
   ready: boolean;
   /** Signed-in DMI Workspace account; null shows the sign-in page. */
@@ -32,7 +32,7 @@ export interface AppState {
   toast: { text: string; err?: boolean; id: number } | null;
 }
 
-export const HASH: Partial<Record<View, string>> = { home: '#home', profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', reports: '#reports', ads: '#ads', tools: '#tools', voice: '#voice', mail: '#mail', messages: '#messages', admin: '#admin' };
+export const HASH: Partial<Record<View, string>> = { home: '#home', help: '#help', profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', reports: '#reports', ads: '#ads', tools: '#tools', voice: '#voice', mail: '#mail', messages: '#messages', admin: '#admin' };
 /** The page an address opens (the reverse of HASH); any other address opens Trang chủ. */
 const viewOfHash = (hash: string) => (Object.keys(HASH) as View[]).find((v) => hash.startsWith(HASH[v]!)) ?? 'home';
 
@@ -102,7 +102,7 @@ export const mayAddCustomer = () =>
 /** Pages this account can open. */
 export function openPages(): View[] {
   // Khách hàng: everyone sees the customers they work on; Drive (their folders) only those given it.
-  const out: View[] = ['home', 'boards', 'tasks', 'projects', 'customers', 'profile'];
+  const out: View[] = ['home', 'help', 'boards', 'tasks', 'projects', 'customers', 'profile'];
   if (state.pages.includes('workspace')) out.push('workspace');
   // Báo cáo: every client report and, for those allowed, the Meta Ads numbers.
   out.push('reports');

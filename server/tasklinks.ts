@@ -1,3 +1,4 @@
+import { automationTaskChanged } from './automation';
 import { requireBrandService } from './project-access';
 import { notificationSnapshot, queueTaskNotifications } from './notifications';
 // A linked task and card share their public working fields. Results stay on the task.
@@ -143,4 +144,5 @@ export async function syncCardToTask(cardId: string, moved = false, actorId?: st
     c.title, c.description || '', c.description_by ?? null, c.start_at, c.due_at, status, kept ? c.task_done : doneAt, now(), c.task_id);
   if(!moved || kept) await syncTaskToCard(c.task_id);
   await queueTaskNotifications(c.task_id,beforeNotification,actorId).catch(()=>console.error('Không xếp được thông báo công việc'));
+  await automationTaskChanged(c.task_id,false);
 }

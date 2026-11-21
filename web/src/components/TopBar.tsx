@@ -21,7 +21,7 @@ import { langPref, setLang, type Lang } from '../i18n';
 const WORK: View[] = ['tasks', 'projects', 'workspace'];
 const REPORTS: View[] = ['reports', 'ads'];
 const TOOLS: View[] = ['tools', 'voice'];
-const NAV_ICON: Record<string, string> = { home: 'home', boards: 'boards', customers: 'users', work: 'checklist', reports: 'file', tools: 'wand', mail: 'mail', messages: 'messenger', admin: 'gear' };
+const NAV_ICON: Record<string, string> = { home: 'home', help: 'info', boards: 'boards', customers: 'users', work: 'checklist', reports: 'file', tools: 'wand', mail: 'mail', messages: 'messenger', admin: 'gear' };
 /** The sections the phone's bottom bar keeps. */
 const PRIMARY = ['home', 'boards', 'work'];
 const KEY: Record<string, string> = { work: 'dms.workView', reports: 'dms.reportsView', tools: 'dms.toolsView' };
@@ -84,14 +84,14 @@ export function AppHeader() {
  *  signing in; it opens in a new tab. */
 const BOARDGAME_URL = '/boardgame/';
 /** Where each section's link goes when opened in a new tab (a click opens the page last used in it). */
-const SECTION_HASH: Record<string, string> = { home: '#home', boards: '#boards', customers: '#customers', work: '#tasks', reports: '#reports', tools: '#tools', mail: '#mail', messages: '#messages', admin: '#admin' };
+const SECTION_HASH: Record<string, string> = { home: '#home', help: '#help', boards: '#boards', customers: '#customers', work: '#tasks', reports: '#reports', tools: '#tools', mail: '#mail', messages: '#messages', admin: '#admin' };
 /** The sections, down the left side. */
 export function TopBar() {
   const view = useStore((s) => s.view);
   useStore((s) => s.pages); useStore((s) => s.admin); // re-render when access changes
   const open = openPages();
   const items: [string, string][] = [['home', 'Trang chủ'], ['boards', 'Workspace'], ...(open.includes('customers') ? [['customers', 'Khách hàng'] as [string, string]] : []), ['work', 'Công việc'], ['messages', 'Tin nhắn'], ['mail', 'Hộp thư'],
-    ...(sectionPages('reports', open).length ? [['reports', 'Báo cáo'] as [string, string]] : []), ['tools', 'Tools'], ...(open.includes('admin') ? [['admin', 'Quản trị'] as [string, string]] : [])];
+    ...(sectionPages('reports', open).length ? [['reports', 'Báo cáo'] as [string, string]] : []), ['tools', 'Tools'], ...(open.includes('admin') ? [['admin', 'Quản trị'] as [string, string]] : []), ['help', 'Trợ giúp']];
   const current = sectionOf(view);
   // A section opens on the page last used in it; choosing the open section again folds or unfolds its column.
   const pick = (t: string) => {
@@ -100,6 +100,7 @@ export function TopBar() {
     if (t === 'tools') { openSub('tools'); return; }
     if (t === 'customers') { goto('customers'); openLink('#customers'); return; }
     if (t === 'home') { goto('home'); openLink('#home'); return; }
+    if (t === 'help') { goto('help'); openLink('#help'); return; }
     if (t === 'boards') { goto('boards'); openLink('#boards'); return; }
     if (t === 'admin') { goto('admin'); openLink('#admin'); return; }
     if (t === 'mail') { goto('mail'); openLink('#mail'); return; }

@@ -1,3 +1,4 @@
+import { automationCustomerChanged } from './automation';
 import { brandServiceLevels, requireBrandService } from './project-access';
 import {customerLevels,customerLevel,requireCustomer,customerAccessSql,canDeleteCustomer,headedDepartment} from './customer-access';
 import {notifyPeople} from './notifications';
@@ -659,6 +660,7 @@ export function registerWorkspace(api: Router) {
       if(managerId&&managerId!==creator)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',id,managerId,'admin',creator,now());
       if(tags)await saveTags(id,tags);
       await ensureDefaultBrand(id, creator);
+      await automationCustomerChanged(id,true);
       json(res,201,await customerOut(await mustCustomer(id),true));return;
     }
     const name = safeName(fields.name);
@@ -673,6 +675,7 @@ export function registerWorkspace(api: Router) {
       if(managerId&&managerId!==creator)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',id,managerId,'admin',creator,now());
     if(tags)await saveTags(id,tags);
     await ensureDefaultBrand(id, creator);
+    await automationCustomerChanged(id, true);
     json(res, 201, await customerOut(await mustCustomer(id), true)); return;
     }
     // Created inside the folder the admin is looking at.
@@ -697,6 +700,7 @@ export function registerWorkspace(api: Router) {
     if(managerId&&managerId!==creator)await run('INSERT INTO customer_members(customer_id,user_id,role,added_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(customer_id,user_id) DO UPDATE SET role=excluded.role',id,managerId,'admin',creator,now());
     if(tags)await saveTags(id,tags);
     await ensureDefaultBrand(id, creator);
+    await automationCustomerChanged(id, true);
     json(res, 201, await customerOut(await mustCustomer(id), true));
   });
   // Picker is scoped to CLIENTS, independently of the folder currently being browsed.
@@ -936,6 +940,7 @@ export function registerWorkspace(api: Router) {
     // The customer's own board keeps its name (unless someone renamed it) and its manager.
     await run('UPDATE boards SET name=? WHERE id=? AND name=?',fields.name,customerBoardId(current.id),current.name);
     if(classification.manager!==current.manager_id)await syncBoardPeople(customerBoardId(current.id));
+    await automationCustomerChanged(current.id,false);
     json(res,200,await recordOut(await mustCustomer(current.id)));
   });
   // The services catalogue (Quản trị › Danh mục dịch vụ), to say what a brand service is for: names only, for everyone signed in.

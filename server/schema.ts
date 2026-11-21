@@ -392,4 +392,20 @@ CREATE TABLE IF NOT EXISTS bg_games (
 );
 CREATE INDEX IF NOT EXISTS bg_games_created ON bg_games(created_at);
 CREATE TABLE IF NOT EXISTS bg_kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+-- Tự động hoá (server/automation.ts): rules (their trigger, conditions and steps as JSON, layout their options and
+-- the filter node's place, owner_id whose account they run as), each rule's last runs, the record as last seen (a
+-- task, or a customer as c:<id>), waits not yet due, each step's counts, and records that ran a run-once rule.
+CREATE TABLE IF NOT EXISTS automation_rules (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, trigger TEXT NOT NULL, conditions TEXT NOT NULL, actions TEXT NOT NULL,
+  owner_id TEXT, layout TEXT, runs INTEGER NOT NULL DEFAULT 0, last_run_at INTEGER, last_ok INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS automation_runs (id TEXT PRIMARY KEY, rule_id TEXT NOT NULL, at INTEGER NOT NULL, ok INTEGER NOT NULL, task_id TEXT, message TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS automation_runs_rule ON automation_runs(rule_id, at);
+CREATE TABLE IF NOT EXISTS automation_seen (task_id TEXT PRIMARY KEY, stage TEXT NOT NULL, snap TEXT);
+CREATE TABLE IF NOT EXISTS automation_jobs (id TEXT PRIMARY KEY, rule_id TEXT NOT NULL, kind TEXT NOT NULL, record_id TEXT, cursor TEXT NOT NULL, ctx TEXT, step TEXT, run_at INTEGER NOT NULL, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS automation_jobs_due ON automation_jobs(run_at);
+CREATE INDEX IF NOT EXISTS automation_jobs_rule ON automation_jobs(rule_id);
+CREATE TABLE IF NOT EXISTS automation_stats (rule_id TEXT NOT NULL, path TEXT NOT NULL, ok INTEGER NOT NULL DEFAULT 0, fail INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (rule_id, path));
+CREATE TABLE IF NOT EXISTS automation_done (rule_id TEXT NOT NULL, record_id TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (rule_id, record_id));
+CREATE INDEX IF NOT EXISTS tasks_due ON tasks(due_at);
 `;
