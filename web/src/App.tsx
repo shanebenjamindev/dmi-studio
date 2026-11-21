@@ -68,7 +68,7 @@ export function App() {
               <div className="shell-main">
                 <PageGuard page={view}>
                 <WorkArea>
-                  <Suspense fallback={<BrandLoading label="Đang mở trang…" />}><Page /></Suspense>
+                  <Suspense fallback={<div className="page-loading"><BrandLoading label="Đang mở trang…" /></div>}><Page /></Suspense>
                 </WorkArea>
                 </PageGuard>
               </div>

@@ -12,7 +12,7 @@ const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g
 /** Trợ giúp is written in both languages: the page shows the interface's own (and keeps the app's word-by-word
  *  translation out of it). */
 const EN = langPref() === 'en';
-const { articles: ARTICLES, groups: GROUPS } = helpFor(EN ? 'en' : 'vi');
+const { articles: ARTICLES, groups: GROUPS } = await helpFor(EN ? 'en' : 'vi');
 const T = EN
   ? { help: 'Help', sub: 'How to use DMI Workspace', find: 'Search the guide…', clear: 'Clear search', none: 'No article found.', contents: 'Contents', where: 'Where you are', prev: 'Previous', next: 'Next' }
   : { help: 'Trợ giúp', sub: 'Hướng dẫn sử dụng DMI Workspace', find: 'Tìm trong hướng dẫn…', clear: 'Xoá tìm kiếm', none: 'Không tìm thấy bài nào.', contents: 'Mục lục', where: 'Vị trí', prev: 'Bài trước', next: 'Bài tiếp' };

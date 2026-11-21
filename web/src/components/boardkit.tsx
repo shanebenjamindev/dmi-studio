@@ -124,7 +124,7 @@ export function LogoImg({ src, className }: { src: string; className?: string })
     void clearedLogos.get(src)!.then((s) => { if (live) setOut(s); });
     return () => { live = false; };
   }, [src]);
-  return <img src={out} alt="" className={className} />;
+  return <img src={out} alt="" className={className} loading="lazy" decoding="async" />;
 }
 
 // ---------------------------------------------------------------- reactions on comments (as on Facebook)
@@ -214,6 +214,8 @@ export function Avatar({ m, size = 28 }: { m: { id: string; name: string; userId
         <img
           src={`/api/avatars/${encodeURIComponent(uid)}?v=${at}`}
           alt={m.name}
+          loading="lazy"
+          decoding="async"
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
           onError={() => setFailed(true)}
         />

@@ -166,7 +166,7 @@ export function Kpi({ label, value, hint, icon, tone }: { label: string; value: 
 }
 /** A person's picture when they have one, else their initials. */
 export const Person = ({ p, size = 28 }: { p: { id: string; name: string; avatarAt?: number | null }; size?: number }) => (p.avatarAt
-  ? <img className="ax-avatar" src={`/api/avatars/${p.id}?v=${p.avatarAt}`} alt="" width={size} height={size} />
+  ? <img className="ax-avatar" src={`/api/avatars/${p.id}?v=${p.avatarAt}`} alt="" width={size} height={size} loading="lazy" decoding="async" />
   : <Initials m={p} size={size} />);
 /** Old → new for each field a change touched. */
 export function ChangeList({ changes, empty = 'Chưa có thay đổi nào được ghi lại.' }: { changes: { action: string; by: string | null; before: any; after: any; at: number }[]; empty?: string }) {

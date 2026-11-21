@@ -42,7 +42,7 @@ export function BrandAvatar({
       }}
       aria-hidden="true"
     >
-      {logo ? <img src={logo} alt="" /> : initial}
+      {logo ? <img src={logo} alt="" loading="lazy" decoding="async" /> : initial}
     </span>
   );
 }

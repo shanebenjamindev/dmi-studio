@@ -58,4 +58,6 @@ function build(ed, slugs) {
   return out;
 }
 const vi = build(EDITIONS.vi), en = build(EDITIONS.en, vi.map((a) => a.slug));
-fs.writeFileSync('web/src/help/manual.ts', `// Made by scripts/guide/help.mjs from the user manual (Vietnamese and English): edit the manual, then run it again.\nimport type { Article } from './types';\n\nexport const MANUAL: Article[] = ${JSON.stringify(vi, null, 1)};\n\nexport const MANUAL_EN: Article[] = ${JSON.stringify(en, null, 1)};\n`);
+const head = (lang) => `// Made by scripts/guide/help.mjs from the user manual (${lang}): edit the manual, then run it again.\nimport type { Article } from './types';\n\n`;
+fs.writeFileSync('web/src/help/manual.ts', `${head('Vietnamese')}export const MANUAL: Article[] = ${JSON.stringify(vi, null, 1)};\n`);
+fs.writeFileSync('web/src/help/manual-en.ts', `${head('English')}export const MANUAL_EN: Article[] = ${JSON.stringify(en, null, 1)};\n`);

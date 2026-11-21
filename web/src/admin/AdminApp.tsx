@@ -1,38 +1,42 @@
 // Quản trị: a side menu of sections (each opens and closes; only the pages this account may use are listed) and the
 // open page, with where it sits above it. It uses the app's own blue, like every other page.
-import { useEffect, useMemo, useState, type ComponentType } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType } from 'react';
 import { Icon } from '../components/ui';
 import { tr } from '../i18n';
 import { useStore } from '../store';
 import { NAV, parseRoute, goAdmin, type NavGroup } from './nav';
 import { Empty, fold } from './kit';
-import * as Stats from './pages/Stats';
-import * as Staff from './pages/Staff';
-import * as Rbac from './pages/Rbac';
-import * as Work from './pages/Work';
-import * as Customers from './pages/Customers';
-import * as Services from './pages/Services';
-import * as Notify from './pages/Notify';
-import * as Logs from './pages/Logs';
-import * as System from './pages/System';
-import * as Hosting from './pages/Hosting';
-import * as Support from './pages/Support';
-import * as Chat from './pages/Chat';
-import * as Automation from './pages/Automation';
+import { BrandLoading } from '../components/BrandLoading';
+
+// Each section's pages download when one of them is first opened.
+const pages = <M,>(load: () => Promise<M>) => (name: keyof M) => lazy(() => load().then((m) => ({ default: m[name] as ComponentType })));
+const Stats = pages(() => import('./pages/Stats'));
+const Staff = pages(() => import('./pages/Staff'));
+const Rbac = pages(() => import('./pages/Rbac'));
+const Work = pages(() => import('./pages/Work'));
+const Customers = pages(() => import('./pages/Customers'));
+const Services = pages(() => import('./pages/Services'));
+const Notify = pages(() => import('./pages/Notify'));
+const Logs = pages(() => import('./pages/Logs'));
+const System = pages(() => import('./pages/System'));
+const Hosting = pages(() => import('./pages/Hosting'));
+const Support = pages(() => import('./pages/Support'));
+const Chat = pages(() => import('./pages/Chat'));
+const Automation = pages(() => import('./pages/Automation'));
 
 const PAGES: Record<string, ComponentType> = {
-  'stats/overview': Stats.Overview, 'stats/activity': Stats.Activity, 'stats/customers': Stats.CustomerStats, 'stats/tasks': Stats.TaskStats, 'stats/staff': Stats.StaffStats, 'stats/performance': Stats.Performance,
-  'staff/list': Staff.StaffList, 'staff/admins': Staff.AdminAccounts, 'staff/activity': Logs.StaffActivity, 'staff/departments': Staff.Departments, 'staff/positions': Staff.Positions, 'staff/teams': Staff.Teams,
-  'rbac/roles': Rbac.Roles, 'rbac/groups': Rbac.PermissionGroups, 'rbac/permissions': Rbac.PermissionMatrix, 'rbac/assign': Rbac.Assign,
-  'tasks/list': Work.AllTasks, 'tasks/statuses': Work.Statuses, 'tasks/categories': Work.Categories, 'tasks/priorities': Work.Priorities, 'tasks/workflow': Work.Workflow, 'tasks/templates': Work.Templates, 'tasks/overdue': Work.Overdue,
-  'customers/list': Customers.CustomerList, 'customers/categories': Customers.Categories, 'customers/statuses': Customers.Statuses, 'customers/sources': Customers.Sources,
-  'services/list': Services.ServiceList, 'services/packages': Services.Packages,
-  'notify/list': Notify.Sent, 'notify/create': Notify.Compose, 'notify/templates': Notify.Templates, 'notify/history': Notify.MailLog,
-  'chat/settings': Chat.ChatSettings,
-  'automation/rules': Automation.AutomationRules,
-  'logs/logins': Logs.Logins, 'logs/actions': Logs.Actions, 'logs/data': Logs.DataChanges, 'logs/permissions': Logs.PermissionChanges, 'logs/errors': Logs.Errors,
-  'system/info': System.Info, 'system/general': System.General, 'system/statuses': Work.Statuses, 'system/notifications': System.NotificationConfig, 'system/storage': System.Storage, 'system/hosting': Hosting.Hosting, 'system/sql': Hosting.Sql, 'system/backup': System.Backup,
-  'support/list': Support.SupportList,
+  'stats/overview': Stats('Overview'), 'stats/activity': Stats('Activity'), 'stats/customers': Stats('CustomerStats'), 'stats/tasks': Stats('TaskStats'), 'stats/staff': Stats('StaffStats'), 'stats/performance': Stats('Performance'),
+  'staff/list': Staff('StaffList'), 'staff/admins': Staff('AdminAccounts'), 'staff/activity': Logs('StaffActivity'), 'staff/departments': Staff('Departments'), 'staff/positions': Staff('Positions'), 'staff/teams': Staff('Teams'),
+  'rbac/roles': Rbac('Roles'), 'rbac/groups': Rbac('PermissionGroups'), 'rbac/permissions': Rbac('PermissionMatrix'), 'rbac/assign': Rbac('Assign'),
+  'tasks/list': Work('AllTasks'), 'tasks/statuses': Work('Statuses'), 'tasks/categories': Work('Categories'), 'tasks/priorities': Work('Priorities'), 'tasks/workflow': Work('Workflow'), 'tasks/templates': Work('Templates'), 'tasks/overdue': Work('Overdue'),
+  'customers/list': Customers('CustomerList'), 'customers/categories': Customers('Categories'), 'customers/statuses': Customers('Statuses'), 'customers/sources': Customers('Sources'),
+  'services/list': Services('ServiceList'), 'services/packages': Services('Packages'),
+  'notify/list': Notify('Sent'), 'notify/create': Notify('Compose'), 'notify/templates': Notify('Templates'), 'notify/history': Notify('MailLog'),
+  'chat/settings': Chat('ChatSettings'),
+  'automation/rules': Automation('AutomationRules'),
+  'logs/logins': Logs('Logins'), 'logs/actions': Logs('Actions'), 'logs/data': Logs('DataChanges'), 'logs/permissions': Logs('PermissionChanges'), 'logs/errors': Logs('Errors'),
+  'system/info': System('Info'), 'system/general': System('General'), 'system/statuses': Work('Statuses'), 'system/notifications': System('NotificationConfig'), 'system/storage': System('Storage'), 'system/hosting': Hosting('Hosting'), 'system/sql': Hosting('Sql'), 'system/backup': System('Backup'),
+  'support/list': Support('SupportList'),
 };
 const LS_OPEN = 'dms.adminOpen';
 
@@ -83,7 +87,7 @@ export function AdminApp() {
           <button className="bd-icon ax-menu-btn" onClick={() => setMenu(true)} aria-label="Mở menu quản trị"><Icon name="lines" size={16} /></button>
           <nav aria-label="Vị trí"><span>Quản trị</span><i>›</i><button onClick={() => go(group.key, group.pages[0].key)}>{group.label}</button><i>›</i><b>{page.label}</b></nav>
         </div>
-        <Page key={`${group.key}/${page.key}`} />
+        <Suspense fallback={<div className="page-loading inline"><BrandLoading label="Đang mở trang…" /></div>}><Page key={`${group.key}/${page.key}`} /></Suspense>
       </div>
     </main>
   );

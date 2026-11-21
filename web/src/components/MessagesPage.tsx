@@ -1437,7 +1437,7 @@ export function MessagesPage() {
             <div className="dc-pending">
               {pending.map((p) => (
                 <span key={p.id} className={`dc-pending-chip${p.error ? ' is-error' : ''}`} title={p.error || p.name}>
-                  {p.att?.thumb ? <img src={p.att.thumb} alt="" /> : <KindIcon kind={p.att?.kind || 'other'} size={18} />}
+                  {p.att?.thumb ? <img src={p.att.thumb} alt="" loading="lazy" decoding="async" /> : <KindIcon kind={p.att?.kind || 'other'} size={18} />}
                   <span className="dc-pending-meta">
                     <b>{p.name}</b>
                     <small>{p.error ? p.error : p.att ? bytes(p.att.bytes) : `Đang tải ${Math.round(p.progress * 100)}%`}</small>

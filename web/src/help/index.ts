@@ -1,10 +1,7 @@
 // Trợ giúp's articles in Vietnamese and English, in their groups and order: getting started, then the manual (made
 // from the user manual by scripts/guide/help.mjs), Trang chủ, and Tự động hoá. An article has the same address in both
-// languages; each is shown at #help/<slug> (components/Help.tsx).
+// languages; each is shown at #help/<slug> (components/Help.tsx). Only the language being read is downloaded.
 import type { Article } from './types';
-import { MANUAL, MANUAL_EN } from './manual';
-import { AUTOMATION } from './automation';
-import { AUTOMATION_EN } from './automation-en';
 
 const HOME: Article = {
   slug: 'trang-chu', cat: 'Bắt đầu', title: 'Trang chủ và widget',
@@ -53,12 +50,18 @@ const HOME_EN: Article = {
 };
 
 const EDITIONS = {
-  vi: { order: ['Bắt đầu', 'Hướng dẫn theo mục', 'Tự động hoá', 'Việc thường làm', 'Dữ liệu, quyền, báo cáo', 'Hỏi đáp'], all: [...MANUAL.slice(0, 3), HOME, ...MANUAL.slice(3), ...AUTOMATION] },
-  en: { order: ['Getting started', 'Feature by feature', 'Automation', 'Common tasks', 'Data, access, reports', 'FAQ'], all: [...MANUAL_EN.slice(0, 3), HOME_EN, ...MANUAL_EN.slice(3), ...AUTOMATION_EN] },
+  vi: async () => {
+    const [{ MANUAL }, { AUTOMATION }] = await Promise.all([import('./manual'), import('./automation')]);
+    return { order: ['Bắt đầu', 'Hướng dẫn theo mục', 'Tự động hoá', 'Việc thường làm', 'Dữ liệu, quyền, báo cáo', 'Hỏi đáp'], all: [...MANUAL.slice(0, 3), HOME, ...MANUAL.slice(3), ...AUTOMATION] };
+  },
+  en: async () => {
+    const [{ MANUAL_EN }, { AUTOMATION_EN }] = await Promise.all([import('./manual-en'), import('./automation-en')]);
+    return { order: ['Getting started', 'Feature by feature', 'Automation', 'Common tasks', 'Data, access, reports', 'FAQ'], all: [...MANUAL_EN.slice(0, 3), HOME_EN, ...MANUAL_EN.slice(3), ...AUTOMATION_EN] };
+  },
 };
 /** The articles in one language, in order, and in their groups. */
-export function helpFor(lang: 'vi' | 'en') {
-  const e = EDITIONS[lang], articles = e.order.flatMap((c) => e.all.filter((a) => a.cat === c));
+export async function helpFor(lang: 'vi' | 'en') {
+  const e = await EDITIONS[lang](), articles = e.order.flatMap((c) => e.all.filter((a) => a.cat === c));
   return { articles, groups: e.order.map((title) => ({ title, articles: articles.filter((a) => a.cat === title) })).filter((g) => g.articles.length) };
 }
 export type { Article };

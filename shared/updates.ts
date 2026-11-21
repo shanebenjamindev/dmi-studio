@@ -10,6 +10,13 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-21-8',
+    date: '21/11/2026',
+    items: [
+      { kind: 'fix', vi: 'Biểu tượng "Đang mở trang" nằm giữa màn hình. Ảnh đại diện, logo và ảnh đính kèm chỉ tải khi cuộn tới; các trang Quản trị và Trợ giúp tải riêng từng phần (Trợ giúp chỉ tải ngôn ngữ đang dùng) nên mở nhanh hơn.', en: 'The "Opening page" sign sits in the middle of the screen. Avatars, logos and attachment images load only when scrolled to; Admin and Help pages load in parts (Help only in the language in use), so they open faster.' },
+    ],
+  },
+  {
     id: '2026-11-21-7',
     date: '21/11/2026',
     items: [

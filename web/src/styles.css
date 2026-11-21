@@ -9758,3 +9758,9 @@ body:has(.n8) .toast { z-index: 1300; }
   .hp-article h1 { font-size: 22px; }
   .hp-article table { display: block; overflow-x: auto; }
 }
+
+/* A page still downloading: its sign in the middle of the page's space (shown only if it takes a moment, so a quick
+   page does not flash it). */
+.page-loading { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; background: var(--bg); animation: page-loading-in .2s ease .15s both; }
+@keyframes page-loading-in { from { opacity: 0; } }
+.page-loading.inline { position: static; min-height: 50vh; background: none; }
