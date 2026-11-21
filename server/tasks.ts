@@ -883,9 +883,10 @@ export function registerTasks(api: Router) {
     const onCard = new Map<string, string[]>();
     for (const r of await all<any>('SELECT l.task_id, m.user_id FROM task_board_links l JOIN card_members m ON m.card_id = l.card_id')) onCard.set(r.task_id, [...(onCard.get(r.task_id) || []), r.user_id]);
     const mine = (t: ReturnType<typeof taskOut>) => t.assignees.some((a) => ids.includes(a.id)) || !!onCard.get(t.id)?.includes(u.id) || t.followers.some((f) => f.id === u.id);
-    // Within "mine", one relation only: given to me (or on my card), made by me, or followed by me.
+    // Within "mine", one relation only: given to me (or on my card), made by me, followed by me, or graded by me (the
+    // reviewer chosen, else whoever made it: reviewerOf in task-flow.ts).
     const rel = String(q.get('rel') || '');
-    const related = (t: ReturnType<typeof taskOut>) => rel === 'assigned' ? t.assignees.some((a) => ids.includes(a.id)) || !!onCard.get(t.id)?.includes(u.id)
+    const related = (t: ReturnType<typeof taskOut>) => rel === 'review' ? true : rel === 'assigned' ? t.assignees.some((a) => ids.includes(a.id)) || !!onCard.get(t.id)?.includes(u.id)
       : rel === 'created' ? !!t.createdBy && ids.includes(t.createdBy.id) : rel === 'following' ? t.followers.some((f) => f.id === u.id) : rel === 'all' ? (mine(t) || (!!t.createdBy && ids.includes(t.createdBy.id))) : mine(t);
     const ofTeam = (t: ReturnType<typeof taskOut>) => t.assignees.some((a) => !!a.userId && team.has(a.userId)) || !!onCard.get(t.id)?.some((id) => team.has(id));
     const person = scope === 'mine' ? null : String(q.get('person') || '') || null;
@@ -893,6 +894,7 @@ export function registerTasks(api: Router) {
     const svc = await taskServices();
     const rows = (await all<any>(`${TASK_SQL}${project ? ' WHERE t.brand_service_id = ?' : ''} ORDER BY COALESCE(t.due_at, t.created_at) DESC`, ...(project ? [project] : [])))
       .filter(t=>(!t.brand_service_id||allowedProjects.has(t.brand_service_id))&&(!t.customer_id||allowedCustomers.has(t.customer_id)))
+      .filter((t) => scope !== 'mine' || rel !== 'review' || (t.reviewer_id || t.creator_user_id) === u.id)
       .map((t) => ({ ...taskOut(t, l), services: svc.get(t.id) || [] }))
       // Who lists a task is decided by its brand_service, customer and the team asked for, not by the board its card is on.
       .filter((t) => (scope === 'all' || (scope === 'team' ? ofTeam(t) : related(t))) && (!person || t.assignees.some((a) => a.id === person)))

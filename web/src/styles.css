@@ -9249,3 +9249,115 @@ dialog.sheet, .qc-dialog, .tm-dialog, .cm, .tk-popup-dialog, .ui-panel-popup, .u
 .music-btn.is-playing { background: var(--tint); color: #fff; border-color: transparent; animation: musicPulse 2s ease-in-out infinite; }
 @keyframes musicPulse { 0%, 100% { box-shadow: 0 2px 10px rgba(0, 0, 0, .14); } 50% { box-shadow: 0 2px 16px var(--tint-soft); } }
 @media (max-width: 760px) { .music-btn { left: 12px; bottom: calc(var(--bn-h) + 12px); } }
+
+/* ================================================================ Trang chủ (Home.tsx): widgets of the person's day */
+.home { height: 100%; overflow-y: auto; padding: 20px 24px 32px; background: var(--bg); box-sizing: border-box; }
+.home-h { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 0 auto 16px; max-width: 1400px; }
+.home-h h1 { margin: 0; font: 600 22px var(--font-display); letter-spacing: -.01em; }
+.home-h p { margin: 2px 0 0; color: var(--label-3); font-size: 13px; }
+.home-h p::first-letter { text-transform: uppercase; }
+.home-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-width: 1400px; margin: 0 auto; }
+.home-w { min-width: 0; display: flex; flex-direction: column; max-height: 520px; border: 1px solid var(--sep); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.home-w.wide { grid-column: 1 / -1; max-height: none; }
+.home-w > header { display: flex; align-items: center; gap: 4px; padding: 10px 8px 10px 16px; border-bottom: 1px solid var(--sep); }
+.home-w h2 { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; }
+.home-w h2 em { min-width: 20px; padding: 1px 7px; border-radius: 999px; background: var(--fill); color: var(--label-2); font: 600 11px/1.5 var(--font); font-style: normal; text-align: center; text-transform: none; }
+.home-w .bd-icon { color: var(--label-3); }
+.home-w .bd-icon:hover { background: var(--fill-2); color: var(--label); }
+.home-w-body { flex: 1; min-height: 120px; overflow-y: auto; }
+.home-w-body > .note { padding: 16px; }
+.home-tasks { list-style: none; margin: 0; padding: 0; }
+.home-tasks li button { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border: 0; border-bottom: 1px solid var(--sep-2); background: none; color: var(--label); text-align: left; }
+.home-tasks li button:hover { background: var(--fill-2); }
+.home-t-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.home-t-main b { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-t-sub { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.home-t-sub small { min-width: 0; color: var(--label-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-tasks time { flex: none; color: var(--label-2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.home-tasks time.late { color: var(--red); font-weight: 600; }
+.home-t-who { flex: none; display: flex; }
+.home-more { padding: 10px 16px; color: var(--label-3); font-size: 12.5px; }
+.home-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 24px; color: var(--label-3); text-align: center; font-size: 13px; }
+.home-empty p { margin: 0; }
+.home-ov-scroll { overflow-x: auto; }
+.home-ov { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.home-ov thead th { padding: 9px 16px; border-bottom: 1px solid var(--sep); color: var(--label-3); font-size: 11.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; text-align: right; white-space: nowrap; }
+.home-ov thead th:first-child, .home-ov tbody th { text-align: left; }
+.home-ov tbody th, .home-ov td { padding: 10px 16px; border-bottom: 1px solid var(--sep-2); }
+.home-ov td { text-align: right; width: 1%; white-space: nowrap; }
+.home-ov tbody th { font-weight: 500; color: var(--label); }
+.home-ov tbody th > div { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.home-ov tr.go { cursor: pointer; }
+.home-ov tr.go:hover { background: var(--fill-2); }
+.home-ov-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-ov-bar { flex: none; width: 96px; height: 6px; display: flex; overflow: hidden; border-radius: 3px; background: var(--fill); }
+.home-ov-bar i.done { background: var(--green); } .home-ov-bar i.doing { background: var(--tint); } .home-ov-bar i.late { background: var(--red); }
+.home-ov td.doing { color: var(--tint); } .home-ov td.late { color: var(--red); } .home-ov td.done { color: var(--green); }
+@media (max-width: 900px) { .home-grid { grid-template-columns: minmax(0, 1fr); } .home-w { max-height: 440px; } }
+@media (max-width: 640px) {
+  .home { padding: 14px 12px 24px; }
+  .home-h { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .home-h h1 { font-size: 19px; }
+      .home-tasks li button { padding: 10px 12px; gap: 10px; }
+  .home-ov-bar { display: none; }
+  .home-ov thead th, .home-ov tbody th, .home-ov td { padding: 9px 8px; }
+  .home-ov thead th:first-child, .home-ov tbody th { padding-left: 12px; }
+}
+
+/* The phone's bottom bar: five equal cells (Trang chủ, Workspace, Công việc, Nhắc việc, Thêm), each an icon over a
+   one-line name; Nhắc việc's ring no bigger than the others' icons, so the names line up. */
+@media (max-width: 640px) {
+  .rail > .rail-item { height: 100%; justify-content: center; gap: 3px; padding: 4px 2px; font-size: 10.5px; }
+  .rail > .rail-item > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rail > .rm-button .rm-ring { width: 26px; height: 26px; margin: -3px 0; }
+  .rail > .rm-button .rm-ring .ico { width: 16px; height: 16px; }
+  .rail-more { border: 1px solid var(--sep); box-shadow: var(--shadow-2); }
+}
+
+/* Workspace home, kept quiet: the toolbar is a plain line (where you are; view, customer, search, create), customer
+   names lead, a workspace row shows its name, one line of facts and small icon buttons; a row's tick box shows on hover
+   or once something is ticked, and the bulk bar only then. */
+.bd-home-toolbar { padding: 0 0 4px; background: none; border: 0; border-radius: 0; }
+.bd-home-crumbs { font-size: 16px; font-weight: 600; }
+.bd-home-cust select { cursor: pointer; }
+.bd-home-new-btn { height: 34px; padding: 0 12px; font-size: 13px; }
+.bd-cust-h { padding: 4px 0 6px; }
+.bd-cust-h > button { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--label); font: 600 17px var(--font-display); cursor: pointer; }
+.bd-cust-h > button .ico { color: var(--label-3); transition: transform .15s var(--ease); }
+.bd-cust-h > button:hover { color: var(--tint); }
+.bd-cust-h > button:hover .ico { color: var(--tint); transform: translateX(2px); }
+.bd-cust-h b { font-size: 17px; }
+.bd-wsec-h { gap: 8px; }
+.bd-wsec-h b { font-size: 15px; font-weight: 600; }
+.bd-wsec-h .bd-wsec-b { height: 30px; padding: 0 8px; gap: 4px; background: none; color: var(--label-3); font-size: 12.5px; }
+.bd-wsec-h .bd-wsec-b:hover, .bd-wsec-h .bd-wsec-b.on { background: var(--fill); color: var(--label); }
+.bd-wsec-fold { border: 0; background: none; }
+.bd-tile-new { display: flex; align-items: center; justify-content: center; gap: 6px; background: none; border: 1px dashed var(--sep); color: var(--label-3); font-size: 13px; }
+.bd-tile-new:hover { background: var(--fill-2); border-color: var(--tint); color: var(--tint); }
+@media (hover: hover) {
+  .bd-home-sections:not(.picking) .bd-ws-pick:not(:checked) { opacity: 0; transition: opacity .12s; }
+  .bd-home-sections:not(.picking) .bd-wsec-h:hover .bd-ws-pick, .bd-ws-pick:focus-visible { opacity: 1; }
+}
+@media (hover: none) { .bd-home-sections:not(.picking) .bd-ws-pick:not(:checked) { display: none; } }
+@media (max-width: 640px) {
+  .bd-home-toolbar-left { display: none; }
+  .bd-home-toolbar-right { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; }
+  .bd-home-toolbar-right .bd-home-search { grid-column: 1 / -1; grid-row: 2; }
+  .bd-home-cust { min-width: 0; }
+  .bd-home-cust select { max-width: none; width: 100%; min-width: 0; }
+}
+.bd-tile-b > span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-tile-b > span .ico { vertical-align: -1px; margin-right: 3px; }
+/* A workspace row stays on one line: its name gives way (ellipsis) so the buttons keep their place. */
+.bd-wsec-h { flex-wrap: nowrap; }
+.bd-wsec-h .bd-wsec-title { flex: 1; min-width: 0; }
+.bd-wsec-h .bd-wsec-title b, .bd-wsec-h .bd-wsec-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-wsec-h .bd-gap { display: none; }
+@media (max-width: 640px) {
+  .bd-home-cust > .ico { display: none; }
+  .bd-home-cust { padding-left: 6px; }
+  .bd-wsec-h .bd-wsec-b { padding: 0 6px; }
+  .bd-tiles .bd-tile-new { height: 44px; }
+}
+.bd-tile-b > span .ico { display: inline-block; }
+@media (max-width: 640px) { .home-ov th:nth-child(2), .home-ov td:nth-child(2) { display: none; } .home-ov thead th { letter-spacing: 0; } }

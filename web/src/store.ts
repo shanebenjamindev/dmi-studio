@@ -9,7 +9,7 @@ import type { AdminAccess, TeamRole, User, Page } from './types';
 
 /** Công việc: personal tasks, services and department boards; Drive holds the customers' folders;
  *  'tools': file conversion, open to everyone (it runs in the browser). */
-export type View = 'profile' | 'customers' | 'boards' | 'tasks' | 'projects' | 'workspace' | 'admin' | 'tools' | 'reports' | 'ads' | 'mail' | 'messages' | 'voice';
+export type View = 'home' | 'profile' | 'customers' | 'boards' | 'tasks' | 'projects' | 'workspace' | 'admin' | 'tools' | 'reports' | 'ads' | 'mail' | 'messages' | 'voice';
 export interface AppState {
   ready: boolean;
   /** Signed-in DMI Workspace account; null shows the sign-in page. */
@@ -32,9 +32,9 @@ export interface AppState {
   toast: { text: string; err?: boolean; id: number } | null;
 }
 
-export const HASH: Partial<Record<View, string>> = { profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', reports: '#reports', ads: '#ads', tools: '#tools', voice: '#voice', mail: '#mail', messages: '#messages', admin: '#admin' };
-/** The page an address opens (the reverse of HASH); any other address opens the boards. */
-const viewOfHash = (hash: string) => (Object.keys(HASH) as View[]).find((v) => hash.startsWith(HASH[v]!)) ?? 'boards';
+export const HASH: Partial<Record<View, string>> = { home: '#home', profile:'#profile', customers: '#customers', boards: '#boards', tasks: '#tasks', projects: '#projects', workspace: '#drive', reports: '#reports', ads: '#ads', tools: '#tools', voice: '#voice', mail: '#mail', messages: '#messages', admin: '#admin' };
+/** The page an address opens (the reverse of HASH); any other address opens Trang chủ. */
+const viewOfHash = (hash: string) => (Object.keys(HASH) as View[]).find((v) => hash.startsWith(HASH[v]!)) ?? 'home';
 
 let state: AppState = {
   ready: false, user: null, siteLock: null, setup: false, setupCode: false, googleSignin: false, view: viewOfHash(location.hash), roles: [], ffmpeg: false, pages: [], admin: null,
@@ -73,8 +73,8 @@ export function toast(text: string, err = false) {
 auth.onSignedOut = () => { if (state.user) setState({ user: null }); };
 auth.onLocked = (message) => { if (state.siteLock !== message) setState({ siteLock: message }); };
 export async function signedIn(user: User) {
-  // Signing in starts on all the boards, unless the address names one task or card (a link from a notification).
-  if (!/^#(tasks\/tk_|boards\/b_[^/]+\/c\/)/.test(location.hash)) { history.replaceState(null, '', '#boards'); setState({ view: 'boards' }); }
+  // Signing in starts on Trang chủ, unless the address names one task or card (a link from a notification).
+  if (!/^#(tasks\/tk_|boards\/b_[^/]+\/c\/)/.test(location.hash)) { history.replaceState(null, '', '#home'); setState({ view: 'home' }); }
   const m = await api.me().catch(() => null);
   if (accountPrefs(user.id, m?.prefs)) return;
   applyFlowColors(m?.flowColors);
@@ -102,7 +102,7 @@ export const mayAddCustomer = () =>
 /** Pages this account can open. */
 export function openPages(): View[] {
   // Khách hàng: everyone sees the customers they work on; Drive (their folders) only those given it.
-  const out: View[] = ['boards', 'tasks', 'projects', 'customers', 'profile'];
+  const out: View[] = ['home', 'boards', 'tasks', 'projects', 'customers', 'profile'];
   if (state.pages.includes('workspace')) out.push('workspace');
   // Báo cáo: every client report and, for those allowed, the Meta Ads numbers.
   out.push('reports');
@@ -127,7 +127,7 @@ export function fixView() {
 }
 export async function signOut() {
   await api.logout().catch(() => {});
-  setState({ user: null, view: 'boards' });
+  setState({ user: null, view: 'home' });
 }
 
 export async function init() {

@@ -59,6 +59,8 @@ function WsMark({ ws, size = 32 }: { ws: Workspace; size?: number }) {
 }
 const wsKind = (w: Workspace, me: User) => (w.kind === 'company' ? 'Workspace công ty'
   : w.ownerId === me.id ? (w.visibility === 'company' ? 'Của bạn · cả công ty xem được' : 'Của bạn · riêng tư') : `Được chia sẻ · ${LEVEL_NAME[w.level]}`);
+/** What a workspace row says of it besides its boards: only what is not the usual (its own, private brand workspace). */
+const wsNote = (w: Workspace, me: User) => (w.kind === 'company' ? '' : w.ownerId === me.id ? (w.visibility === 'company' ? 'Cả công ty xem được' : '') : `Được chia sẻ · ${LEVEL_NAME[w.level]}`);
 const LevelSelect = ({ value, onChange, label }: { value: Level; onChange: (l: Level) => void; label: string }) => (
   <select className="bd-level-sel" value={value} onChange={(e) => onChange(e.target.value as Level)} title={LEVEL_TIP[value]} aria-label={label}>
     {(['admin', 'normal', 'observer'] as Level[]).map((l) => <option key={l} value={l}>{LEVEL_NAME[l]}</option>)}
@@ -771,31 +773,15 @@ export function BoardsPage() {
               {boards === null ? <BrandLoading label="Đang tải…"/> : <>
                 <div className="bd-home-toolbar">
                   <div className="bd-home-toolbar-left">
-                    <div className="bd-route-nav bd-home-nav">
-                      <button disabled={trail.current.at === 0} onClick={() => step(-1)} title="Quay lại" aria-label="Quay lại"><Icon name="left" size={15} /></button>
-                      <button disabled={trail.current.at >= trail.current.items.length - 1} onClick={() => step(1)} title="Đi tới" aria-label="Đi tới"><Icon name="right" size={15} /></button>
-                    </div>
-                    <Icon name="boards" size={18} />
                     <Breadcrumb items={navCrumbs} className="bd-home-crumbs" />
-                    <span className="bd-home-count-chip">{spaces.length} workspace · {boards.length} board</span>
                   </div>
                   <div className="bd-home-toolbar-right">
-                    <div className="bd-home-views" role="tablist" aria-label="Chế độ xem workspace">
-                      {GLOBAL_WS_VIEWS.map((v) => (
-                        <button
-                          key={v.value}
-                          type="button"
-                          role="tab"
-                          aria-selected={globalView === v.value}
-                          className={'bd-home-view-btn' + (globalView === v.value ? ' active' : '')}
-                          onClick={() => setGlobalView(v.value)}
-                          title={v.label}
-                        >
-                          <Icon name={v.icon} size={15} />
-                          <span>{v.label}</span>
-                        </button>
-                      ))}
-                    </div>
+                    <label className="bd-home-cust" title="Chế độ xem">
+                      <Icon name={GLOBAL_WS_VIEWS.find((v) => v.value === globalView)?.icon || 'users'} size={14} />
+                      <select value={globalView} onChange={(e) => setGlobalView(e.target.value as GlobalWsView)} aria-label="Chế độ xem workspace">
+                        {GLOBAL_WS_VIEWS.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+                      </select>
+                    </label>
                     <label className="bd-home-cust" title="Xem theo khách hàng">
                       <Icon name="users" size={14} />
                       <select value={custOn ? custFilter : ''} onChange={(e) => setCustFilter(e.target.value)} aria-label="Khách hàng">
@@ -826,24 +812,21 @@ export function BoardsPage() {
 
                 {(globalView === 'sections' || globalView === 'table' || (globalView as string) === 'list') && (() => {
                   const pickable = filteredSpaces.filter(canRemoveWs), all = pickable.length > 0 && pickable.every((w) => pickedWs.includes(w.id));
-                  return pickable.length > 0 && <div className={'bd-ws-bulk' + (pickedWs.length ? ' on' : '')}>
-                    <label><input type="checkbox" checked={all} onChange={() => setPickedWs(all ? [] : pickable.map((w) => w.id))} />{`Chọn tất cả workspace bạn xoá được (${pickable.length})`}</label>
-                    {pickedWs.length > 0 && <>
-                      <span>{`Đã chọn ${pickedWs.length}`}</span>
-                      <button className="btn btn-sm cm-danger" onClick={() => void removeWorkspaces()}><Icon name="trash" size={14} />{`Xoá ${pickedWs.length} workspace`}</button>
-                      <button className="btn btn-sm btn-gray" onClick={() => setPickedWs([])}>Bỏ chọn</button>
-                    </>}
+                  return pickable.length > 0 && pickedWs.length > 0 && <div className="bd-ws-bulk on">
+                    <label><input type="checkbox" checked={all} onChange={() => setPickedWs(all ? [] : pickable.map((w) => w.id))} />{`Đã chọn ${pickedWs.length}/${pickable.length}`}</label>
+                    <span />
+                    <button className="btn btn-sm cm-danger" onClick={() => void removeWorkspaces()}><Icon name="trash" size={14} />{`Xoá ${pickedWs.length} workspace`}</button>
+                    <button className="btn btn-sm btn-gray" onClick={() => setPickedWs([])}>Bỏ chọn</button>
                   </div>;
                 })()}
 
                 {globalView === 'sections' && (
                   <>
                     {!q && boards.some((b) => b.starred) && <Tiles title="Board đã gắn sao" icon={<Icon name="star" size={16} />} list={boards.filter((b) => b.starred)} roles={roles} spaces={spaces} onOpen={go} onStar={star} onMore={moreOf} />}
-                    <h2 className="bd-home-h">Các workspace của bạn, theo khách hàng</h2>
-                    <div className="bd-home-sections">
+                    <div className={'bd-home-sections' + (pickedWs.length ? ' picking' : '')}>
                       {spacesByCustomer.map((g) => (
                         <section key={g.key} className="bd-cust-group" aria-label={g.name}>
-                          <CustomerHead group={g} count={`${g.items.length} workspace · ${filteredBoards.filter((b) => g.items.some((w) => w.id === b.workspaceId)).length} board`} />
+                          <CustomerHead group={g} />
                           {g.items.map((w) => (
                             <WorkspaceSection key={w.id} ws={w} me={me} roles={roles} boards={filteredBoards.filter((b) => b.workspaceId === w.id)} onOpen={go} onCard={peekCard} onTask={setPeekTask} onStar={star} onMore={moreOf}
                               onSettings={(w.ownerId === me.id || me.role === 'admin' || w.level === 'admin') ? (el) => setWsAct(wsAct?.w.id === w.id ? null : { w, el }) : undefined}
@@ -854,7 +837,6 @@ export function BoardsPage() {
                       ))}
                       {!filteredSpaces.length && <p className="note" style={{ textAlign: 'center', margin: '40px 0' }}>Không tìm thấy workspace hoặc board nào khớp với từ khoá.</p>}
                     </div>
-                    <button className="bd-ws-new" onClick={() => setNewWs(true)}><Icon name="plus" size={16} />Tạo workspace mới</button>
                   </>
                 )}
 
@@ -862,7 +844,7 @@ export function BoardsPage() {
                   <div className="bd-home-full-tiles">
                     {boardsByCustomer.map((g, i) => (
                       <section key={g.key} className="bd-cust-group" aria-label={g.name}>
-                        <CustomerHead group={g} count={`${g.items.length} board`} />
+                        <CustomerHead group={g} />
                         <Tiles title="" list={g.items} roles={roles} spaces={spaces} onOpen={go} onStar={star} onMore={moreOf}
                           onCreate={i === boardsByCustomer.length - 1 ? () => setCreating(ws?.level === 'observer' ? 'company' : ws?.id || 'company') : undefined} />
                       </section>
@@ -1050,17 +1032,15 @@ function WorkspaceSection({ ws, me, roles, boards, onOpen, onCard, onTask, onSta
         <WsMark ws={ws} size={30} />
         <div className="bd-wsec-title" onClick={toggleFolded} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFolded(); } }}>
           <b>{ws.name}</b>
-          <span>
-            {ws.kind === 'company' ? 'Workspace công ty' : 'Nhãn hàng'} · {wsKind(ws, me)} · {boards.length} board
-          </span>
+          <span>{[boards.length + ' board', wsNote(ws, me)].filter(Boolean).join(' · ')}</span>
         </div>
         <span className="bd-gap" />
-        <button className={'bd-wsec-b' + (viewEl ? ' on' : '')} onClick={(e) => setViewEl(viewEl ? null : e.currentTarget)} aria-expanded={!!viewEl} aria-label="Chọn chế độ xem" title="Chọn chế độ xem"><Icon name={current.icon} size={14} />{current.label}<Icon name="chevron" size={12} /></button>
-        <button className="bd-wsec-b" onClick={onPeople}><Icon name="users" size={14} />Thành viên ({ws.members})</button>
+        <button className={'bd-wsec-b' + (viewEl ? ' on' : '')} onClick={(e) => setViewEl(viewEl ? null : e.currentTarget)} aria-expanded={!!viewEl} aria-label={`Chế độ xem: ${current.label}`} title={`Chế độ xem: ${current.label}`}><Icon name={current.icon} size={15} /></button>
+        <button className="bd-wsec-b" onClick={onPeople} title="Thành viên" aria-label={`Thành viên (${ws.members})`}><Icon name="users" size={15} />{ws.members}</button>
         {onSettings && <button className="bd-wsec-b bd-wsec-more" onClick={(e) => onSettings(e.currentTarget)} aria-label={`Thao tác với workspace ${ws.name}`} title="Cài đặt, xoá workspace"><Icon name="more" size={15} /></button>}
       </div>
       {!folded && (
-        view === 'tiles' ? <Tiles title="Board của bạn" list={boards} roles={roles} onOpen={onOpen} onStar={onStar} onMore={onMore} onCreate={onCreate} small />
+        view === 'tiles' ? <Tiles list={boards} roles={roles} onOpen={onOpen} onStar={onStar} onMore={onMore} onCreate={onCreate} small />
           : view === 'list' ? <><BoardList boards={boards} bgOf={bg} onOpen={onOpen} onCard={onCard} />{onCreate && <button className="bd-wsec-b ws-new" onClick={onCreate}><Icon name="plus" size={14} />Tạo board mới</button>}</>
           : view === 'timeline' ? <WorkspaceTimeline wsId={ws.id} boards={boards} onCard={onCard} onTask={onTask} />
           : <ClientWork wsId={ws.id} client={ws.customerId ? { id: ws.customerId, name: ws.customerName || '' } : undefined} boards={boards} onCard={onCard} onTask={onTask} />
@@ -1124,14 +1104,11 @@ function byCustomer<T>(items: T[], idOf: (x: T) => string | null | undefined, na
   const rank = (g: CustomerGroup<T>) => (g.key === COMPANY_WS ? 2 : g.key === 'none' ? 1 : 0);
   return [...groups.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'vi'));
 }
-/** A customer's heading over its workspaces or boards, with a way to its page. */
-function CustomerHead({ group, count }: { group: CustomerGroup<unknown>; count: string }) {
+/** A customer's heading over its workspaces or boards; its name opens the customer's page. */
+function CustomerHead({ group }: { group: CustomerGroup<unknown> }) {
   return (
     <header className="bd-cust-h">
-      <span className="bd-cust-ico"><Icon name={group.id ? 'users' : group.key === COMPANY_WS ? 'boards' : 'info'} size={15} /></span>
-      <b>{group.name}</b>
-      <small>{count}</small>
-      {group.id && <button type="button" className="link" onClick={() => openLink(`#customers/${group.id}`)}>Mở khách hàng</button>}
+      {group.id ? <button type="button" onClick={() => openLink(`#customers/${group.id}`)} title="Mở khách hàng">{group.name}<Icon name="right" size={14} /></button> : <b>{group.name}</b>}
     </header>
   );
 }
@@ -1163,7 +1140,7 @@ function Tiles({ title, icon, list, roles, spaces, onOpen, onStar, onMore, onCre
             </div>
           );
         })}
-        {onCreate && <button className="bd-tile bd-tile-new" onClick={onCreate}>Tạo board mới</button>}
+        {onCreate && <button className="bd-tile bd-tile-new" onClick={onCreate}><Icon name="plus" size={15} />Tạo board mới</button>}
       </div>
     </section>
   );

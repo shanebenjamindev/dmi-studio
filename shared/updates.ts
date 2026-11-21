@@ -10,6 +10,15 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-21-5',
+    date: '21/11/2026',
+    items: [
+      { kind: 'new', vi: 'Có Trang chủ (biểu tượng ngôi nhà, mục đầu tiên bên trái): công việc cần làm, việc chờ bạn duyệt và tổng quan công việc của từng khách hàng trên một trang. Đăng nhập xong sẽ mở trang này.', en: 'New Home page (the house icon, first on the left): your tasks to do, tasks waiting for your review and an overview of each customer\'s work on one page. Signing in opens it.' },
+      { kind: 'fix', vi: 'Trên điện thoại, thanh dưới gọn lại còn Trang chủ, Workspace, Công việc, Nhắc việc và Thêm; tên các mục không còn xuống dòng hay lệch nhau. Khách hàng, Tin nhắn, Hộp thư… nằm trong Thêm.', en: 'On phones the bottom bar now holds Home, Workspace, Tasks, Reminders and More; names no longer wrap or sit unevenly. Customers, Messages, Mailbox… are under More.' },
+      { kind: 'fix', vi: 'Trang Workspace gọn hơn: chế độ xem gom vào một ô chọn, mỗi workspace chỉ còn các nút nhỏ (chế độ xem, thành viên, thêm), bấm tên khách hàng để mở khách hàng; ô chọn để xoá nhiều workspace chỉ hiện khi rê chuột vào dòng.', en: 'The Workspace page is tidier: views are in one picker, each workspace keeps only small buttons (view, members, more), click a customer\'s name to open it; the boxes for deleting several workspaces show only when you hover a row.' },
+    ],
+  },
+  {
     id: '2026-11-21-4',
     date: '21/11/2026',
     items: [

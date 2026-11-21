@@ -87,6 +87,7 @@ const P: Record<string, ReactNode> = {
   calendar: <><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></>,
   inbox: <><rect x="3.5" y="4" width="17" height="16" rx="2.5" /><path d="M3.5 13.5h4.8l1.4 2.5h4.6l1.4-2.5h4.8" /></>,
   boards: <><rect x="3.5" y="4" width="17" height="16" rx="2.5" /><path d="M9.5 4v16M15 4v10" /></>,
+  home: <path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19Z" />,
   collapse: <path d="M9 5 4 12l5 7M15 5l5 7-5 7" />,
   users: <><circle cx="9" cy="8.5" r="3.2" /><path d="M3 19.5a6 6 0 0 1 12 0M15.5 5.6a3.2 3.2 0 0 1 0 5.8M17.5 14a6 6 0 0 1 3.5 5.5" /></>,
   lock: <><rect x="5" y="10.5" width="14" height="10" rx="2" /><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3" /></>,

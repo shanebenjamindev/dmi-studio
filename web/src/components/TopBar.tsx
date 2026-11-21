@@ -21,7 +21,9 @@ import { langPref, setLang, type Lang } from '../i18n';
 const WORK: View[] = ['tasks', 'projects', 'workspace'];
 const REPORTS: View[] = ['reports', 'ads'];
 const TOOLS: View[] = ['tools', 'voice'];
-const NAV_ICON: Record<string, string> = { boards: 'boards', customers: 'users', work: 'checklist', reports: 'file', tools: 'wand', mail: 'mail', messages: 'messenger', admin: 'gear' };
+const NAV_ICON: Record<string, string> = { home: 'home', boards: 'boards', customers: 'users', work: 'checklist', reports: 'file', tools: 'wand', mail: 'mail', messages: 'messenger', admin: 'gear' };
+/** The sections the phone's bottom bar keeps. */
+const PRIMARY = ['home', 'boards', 'work'];
 const KEY: Record<string, string> = { work: 'dms.workView', reports: 'dms.reportsView', tools: 'dms.toolsView' };
 /** The section a page belongs to. */
 export const sectionOf = (v: View) => (WORK.includes(v) ? 'work' : REPORTS.includes(v) ? 'reports' : TOOLS.includes(v) ? 'tools' : v);
@@ -82,13 +84,13 @@ export function AppHeader() {
  *  signing in; it opens in a new tab. */
 const BOARDGAME_URL = '/boardgame/';
 /** Where each section's link goes when opened in a new tab (a click opens the page last used in it). */
-const SECTION_HASH: Record<string, string> = { boards: '#boards', customers: '#customers', work: '#tasks', reports: '#reports', tools: '#tools', mail: '#mail', messages: '#messages', admin: '#admin' };
+const SECTION_HASH: Record<string, string> = { home: '#home', boards: '#boards', customers: '#customers', work: '#tasks', reports: '#reports', tools: '#tools', mail: '#mail', messages: '#messages', admin: '#admin' };
 /** The sections, down the left side. */
 export function TopBar() {
   const view = useStore((s) => s.view);
   useStore((s) => s.pages); useStore((s) => s.admin); // re-render when access changes
   const open = openPages();
-  const items: [string, string][] = [['boards', 'Workspace'], ...(open.includes('customers') ? [['customers', 'Khách hàng'] as [string, string]] : []), ['work', 'Công việc'], ['messages', 'Tin nhắn'], ['mail', 'Hộp thư'],
+  const items: [string, string][] = [['home', 'Trang chủ'], ['boards', 'Workspace'], ...(open.includes('customers') ? [['customers', 'Khách hàng'] as [string, string]] : []), ['work', 'Công việc'], ['messages', 'Tin nhắn'], ['mail', 'Hộp thư'],
     ...(sectionPages('reports', open).length ? [['reports', 'Báo cáo'] as [string, string]] : []), ['tools', 'Tools'], ...(open.includes('admin') ? [['admin', 'Quản trị'] as [string, string]] : [])];
   const current = sectionOf(view);
   // A section opens on the page last used in it; choosing the open section again folds or unfolds its column.
@@ -97,6 +99,7 @@ export function TopBar() {
     if (t === 'reports') { openSub('reports'); return; }
     if (t === 'tools') { openSub('tools'); return; }
     if (t === 'customers') { goto('customers'); openLink('#customers'); return; }
+    if (t === 'home') { goto('home'); openLink('#home'); return; }
     if (t === 'boards') { goto('boards'); openLink('#boards'); return; }
     if (t === 'admin') { goto('admin'); openLink('#admin'); return; }
     if (t === 'mail') { goto('mail'); openLink('#mail'); return; }
@@ -106,8 +109,8 @@ export function TopBar() {
     try { last = localStorage.getItem(KEY[t]) as View | null; } catch { /* private mode */ }
     openSub(last && pages.includes(last) ? last : pages[0]);
   };
-  // On a phone the bottom bar keeps the first three sections and Nhắc việc; the rest open from "Thêm". Elsewhere they all
-  // sit down the rail as before (the "Thêm" box takes no room of its own there).
+  // On a phone the bottom bar keeps Trang chủ, Workspace, Công việc and Nhắc việc; the rest open from "Thêm". Elsewhere
+  // they all sit down the rail, those three first (the "Thêm" box takes no room of its own there).
   const [more, setMore] = useState(false), moreRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!more) return;
@@ -115,7 +118,7 @@ export function TopBar() {
     document.addEventListener('mousedown', off);
     return () => document.removeEventListener('mousedown', off);
   }, [more]);
-  const primary = items.slice(0, 3), rest = items.slice(3);
+  const primary = items.filter(([k]) => PRIMARY.includes(k)), rest = items.filter(([k]) => !PRIMARY.includes(k));
   // Links, so a section also opens in a new tab (Ctrl/Cmd+click, middle click); a plain click stays in the app.
   const link = ([key, label]: [string, string]) => (
     <a key={key} href={SECTION_HASH[key]} className="rail-item" aria-current={current === key ? 'page' : undefined} title={label}
