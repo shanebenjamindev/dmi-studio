@@ -11,11 +11,63 @@ import { RETENTION_DEFAULT, RETENTION_MIN } from '../audit';
 import * as G from '../google';
 import { need, changed, logAction } from './common';
 import { LOCK_MESSAGE, setSiteLock, siteLock } from '../site-lock';
+import { removeCardRecord } from '../work-sync';
 
 const BACKUPS = path.join(DATA_DIR, 'backups');
 const BACKUP_NAME = /^studio-\d{8}-\d{6}\.db$/;
 const n = async (sql: string, ...args: (string | number)[]) => Number((await get<any>(sql, ...args))?.n || 0);
 const canBackUp = !IS_CLOUDFLARE && !cloudDatabase;
+
+/** What Tệp và dung lượng › Dọn dẹp may clear. `args` gives the values for the `?` of `count` and `bytes` from the
+ *  cut-off in days (each `clear` statement takes as many of them as it has); `safe` ones are leftovers nobody reads any more (ticked by default). */
+type Cleanable = { key: string; label: string; hint: string; safe: boolean; count: string; bytes: string; clear: string[] | ((days: number) => Promise<number>); args: (days: number) => number[] };
+const ago = (days: number) => now() - days * 86400e3;
+const ARCHIVED = 'archived = 1 AND updated_at < ? AND id NOT IN (SELECT card_id FROM task_board_links)';
+const CLEANUP: Cleanable[] = [
+  { key: 'sessions', label: 'Phiên và mã đăng nhập hết hạn', hint: 'Phiên đã hết hạn, mã đặt lại mật khẩu và mã đăng nhập Google đã hết hạn. Không ảnh hưởng ai đang đăng nhập.', safe: true,
+    count: 'SELECT (SELECT COUNT(*) FROM sessions WHERE expires_at < ?) + (SELECT COUNT(*) FROM password_resets WHERE expires_at < ?) + (SELECT COUNT(*) FROM oauth_states WHERE expires_at < ?) + (SELECT COUNT(*) FROM login_attempts WHERE expires_at < ?) n',
+    bytes: 'SELECT (SELECT COUNT(*) * 120 FROM sessions WHERE expires_at < ?) + (SELECT COUNT(*) * 120 FROM password_resets WHERE expires_at < ?) + (SELECT COALESCE(SUM(LENGTH(redirect) + 120), 0) FROM oauth_states WHERE expires_at < ?) + (SELECT COUNT(*) * 60 FROM login_attempts WHERE expires_at < ?) n',
+    clear: ['DELETE FROM sessions WHERE expires_at < ?', 'DELETE FROM password_resets WHERE expires_at < ?', 'DELETE FROM oauth_states WHERE expires_at < ?', 'DELETE FROM login_attempts WHERE expires_at < ?'], args: () => [now(), now(), now(), now()] },
+  { key: 'audit', label: 'Nhật ký thao tác cũ', hint: 'Ai đã sửa gì, trước ngày chọn. Trang Nhật ký sẽ không còn các dòng này.', safe: true,
+    count: 'SELECT COUNT(*) n FROM audit_logs WHERE created_at < ?', bytes: "SELECT COALESCE(SUM(LENGTH(COALESCE(old_data,'')) + LENGTH(COALESCE(new_data,'')) + LENGTH(COALESCE(agent,'')) + LENGTH(COALESCE(path,'')) + 160), 0) n FROM audit_logs WHERE created_at < ?",
+    clear: ['DELETE FROM audit_logs WHERE created_at < ?'], args: (d) => [ago(d)] },
+  { key: 'logins', label: 'Lịch sử đăng nhập cũ', hint: 'Các lần đăng nhập (thành công và thất bại) trước ngày chọn.', safe: true,
+    count: 'SELECT COUNT(*) n FROM login_logs WHERE created_at < ?', bytes: "SELECT COALESCE(SUM(LENGTH(COALESCE(email,'')) + LENGTH(COALESCE(agent,'')) + LENGTH(COALESCE(reason,'')) + 120), 0) n FROM login_logs WHERE created_at < ?",
+    clear: ['DELETE FROM login_logs WHERE created_at < ?'], args: (d) => [ago(d)] },
+  { key: 'notifications', label: 'Thông báo cũ', hint: 'Thông báo đã đọc trước ngày chọn, và thông báo chưa đọc cũ hơn thêm 30 ngày.', safe: true,
+    count: 'SELECT COUNT(*) n FROM notifications WHERE (read_at IS NOT NULL AND created_at < ?) OR created_at < ?', bytes: 'SELECT COALESCE(SUM(LENGTH(payload) + 120), 0) n FROM notifications WHERE (read_at IS NOT NULL AND created_at < ?) OR created_at < ?',
+    clear: ['DELETE FROM notifications WHERE (read_at IS NOT NULL AND created_at < ?) OR created_at < ?'], args: (d) => [ago(d), ago(d + 30)] },
+  { key: 'mail', label: 'Email đã gửi', hint: 'Email thông báo đã gửi xong, bị huỷ hoặc gửi lỗi trước ngày chọn. Email đang chờ gửi được giữ.', safe: true,
+    count: "SELECT COUNT(*) n FROM mail_outbox WHERE state <> 'pending' AND created_at < ?", bytes: "SELECT COALESCE(SUM(LENGTH(payload) + LENGTH(COALESCE(error,'')) + 120), 0) n FROM mail_outbox WHERE state <> 'pending' AND created_at < ?",
+    clear: ["DELETE FROM mail_outbox WHERE state <> 'pending' AND created_at < ?"], args: (d) => [ago(d)] },
+  { key: 'sent', label: 'Lịch sử thông báo đã gửi', hint: 'Các thông báo quản trị gửi đi (Thông báo › Đã gửi) trước ngày chọn.', safe: false,
+    count: 'SELECT COUNT(*) n FROM notification_logs WHERE created_at < ?', bytes: 'SELECT COALESCE(SUM(LENGTH(title) + LENGTH(body) + LENGTH(link) + LENGTH(audience) + 120), 0) n FROM notification_logs WHERE created_at < ?',
+    clear: ['DELETE FROM notification_logs WHERE created_at < ?'], args: (d) => [ago(d)] },
+  { key: 'automation', label: 'Lịch sử chạy tự động hoá', hint: 'Các lần chạy của luật tự động hoá trước ngày chọn. Số lần chạy trên từng node vẫn giữ.', safe: true,
+    count: 'SELECT COUNT(*) n FROM automation_runs WHERE at < ?', bytes: 'SELECT COALESCE(SUM(LENGTH(message) + 120), 0) n FROM automation_runs WHERE at < ?',
+    clear: ['DELETE FROM automation_runs WHERE at < ?'], args: (d) => [ago(d)] },
+  { key: 'orphanSheets', label: 'Bảng tính mồ côi', hint: 'Phần bảng tính của những lần nhập đã bị xoá.', safe: true,
+    count: 'SELECT COUNT(*) n FROM task_import_sheet_parts WHERE import_id NOT IN (SELECT id FROM task_imports)', bytes: 'SELECT COALESCE(SUM(LENGTH(data)), 0) n FROM task_import_sheet_parts WHERE import_id NOT IN (SELECT id FROM task_imports)',
+    clear: ['DELETE FROM task_import_sheet_parts WHERE import_id NOT IN (SELECT id FROM task_imports)', 'DELETE FROM task_import_sheets WHERE import_id NOT IN (SELECT id FROM task_imports)'], args: () => [] },
+  { key: 'sheets', label: 'Bảng tính gốc của lần nhập cũ', hint: 'Bản sao file Excel/CSV đã nhập trước ngày chọn. Công việc đã tạo vẫn giữ, chỉ không xem lại được bảng gốc.', safe: false,
+    count: 'SELECT COUNT(*) n FROM task_import_sheet_parts WHERE import_id IN (SELECT id FROM task_imports WHERE created_at < ?)', bytes: 'SELECT COALESCE(SUM(LENGTH(data)), 0) n FROM task_import_sheet_parts WHERE import_id IN (SELECT id FROM task_imports WHERE created_at < ?)',
+    clear: ['DELETE FROM task_import_sheet_parts WHERE import_id IN (SELECT id FROM task_imports WHERE created_at < ?)', 'DELETE FROM task_import_sheets WHERE import_id IN (SELECT id FROM task_imports WHERE created_at < ?)'], args: (d) => [ago(d)] },
+  { key: 'games', label: 'Lịch sử ván Board Game', hint: 'Kết quả các ván Board Game đã chơi trước ngày chọn.', safe: false,
+    count: 'SELECT COUNT(*) n FROM bg_games WHERE created_at < ?', bytes: 'SELECT COALESCE(SUM(LENGTH(text) + LENGTH(results) + 80), 0) n FROM bg_games WHERE created_at < ?',
+    clear: ['DELETE FROM bg_games WHERE created_at < ?'], args: (d) => [ago(d)] },
+  { key: 'archivedCards', label: 'Thẻ đã lưu trữ', hint: 'Xoá hẳn các thẻ board đã lưu trữ trước ngày chọn (kèm bình luận, checklist, tệp đính kèm của thẻ). Thẻ gắn với một công việc được giữ. Không khôi phục được.', safe: false,
+    count: `SELECT COUNT(*) n FROM board_cards WHERE ${ARCHIVED}`, bytes: `SELECT COALESCE(SUM(LENGTH(title) + LENGTH(COALESCE(description,'')) + 350), 0) n FROM board_cards WHERE ${ARCHIVED}`,
+    clear: async (d) => { const cards = await all<{ id: string }>(`SELECT id FROM board_cards WHERE ${ARCHIVED}`, ago(d)); for (const c of cards) await removeCardRecord(c.id); return cards.length; }, args: (d) => [ago(d)] },
+];
+/** Each kind of leftover with its count and about how many bytes it holds (the args repeat for every `?`). */
+async function cleanables(days: number) {
+  const out: { key: string; label: string; hint: string; safe: boolean; count: number; bytes: number }[] = [];
+  for (const i of CLEANUP) {
+    const args = i.args(days), count = await n(i.count, ...args).catch(() => 0), bytes = count ? await n(i.bytes, ...args).catch(() => 0) : 0;
+    out.push({ key: i.key, label: i.label, hint: i.hint, safe: i.safe, count, bytes });
+  }
+  return out;
+}
 
 export function registerSystem(api: Router) {
   api.get('/api/admin/system', async (req, res) => {
@@ -369,25 +421,7 @@ export function registerSystem(api: Router) {
     } catch {
       integrity = 'D1 Active';
     }
-    const days = 30;
-    const cutoff = now() - days * 86400e3;
-    const safeN = async (sql: string, ...args: any[]) => { try { return await n(sql, ...args); } catch { return 0; } };
-    const expiredSessions = await safeN('SELECT COUNT(*) n FROM sessions WHERE expires_at < ?', now());
-    const oldAuditLogs = await safeN('SELECT COUNT(*) n FROM audit_logs WHERE created_at < ?', cutoff);
-    const oldLoginLogs = await safeN('SELECT COUNT(*) n FROM login_logs WHERE created_at < ?', cutoff);
-    const oldNotifications = await safeN('SELECT COUNT(*) n FROM notifications WHERE (read = 1 AND created_at < ?) OR created_at < ?', cutoff, now() - 60 * 86400e3);
-    const orphanedSheetParts = await safeN('SELECT COUNT(*) n FROM task_import_sheet_parts WHERE import_id NOT IN (SELECT id FROM task_imports)');
-    const archivedCards = await safeN('SELECT COUNT(*) n FROM board_cards WHERE archived = 1');
-
-    const cleanable = {
-      expiredSessions,
-      oldAuditLogs,
-      oldLoginLogs,
-      oldNotifications,
-      orphanedSheetParts,
-      archivedCards,
-      totalGarbage: expiredSessions + oldAuditLogs + oldLoginLogs + oldNotifications + orphanedSheetParts,
-    };
+    const cleanable = { totalGarbage: (await cleanables(30)).filter((i) => i.safe).reduce((x, i) => x + i.count, 0) };
 
     const overview = {
       totalUsedBytes: database + totalDriveBytes + serverFilesBytes + WORKERS_ASSETS_BYTES,
@@ -455,6 +489,7 @@ export function registerSystem(api: Router) {
     json(res, 200, payload);
   });
 
+  // What may be cleared, each with how many rows and about how much room it holds, for a cut-off of `days` days.
   api.get('/api/admin/storage/check', async (req, res) => {
     await need(req, 'settings.view');
     let integrity = 'OK';
@@ -464,81 +499,33 @@ export function registerSystem(api: Router) {
     } catch {
       integrity = 'D1 Active';
     }
-    const days = 30;
-    const cutoff = now() - days * 86400e3;
-    const safeN = async (sql: string, ...args: any[]) => { try { return await n(sql, ...args); } catch { return 0; } };
-    const expiredSessions = await safeN('SELECT COUNT(*) n FROM sessions WHERE expires_at < ?', now());
-    const oldAuditLogs = await safeN('SELECT COUNT(*) n FROM audit_logs WHERE created_at < ?', cutoff);
-    const oldLoginLogs = await safeN('SELECT COUNT(*) n FROM login_logs WHERE created_at < ?', cutoff);
-    const oldNotifications = await safeN('SELECT COUNT(*) n FROM notifications WHERE (read = 1 AND created_at < ?) OR created_at < ?', cutoff, now() - 60 * 86400e3);
-    const orphanedSheetParts = await safeN('SELECT COUNT(*) n FROM task_import_sheet_parts WHERE import_id NOT IN (SELECT id FROM task_imports)');
-    const archivedCards = await safeN('SELECT COUNT(*) n FROM board_cards WHERE archived = 1');
-
-    json(res, 200, {
-      integrity,
-      expiredSessions,
-      oldAuditLogs,
-      oldLoginLogs,
-      oldNotifications,
-      orphanedSheetParts,
-      archivedCards,
-      totalGarbage: expiredSessions + oldAuditLogs + oldLoginLogs + oldNotifications + orphanedSheetParts,
-    });
+    const days = Math.max(0, Math.min(3650, Number(new URL(req.url || '/', 'http://localhost').searchParams.get('days') ?? 30)));
+    json(res, 200, { integrity, days, items: await cleanables(days) });
   });
 
   api.post('/api/admin/storage/clean', async (req, res) => {
     const c = await need(req, 'settings.update');
     const b = await readJson(req);
     const days = Math.max(0, Math.min(3650, Number(b.days ?? 30)));
-    const cutoff = now() - days * 86400e3;
-
-    let deletedSessions = 0;
-    let deletedLogs = 0;
-    let deletedNotifs = 0;
-    let deletedSheets = 0;
-    let deletedCards = 0;
-
-    if (b.cleanSessions !== false) {
-      const r = await run('DELETE FROM sessions WHERE expires_at < ?', now()).catch(() => ({ changes: 0 }));
-      deletedSessions = r.changes || 0;
+    const keys: string[] = Array.isArray(b.keys) ? b.keys.map(String) : [];
+    const cleaned: Record<string, number> = {};
+    for (const item of CLEANUP) {
+      if (!keys.includes(item.key)) continue;
+      let changes = 0;
+      if (typeof item.clear === 'function') changes = await item.clear(days);
+      else for (const sql of item.clear) changes += (await run(sql, ...item.args(days).slice(0, sql.split('?').length - 1))).changes || 0;
+      cleaned[item.key] = changes;
     }
-    if (b.cleanLogs) {
-      const r1 = await run('DELETE FROM audit_logs WHERE created_at < ?', cutoff).catch(() => ({ changes: 0 }));
-      const r2 = await run('DELETE FROM login_logs WHERE created_at < ?', cutoff).catch(() => ({ changes: 0 }));
-      deletedLogs = (r1.changes || 0) + (r2.changes || 0);
-    }
-    if (b.cleanNotifications) {
-      const r = await run('DELETE FROM notifications WHERE (read = 1 AND created_at < ?) OR created_at < ?', cutoff, cutoff - 30 * 86400e3).catch(() => ({ changes: 0 }));
-      deletedNotifs = r.changes || 0;
-    }
-    if (b.cleanSheetParts) {
-      const r = await run('DELETE FROM task_import_sheet_parts WHERE import_id NOT IN (SELECT id FROM task_imports)').catch(() => ({ changes: 0 }));
-      deletedSheets = r.changes || 0;
-    }
-    if (b.cleanArchivedCards) {
-      const r = await run('DELETE FROM board_cards WHERE archived = 1 AND (due_at IS NULL OR due_at < ?)', cutoff).catch(() => ({ changes: 0 }));
-      deletedCards = r.changes || 0;
-    }
-
     if (b.optimize) {
       try {
         if (!cloudDatabase) await run('VACUUM');
         else await run('PRAGMA optimize');
       } catch {}
     }
-
-    await logAction(c, 'Dọn dẹp cơ sở dữ liệu', `Xoá ${deletedLogs} nhật ký, ${deletedSessions} phiên, ${deletedNotifs} thông báo`, 'system');
-    json(res, 200, {
-      ok: true,
-      cleaned: {
-        logs: deletedLogs,
-        sessions: deletedSessions,
-        notifications: deletedNotifs,
-        sheets: deletedSheets,
-        cards: deletedCards,
-        total: deletedLogs + deletedSessions + deletedNotifs + deletedSheets + deletedCards,
-      },
-    });
+    const total = Object.values(cleaned).reduce((x, y) => x + y, 0);
+    lastAuditCache = null;
+    await logAction(c, 'Dọn dẹp cơ sở dữ liệu', CLEANUP.filter((i) => i.key in cleaned).map((i) => `${i.label}: ${cleaned[i.key]}`).join(', ') || 'Tối ưu database', 'system');
+    json(res, 200, { ok: true, cleaned, total });
   });
   api.get('/api/admin/backups', async (req, res) => {
     await need(req, 'settings.view');

@@ -90,50 +90,15 @@ export function Storage() {
   const [tableSort, setTableSort] = useState<'bytes' | 'count' | 'name' | 'lastUpdated'>('bytes');
   const [tableReverse, setTableReverse] = useState(false);
 
-  // Maintenance state
-  const [days, setDays] = useState(30);
-  const [cleanLogs, setCleanLogs] = useState(true);
-  const [cleanSessions, setCleanSessions] = useState(true);
-  const [cleanNotifs, setCleanNotifs] = useState(true);
-  const [cleanSheets, setCleanSheets] = useState(true);
-  const [cleanCards, setCleanCards] = useState(false);
-  const [optimize, setOptimize] = useState(true);
-  const [cleanBusy, setCleanBusy] = useState(false);
-
   const load = useLoad(() => admin.storage(), []);
-  const loadCheck = useLoad(() => admin.storageCheck(), []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
       const freshData = await admin.storage(true);
       load.setData(freshData);
-      await loadCheck.reload();
     } catch {}
     setRefreshing(false);
-  };
-
-  const handleClean = async () => {
-    if (!editable) return;
-    const timeLabel = days === 0 ? 'toàn bộ thời gian' : `cũ hơn ${days} ngày`;
-    if (!await askConfirm(`Bạn có chắc chắn muốn dọn dẹp các mục dữ liệu rác ${timeLabel} và tối ưu database?`)) return;
-
-    setCleanBusy(true);
-    await act(async () => {
-      const res = await admin.storageClean({
-        days,
-        cleanLogs,
-        cleanSessions,
-        cleanNotifications: cleanNotifs,
-        cleanSheetParts: cleanSheets,
-        cleanArchivedCards: cleanCards,
-        optimize,
-      });
-      return res;
-    }, 'Đã dọn dẹp và tối ưu database thành công', async () => {
-      await Promise.all([load.reload(), loadCheck.reload()]);
-    });
-    setCleanBusy(false);
   };
 
   return (
@@ -286,7 +251,7 @@ export function Storage() {
                   onClick={() => setCurrentTab('cleanup')}
                 >
                   <Icon name="trash" size={15} />
-                  <span>Dọn dẹp & Tối ưu ({fmtNum(d.cleanable?.totalGarbage || loadCheck.data?.totalGarbage || 0)} mục rác)</span>
+                  <span>Dọn dẹp & Tối ưu ({fmtNum(d.cleanable?.totalGarbage || 0)} mục rác)</span>
                 </button>
               </div>
             </div>
@@ -628,98 +593,58 @@ export function Storage() {
               </div>
             )}
 
-            {/* TAB 4: Dọn dẹp rác & Tối ưu hoá */}
-            {currentTab === 'cleanup' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                <Section title="Kiểm tra & Dọn dẹp rác Database">
-                  {loadCheck.data ? (
-                    <div className="ax-card ax-form" style={{ gap: 14 }}>
-                      <dl className="ax-facts" style={{ marginBottom: 4 }}>
-                        <dt>Tính toàn vẹn</dt>
-                        <dd><Badge tone={loadCheck.data.integrity === 'OK' || loadCheck.data.integrity === 'D1 Active' ? 'ok' : 'warn'}>{loadCheck.data.integrity}</Badge></dd>
-                        <dt>Phiên hết hạn</dt>
-                        <dd><b>{fmtNum(loadCheck.data.expiredSessions)}</b> phiên</dd>
-                        <dt>Nhật ký hệ thống cũ</dt>
-                        <dd><b>{fmtNum(loadCheck.data.oldAuditLogs + loadCheck.data.oldLoginLogs)}</b> mục ({fmtNum(loadCheck.data.oldAuditLogs)} thao tác, {fmtNum(loadCheck.data.oldLoginLogs)} đăng nhập)</dd>
-                        <dt>Thông báo đã đọc</dt>
-                        <dd><b>{fmtNum(loadCheck.data.oldNotifications)}</b> thông báo</dd>
-                        <dt>Bảng tính mồ côi</dt>
-                        <dd><b>{fmtNum(loadCheck.data.orphanedSheetParts)}</b> phần file tạm</dd>
-                        <dt>Thẻ đã lưu trữ</dt>
-                        <dd><b>{fmtNum(loadCheck.data.archivedCards)}</b> thẻ</dd>
-                      </dl>
-
-                      <Field label="Khoảng thời gian dọn dẹp" hint="Áp dụng cho nhật ký hệ thống, phiên đăng nhập, thông báo và thẻ lưu trữ.">
-                        <select className="bk-in" value={days} onChange={(e) => setDays(Number(e.target.value))}>
-                          <option value={7}>Cũ hơn 7 ngày</option>
-                          <option value={30}>Cũ hơn 30 ngày (Khuyến nghị)</option>
-                          <option value={90}>Cũ hơn 90 ngày</option>
-                          <option value={0}>Xoá tất cả log & rác</option>
-                        </select>
-                      </Field>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <label className="bk-check">
-                          <input type="checkbox" checked={cleanLogs} onChange={(e) => setCleanLogs(e.target.checked)} />
-                          Xoá nhật ký thao tác & lịch sử đăng nhập cũ
-                        </label>
-                        <label className="bk-check">
-                          <input type="checkbox" checked={cleanSessions} onChange={(e) => setCleanSessions(e.target.checked)} />
-                          Dọn dẹp phiên đăng nhập đã hết hạn
-                        </label>
-                        <label className="bk-check">
-                          <input type="checkbox" checked={cleanNotifs} onChange={(e) => setCleanNotifs(e.target.checked)} />
-                          Dọn thông báo hệ thống cũ đã đọc
-                        </label>
-                        <label className="bk-check">
-                          <input type="checkbox" checked={cleanSheets} onChange={(e) => setCleanSheets(e.target.checked)} />
-                          Dọn các phần file tạm bảng tính mồ côi
-                        </label>
-                        <label className="bk-check">
-                          <input type="checkbox" checked={cleanCards} onChange={(e) => setCleanCards(e.target.checked)} />
-                          Xoá vĩnh viễn thẻ công việc đã lưu trữ (Archived cards)
-                        </label>
-                        <label className="bk-check">
-                          <input type="checkbox" checked={optimize} onChange={(e) => setOptimize(e.target.checked)} />
-                          Tối ưu hoá & giải phóng dung lượng (VACUUM / PRAGMA optimize)
-                        </label>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-                        {editable ? (
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-sm"
-                            disabled={cleanBusy || (!cleanLogs && !cleanSessions && !cleanNotifs && !cleanSheets && !cleanCards && !optimize)}
-                            onClick={handleClean}
-                          >
-                            <Icon name="trash" size={14} />
-                            <span>{cleanBusy ? 'Đang dọn dẹp…' : 'Dọn dẹp ngay'}</span>
-                          </button>
-                        ) : (
-                          <p className="note" style={{ margin: 0 }}>Cần quyền "Cấu hình hệ thống · Sửa" để dọn dẹp database.</p>
-                        )}
-                        <button
-                          type="button"
-                          className="btn btn-gray btn-sm"
-                          disabled={loadCheck.loading || cleanBusy}
-                          onClick={() => void loadCheck.reload()}
-                        >
-                          <Icon name="refresh" size={13} />
-                          <span>Kiểm tra rác</span>
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="note">Đang kiểm tra rác hệ thống…</p>
-                  )}
-                </Section>
-              </div>
-            )}
+            {currentTab === 'cleanup' && <Cleanup editable={editable} onCleaned={() => void handleRefresh()} />}
           </div>
         );
       }}</Async>
     </>
+  );
+}
+
+/** Dọn dẹp: every kind of leftover with how many rows and about how much room it takes, for a chosen age. Leftovers
+ *  nobody reads any more are ticked to begin with; history people may still want is left for the admin to tick. */
+function Cleanup({ editable, onCleaned }: { editable: boolean; onCleaned: () => void }) {
+  const [days, setDays] = useState(30);
+  const load = useLoad(() => admin.storageCheck(days), [days]);
+  const [picked, setPicked] = useState<Set<string> | null>(null);
+  const [optimize, setOptimize] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const items: { key: string; label: string; hint: string; safe: boolean; count: number; bytes: number }[] = load.data?.items || [];
+  const on = picked || new Set(items.filter((i) => i.safe && i.count).map((i) => i.key));
+  const chosen = items.filter((i) => on.has(i.key) && i.count);
+  const rows = chosen.reduce((x, i) => x + i.count, 0), bytes = chosen.reduce((x, i) => x + i.bytes, 0);
+  const flip = (key: string) => { const next = new Set(on); if (next.has(key)) next.delete(key); else next.add(key); setPicked(next); };
+  const clean = async () => {
+    const when = days === 0 ? 'mọi thời điểm' : `cũ hơn ${days} ngày`;
+    if (chosen.length && !await askConfirm(`Xoá ${fmtNum(rows)} mục (${when}, khoảng ${fmtBytes(bytes)}): ${chosen.map((i) => i.label.toLowerCase()).join(', ')}? Không khôi phục được.`)) return;
+    setBusy(true);
+    await act(() => admin.storageClean({ days, keys: chosen.map((i) => i.key), optimize }), chosen.length ? 'Đã dọn dẹp' : 'Đã tối ưu database', async () => { setPicked(null); await load.reload(); onCleaned(); });
+    setBusy(false);
+  };
+  return (
+    <Section title="Dọn dẹp dữ liệu cũ" actions={<>
+      <select className="bk-in cl-days" value={days} onChange={(e) => { setDays(Number(e.target.value)); setPicked(null); }} aria-label="Cũ hơn">
+        <option value={7}>Cũ hơn 7 ngày</option><option value={30}>Cũ hơn 30 ngày</option><option value={90}>Cũ hơn 90 ngày</option><option value={180}>Cũ hơn 180 ngày</option><option value={365}>Cũ hơn 1 năm</option><option value={0}>Mọi thời điểm</option>
+      </select>
+      <button type="button" className="btn btn-gray btn-sm" disabled={load.loading} onClick={() => void load.reload()}><Icon name="refresh" size={13} />Kiểm tra lại</button>
+    </>}>
+      <div className="ax-card flush">
+        <Table rows={items.map((i) => ({ ...i, id: i.key }))} empty={<Empty icon="check" title={load.loading ? 'Đang kiểm tra…' : 'Không có gì để dọn'} />} onRow={editable ? (i) => i.count && flip(i.key) : undefined} cols={[
+          { key: 'pick', label: '', width: '36px', render: (i) => <input type="checkbox" checked={on.has(i.key) && !!i.count} disabled={!editable || !i.count} onChange={() => flip(i.key)} onClick={(e) => e.stopPropagation()} aria-label={i.label} /> },
+          { key: 'label', label: 'Dữ liệu', render: (i) => <div className="cl-item"><b>{i.label}{!i.safe && <span className="cl-warn">cân nhắc</span>}</b><small>{i.hint}</small></div> },
+          { key: 'count', label: 'Số mục', align: 'right', render: (i) => i.count ? fmtNum(i.count) : <span className="cl-zero">0</span> },
+          { key: 'bytes', label: 'Dung lượng', align: 'right', render: (i) => i.count ? <b>{fmtBytes(i.bytes)}</b> : <span className="cl-zero">—</span> },
+        ]} />
+      </div>
+      <div className="cl-foot">
+        <label className="bk-check"><input type="checkbox" checked={optimize} disabled={!editable} onChange={(e) => setOptimize(e.target.checked)} />Tối ưu database sau khi dọn (thu hồi chỗ trống)</label>
+        <span className="cl-sum">{chosen.length ? <>Đã chọn <b>{fmtNum(rows)}</b> mục · khoảng <b>{fmtBytes(bytes)}</b></> : 'Chưa chọn mục nào'}</span>
+        {editable
+          ? <button type="button" className="btn btn-primary btn-sm" disabled={busy || (!chosen.length && !optimize)} onClick={clean}><Icon name="trash" size={14} />{busy ? 'Đang dọn…' : chosen.length ? 'Dọn các mục đã chọn' : 'Chỉ tối ưu'}</button>
+          : <p className="note" style={{ margin: 0 }}>Cần quyền "Cấu hình hệ thống · Sửa" để dọn dẹp.</p>}
+      </div>
+      <p className="note">Dung lượng là ước tính theo độ dài dữ liệu. Công việc, khách hàng, board, tin nhắn và tệp trên Google Drive không bị xoá ở đây.</p>
+    </Section>
   );
 }
 

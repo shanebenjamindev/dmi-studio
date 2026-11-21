@@ -173,7 +173,7 @@ export const admin = {
   settings: () => req<{ logRetentionDays: number; siteUrl: string; retentionMin: number; taskWorkspaceAuto: boolean }>('GET', '/api/admin/settings'),
   saveSettings: (b: Partial<{ logRetentionDays: number; siteUrl: string; taskWorkspaceAuto: boolean }>) => req<{ logRetentionDays: number; siteUrl: string; taskWorkspaceAuto: boolean }>('PUT', '/api/admin/settings', b),
   storage: (refresh?: boolean) => req<any>('GET', `/api/admin/storage${refresh ? '?refresh=true' : ''}`),
-  storageCheck: () => req<any>('GET', '/api/admin/storage/check'),
+  storageCheck: (days = 30) => req<any>('GET', `/api/admin/storage/check?days=${days}`),
   storageClean: (b: any) => req<any>('POST', '/api/admin/storage/clean', b),
   hosting: (refresh?: boolean) => req<any>('GET', `/api/admin/hosting${refresh ? '?refresh=1' : ''}`),
   sql: (b: { sql: string; database?: string; allowWrite?: boolean }) => req<any>('POST', '/api/admin/sql', b),

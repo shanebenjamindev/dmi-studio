@@ -10,6 +10,13 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-21-9',
+    date: '21/11/2026',
+    items: [
+      { kind: 'new', vi: 'Quản trị › Cấu hình hệ thống › Tệp và dung lượng › Dọn dẹp: xem từng loại dữ liệu cũ (nhật ký, lịch sử đăng nhập, thông báo, email đã gửi, lịch sử tự động hoá, bảng tính đã nhập, ván Board Game, thẻ đã lưu trữ…) với số mục và dung lượng, chọn khoảng thời gian, tick những gì muốn dọn rồi bấm một lần. Dọn thông báo cũ nay hoạt động đúng.', en: 'Admin › System settings › Files and storage › Clean up: see each kind of old data (logs, sign-in history, notifications, sent emails, automation history, imported sheets, Board Game rounds, archived cards…) with its count and size, pick an age, tick what to clear and clean in one go. Clearing old notifications now works.' },
+    ],
+  },
+  {
     id: '2026-11-21-8',
     date: '21/11/2026',
     items: [
