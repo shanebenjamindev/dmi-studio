@@ -610,17 +610,22 @@ body.salem-room #app > * { pointer-events: auto; }
 .pack-side { position: fixed; z-index: 6; left: 16px; bottom: 16px; width: 300px; padding: 10px 12px; border-radius: var(--radius); background: rgba(33, 31, 36, .95); border: 2px solid #5d1717; box-shadow: 0 10px 28px rgba(0, 0, 0, .5); }
 .pack-side .board h3 { margin-bottom: 6px; font-size: 1.1rem; }
 .pack-side .pack-msgs { max-height: 220px; }
-/* Lớp phủ lượt đêm của vai mình */
-.turn-cover .rc-card { width: min(380px, 100%); gap: 8px; }
-.turn-cover .role-art { width: 84px; }
-.turn-cover .rc-card > p { margin: 0; }
-.turn-cover .tc-info { width: 100%; padding: 8px 10px; border-radius: 8px; background: rgba(42, 29, 20, .1); font-size: .88rem; text-align: left; }
+/* Lớp phủ lượt đêm của vai mình: đầu thẻ nhỏ cho vai, mỗi chức năng là một nút riêng */
+.turn-cover { align-content: center; gap: 14px; }
+.turn-cover .tc-head { display: flex; align-items: center; gap: 12px; padding: 8px 16px 8px 8px; border-radius: 999px; background: rgba(33, 31, 36, .92); border: 2px solid #30241F; color: var(--text); animation: rc-flip .35s ease-out both; }
+.turn-cover .tc-head .role-art { width: 48px; margin: 0; border-radius: 50%; aspect-ratio: 1; }
+.turn-cover .tc-head .rc-name { font: 800 1.5rem/1 "Grenze Gotisch", Georgia, serif; }
+.turn-cover .tc-head span { font-size: .8rem; color: var(--muted); }
+.turn-cover .tc-info { width: min(420px, 100%); padding: 8px 12px; border-radius: 10px; background: rgba(33, 31, 36, .88); color: var(--text); font-size: .88rem; text-align: center; }
 .turn-cover .tc-info p { margin: 2px 0; }
-.turn-cover .tc-info .ios { color: var(--ink); }
-.turn-cover .tc-fns { width: 100%; display: flex; flex-direction: column; gap: 8px; }
-body.salem .turn-cover .btn.blood { background: #8F2929; border-color: #5d1717; color: #fff; }
-body.salem .turn-cover .btn:disabled { opacity: .55; }
-.turn-cover .link { color: #6b5638; }
+.turn-cover .tc-fns { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; max-width: 560px; }
+.turn-cover .tc-fn { width: 128px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 10px 12px; border-radius: 16px; border: 2px solid #8a7550; background: var(--paper); color: var(--ink); font: 800 1rem/1.2 var(--font); cursor: pointer; box-shadow: inset 0 0 18px rgba(120, 90, 40, .3), 0 8px 20px rgba(0, 0, 0, .5); animation: rc-flip .35s ease-out both; transition: transform .12s; }
+.turn-cover .tc-fn:hover { transform: translateY(-3px); }
+.turn-cover .tc-fn:active { transform: scale(.96); }
+.turn-cover .tc-fn.hot { border-color: #8F2929; box-shadow: inset 0 0 18px rgba(143, 41, 41, .25), 0 8px 20px rgba(0, 0, 0, .5); }
+.turn-cover .tc-fn.idle { background: #30241F; color: var(--text); border-color: #1c1512; }
+.turn-cover .tc-icon { width: 56px; height: 56px; display: grid; place-items: center; font-size: 2.2rem; }
+.turn-cover .tc-icon svg { width: 100%; height: 100%; overflow: visible; }
 /* Chat ban đêm của bầy Sói */
 .pack .pack-msgs { display: flex; flex-direction: column; gap: 6px; max-height: 32dvh; overflow-y: auto; padding: 2px; }
 .pack .pack-msgs p { margin: 0; max-width: 85%; padding: 6px 10px; border-radius: 12px 12px 12px 4px; background: rgba(143, 41, 41, .28); border: 1px solid rgba(143, 41, 41, .5); font-size: .9rem; overflow-wrap: anywhere; }
@@ -631,6 +636,11 @@ body.salem .turn-cover .btn:disabled { opacity: .55; }
 .pack-send { display: flex; gap: 8px; }
 .pack-send input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: #151820; color: var(--text); font: inherit; }
 .pack-send .btn { width: auto; flex: none; padding: 10px 16px; }
+/* Thiết lập: khung đếm vai của ván */
+.role-count .rc-team { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.role-count .rc-team > span:first-child { min-width: 100%; font-weight: 700; }
+.role-count .rc-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; background: rgba(216, 196, 154, .08); border: 1px solid var(--line); font-size: .8rem; font-weight: 600; }
+.role-count .rc-chip b { margin-left: 2px; }
 /* Phòng chờ: chọn màu nhân vật */
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatch { width: 32px; height: 32px; padding: 0; border-radius: 50%; background: var(--c); border: 2px solid rgba(0, 0, 0, .55); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .22); cursor: pointer; }
@@ -1988,18 +1998,20 @@ function fixWW() {
 }
 
 // Số người tối thiểu cho thiết lập hiện tại: đủ ghế cho các vai, và Sói ít hơn số còn lại
+// wwCfg.wolves là số Sói thường; Sói nguyền (bật riêng) là một con Sói nữa
+const wwWolfCount = () => wwCfg.wolves + (wwCfg.cursewolf ? 1 : 0);
 const wwNeed = () =>
-  Math.max(WW_MIN, 2 * wwCfg.wolves + 1, wwCfg.wolves + WW_SPECIALS.filter((r) => wwCfg[r]).length);
+  Math.max(WW_MIN, 2 * wwWolfCount() + 1, wwWolfCount() + WW_SPECIALS.filter((r) => wwCfg[r]).length);
 
 function wwDeal(n) {
   fixWW();
   const specials = WW_SPECIALS.filter((r) => wwCfg[r]);
   return shuffle([
-    // Bật Sói nguyền thì một trong số Sói là Sói nguyền
+    // Bật Sói nguyền thì có thêm một con Sói là Sói nguyền, ngoài số Sói thường
     ...(wwCfg.cursewolf ? ['cursewolf'] : []),
-    ...Array(wwCfg.wolves - (wwCfg.cursewolf ? 1 : 0)).fill('wolf'),
+    ...Array(wwCfg.wolves).fill('wolf'),
     ...specials,
-    ...Array(n - wwCfg.wolves - specials.length).fill('villager'),
+    ...Array(n - wwWolfCount() - specials.length).fill('villager'),
   ]);
 }
 
@@ -2050,18 +2062,29 @@ const wwSwitch = (key, on, act = 'ww.toggle') => iosSwitch(on, act, { attrs: `da
 // Thẻ chỉnh số vai, lật vai, bot và giọng quản trò (phòng chờ, chỉ chủ phòng thấy)
 function wwCfgCards() {
   fixWW();
-  const n = seatCount();
-  const specials = WW_SPECIALS.filter((r) => wwCfg[r]).length;
-  const villagers = Math.max(0, n - wwCfg.wolves - specials);
+  // Bắt đầu ván thì thêm bot cho đủ số người các vai cần (mpStart)
+  const n = Math.max(seatCount(), mp?.room ? wwNeed() : 0);
+  const short = mp?.room ? n - mpCount() : 0;
+  const specials = WW_SPECIALS.filter((r) => wwCfg[r]);
+  const villagers = Math.max(0, n - wwWolfCount() - specials.length);
   const humans = mpMembers().length;
+  // Khung đếm vai của ván: phe Sói (Sói thường + Sói chức năng), các vai chức năng, Dân làng
+  const chip = (role, count) => `<span class="rc-chip rl-${WW_ROLES[role].tag}">${WW_ROLES[role].emoji} ${WW_ROLES[role].label}<b>×${count}</b></span>`;
+  const counts = `
+    <div class="card stack role-count">
+      <div class="row between"><b>Vai trong ván</b><span class="muted small">${n} người${short > 0 ? ` · thêm ${short} bot khi bắt đầu` : ''}</span></div>
+      <div class="rc-team"><span>🐺 Phe Sói <b>${wwWolfCount()}</b></span>${chip('wolf', wwCfg.wolves)}${wwCfg.cursewolf ? chip('cursewolf', 1) : ''}</div>
+      <div class="rc-team"><span>🏘️ Phe Dân <b>${specials.length + villagers}</b></span>${specials.map((r) => chip(r, 1)).join('')}${chip('villager', villagers)}</div>
+    </div>`;
   const roleRow = (role, control) => `
     <div class="row between">
       <span class="row"><span class="role-mini">${wwArt(role)}</span><span><b>${WW_ROLES[role].label}</b><br><span class="muted small">${WW_ROLES[role].desc}</span></span></span>
       ${control}
     </div>`;
   return `
+    ${counts}
     <div class="card stack">
-      ${roleRow('wolf', stepper('ww.step', 'wolves', wwCfg.wolves, 1, wwMaxWolves(MAX_PLAYERS)))}
+      ${roleRow('wolf', stepper('ww.step', 'wolves', wwCfg.wolves, 1, wwMaxWolves(MAX_PLAYERS) - (wwCfg.cursewolf ? 1 : 0)))}
       ${roleRow('cursewolf', wwSwitch('cursewolf', wwCfg.cursewolf))}
       ${WW_SPECIALS.map((role) => roleRow(role, wwSwitch(role, wwCfg[role]))).join('')}
       ${roleRow('villager', `<b>${villagers}</b>`)}
@@ -2239,6 +2262,7 @@ function mpChanged() {
 }
 
 function mpJoin() {
+  if (!wsUser) return;
   const taken = mpMembers().some(([uid, p]) => uid !== myId && p.name.toLowerCase() === mpName.toLowerCase());
   if (taken) return void (mpMsg = `Đã có người tên ${mpName} trong phòng. Chọn tên khác rồi bấm Vào phòng.`);
   mpMsg = '';
@@ -2819,22 +2843,18 @@ function mpBar(title) {
 const mwwMusicSwitch = () => iosSwitch(wwMusicOn, 'mww.music', { label: '🎵', cls: 'sm', name: 'Nhạc nền' });
 
 // Đăng nhập DMI Workspace trên trình duyệt này thì dùng luôn tên tài khoản; chưa đăng nhập thì chọn tên như trước
+// Ma Sói chơi bằng tài khoản DMI Workspace: tên lấy theo tài khoản, chưa đăng nhập thì chỉ có nút đăng nhập
 function mpNamePicker() {
   if (wsUser) {
     return `
       <div class="row">${avatar(wsUser.name, 'sm')}<span class="grow"><b>${esc(wsUser.name)}</b><br><span class="muted small">Tên theo tài khoản DMI Workspace</span></span></div>`;
   }
-  const names = roster();
-  const options = mpName && !names.includes(mpName) ? [mpName, ...names] : names;
   return `
-    <label class="stack"><b>Tên của bạn</b>
-      <select id="mp-name" class="field">
-        <option value="">Chọn tên</option>
-        ${options.map((name) => `<option ${name === mpName ? 'selected' : ''}>${esc(name)}</option>`).join('')}
-        <option value="${NEW_NAME}">＋ Tên khác…</option>
-      </select>
-      <span class="muted small"><a href="/" target="_blank" rel="noopener">Đăng nhập DMI Workspace</a> để tự lấy tên, khỏi phải chọn.</span>
-    </label>`;
+    <div class="stack">
+      <b>Đăng nhập để chơi</b>
+      <span class="muted small">Ma Sói dùng tên tài khoản DMI Workspace của bạn. Đăng nhập xong quay lại trang này là vào chơi được.</span>
+      <a class="btn" href="/" target="_blank" rel="noopener">🔑 Đăng nhập DMI Workspace</a>
+    </div>`;
 }
 
 /* ---------- Làng 2.5D ---------- */
@@ -3762,6 +3782,11 @@ views['mp.home'] = () => {
     <div class="ww-title"><h1>Ma Sói</h1><p>Mỗi người một điện thoại. Máy chủ phòng làm quản trò, gọi từng vai thức dậy; thiếu người thì thêm bot.</p></div>
     <div class="card stack">${mpNamePicker()}</div>
     ${mpMsg ? `<p class="small" style="color:var(--spy)">${esc(mpMsg)}</p>` : ''}
+    ${wsUser ? mwwRoomList() : ''}`;
+};
+
+function mwwRoomList() {
+  return `
     <h3>Phòng đang mở</h3>
     <div class="list">
       ${openRooms.length ? openRooms.map((r) => `
@@ -3773,7 +3798,7 @@ views['mp.home'] = () => {
       : '<div class="card"><p class="muted">Chưa có phòng nào đang mở.</p></div>'}
     </div>
     <button class="btn" data-act="mp.create">＋ Tạo phòng mới</button>`;
-};
+}
 
 // Phòng chờ: cả làng tụ họp ở quảng trường. Thẻ tin là mã phòng và lời mời; bảng Dân làng (sẵn sàng chưa, chủ phòng,
 // bot) và Thiết lập (chủ phòng chỉnh vai, giờ thảo luận); dưới đáy là nút Sẵn sàng.
@@ -3811,7 +3836,7 @@ function mpLobby() {
     banner: mwwBanner('Ma Sói', `Phòng chờ · ${mpCount()} người`, '', { icon: '🐺' }),
     eventTitle: `Phòng ${esc(mp.id)}`,
     event: `
-      ${mpJoined() ? mpColorPicker() : `<div class="stack">${mpNamePicker()}<button class="btn" data-act="mp.join">Vào phòng</button></div>`}
+      ${mpJoined() ? mpColorPicker() : `<div class="stack">${mpNamePicker()}${wsUser ? '<button class="btn" data-act="mp.join">Vào phòng</button>' : ''}</div>`}
       <div class="row lobby-code">
         <div class="grow"><span class="muted small">Mã phòng</span><div class="code">${esc(mp.id)}</div></div>
         <button class="btn ghost" data-act="mp.invite">✉️ Mời bạn</button>
@@ -3911,13 +3936,13 @@ let mwwMode = { key: '', fn: null };
 const mwwFn = () => (mwwMode.key === mwwTurnKey() ? mwwMode.fn : null);
 // Chức năng: [mã, nhãn nút, động từ trên thẻ người]; mã null là làm ngay không cần chọn nhà
 const MWW_FNS = {
-  bite: ['🐺 Cắn', '🐺 Cắn'],
-  curse: ['🌑 Nguyền (1 lần mỗi ván)', '🌑 Nguyền'],
-  see: ['🔮 Soi', '🔮 Soi'],
-  guard: ['🛡️ Bảo vệ', '🛡️ Bảo vệ'],
-  shoot: ['🏹 Bắn', '🏹 Bắn'],
-  heal: ['💚 Cứu', '💚 Cứu'],
-  poison: ['☠️ Đầu độc', '☠️ Đầu độc'],
+  bite: ['Cắn', '🐺 Cắn'],
+  curse: ['Nguyền (1 lần/ván)', '🌑 Nguyền'],
+  see: ['Soi', '🔮 Soi'],
+  guard: ['Bảo vệ', '🛡️ Bảo vệ'],
+  shoot: ['Bắn', '🏹 Bắn'],
+  heal: ['Cứu', '💚 Cứu'],
+  poison: ['Đầu độc', '☠️ Đầu độc'],
 };
 function mwwFnsOf(g, i, acts) {
   const role = g.roles[i];
@@ -3940,27 +3965,26 @@ function mwwTurnCover(g, i, acts, names) {
   const info = WW_ROLES[role];
   const { extra } = mwwActInfo(g, i, acts, names);
   const fns = mwwFnsOf(g, i, acts);
-  // Không cần chọn nhà: Thợ săn không bắn, Phù thủy xong (đã cứu hoặc không dùng thuốc)
-  const skip = role === 'hunter'
-    ? '<button class="btn ghost" data-act="mww.pass">🌙 Đêm nay không bắn</button>'
-    : role === 'witch'
-      ? `<button class="btn ghost" data-act="mww.pass">${mpHeal ? '✓ Xong, chỉ cứu' : '🌙 Không dùng thuốc'}</button>`
-      : '';
+  // Mỗi chức năng một nút riêng; nút cuối là không làm gì (Phù thủy đã cứu thì là Xong): máy ghi nhận, vài giây sau đi tiếp
+  const tile = (act, fn, icon, label, cls = '') => `
+    <button class="tc-fn ${cls}" data-act="${act}" ${fn ? `data-fn="${fn}"` : ''} style="animation-delay:-${Date.now() - at}ms">
+      <span class="tc-icon">${icon}</span><b>${label}</b>
+    </button>`;
   return `
     <div class="role-cover turn-cover" role="dialog" aria-label="Lượt của ${info.label}">
-      <div class="rc-card rc-face" style="animation-delay:-${Date.now() - at}ms">
+      <div class="tc-head">
         ${wwArt(role, 'small')}
-        <div class="rc-name rl-${info.tag}">${info.label}</div>
-        <p class="muted small">Đến lượt bạn · đêm ${g.night}</p>
-        ${extra ? `<div class="tc-info">${extra}</div>` : ''}
-        ${fns.length ? '<p><b>Chọn chức năng</b></p>' : ''}
-        <div class="tc-fns">
-          ${fns.map((fn) => `<button class="btn ${['bite', 'curse', 'shoot', 'poison'].includes(fn) ? 'blood' : ''}" data-act="mww.fn" data-fn="${fn}">${MWW_FNS[fn][0]}</button>`).join('')}
-          ${skip}
-        </div>
+        <div><div class="rc-name rl-${info.tag}">${info.label}</div><span>Đến lượt bạn · đêm ${g.night}</span></div>
+      </div>
+      ${extra ? `<div class="tc-info">${extra}</div>` : ''}
+      <div class="tc-fns">
+        ${fns.map((fn) => tile('mww.fn', fn, MWW_FX[MWW_FN_FX[fn]], MWW_FNS[fn][0], ['bite', 'curse', 'shoot', 'poison'].includes(fn) ? 'hot' : '')).join('')}
+        ${tile('mww.pass', '', mpHeal ? '✓' : '🌙', mpHeal ? 'Xong, chỉ cứu' : 'Không làm gì', 'idle')}
       </div>
     </div>`;
 }
+// Hình trên nút chức năng: dùng lại hình của hoạt ảnh
+const MWW_FN_FX = { bite: 'wolf', curse: 'curse', see: 'seer', guard: 'guard', shoot: 'hunter', heal: 'heal', poison: 'poison' };
 
 // Kết quả hành động đêm của chính mình
 function mwwResult(g, i, acts, names) {
@@ -3972,6 +3996,7 @@ function mwwResult(g, i, acts, names) {
     const curse = act.curse ? ' Bạn đã chọn nguyền: nếu không ai cứu, người đó sẽ hóa Sói.' : '';
     return victim === null ? 'Đã ghi nhận.' : `Bầy sói đang nhắm vào <b>${esc(names[victim])}</b>.${curse}`;
   }
+  if (act.pick === null && !act.heal && ['seer', 'guard'].includes(role)) return 'Đêm nay bạn không làm gì.';
   if (role === 'seer') return wwIsWolf(g, act.pick) ? `${name} LÀ MA SÓI 🐺` : `${name} không phải Sói ✅`;
   if (role === 'guard') return `Đêm nay bạn bảo vệ ${name}.`;
   if (role === 'hunter') return act.pick === null ? 'Đêm nay bạn không bắn ai.' : `Bạn đã bắn ${name}. Sáng ra người đó sẽ chết.`;
@@ -4391,34 +4416,9 @@ actions['v.mode'] = () => {
   save('dmi.3d', mww3d);
 };
 
-modals['mp.name'] = () => `
-  <h2>Tên của bạn</h2>
-  <form class="guess" data-form="mp.name">
-    <input id="mp-name-input" name="name" type="text" maxlength="16" autocomplete="off" placeholder="Tên người chơi">
-    <button class="btn">Lưu</button>
-  </form>
-  <button class="btn ghost" data-act="close">Hủy</button>`;
-
-forms['mp.name'] = (form) => {
-  const typed = form.elements.name.value.trim();
-  if (!typed) return;
-  mpSetName(roster().find((r) => r.toLowerCase() === typed.toLowerCase()) || typed);
-  modal = null;
-};
-
-document.addEventListener('change', (e) => {
-  if (e.target.id !== 'mp-name') return;
-  if (e.target.value === NEW_NAME) modal = { type: 'mp.name' };
-  else mpSetName(e.target.value);
-  mpMsg = '';
-  drawn.app = null;
-  render();
-  if (modal) document.querySelector('#mp-name-input')?.focus();
-});
-
 /* ---------- Actions ---------- */
 
-const needName = () => !mpName && (mpMsg = 'Chọn tên của bạn trước.');
+const needName = () => !wsUser && (mpMsg = 'Hãy đăng nhập DMI Workspace để chơi.');
 
 // Bot mới lấy số nhỏ nhất chưa dùng: 🤖 Bot 1, 🤖 Bot 2…
 function mpNewBot(bots) {
@@ -4773,6 +4773,13 @@ function saveSpyUsed(pair, forget) {
 ENTER.home = loadBoard;
 ENTER.board = loadBoard;
 ENTER['spy.setup'] = loadSpyUsed;
+
+// Đăng nhập ở thẻ khác rồi quay lại: kiểm tra lại tài khoản
+addEventListener('focus', async () => {
+  if (wsUser) return;
+  await loadMe();
+  if (wsUser) renderIfIdle();
+});
 
 (async () => {
   await Promise.all([loadMe(), loadRoster(), loadBoard(), loadSpyUsed()]);

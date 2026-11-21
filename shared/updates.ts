@@ -10,6 +10,14 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-21-2',
+    date: '21/11/2026',
+    items: [
+      { kind: 'new', vi: 'Ma Sói: đến lượt vai mình, mỗi chức năng là một nút riêng và có nút “Không làm gì”; Thiết lập có khung đếm vai trong ván, số Sói là Sói thường và bật Sói nguyền thì có thêm một con.', en: 'Werewolf: on your turn each action is its own button, with a “Do nothing” option; Settings shows a count of the roles in the game, the wolf number is ordinary wolves, and turning on the Cursed Wolf adds one more.' },
+      { kind: 'fix', vi: 'Ma Sói giờ dùng tên tài khoản DMI Workspace: chưa đăng nhập thì cần đăng nhập để chơi, không chọn tên nữa.', en: 'Werewolf now uses your DMI Workspace account name: sign in to play, there is no name picker any more.' },
+    ],
+  },
+  {
     id: '2026-11-21-1',
     date: '21/11/2026',
     items: [
