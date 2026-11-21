@@ -74,6 +74,10 @@ test('board game: no account needed, players keep their own part, admins reset',
 
     // Someone in it can; asking with the version already seen answers "same".
     ok(await s.call('PUT', '/api/boardgame/rooms/1234', { state: { ...lobby, phase: 'play' } }, { player: b }), 'member write');
+    // A write built on an old revision is refused, so a phone with an old copy cannot put the game back
+    ok(await s.call('PUT', '/api/boardgame/rooms/1234', { state: { ...lobby, phase: 'play', rev: 1 }, base: 0 }, { player: a }), 'write on the current revision');
+    assert.equal((await s.call('PUT', '/api/boardgame/rooms/1234', { state: { ...lobby, phase: 'lobby', rev: 1 }, base: 0 }, { player: b })).status, 409);
+    ok(await s.call('PUT', '/api/boardgame/rooms/1234', { state: { ...lobby, phase: 'play', rev: 2 }, base: 1 }, { player: b }), 'write on the next revision');
     const room = ok(await s.call('GET', '/api/boardgame/rooms/1234'));
     assert.equal(room.room.phase, 'play');
     assert.deepEqual(Object.keys(room.players).sort(), [a.id, b.id]);

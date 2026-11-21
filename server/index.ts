@@ -66,7 +66,13 @@ const server = http.createServer(async (req0, res) => {
     }
     // Built files under /static/ have their content's hash in their name; index.html, which names them, is checked each visit.
     const ui = (rel: string) => sendFile(req, res, WEB_DIST, rel, { cache: rel.startsWith('/static/') ? IMMUTABLE : undefined, precompressed: true });
-    if (ui(req.path === '/' ? 'index.html' : req.path)) return;
+    // A folder with a page of its own (/boardgame/) opens its index.html, and without the slash is sent to it, as on Cloudflare,
+    // so the page's own links (music.js, roles/…) resolve.
+    if (ui(req.path === '/' ? 'index.html' : req.path.endsWith('/') ? `${req.path}index.html` : req.path)) return;
+    if (!req.path.endsWith('/') && fs.existsSync(path.join(WEB_DIST, req.path, 'index.html'))) {
+      res.writeHead(307, { location: `${req.path}/${url.search}` });
+      return res.end();
+    }
     ui('index.html');
   } catch (e: any) {
     const status = e instanceof HttpError ? e.status : 500;

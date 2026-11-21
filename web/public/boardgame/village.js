@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 
 const RADIUS = 26; // đi được trong vòng này
-const HOUSE_GAP = 4.4; // khoảng cách giữa hai nhà cạnh nhau
+const HOUSE_GAP = 4.4; // khoảng cách tối thiểu giữa hai nhà cạnh nhau
 const SPEED = 4.2; // đơn vị mỗi giây
 const SEND_MS = 100;
 const GALLOWS = { x: 0, z: -6 }; // giàn treo cổ, phía sau đống lửa nhìn từ camera
@@ -144,7 +144,6 @@ function setHouses(n) {
   n = Math.max(n, 1);
   if (houses.length === n) return;
   homeR = Math.max(10.5, (n * HOUSE_GAP) / (Math.PI * 2));
-  const step = Math.min(HOUSE_GAP / homeR, (Math.PI * 2) / n);
   road.geometry.dispose();
   road.geometry = new THREE.RingGeometry(homeR - 3.2, homeR - 1.8, 48);
   for (const house of houses) scene.remove(house);
@@ -153,7 +152,7 @@ function setHouses(n) {
   for (const ring of markers.values()) scene.remove(ring);
   markers.clear();
   for (let k = 0; k < n; k++) {
-    const a = -Math.PI / 2 + (k - (n - 1) / 2) * step;
+    const a = houseAngle(k, n);
     const house = new THREE.Group();
     const wall = [0xf3e3c3, 0xe9d2a8, 0xf0dccf, 0xd9c8a6][k % 4];
     const roof = [0xb9562e, 0x8a3a2a, 0x9a6a2a, 0x6a4a8a][k % 4];
@@ -179,6 +178,12 @@ function setHouses(n) {
   }
 }
 
+// Nhà xếp thành vòng tròn quanh đống lửa, chia đều dù bao nhiêu người; lệch nửa khoảng để không nhà nào nằm ngay
+// sau giàn treo cổ
+function houseAngle(k, n) {
+  return -Math.PI / 2 + ((k + 0.5) * Math.PI * 2) / n;
+}
+
 // Cửa nhà của ghế seat: ban đêm mỗi người về đây
 function homeSpot(seat) {
   const house = houses[seat % houses.length];
@@ -186,9 +191,9 @@ function homeSpot(seat) {
   return { x: p.x, z: p.z, r: Math.atan2(-p.x, -p.z) };
 }
 
-// Chỗ đứng quanh đống lửa khi mới vào
+// Chỗ đứng quanh đống lửa khi mới vào: cũng chia đều, mỗi người đứng thẳng hướng nhà mình
 function fireSpot(seat, total) {
-  const a = (seat / Math.max(total, 1)) * Math.PI * 2;
+  const a = houseAngle(seat, Math.max(total, 1));
   return { x: Math.cos(a) * 4.5, z: Math.sin(a) * 4.5, r: Math.atan2(-Math.cos(a), -Math.sin(a)) };
 }
 
@@ -242,6 +247,13 @@ function makePerson(p) {
     leg.name = 'leg';
     body.add(leg);
   }
+  // Hồn ma không có chân: thân thon lại thành đuôi khói (chỉ hiện khi đã chết)
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.7, 10, 1, true), cloth);
+  tail.rotation.x = Math.PI;
+  tail.position.y = 0.2;
+  tail.name = 'tail';
+  tail.visible = false;
+  body.add(tail);
   group.add(body);
   const wolf = makeWolf(color);
   wolf.visible = false;
@@ -296,6 +308,8 @@ function placeLabel(person) {
 function setGhost(person, ghost) {
   for (const body of [person.human, person.wolf]) {
     body.traverse((o) => {
+      if (o.name === 'leg') o.visible = !ghost;
+      if (o.name === 'tail') o.visible = ghost;
       if (!o.material) return;
       o.material.transparent = ghost;
       o.material.opacity = ghost ? 0.35 : 1;
@@ -589,6 +603,9 @@ function animateWalk(p, moving, t) {
   // Hồn ma bay lơ lửng cao hơn mặt đất
   p.body.position.y = p.alive === false ? 1.1 + Math.sin(t * 2) * 0.25 : moving ? Math.abs(Math.sin(t * 12)) * 0.08 : 0;
   p.body.children.filter((o) => o.name === 'leg').forEach((leg, k) => (leg.rotation.x = moving ? Math.sin(t * 12 + k * Math.PI) * 0.6 : 0));
+  // Đuôi khói của hồn ma đung đưa
+  const tail = p.body.getObjectByName('tail');
+  if (tail?.visible) tail.rotation.z = Math.sin(t * 3) * 0.18;
 }
 
 // Bot đi lang thang quanh quảng trường theo quỹ đạo tính từ mã của bot: máy nào cũng như nhau

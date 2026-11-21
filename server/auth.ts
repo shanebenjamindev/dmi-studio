@@ -281,7 +281,7 @@ async function throttle(key: string, failed?: boolean) {
 
 // ---------------------------------------------------------------- routes
 export function registerAuth(api: Router) {
-  api.get('/api/auth/config', (_req, res) => json(res, 200, { turnstile: turnstileConfig() }));
+  api.get('/api/auth/config', (req, res) => json(res, 200, { turnstile: turnstileConfig(req) }));
   api.get('/api/auth/me', async (req, res) => {
     const u = await currentUser(req);
     const c = await G.oauthConfig(), lock = await siteLock();

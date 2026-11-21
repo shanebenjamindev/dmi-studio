@@ -2,14 +2,25 @@ import type { IncomingMessage } from 'node:http';
 import { IS_CLOUDFLARE } from './config';
 import { HttpError, publicOrigin } from './http';
 
-export function turnstileConfig() {
+/** The app opened on this computer (npm run dev / start, at localhost): the live site's Turnstile key does not accept
+ *  localhost, so the check is skipped there. Both the address asked for and the connection must be local, so a request
+ *  from elsewhere cannot skip it by naming localhost. Never on Cloudflare. */
+function onThisComputer(req?: IncomingMessage) {
+  if (IS_CLOUDFLARE || !req) return false;
+  const host = String(req.headers.host || '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+  const from = req.socket?.remoteAddress || '';
+  return ['localhost', '127.0.0.1', '::1'].includes(host) && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(from);
+}
+
+export function turnstileConfig(req?: IncomingMessage) {
+  if (onThisComputer(req)) return { siteKey: '', required: false };
   const siteKey = process.env.TURNSTILE_SITE_KEY?.trim() || '';
   const secret = process.env.TURNSTILE_SECRET_KEY?.trim() || '';
   return { siteKey, required: !!siteKey || !!secret || (IS_CLOUDFLARE && process.env.TURNSTILE_REQUIRED !== '0') };
 }
 
 export async function verifyTurnstile(req: IncomingMessage, token: unknown, action: 'login' | 'setup') {
-  const { required, siteKey } = turnstileConfig();
+  const { required, siteKey } = turnstileConfig(req);
   if (!required) return; // Local development without Turnstile credentials.
   const secret = process.env.TURNSTILE_SECRET_KEY?.trim();
   if (!siteKey || !secret) throw new HttpError(503, 'Xác minh người dùng chưa được cấu hình. Hãy liên hệ quản trị viên.');

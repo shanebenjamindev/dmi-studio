@@ -10,6 +10,16 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-21-1',
+    date: '21/11/2026',
+    items: [
+      { kind: 'new', vi: 'Ma Sói có làng mới toàn màn hình: mỗi người chọn màu nhân vật trong phòng chờ (mái nhà cùng màu), đầu ván mỗi máy lật bài xem vai của mình, ban đêm bấm nhà người muốn chọn rồi nhân vật đi tới và có hoạt ảnh của từng vai. Sói thấy nhau cả ngày lẫn đêm, ban đêm hiện thành con sói.', en: 'Werewolf has a new full-screen village: everyone picks a character colour in the lobby (their roof matches), each phone flips a card to see its role at the start, and at night you tap a house, your character walks there and each role plays its own animation. Wolves see each other day and night, and appear as wolves at night.' },
+      { kind: 'new', vi: 'Ma Sói: Thợ săn giờ được gọi dậy mỗi đêm để bắn một người (sáng ra người đó chết); chủ phòng có thể bật “Ẩn phiếu” để không ai thấy ai bầu ai.', en: 'Werewolf: the Hunter is now woken each night to shoot someone (they die at dawn); the host can turn on “Hide votes” so nobody sees who voted for whom.' },
+      { kind: 'new', vi: 'Ma Sói: đến lượt vai mình thì chọn chức năng (Cắn, Soi, Bảo vệ, Cứu, Đầu độc…) rồi bấm vào nhà người đó. Ban đêm bầy Sói có khung chat riêng, và số phiếu hiện ngay trên nóc nhà người bị chọn.', en: 'Werewolf: on your turn, pick an action (Bite, See, Guard, Heal, Poison…) then tap that person’s house. Wolves get their own chat at night, and vote counts show on the chosen person’s roof.' },
+      { kind: 'fix', vi: 'Thanh Mailbox ở cuối trang không còn bị nút nhạc che hay nhảy chỗ trên điện thoại.', en: 'The Mailbox bar at the bottom no longer jumps or sits under the music button on phones.' },
+    ],
+  },
+  {
     id: '2026-11-19-4',
     date: '19/11/2026',
     items: [

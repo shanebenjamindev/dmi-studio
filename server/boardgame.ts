@@ -112,7 +112,14 @@ export function registerBoardgame(api: Router) {
       await run('INSERT INTO bg_rooms(id, state, v, created_at, updated_at) VALUES(?,?,1,?,?)', id, state, t, t);
     } else {
       await member(req, id);
-      await run('UPDATE bg_rooms SET state = ?, v = v + 1, updated_at = ? WHERE id = ?', state, t, id);
+      // base: the revision (state.rev) the phone built this state on. When another phone has saved since, the write is
+      // refused (409) so a phone holding an old copy (just woken, or no longer the host) cannot put the game back.
+      if (typeof b.base === 'number') {
+        const r = await run("UPDATE bg_rooms SET state = ?, v = v + 1, updated_at = ? WHERE id = ? AND COALESCE(json_extract(state, '$.rev'), 0) = ?", state, t, id, b.base);
+        if (!r.changes) throw new HttpError(409, 'Phòng vừa đổi trên máy khác');
+      } else {
+        await run('UPDATE bg_rooms SET state = ?, v = v + 1, updated_at = ? WHERE id = ?', state, t, id);
+      }
     }
     json(res, 200, { ok: true });
   });

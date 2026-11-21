@@ -2295,6 +2295,8 @@ button.cm-list-b:hover { background: var(--bd-line); }
 .bd-dock > button.on { background: color-mix(in srgb, var(--bd-focus) 14%, transparent); color: var(--bd-focus); }
 .bd-dock > button.on::after { content: ''; position: absolute; left: 50%; bottom: 3px; width: 16px; height: 2px; margin-left: -8px; border-radius: 2px; background: currentColor; }
 .bd-dock-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--bd-line); }
+/* Mailbox's unread count: a small badge on the icon's corner, so it never takes a line of its own (the dock stays still). */
+.bd-dock-badge { position: absolute; top: 2px; left: 22px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #e5484d; color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; pointer-events: none; }
 
 .bd-switch-back { align-items: flex-start; padding-top: 8vh; }
 .bd-switch { width: min(880px, calc(100vw - 32px)); max-height: 80vh; display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 12px; background: var(--bd-side); color: var(--bd-text); }
@@ -7820,8 +7822,10 @@ body.as-open .fmsg-heads-stack { display: none; }
   .bd-dock { left: 8px; right: 8px; max-width: none; transform: none; justify-content: space-around; }
   .bd-dock > button { flex: 1; min-width: 0; flex-direction: column; justify-content: center; gap: 1px; height: 42px; padding: 0 4px; font-size: 11px; }
   .bd-dock > button.on::after { bottom: 1px; }
+  .bd-dock-badge { top: 1px; left: calc(50% + 4px); }
   .bd-dock-sep { display: none; }
   body:has(.bd-dock) .fmsg-heads-stack { bottom: calc(var(--bn-h) + 78px); }
+  body:has(.bd-dock) .music-btn { bottom: calc(var(--bn-h) + 70px); }
 }
 
 /* Hộp thư (components/Mailbox.tsx): folders, threads, the open thread; on a phone one column at a time. */
