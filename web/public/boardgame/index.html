@@ -691,7 +691,9 @@ a.btn { text-decoration: none; text-align: center; }
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatch { width: 32px; height: 32px; padding: 0; border-radius: 50%; background: var(--c); border: 2px solid rgba(0, 0, 0, .55); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .22); cursor: pointer; }
 .swatch.on { outline: 3px solid #f0d38a; outline-offset: 2px; }
-.swatch:disabled { opacity: .25; cursor: not-allowed; }
+.swatch { position: relative; }
+.swatch:disabled { opacity: .3; cursor: not-allowed; box-shadow: none; }
+.swatch:disabled::after { content: '✕'; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-weight: 900; text-shadow: 0 1px 2px #000; }
 /* Đầu ván: vai của mình phủ kín màn hình, úp sẵn, chạm để lật */
 .role-cover { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: rgba(10, 11, 16, .82); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 .role-cover .rc-card { width: min(340px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 22px 18px 18px; text-align: center; border-radius: var(--radius); background: var(--paper); color: var(--ink); text-shadow: none; border: 1px solid #8a7550; box-shadow: inset 0 0 30px rgba(120, 90, 40, .35), 0 16px 40px rgba(0, 0, 0, .6); }
@@ -2325,13 +2327,13 @@ function mpJoin() {
   const taken = mpMembers().some(([uid, p]) => uid !== myId && p.name.toLowerCase() === mpName.toLowerCase());
   if (taken) return void (mpMsg = `Đã có người tên ${mpName} trong phòng. Chọn tên khác rồi bấm Vào phòng.`);
   mpMsg = '';
-  // Màu đã chọn lần trước, nếu chưa ai trong phòng lấy
-  const color = mpColorsTaken().has(mpColor) ? null : mpColor;
+  // Màu đã chọn lần trước nếu chưa ai trong phòng lấy, không thì màu trống đầu tiên
+  const color = mpColor && !mpColorsTaken().has(mpColor) ? mpColor : mpFreeColor();
   mpWritePlayer({ name: mpName, at: Date.now(), act: null, color });
 }
 
-// Màu nhân vật (và mái nhà): mỗi người chọn trong phòng chờ, màu người khác đã lấy thì không chọn được; máy nhớ màu cho
-// lần sau. Bot và người chưa chọn lấy lần lượt màu còn trống, nên cả làng không ai trùng màu.
+// Màu nhân vật (và mái nhà): ai vào phòng (cả bot) cũng được giữ ngay một màu trống; đổi màu chỉ đổi màu của mình, và màu
+// đang có trên làng thì không chọn được, nên không ai trùng màu và nhà người khác không đổi theo. Máy nhớ màu cho lần sau.
 const MWW_COLORS = ['#d64541', '#e8822a', '#e2b82a', '#7cb342', '#2e9e5b', '#1fa3a3', '#2f6fd6', '#7b52c7', '#d9569b', '#8d5a3b', '#e9e4d8', '#3a3a42'];
 let mpColor = load('dmi.ww.color', null);
 // Chỉ nhận màu trong bảng: dữ liệu người chơi do máy khác ghi, không đưa thẳng vào trang
@@ -2344,7 +2346,7 @@ const mwwSeatsNow = () => (mp.room?.phase === 'play' && mp.room.g
 function mwwColors(seats) {
   const used = new Set();
   const mine = seats.map((s) => {
-    const c = mpColorOf(mp.players[s.uid]);
+    const c = mpColorOf(mp.players[s.uid]) || mpColorOf(mpBots().find((b) => b.id === s.uid));
     if (!c || used.has(c)) return null;
     used.add(c);
     return c;
@@ -2357,7 +2359,17 @@ const mwwColor = (s) => {
   const k = seats.findIndex((x) => x.uid === s.uid);
   return k < 0 ? avatarColor(s.name) : mwwColors(seats)[k];
 };
-const mpColorsTaken = () => new Set(mpMembers().filter(([uid]) => uid !== myId).map(([, p]) => mpColorOf(p)).filter(Boolean));
+// Màu đang có trên làng của mọi ghế khác (người và bot): không chọn được
+const mpColorsTaken = () => {
+  const seats = mwwSeatsNow();
+  const colors = mwwColors(seats);
+  return new Set(colors.filter((_, k) => seats[k].uid !== myId));
+};
+// Màu trống đầu tiên cho người hay bot mới vào, để mỗi ghế giữ một màu riêng ngay từ đầu (chọn màu chỉ đổi màu của mình)
+const mpFreeColor = (bots = mpBots()) => {
+  const used = new Set([...mpMembers().map(([, p]) => mpColorOf(p)), ...bots.map((b) => mpColorOf(b))].filter(Boolean));
+  return MWW_COLORS.find((c) => !used.has(c)) || null;
+};
 
 function mpColorPicker() {
   const mine = mp.players[myId]?.color;
@@ -4595,7 +4607,7 @@ const needName = () => !mpPlayer() && (mpMsg = 'Hãy đăng nhập DMI Workspace
 function mpNewBot(bots) {
   let k = 1;
   while (bots.some((b) => b.id === `bot-${k}`)) k++;
-  return { id: `bot-${k}`, name: `🤖 Bot ${k}` };
+  return { id: `bot-${k}`, name: `🤖 Bot ${k}`, color: mpFreeColor(bots) };
 }
 
 function mpStart() {
@@ -4774,6 +4786,7 @@ Object.assign(actions, {
   },
   'mww.flip': () => (mwwFlipped = { id: mp.room.g.id, at: Date.now() }),
   'mp.color': (el) => {
+    if (mpColorsTaken().has(el.dataset.c)) return;
     mpColor = el.dataset.c;
     save('dmi.ww.color', mpColor);
     mpWritePlayer({ ...mp.players[myId], color: mpColor });
