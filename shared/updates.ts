@@ -10,6 +10,14 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-21-4',
+    date: '21/11/2026',
+    items: [
+      { kind: 'new', vi: 'Ma Sói: kết quả treo cổ và kết quả cuối ván (kèm lật vai cả làng) hiện ngay toàn màn hình; ai bị nguyền hay Bán sói bị cắn hóa Sói thì có thông báo riêng; Cứu là dấu cộng xanh lá, Đầu độc là đầu lâu tím.', en: 'Werewolf: the hanging result and the end-of-game result (with every role revealed) now show full screen right away; whoever is cursed, or a Cursed villager who is bitten, gets their own notice on turning into a wolf; Heal shows green pluses, Poison a purple skull.' },
+      { kind: 'fix', vi: 'Ma Sói: đóng trang rồi mở lại vẫn vào lại đúng phòng và ván chạy tiếp (trước đây ván có thể đứng yên); cùng tài khoản mở trên hai máy thì chỉ một máy làm quản trò, không còn gọi trùng hay nhảy lượt; kết quả bỏ phiếu, phán xử dễ đọc hơn.', en: 'Werewolf: closing and reopening the page takes you back into your room and the game goes on (before, it could stall); with one account open on two devices only one runs the narrator, so turns are no longer called twice or skipped; vote and trial results are easier to read.' },
+    ],
+  },
+  {
     id: '2026-11-21-3',
     date: '21/11/2026',
     items: [

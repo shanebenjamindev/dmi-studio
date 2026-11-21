@@ -612,6 +612,17 @@ body.salem-room #app > * { pointer-events: auto; }
 .pack-side { position: fixed; z-index: 6; left: 16px; bottom: 16px; width: 300px; padding: 10px 12px; border-radius: var(--radius); background: rgba(33, 31, 36, .95); border: 2px solid #5d1717; box-shadow: 0 10px 28px rgba(0, 0, 0, .5); }
 .pack-side .board h3 { margin-bottom: 6px; font-size: 1.1rem; }
 .pack-side .pack-msgs { max-height: 220px; }
+/* Kết quả toàn màn hình */
+.result-cover { position: fixed; inset: 0; z-index: 19; display: grid; place-items: center; padding: 12px; background: rgba(10, 11, 16, .86); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); animation: panel-in .2s ease-out; }
+.result-cover .rs-box { width: min(560px, 100%); max-height: calc(100dvh - 24px); display: flex; flex-direction: column; border-radius: var(--radius); background: rgba(33, 31, 36, .98); border: 2px solid #4a382c; box-shadow: 0 16px 40px rgba(0, 0, 0, .6); }
+.result-cover .rs-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px 6px; }
+.result-cover .rs-head h2 { margin: 0; color: var(--gold); font: 800 1.6rem/1.1 "Grenze Gotisch", Georgia, serif; }
+.result-cover .rs-head .ring { margin-left: auto; }
+.result-cover .rs-body { min-height: 0; overflow-y: auto; padding: 4px 14px 14px; gap: 12px; }
+.result-cover .rs-body .secret { flex: none; min-height: 0; padding: 18px 12px; }
+.result-cover .rs-foot { padding: 10px 14px 14px; border-top: 1px solid var(--line); }
+.result-cover .rs-foot .hud-bar { border: 0; box-shadow: none; background: none; padding: 0; }
+.result-cover .rs-foot > .btn { width: 100%; }
 /* Lớp phủ lượt đêm của vai mình: đầu thẻ nhỏ cho vai, mỗi chức năng là một nút riêng */
 .turn-cover { align-content: center; gap: 14px; }
 .turn-cover .tc-head { display: flex; align-items: center; gap: 12px; padding: 8px 16px 8px 8px; border-radius: 999px; background: rgba(33, 31, 36, .92); border: 2px solid #30241F; color: var(--text); animation: rc-flip .35s ease-out both; }
@@ -631,6 +642,17 @@ body.salem-room #app > * { pointer-events: auto; }
 .tc-aims b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tc-aims i { flex: none; padding: 1px 8px; border-radius: 999px; background: #8F2929; color: #fff; font-style: normal; font-weight: 800; font-size: .8rem; }
 .tc-note { font-size: .78rem; color: var(--muted); }
+.tc-chip.plain { padding: 2px 8px; background: rgba(216, 196, 154, .1); border-color: var(--line); color: var(--text); font-weight: 600; font-size: .78rem; }
+/* Kết quả bỏ phiếu và phán xử: mỗi lựa chọn một dòng có số phiếu, người bầu bên dưới */
+.tally { display: flex; flex-direction: column; gap: 8px; }
+.tally ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tally li { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 8px; background: rgba(216, 196, 154, .07); }
+.tally li.top, .tally li.kill { background: rgba(143, 41, 41, .3); border: 1px solid #8F2929; }
+.tally li.save { background: rgba(82, 107, 82, .25); border: 1px solid #526B52; }
+.tally .tl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 1rem; }
+.tally .tl-row i { flex: none; min-width: 1.8em; padding: 1px 8px; border-radius: 999px; background: #8F2929; color: #fff; font-style: normal; font-weight: 800; text-align: center; }
+.tally li.save .tl-row i { background: #526B52; }
+.turned-note { color: #ff6b5b; font-weight: 700; }
 .tc-chip.village { background: rgba(82, 107, 82, .3); border-color: rgba(140, 190, 140, .4); color: #c4e6c4; }
 /* Điểm nhấn cuối ván */
 .hl-box { display: flex; flex-direction: column; gap: 8px; }
@@ -877,10 +899,12 @@ body.salem .role-cover .btn { width: 100%; background: #30241F; color: var(--tex
 #stage .fx-guard { --c: rgba(255, 214, 120, .55); }
 #stage .fx-guard .fx-b { top: 8%; bottom: 18%; border-radius: 50% 50% 8% 8% / 70% 70% 8% 8%; border: 3px solid rgba(255, 224, 150, .95); background: rgba(255, 224, 150, .2); box-shadow: 0 0 18px rgba(255, 214, 120, .8), inset 0 0 18px rgba(255, 214, 120, .6); transform-origin: 50% 100%; animation: fx-dome 2.8s ease-out; }
 @keyframes fx-dome { 0% { opacity: 0; transform: scaleY(0); } 25% { opacity: 1; transform: scaleY(1.05); } 35% { transform: scaleY(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
-#stage .fx-poison { --c: rgba(70, 200, 70, .8); }
-#stage .fx-heal { --c: rgba(255, 120, 170, .75); }
-#stage .fx-poison .fx-b, #stage .fx-heal .fx-b { background: radial-gradient(circle at 30% 80%, rgba(120, 230, 120, .9) 0 5%, transparent 6%), radial-gradient(circle at 55% 70%, rgba(120, 230, 120, .9) 0 4%, transparent 5%), radial-gradient(circle at 70% 85%, rgba(120, 230, 120, .9) 0 6%, transparent 7%); animation: fx-rise 2.8s ease-out; }
-#stage .fx-heal .fx-b { filter: hue-rotate(220deg); }
+#stage .fx-poison { --c: rgba(150, 70, 230, .85); }
+#stage .fx-poison .fx-b { background: radial-gradient(circle at 30% 80%, rgba(190, 120, 255, .9) 0 5%, transparent 6%), radial-gradient(circle at 55% 70%, rgba(190, 120, 255, .9) 0 4%, transparent 5%), radial-gradient(circle at 70% 85%, rgba(190, 120, 255, .9) 0 6%, transparent 7%); animation: fx-rise 2.8s ease-out; }
+#stage .fx-heal { --c: rgba(70, 220, 110, .7); }
+#stage .fx-heal .fx-b { animation: none; }
+#stage .fx-heal .fx-b span { position: absolute; bottom: 10%; color: #5dff86; font: 900 clamp(14px, 2.2cqw, 30px)/1 var(--font); text-shadow: 0 0 6px rgba(40, 200, 90, .9), 0 1px 2px #0a3a18; opacity: 0; animation: heal-up 1.6s ease-out 2 both; }
+@keyframes heal-up { 0% { opacity: 0; transform: translateY(0) scale(.6); } 20% { opacity: 1; transform: scale(1.1); } 100% { opacity: 0; transform: translateY(-160%) scale(.9); } }
 @keyframes fx-rise { 0% { opacity: 0; transform: translateY(20%); } 25% { opacity: 1; } 100% { opacity: 0; transform: translateY(-60%); } }
 #stage .fx-death, #stage .fx-hang { --c: rgba(210, 214, 225, .55); }
 #stage .fx-death .fx-b, #stage .fx-hang .fx-b { border-radius: 50%; background: radial-gradient(ellipse at 50% 80%, rgba(120, 120, 130, .7), transparent 60%); animation: fx-rise 2.8s ease-out; }
@@ -2167,7 +2191,9 @@ const mpBots = () => mp?.room?.bots || [];
 const mpCount = () => mpMembers().length + mpBots().length;
 const mpLast = () => mpMembers().every(([uid]) => uid === myId);
 const mpJoined = () => mpMembers().some(([uid]) => uid === myId);
-const mpIsHost = () => mp?.room?.host === myId;
+// Chủ phòng là một người chơi và một máy của người đó (hostDev): cùng tài khoản mở trên hai máy thì chỉ một máy làm quản
+// trò, kẻo cả hai cùng gọi vai và chuyển lượt
+const mpIsHost = () => mp?.room?.host === myId && (!mp.room.hostDev || mp.room.hostDev === myDev);
 const mpNames = () => mp.room.seats.map((s) => s.name);
 const mpSeat = () => mp.room.seats.findIndex((s) => s.uid === myId);
 // Sẵn sàng ở phòng chờ và khi hết ván. round tăng mỗi lần bắt đầu ván hay về phòng chờ, nên mỗi lần phải bấm lại.
@@ -2202,21 +2228,27 @@ ENTER['mp.home'] = () => {
 };
 
 // Tải lại trang giữa ván thì vào lại phòng cũ
+// Mở lại trang: vào lại phòng đang chơi dở nếu mình còn trong phòng hay còn ghế trong ván. Hỏi thẳng phòng đó chứ không
+// dựa vào danh sách phòng, vì phòng chỉ có mình và bot thì lúc mình đóng trang không ai chạm vào nó, danh sách ẩn đi.
 async function mpResume() {
   const last = load('dmi.room', null);
   if (!last || mp) return;
   try {
     openRooms = (await api('GET', '/rooms')).rooms;
   } catch {}
-  if (openRooms.some((r) => r.id === last)) mpEnter(last);
-  else save('dmi.room', null);
+  try {
+    const r = await api('GET', `/rooms/${last}`);
+    const mine = r.players?.[myId] || r.room?.seats?.some((s) => s.uid === myId);
+    if (mine && !mp) return mpEnter(last, true);
+  } catch {}
+  save('dmi.room', null);
 }
 
 async function mpCreate() {
   for (let k = 0; k < 5; k++) {
     const id = String(1000 + rand(9000));
     try {
-      await api('PUT', `/rooms/${id}`, { create: true, state: { host: myId, hostName: mpName, phase: 'lobby', seats: [], bots: [], g: null } });
+      await api('PUT', `/rooms/${id}`, { create: true, state: { host: myId, hostDev: myDev, hostName: mpName, phase: 'lobby', seats: [], bots: [], g: null } });
       return mpEnter(id, true);
     } catch (e) {
       // Mã đang có phòng khác dùng thì thử mã khác
@@ -2806,6 +2838,11 @@ function mpKeepHost() {
     if (quiet > 10000 && performance.now() - mp.polledAt < 8000) mpUpdate((r) => (r.beat = Date.now()));
     return;
   }
+  // Máy kia của chính mình đang làm chủ phòng mà im quá 30 giây (đã tắt): máy này nhận thay
+  if (mp.room.host === myId) {
+    if (quiet > 30000) actions['mp.takehost']();
+    return;
+  }
   const gone = !mpMembers().some(([uid]) => uid === mp.room.host);
   if (!gone && quiet < 30000) return;
   const next = mpMembers().map(([uid]) => uid).filter((uid) => uid !== mp.room.host);
@@ -3123,7 +3160,7 @@ function mwwCastOf(seats, o = {}) {
     const [x, y] = f.gallows ? [MWW_GALLOWS_SPOT[0], MWW_GALLOWS_SPOT[1] - 45] : [hx, hy - hh * 0.55];
     tags.push(`
       <div class="fx fx-${f.kind}" style="${at(x, y)};width:${((hw / 10) * 1.25).toFixed(1)}cqw;--t:-${f.t}ms" aria-hidden="true">
-        <i class="fx-a"></i><i class="fx-b">${f.kind === 'wolf' ? MWW_CLAWS : ''}</i><b>${MWW_FX[f.kind]}</b>
+        <i class="fx-a"></i><i class="fx-b">${f.kind === 'wolf' ? MWW_CLAWS : f.kind === 'heal' ? MWW_PLUSES : ''}</i><b>${MWW_FX[f.kind]}</b>
       </div>`);
   });
   return { cast: cast.join(''), tags: tags.join('') };
@@ -3135,20 +3172,22 @@ function mwwCastOf(seats, o = {}) {
 const MWW_FX_MS = 2800;
 // Hình to giữa hoạt ảnh của từng việc (cùng nét viền đậm với nhân vật)
 const MWW_ICON = (body) => `<svg viewBox="0 0 40 40" stroke="#14110f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">${body}</svg>`;
-const MWW_BOTTLE = (color, mark) => MWW_ICON(`<path d="M15 4H25V8H23.6V13Q32 16 32 25Q32 35.4 20 35.4Q8 35.4 8 25Q8 16 16.4 13V8H15Z" fill="#e9f3f6"/><path d="M9.4 23Q20 20 30.6 23Q31 34 20 34Q9 34 9.4 23Z" fill="${color}" stroke="none"/><path d="M15 4H25V8H15Z" fill="#8d5a3b"/>${mark}`);
 const MWW_FX = {
   wolf: MWW_ICON('<ellipse cx="20" cy="27" rx="8" ry="6.6" fill="#8F2929"/><ellipse cx="9.6" cy="17.6" rx="3.2" ry="4.2" fill="#8F2929"/><ellipse cx="16" cy="11" rx="3.2" ry="4.4" fill="#8F2929"/><ellipse cx="24" cy="11" rx="3.2" ry="4.4" fill="#8F2929"/><ellipse cx="30.4" cy="17.6" rx="3.2" ry="4.2" fill="#8F2929"/>'),
   curse: MWW_ICON('<path d="M25 5A15 15 0 1 0 35 27A11.6 11.6 0 1 1 25 5Z" fill="#9b5de5"/><circle cx="29" cy="12" r="1.4" fill="#e3d2ff" stroke="none"/><circle cx="33" cy="19" r="1" fill="#e3d2ff" stroke="none"/>'),
   seer: MWW_ICON('<path d="M3 20Q20 5 37 20Q20 35 3 20Z" fill="#fff"/><circle cx="20" cy="20" r="7" fill="#8a5cf0"/><circle cx="20" cy="20" r="3" fill="#14110f" stroke="none"/><circle cx="22.4" cy="17.6" r="1.3" fill="#fff" stroke="none"/>'),
   guard: MWW_ICON('<path d="M20 3L34 8.4V19Q34 31 20 37Q6 31 6 19V8.4Z" fill="#f0c75a"/><path d="M20 7.6L30 11.4V19Q30 28 20 32.6Q10 28 10 19V11.4Z" fill="#e0a93a" stroke="#b5862b" stroke-width="1.4"/><path d="M20 12V28M13.6 18H26.4" stroke="#fff6d8" stroke-width="2.6"/>'),
   hunter: MWW_ICON('<path d="M8 32L30 10" stroke="#8d5a3b" stroke-width="3"/><path d="M34 6L24 8.6L31.4 16Z" fill="#c9cdd6"/><path d="M8 32L5 28.6M8 32L11.4 35M11 29L8 25.6M11 29L14.4 32" stroke="#d64541" stroke-width="2.2"/>'),
-  poison: MWW_BOTTLE('#5fd068', '<circle cx="16" cy="27" r="1.6" fill="#e9f3f6" stroke="none"/><circle cx="22.6" cy="29.4" r="1.2" fill="#e9f3f6" stroke="none"/><circle cx="20" cy="24.6" r="1" fill="#e9f3f6" stroke="none"/>'),
-  heal: MWW_BOTTLE('#ff7aa8', '<path d="M20 31Q14 27 14.6 24Q15.4 21.6 17.6 22Q19.2 22.4 20 24Q20.8 22.4 22.4 22Q24.6 21.6 25.4 24Q26 27 20 31Z" fill="#fff" stroke="none"/>'),
+  // Đầu độc: đầu lâu tím · Cứu: dấu cộng xanh lá như hồi máu
+  poison: MWW_ICON('<path d="M20 4Q34 4 34 17Q34 24 29 27V33H11V27Q6 24 6 17Q6 4 20 4Z" fill="#b77dff"/><ellipse cx="14" cy="18" rx="4" ry="4.4" fill="#2a1240" stroke="none"/><ellipse cx="26" cy="18" rx="4" ry="4.4" fill="#2a1240" stroke="none"/><path d="M18 25L20 22L22 25Z" fill="#2a1240" stroke="none"/><path d="M15 27V33M20 27V33M25 27V33" stroke="#2a1240" stroke-width="1.6"/>'),
+  heal: MWW_ICON('<path d="M15 5H25V15H35V25H25V35H15V25H5V15H15Z" fill="#45d36b"/><path d="M17 7H23" stroke="#c9ffd6" stroke-width="2"/>'),
   death: MWW_ICON('<path d="M9 35V18Q9 5 20 5Q31 5 31 18V35L27.4 31.6L23.6 35L20 31.6L16.4 35L12.6 31.6Z" fill="#eef1f6"/><ellipse cx="16" cy="17" rx="2" ry="2.8" fill="#14110f" stroke="none"/><ellipse cx="24" cy="17" rx="2" ry="2.8" fill="#14110f" stroke="none"/><ellipse cx="20" cy="24" rx="2" ry="2.6" fill="#14110f" stroke="none"/>'),
 };
 MWW_FX.hang = MWW_FX.death;
 const MWW_FX_SHAKE = ['wolf', 'curse', 'hunter', 'poison'];
 // Ba vết móng vuốt cong, song song, chéo từ trên phải xuống dưới trái
+// Cứu: dấu cộng nhỏ bay lên như hồi máu
+const MWW_PLUSES = [[18, 0], [42, .35], [66, .15], [30, .6], [56, .8], [78, .5]].map(([x, d]) => `<span style="left:${x}%;animation-delay:calc(var(--t, 0s) + ${d}s)">+</span>`).join('');
 const MWW_CLAWS = '<svg viewBox="0 0 100 100"><path pathLength="100" d="M58 8 Q44 40 20 74"/><path pathLength="100" d="M73 15 Q58 50 34 86"/><path pathLength="100" d="M88 24 Q72 58 50 94"/></svg>';
 let mwwFx = []; // { k, kind, at, gallows, mine }
 function mwwPlay(k, kind, { gallows = false, mine = false } = {}) {
@@ -3490,6 +3529,28 @@ function mwwOverlay({ banner, event, eventTitle, panels, panel, focus = '', bar 
     ${cover}`;
 }
 
+// Bị nguyền (Sói nguyền) hay Bán sói bị cắn: sáng ra hóa Sói. Lớp phủ báo một lần trên máy đó, bấm Đã hiểu thì đóng.
+let mwwTurnedSeen = load('dmi.turned', []);
+function mwwTurnedCover(g, i) {
+  const was = i >= 0 && g.turned?.[i];
+  const key = `${g.id}:${i}`;
+  if (!was || g.step === 'end' || mwwTurnedSeen.includes(key)) return '';
+  return `
+    <div class="role-cover turned" role="dialog" aria-label="Bạn đã hóa Sói">
+      <div class="rc-card rc-face">
+        ${wwArt('wolf')}
+        <div class="rc-name rl-wolf">Bạn đã hóa Sói</div>
+        <p>${was === 'cursed' ? '🌗 Bán sói bị cắn' : '🌑 Bị Sói nguyền'}</p>
+        <p class="rl-wolf"><b>Giờ bạn thuộc phe Sói. Giữ bí mật!</b></p>
+        <button class="btn" data-act="mww.turnedok" data-key="${key}">Đã hiểu</button>
+      </div>
+    </div>`;
+}
+actions['mww.turnedok'] = (el) => {
+  mwwTurnedSeen = [...mwwTurnedSeen, el.dataset.key].slice(-20);
+  save('dmi.turned', mwwTurnedSeen);
+};
+
 // Chat ban đêm của bầy Sói: mỗi Sói ghi tin của mình vào dữ liệu người chơi (chat, giữ 12 tin gần nhất của ván), máy
 // của Sói gom tin của cả bầy trong đêm nay. Chỉ máy của Sói hiện khung này.
 function mwwPackMsgs(g) {
@@ -3634,7 +3695,7 @@ function mwwFrame({ sub, ring = '', town = {}, body, bar = '', title = 'Tin củ
     panels.unshift(['pack', '🐺', `Bầy sói${n ? ` ${n}` : ''}`, () => mwwPackChat(g, i)]);
   }
   return mwwOverlay({
-    cover: mwwRoleCover(g, i) || cover,
+    cover: mwwRoleCover(g, i) || mwwTurnedCover(g, i) || cover,
     side: side ? `<aside class="pack-side" aria-label="Chat của bầy sói">${mwwPackChat(g, i)}</aside>` : '',
     banner: mwwBanner(g.step === 'end' ? 'Hết ván' : `${g.step === 'night' ? 'Đêm' : 'Ngày'} ${g.night}`, sub, ring, { night: g.step === 'night', fresh, icon: g.step === 'end' ? '⚜️' : undefined }),
     event: body,
@@ -4167,7 +4228,7 @@ function mwwDayView() {
           ? g.deaths.map((k) => `<p>💀 <b>${esc(names[k])}</b> đã chết ${mwwTag(g, k)}</p>`).join('')
           : '<p>🌤️ Không ai chết</p>'}
         ${g.talking ? `<p class="small">💬 Thảo luận · còn ${wwAlive(g).length} người</p>` : ''}`)}
-      ${g.turned?.[i] ? '<div class="info">🌑 Bạn đã bị nguyền: giờ bạn là <b>Ma Sói</b>, thắng cùng bầy Sói và thức dậy cùng bầy mỗi đêm. Giữ bí mật nhé!</div>' : ''}
+      ${g.turned?.[i] ? '<div class="info turned-note">🌑 Bạn đã hóa Ma Sói. Giữ bí mật!</div>' : ''}
       ${mpIsHost() && !blocked ? '<button class="link small" data-act="mww.votenow">Chủ phòng: bỏ phiếu ngay</button>' : ''}`,
     bar,
   });
@@ -4208,20 +4269,28 @@ function mwwVoteView() {
 }
 
 // Ai bỏ phiếu cho ai, để cả làng cùng xem lại
+// Tên ngắn trong thẻ người bầu (bỏ biểu tượng bot cho gọn)
+const mwwShort = (name) => esc(String(name).replace(/^🤖\s*/, ''));
+// Một dòng kết quả: nhãn, số phiếu nổi bật, bên dưới là thẻ tên người bầu (ẩn khi Ẩn phiếu)
+const mwwTallyRow = (g, label, voters, cls = '') => `
+  <li class="${cls}">
+    <div class="tl-row"><b>${label}</b><i>${voters.length}</i></div>
+    ${voters.length && !g.hideVotes ? `<div class="tc-chips">${voters.map((n) => `<span class="tc-chip plain">${mwwShort(n)}</span>`).join('')}</div>` : ''}
+  </li>`;
+
 function mwwBallots(g, names) {
   const by = {};
-  g.ballots.forEach((t, k) => t !== null && (by[t] ||= []).push(esc(names[k])));
+  g.ballots.forEach((t, k) => t !== null && (by[t] ||= []).push(names[k]));
   const rows = Object.entries(by)
     .sort(([a, x], [b, y]) => (a < 0) - (b < 0) || y.length - x.length)
-    .map(([t, who]) => `<p><b>${t < 0 ? 'Bỏ qua' : esc(names[t])}</b>: ${who.length} phiếu${g.hideVotes ? '' : ` <span class="muted small">(${who.join(', ')})</span>`}</p>`);
-  return `<div class="info small"><b>Phiếu bầu</b>${rows.join('') || '<p class="muted">Không ai bỏ phiếu.</p>'}</div>`;
+    .map(([t, who], r) => mwwTallyRow(g, t < 0 ? 'Bỏ qua' : esc(names[t]), who, r === 0 && t >= 0 ? 'top' : ''));
+  return `<div class="info tally"><span class="tc-label">Phiếu bầu</span>${rows.length ? `<ul>${rows.join('')}</ul>` : '<p class="muted">Không ai bỏ phiếu</p>'}</div>`;
 }
 
 // Ai treo, ai tha người trên giàn
 function mwwVerdictList(g, names) {
-  const who = (kill) => g.verdicts.map((v, k) => (v === kill ? esc(names[k]) : null)).filter(Boolean);
-  const row = (label, list) => `<p><b>${label}</b>: ${list.length} <span class="muted small">${list.length && !g.hideVotes ? `(${list.join(', ')})` : ''}</span></p>`;
-  return `<div class="info small">${row('☠️ Treo', who(true))}${row('🙏 Tha', who(false))}</div>`;
+  const who = (kill) => g.verdicts.map((v, k) => (v === kill ? names[k] : null)).filter(Boolean);
+  return `<div class="info tally"><span class="tc-label">Phán xử</span><ul>${mwwTallyRow(g, '☠️ Treo', who(true), 'kill')}${mwwTallyRow(g, '🙏 Tha', who(false), 'save')}</ul></div>`;
 }
 
 // Phán xử: người nhiều phiếu nhất đứng trên giàn treo cổ, mọi người còn lại chọn Treo hay Tha trong 30 giây
@@ -4264,11 +4333,7 @@ function mwwRevealView() {
   const i = g.out;
   const role = i === null ? null : WW_ROLES[g.roles[i]];
   const next = mwwAfterLabel(g, '🌙 Sang đêm tiếp theo');
-  return mwwFrame({
-    sub: next,
-    ring: g.deadline ? mwwRing(g.deadline, WW_TIMES.next) : '',
-    title: 'Kết quả',
-    body: `
+  const body = `
       <div class="secret reveal">
         ${i === null && g.spared !== null && g.spared !== undefined
           ? `<div class="emoji">🙏</div><p class="muted">Dân làng tha cho <b>${esc(names[g.spared])}</b></p>`
@@ -4279,10 +4344,32 @@ function mwwRevealView() {
             ${g.shown[i] ? `<div class="role ${role.tag}">${role.label.toUpperCase()}</div>` : ''}`}
       </div>
       ${g.verdicts ? mwwVerdictList(g, names) : ''}
-      ${g.ballots ? mwwBallots(g, names) : ''}`,
+      ${g.ballots ? mwwBallots(g, names) : ''}`;
+  const ring = g.deadline ? mwwRing(g.deadline, WW_TIMES.next) : '';
+  return mwwFrame({
+    sub: next,
+    ring,
+    title: 'Kết quả',
+    body,
     bar: g.deadline ? mwwGoNow(next) : '',
+    cover: mwwResultCover(`${g.id}:${g.night}:reveal`, 'Kết quả', `${ring}${body}`, g.deadline ? mwwGoNow(next) : ''),
   });
 }
+
+// Kết quả (treo cổ, hết ván) hiện ngay toàn màn hình, không phải bấm; đóng lại thì xem làng như thường
+let mwwResultShut = '';
+function mwwResultCover(key, title, body, foot = '') {
+  if (mwwResultShut === key) return '';
+  return `
+    <div class="result-cover" role="dialog" aria-label="${title}">
+      <div class="rs-box">
+        <div class="rs-head"><h2>${title}</h2><button class="hud-close" data-act="mww.resultshut" data-key="${key}" aria-label="Đóng">✕</button></div>
+        <div class="rs-body stack" data-scroll="result">${body}</div>
+        ${foot ? `<div class="rs-foot">${foot}</div>` : ''}
+      </div>
+    </div>`;
+}
+actions['mww.resultshut'] = (el) => (mwwResultShut = el.dataset.key);
 
 // Điểm nhấn của ván, rút từ nhật ký và vai đã lật
 function mwwHighlights(g) {
@@ -4337,10 +4424,7 @@ function mwwEndView() {
   const i = mpSeat();
   const wolfWin = g.winner === 'wolf';
   const minutes = g.endedAt ? Math.max(1, Math.round((g.endedAt - g.id) / 60000)) : null;
-  return mwwFrame({
-    sub: wolfWin ? 'Ma Sói thắng' : 'Dân làng thắng',
-    title: 'Hết ván',
-    body: `
+  const body = `
       <div class="victory ${wolfWin ? 'wolf' : 'village'}">
         ${wwArt(wolfWin ? 'wolf' : 'villager', 'small')}
         <div class="grow">
@@ -4353,10 +4437,15 @@ function mwwEndView() {
         ${minutes ? `<div><b>${minutes}</b><span>phút</span></div>` : ''}
         <div><b>${wwAlive(g).length}/${g.roles.length}</b><span>sống sót</span></div>
       </div>
-      ${mwwHighlights(g)}
-      <button class="btn ghost" data-act="mww.panel" data-panel="reveal">⚜️ Xem lật vai cả làng</button>
-      ${mpIsHost() ? '<button class="link small" data-act="mp.lobby">Về phòng chờ, đổi thiết lập</button>' : ''}`,
+      ${mwwHighlights(g)}`;
+  const lobby = mpIsHost() ? '<button class="link small" data-act="mp.lobby">Về phòng chờ, đổi thiết lập</button>' : '';
+  return mwwFrame({
+    sub: wolfWin ? 'Ma Sói thắng' : 'Dân làng thắng',
+    title: 'Hết ván',
+    body: `${body}<button class="btn ghost" data-act="mww.panel" data-panel="reveal">⚜️ Lật vai cả làng</button>${lobby}`,
     bar: mpReadyBar('chơi ván mới'),
+    // Hết ván: kết quả, điểm nhấn và lật vai cả làng hiện ngay toàn màn hình
+    cover: mwwResultCover(`${g.id}:end`, 'Hết ván', `${body}${mwwReveal(g)}${lobby}`, `<div class="hud-bar">${mpReadyBar('chơi ván mới')}</div>`),
   });
 }
 
@@ -4573,6 +4662,7 @@ Object.assign(actions, {
   'mp.takehost': () =>
     mpUpdate((r) => {
       r.host = myId;
+      r.hostDev = myDev;
       r.hostName = mpName;
     }),
   'mp.leave': () =>
@@ -4785,6 +4875,9 @@ let wsUser = null;
 // để chỉ trình duyệt này sửa được lượt của mình
 const newId = () => crypto.randomUUID().replace(/-/g, '');
 let myId = load('dmi.pid', null) || newId();
+// Mã riêng của máy này (không theo tài khoản)
+const myDev = load('dmi.dev', null) || newId();
+save('dmi.dev', myDev);
 const myKey = load('dmi.pkey', null) || newId() + newId();
 save('dmi.pid', myId.startsWith('u-') ? newId() : myId);
 save('dmi.pkey', myKey);
