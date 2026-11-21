@@ -10,6 +10,9 @@ import { currentUser } from './auth';
 
 const FRESH = 12 * 3600e3; // a room is listed this long after it was made
 const KEEP = 2 * 86400e3; // rooms untouched for longer are cleared when a new one is made
+// The host's phone touches its room at least every 10 seconds (and every move touches it), so a room quiet for longer
+// than LIVE has nobody left in it and is not listed; one quiet for STALE is cleared when the list is asked for.
+const LIVE = 60e3, STALE = 30 * 60e3;
 const MAX_STATE = 64 * 1024, MAX_PLAYER = 4 * 1024, MAX_PAIRS = 2000;
 const ROOM_ID = /^\d{4}$/, PLAYER_ID = /^[\w-]{8,64}$/;
 
@@ -89,7 +92,12 @@ export function registerBoardgame(api: Router) {
 
   // Ma Sói for several phones. The rooms made lately, for the list to join from.
   api.get('/api/boardgame/rooms', async (_req, res) => {
-    const rows = await all<any>('SELECT id, state, created_at FROM bg_rooms WHERE created_at > ? ORDER BY created_at DESC LIMIT 50', now() - FRESH);
+    const t = now();
+    await run('DELETE FROM bg_players WHERE room_id IN (SELECT id FROM bg_rooms WHERE updated_at < ?)', t - STALE);
+    await run('DELETE FROM bg_rooms WHERE updated_at < ?', t - STALE);
+    // Only rooms someone is still in: touched lately, with at least one player
+    const rows = await all<any>(`SELECT id, state, created_at FROM bg_rooms r WHERE created_at > ? AND updated_at > ?
+      AND EXISTS (SELECT 1 FROM bg_players p WHERE p.room_id = r.id) ORDER BY created_at DESC LIMIT 50`, t - FRESH, t - LIVE);
     json(res, 200, { rooms: rows.map((r) => {
       const s = parse(r.state) || {};
       return { id: r.id, at: r.created_at, hostName: String(s.hostName || ''), phase: s.phase === 'play' ? 'play' : 'lobby' };

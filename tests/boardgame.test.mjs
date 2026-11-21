@@ -63,8 +63,10 @@ test('board game: no account needed, players keep their own part, admins reset',
     const lobby = { host: a.id, hostName: 'Ann', phase: 'lobby', seats: [], g: null };
     ok(await s.call('PUT', '/api/boardgame/rooms/1234', { create: true, state: lobby }, { player: a }), 'create');
     assert.equal((await s.call('PUT', '/api/boardgame/rooms/1234', { create: true, state: lobby }, { player: c })).status, 409);
-    assert.equal(ok(await s.call('GET', '/api/boardgame/rooms')).rooms[0].hostName, 'Ann');
+    // Listed only once someone is in it (a room everyone left is not shown)
+    assert.equal(ok(await s.call('GET', '/api/boardgame/rooms')).rooms.length, 0);
     ok(await s.call('PUT', '/api/boardgame/rooms/1234/players/me', { data: { name: 'Ann', at: 1, act: null } }, { player: a }), 'join a');
+    assert.equal(ok(await s.call('GET', '/api/boardgame/rooms')).rooms[0].hostName, 'Ann');
     ok(await s.call('PUT', '/api/boardgame/rooms/1234/players/me', { data: { name: 'Bob', at: 2, act: null } }, { player: b }), 'join b');
 
     // Someone outside the room cannot change it; another browser cannot write a player's part with the id alone.

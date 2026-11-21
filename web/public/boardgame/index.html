@@ -643,6 +643,10 @@ body.salem-room #app > * { pointer-events: auto; }
 .role-count .rc-team > span:first-child { min-width: 100%; font-weight: 700; }
 .role-count .rc-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; background: rgba(216, 196, 154, .08); border: 1px solid var(--line); font-size: .8rem; font-weight: 600; }
 .role-count .rc-chip b { margin-left: 2px; }
+.guest-form { display: flex; flex-direction: column; gap: 8px; }
+a.btn { text-decoration: none; text-align: center; }
+.guest-form input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--sheet, #151820); color: var(--text); font: inherit; }
+.or { text-align: center; }
 /* Phòng chờ: chọn màu nhân vật */
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatch { width: 32px; height: 32px; padding: 0; border-radius: 50%; background: var(--c); border: 2px solid rgba(0, 0, 0, .55); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .22); cursor: pointer; }
@@ -2267,7 +2271,7 @@ function mpChanged() {
 }
 
 function mpJoin() {
-  if (!wsUser) return;
+  if (!mpPlayer()) return;
   const taken = mpMembers().some(([uid, p]) => uid !== myId && p.name.toLowerCase() === mpName.toLowerCase());
   if (taken) return void (mpMsg = `Đã có người tên ${mpName} trong phòng. Chọn tên khác rồi bấm Vào phòng.`);
   mpMsg = '';
@@ -2848,17 +2852,48 @@ function mpBar(title) {
 const mwwMusicSwitch = () => iosSwitch(wwMusicOn, 'mww.music', { label: '🎵', cls: 'sm', name: 'Nhạc nền' });
 
 // Đăng nhập DMI Workspace trên trình duyệt này thì dùng luôn tên tài khoản; chưa đăng nhập thì chọn tên như trước
-// Ma Sói chơi bằng tài khoản DMI Workspace: tên lấy theo tài khoản, chưa đăng nhập thì chỉ có nút đăng nhập
+// Ma Sói: nhân viên chơi bằng tài khoản DMI Workspace (tên theo tài khoản); người ngoài chơi với tư cách khách, chỉ gõ tên
+// (không tạo tài khoản Workspace, máy chủ nhận ra khách theo trình duyệt). Tên khách không được trùng tên nhân viên.
+let mpGuest = wsGuestName();
+function wsGuestName() {
+  const name = load('dmi.guest', null);
+  if (name) mpSetName(name);
+  return name;
+}
+const mpPlayer = () => wsUser || mpGuest;
+forms['mp.guest'] = (form) => {
+  const name = form.elements.name.value.trim().replace(/\s+/g, ' ');
+  if (name.length < 2) return void (mpMsg = 'Tên khách cần ít nhất 2 chữ.');
+  if (baseRoster().some((r) => r.toLowerCase() === name.toLowerCase())) return void (mpMsg = `${name} là tên của một nhân viên. Nhân viên hãy đăng nhập, khách chọn tên khác nhé.`);
+  mpGuest = name;
+  save('dmi.guest', name);
+  mpSetName(name);
+  mpMsg = '';
+};
+actions['mp.guestout'] = () => {
+  mpGuest = null;
+  save('dmi.guest', null);
+};
 function mpNamePicker() {
   if (wsUser) {
     return `
       <div class="row">${avatar(wsUser.name, 'sm')}<span class="grow"><b>${esc(wsUser.name)}</b><br><span class="muted small">Tên theo tài khoản DMI Workspace</span></span></div>`;
   }
+  if (mpGuest) {
+    return `
+      <div class="row">${avatar(mpGuest, 'sm')}<span class="grow"><b>${esc(mpGuest)}</b><br><span class="muted small">Đang chơi với tư cách khách</span></span>
+        <button class="link small" data-act="mp.guestout">Đổi tên</button></div>`;
+  }
   return `
     <div class="stack">
       <b>Đăng nhập để chơi</b>
-      <span class="muted small">Ma Sói dùng tên tài khoản DMI Workspace của bạn. Đăng nhập xong quay lại trang này là vào chơi được.</span>
+      <span class="muted small">Nhân viên dùng tên tài khoản DMI Workspace. Đăng nhập xong quay lại trang này là vào chơi được.</span>
       <a class="btn" href="/" target="_blank" rel="noopener">🔑 Đăng nhập DMI Workspace</a>
+      <div class="or muted small">hoặc</div>
+      <form class="guest-form" data-form="mp.guest">
+        <input name="name" maxlength="16" autocomplete="off" placeholder="Tên của bạn" aria-label="Tên khách">
+        <button class="btn ghost">👤 Chơi với tư cách khách</button>
+      </form>
     </div>`;
 }
 
@@ -3789,7 +3824,7 @@ views['mp.home'] = () => {
     <div class="ww-title"><h1>Ma Sói</h1><p>Mỗi người một điện thoại. Máy chủ phòng làm quản trò, gọi từng vai thức dậy; thiếu người thì thêm bot.</p></div>
     <div class="card stack">${mpNamePicker()}</div>
     ${mpMsg ? `<p class="small" style="color:var(--spy)">${esc(mpMsg)}</p>` : ''}
-    ${wsUser ? mwwRoomList() : ''}`;
+    ${mpPlayer() ? mwwRoomList() : ''}`;
 };
 
 function mwwRoomList() {
@@ -3843,7 +3878,7 @@ function mpLobby() {
     banner: mwwBanner('Ma Sói', `Phòng chờ · ${mpCount()} người`, '', { icon: '🐺' }),
     eventTitle: `Phòng ${esc(mp.id)}`,
     event: `
-      ${mpJoined() ? mpColorPicker() : `<div class="stack">${mpNamePicker()}${wsUser ? '<button class="btn" data-act="mp.join">Vào phòng</button>' : ''}</div>`}
+      ${mpJoined() ? mpColorPicker() : `<div class="stack">${mpNamePicker()}${mpPlayer() ? '<button class="btn" data-act="mp.join">Vào phòng</button>' : ''}</div>`}
       <div class="row lobby-code">
         <div class="grow"><span class="muted small">Mã phòng</span><div class="code">${esc(mp.id)}</div></div>
         <button class="btn ghost" data-act="mp.invite">✉️ Mời bạn</button>
@@ -4425,7 +4460,7 @@ actions['v.mode'] = () => {
 
 /* ---------- Actions ---------- */
 
-const needName = () => !wsUser && (mpMsg = 'Hãy đăng nhập DMI Workspace để chơi.');
+const needName = () => !mpPlayer() && (mpMsg = 'Hãy đăng nhập DMI Workspace hoặc chơi với tư cách khách.');
 
 // Bot mới lấy số nhỏ nhất chưa dùng: 🤖 Bot 1, 🤖 Bot 2…
 function mpNewBot(bots) {
@@ -4727,6 +4762,8 @@ async function loadMe() {
     const { user } = await (await fetch('/api/auth/me')).json();
     if (!user?.name?.trim()) return;
     wsUser = { name: user.name.trim() };
+    // Đã đăng nhập thì thôi chế độ khách
+    mpGuest = null;
     if (user.id) myId = `u-${user.id}`;
     mpSetName(wsUser.name);
   } catch {}
