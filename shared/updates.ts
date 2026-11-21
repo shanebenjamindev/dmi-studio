@@ -10,6 +10,14 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    id: '2026-11-21-3',
+    date: '21/11/2026',
+    items: [
+      { kind: 'fix', vi: 'Ma Sói gọn chữ hơn: bớt các dòng hướng dẫn dài; Sói thấy đồng bọn và người cả bầy đang nhắm (kèm số Sói) dễ nhìn hơn; Điểm nhấn cuối ván mỗi ý một dòng.', en: 'Werewolf has less text: long hints are gone; wolves see their pack and who it is aiming at (with counts) more clearly; end-of-game highlights are one per line.' },
+      { kind: 'new', vi: 'Ma Sói: lỡ bấm “Không làm gì” thì bấm “Chọn lại” khi lượt của vai mình chưa hết.', en: 'Werewolf: pressed “Do nothing” by mistake? Press “Choose again” while your turn is still on.' },
+    ],
+  },
+  {
     id: '2026-11-21-2',
     date: '21/11/2026',
     items: [

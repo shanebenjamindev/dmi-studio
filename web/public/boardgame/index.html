@@ -618,8 +618,26 @@ body.salem-room #app > * { pointer-events: auto; }
 .turn-cover .tc-head .role-art { width: 48px; margin: 0; border-radius: 50%; aspect-ratio: 1; }
 .turn-cover .tc-head .rc-name { font: 800 1.5rem/1 "Grenze Gotisch", Georgia, serif; }
 .turn-cover .tc-head span { font-size: .8rem; color: var(--muted); }
-.turn-cover .tc-info { width: min(420px, 100%); padding: 8px 12px; border-radius: 10px; background: rgba(33, 31, 36, .88); color: var(--text); font-size: .88rem; text-align: center; }
-.turn-cover .tc-info p { margin: 2px 0; }
+.turn-cover .tc-info { width: min(400px, 100%); display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; border-radius: 14px; background: rgba(33, 31, 36, .94); border: 1px solid #4a382c; color: var(--text); font-size: .95rem; text-align: left; }
+.turn-cover .tc-info p { margin: 0; }
+/* Khung thông tin lượt đêm: từng mục có nhãn nhỏ */
+.tc-sec { display: flex; flex-direction: column; gap: 6px; }
+.tc-label { font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--gold); }
+.tc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tc-chip { padding: 3px 10px; border-radius: 999px; background: rgba(143, 41, 41, .25); border: 1px solid rgba(255, 138, 122, .35); color: #ffb3a8; font-size: .85rem; font-weight: 700; white-space: nowrap; }
+.tc-aims { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tc-aims li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 10px; border-radius: 8px; background: rgba(216, 196, 154, .07); }
+.tc-aims li.top { background: rgba(143, 41, 41, .35); border: 1px solid #8F2929; }
+.tc-aims b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-aims i { flex: none; padding: 1px 8px; border-radius: 999px; background: #8F2929; color: #fff; font-style: normal; font-weight: 800; font-size: .8rem; }
+.tc-note { font-size: .78rem; color: var(--muted); }
+.tc-chip.village { background: rgba(82, 107, 82, .3); border-color: rgba(140, 190, 140, .4); color: #c4e6c4; }
+/* Điểm nhấn cuối ván */
+.hl-box { display: flex; flex-direction: column; gap: 8px; }
+.hl-box ul.hl { gap: 6px; }
+.hl-box .hl li { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 8px; background: rgba(216, 196, 154, .07); font-size: .92rem; }
+.hl-box .hl-icon { flex: none; width: 1.6em; text-align: center; font-size: 1.15rem; }
+.hl-box .hl small { flex: none; color: var(--muted); font-size: .75rem; }
 .turn-cover .tc-fns { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; max-width: 560px; }
 .turn-cover .tc-fn { width: 128px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 10px 12px; border-radius: 16px; border: 2px solid #8a7550; background: var(--paper); color: var(--ink); font: 800 1rem/1.2 var(--font); cursor: pointer; box-shadow: inset 0 0 18px rgba(120, 90, 40, .3), 0 8px 20px rgba(0, 0, 0, .5); animation: rc-flip .35s ease-out both; transition: transform .12s; }
 .turn-cover .tc-fn:hover { transform: translateY(-3px); }
@@ -2100,23 +2118,23 @@ function wwCfgCards() {
     </div>
     <div class="card stack">
       <div class="row between">
-        <span><b>🤖 Bot</b><br><span class="muted small">Thêm cho đủ người. Bot tự chọn ban đêm, không biết nói và không được tính điểm.</span></span>
+        <span><b>🤖 Bot</b><br><span class="muted small">Thêm cho đủ người</span></span>
         ${stepper('mp.bot', 'bots', mpBots().length, 0, MAX_PLAYERS - humans)}
       </div>
       <div class="row between">
-        <span><b>⏱️ Thảo luận ban ngày</b><br><span class="muted small">${wwCfg.talk} phút, hết giờ thì cả làng bỏ phiếu trên máy (30 giây)</span></span>
+        <span><b>⏱️ Thảo luận ban ngày</b><br><span class="muted small">${wwCfg.talk} phút</span></span>
         ${stepper('ww.num', 'talk', wwCfg.talk, 1, 10)}
       </div>
       <div class="row between">
-        <span><b>Lật vai khi chết</b><br><span class="muted small">Công khai vai của người bị loại</span></span>
+        <span><b>Lật vai khi chết</b><br><span class="muted small">Công khai vai người chết</span></span>
         ${wwSwitch('reveal', wwCfg.reveal)}
       </div>
       <div class="row between">
-        <span><b>🙈 Ẩn phiếu</b><br><span class="muted small">Không ai thấy ai bầu ai, số phiếu chỉ hiện khi có kết quả</span></span>
+        <span><b>🙈 Ẩn phiếu</b><br><span class="muted small">Không ai thấy ai bầu ai</span></span>
         ${wwSwitch('hideVotes', wwCfg.hideVotes)}
       </div>
       <div class="row between">
-        <span><b>🔊 Giọng quản trò</b><br><span class="muted small">Máy này đọc lời dẫn và gọi từng vai; nên đặt máy giữa bàn</span></span>
+        <span><b>🔊 Giọng quản trò</b><br><span class="muted small">Máy này đọc lời dẫn</span></span>
         ${wwSwitch('voice', wwVoiceOn, 'mww.voice')}
       </div>
     </div>`;
@@ -2702,6 +2720,8 @@ function mwwNarrate() {
       }, people.length ? 0 : 4000 + rand(4000));
     });
   }
+  // Ai đó bấm Chọn lại thì lượt chưa xong: đợi họ chọn xong mới đếm lại
+  if (!mwwTurnDone(g, acts)) nar.doneAt = 0;
   if (nar.phase === 'wait' && nar.waited && mwwTurnDone(g, acts)) {
     // Ai cũng chọn xong: chờ thêm cho người vừa chốt đi tới nhà kia và xem hết hoạt ảnh rồi mới gọi vai đi ngủ
     // Chờ thêm vài giây ngẫu nhiên, để không ai đoán ra vai chọn nhanh vì không còn gì để làm (Phù thủy hết bình…)
@@ -3497,7 +3517,7 @@ function mwwPackLines(g, i) {
   const msgs = mwwPackMsgs(g);
   return msgs.length
     ? msgs.map((m) => `<p class="${m.k === i ? 'mine' : ''}"><b>${esc(names[m.k])}</b>${esc(String(m.t))}</p>`).join('')
-    : '<p class="muted small center">Chưa ai nói gì. Bàn nhau xem đêm nay cắn ai.</p>';
+    : '<p class="muted small center">Chưa có tin nhắn.</p>';
 }
 
 function mwwPackChat(g, i) {
@@ -3556,7 +3576,7 @@ function mwwRoleCover(g, i) {
         <button class="rc-card rc-back" data-act="mww.flip">
           <span class="rc-mark" aria-hidden="true">🌙</span>
           <b>Vai của bạn</b>
-          <span class="small">Che màn hình rồi chạm để lật</span>
+          <span class="small">Chạm để lật</span>
         </button>
       </div>`;
   }
@@ -3724,7 +3744,7 @@ function mwwMyRole(g, i) {
     return `
       <section class="board">
         <h3>Vai của bạn</h3>
-        <p class="muted small center">Vai được giấu để người ngồi cạnh không nhìn thấy.</p>
+        
         <button class="btn ghost" data-act="mww.peek">👁 Xem vai (che màn hình)</button>
       </section>`;
   }
@@ -3872,7 +3892,7 @@ function mpLobby() {
   const settings = () => (host ? `<div class="stack">${wwCfgCards()}</div>` : `
     <section class="board">
       <h3>Thiết lập</h3>
-      <p class="muted small center">Chủ phòng ${esc(mp.room.hostName || '')} đang chọn vai và giờ thảo luận. Vai được chia khi ván bắt đầu.</p>
+      <p class="muted small center">Chủ phòng đang chọn vai.</p>
     </section>`);
   return mwwOverlay({
     banner: mwwBanner('Ma Sói', `Phòng chờ · ${mpCount()} người`, '', { icon: '🐺' }),
@@ -3883,7 +3903,6 @@ function mpLobby() {
         <div class="grow"><span class="muted small">Mã phòng</span><div class="code">${esc(mp.id)}</div></div>
         <button class="btn ghost" data-act="mp.invite">✉️ Mời bạn</button>
       </div>
-      <p class="muted small">Cả làng tụ họp ở quảng trường trước khi màn đêm buông xuống. Mọi người mở DMI Boardgame → 🐺 Ma Sói → bấm vào phòng này.</p>
       ${host && missing > 0 ? `<button class="btn ghost" data-act="mp.fillbots">🤖 Thêm ${missing} bot cho đủ ${need} người</button>` : ''}`,
     panels: [
       ['people', '👥', `Dân làng ${mpCount()}`, people],
@@ -3933,28 +3952,38 @@ function mwwActInfo(g, i, acts, names) {
   let extra = '';
   if (wwIsWolf(g, i)) {
     const mates = wwAlive(g).filter((k) => k !== i && wwIsWolf(g, k));
-    const picked = mates.filter((k) => acts[k]).map((k) => `${esc(names[k])} → ${esc(names[acts[k].pick])}`);
-    prompt = 'Chọn người để cắn đêm nay.';
+    // Lựa chọn của bầy gom theo người bị nhắm: nhiều Sói chọn nhất lên đầu
+    const tally = {};
+    mates.forEach((k) => acts[k] && acts[k].pick !== null && (tally[acts[k].pick] = (tally[acts[k].pick] || 0) + 1));
+    const aims = Object.entries(tally).sort((a, b) => b[1] - a[1]);
+    prompt = 'Chọn người để cắn.';
     extra = `
-      <p>Đồng bọn: <b>${mates.length ? mates.map((k) => esc(names[k])).join(', ') : 'không còn ai'}</b></p>
-      ${picked.length ? `<p>Đồng bọn đã chọn: <b>${picked.join(', ')}</b>. Nếu hòa phiếu, Sói chọn sau cùng quyết định.</p>` : ''}`;
+      <div class="tc-sec">
+        <span class="tc-label">Đồng bọn</span>
+        <div class="tc-chips">${mates.length ? mates.map((k) => `<span class="tc-chip">${esc(names[k])}${acts[k] ? ' ✓' : ''}</span>`).join('') : '<span class="muted">Không còn ai</span>'}</div>
+      </div>
+      ${aims.length ? `
+        <div class="tc-sec">
+          <span class="tc-label">Đang nhắm</span>
+          <ul class="tc-aims">${aims.map(([k, n], r) => `<li class="${r === 0 ? 'top' : ''}"><b>${esc(names[k])}</b><i>${n}</i></li>`).join('')}</ul>
+        </div>` : ''}`;
   } else if (role === 'seer') {
-    prompt = 'Chọn một người để soi.';
+    prompt = 'Chọn người để soi.';
   } else if (role === 'hunter') {
-    prompt = 'Chọn một người để bắn: sáng ra người đó chết. Không chắc ai là Sói thì có thể không bắn.';
+    prompt = 'Chọn người để bắn.';
   } else if (role === 'guard') {
-    prompt = 'Chọn một người để bảo vệ (có thể là chính bạn).';
+    prompt = 'Chọn người để bảo vệ.';
     if (g.lastGuard !== null && g.alive[g.lastGuard]) {
-      extra = `<p>Đêm trước bạn đã bảo vệ <b>${esc(names[g.lastGuard])}</b> nên đêm nay không chọn lại được.</p>`;
+      extra = `<p>Không chọn lại <b>${esc(names[g.lastGuard])}</b> (đêm trước).</p>`;
     }
   } else if (role === 'witch') {
     const victim = mwwVictim(g, acts);
-    prompt = g.poisonUsed ? 'Bạn đã hết thuốc độc.' : 'Muốn đầu độc ai thì bấm vào người đó (không bắt buộc).';
+    prompt = g.poisonUsed ? 'Hết thuốc độc.' : 'Đầu độc ai không?';
     extra = g.healUsed
-      ? '<p>Bạn đã hết thuốc cứu.</p>'
+      ? '<p>Hết thuốc cứu.</p>'
       : victim === null
-        ? '<p>Đêm nay không ai bị Sói cắn.</p>'
-        : `<p>Đêm nay Sói cắn <b>${esc(names[victim])}</b>.${mpHeal ? ' Bạn đã chọn cứu.' : ''}</p>`;
+        ? '<p>Không ai bị cắn.</p>'
+        : `<p>🐺 Bị cắn: <b>${esc(names[victim])}</b>${mpHeal ? ' · đã cứu' : ''}</p>`;
   }
   return { prompt, extra, targets };
 }
@@ -3965,7 +3994,7 @@ function mwwActBody(g, i, acts, names) {
   return `
     <div class="calling ${info.tag}">${wwArt(g.roles[i], 'small')}<b class="grow">Bạn là ${info.label}</b></div>
     <div class="info stack">${extra}<p><b>${prompt}</b></p>
-      <p class="muted small">Chọn chức năng, rồi bấm vào nhà người đó (nhà sáng lên là chọn được) và bấm nút trên thẻ của họ.</p></div>`;
+      <p class="muted small">Chọn chức năng → bấm nhà.</p></div>`;
 }
 
 // Đến lượt vai mình trong đêm: lớp phủ để chọn chức năng của vai (Cắn, Nguyền, Soi, Bảo vệ, Bắn, Cứu, Đầu độc…). Chọn xong
@@ -4016,7 +4045,7 @@ function mwwTurnCover(g, i, acts, names) {
     <div class="role-cover turn-cover" role="dialog" aria-label="Lượt của ${info.label}">
       <div class="tc-head">
         ${wwArt(role, 'small')}
-        <div><div class="rc-name rl-${info.tag}">${info.label}</div><span>Đến lượt bạn · đêm ${g.night}</span></div>
+        <div><div class="rc-name rl-${info.tag}">${info.label}</div><span>Đêm ${g.night}</span></div>
       </div>
       ${extra ? `<div class="tc-info">${extra}</div>` : ''}
       <div class="tc-fns">
@@ -4071,25 +4100,27 @@ function mwwNightView() {
   let cover = '';
   if (!g.alive[i]) {
     bar = '';
-    body = '<div class="secret night"><div class="emoji">👻</div><div class="who">Bạn đã bị loại</div><p class="muted">Giữ im lặng và chờ trời sáng nhé.</p></div>';
+    body = '<div class="secret night"><div class="emoji">👻</div><div class="who">Bạn đã bị loại</div></div>';
   } else if (!mpShow) {
     bar = '<button class="btn" data-act="mww.show">👁 Mở máy</button>';
     body = `
       <div class="secret night">
         <div class="emoji">🌙</div>
         <div class="who">Nhắm mắt lại</div>
-        <p class="muted">Khi quản trò gọi vai của bạn, che màn hình rồi bấm mở máy.</p>
+        <p class="muted">Đến lượt thì bấm Mở máy.</p>
       </div>`;
   } else if (acts[i]) {
     body = `<div class="secret night">${wwArt(role, 'small')}<div class="result">${mwwResult(g, i, acts, names)}</div></div>`;
+    // Lỡ bấm Không làm gì: còn trong lượt của vai mình thì chọn lại được
+    if (acts[i].pick === null && wwWakes(role) === calling) bar = `${hide}<button class="btn" data-act="mww.redo">↩ Chọn lại</button>`;
   } else if (acting) {
     body = mwwActBody(g, i, acts, names);
-    bar = `${hide}<button class="btn" data-act="mww.fns">↩ Chức năng</button>${fn ? `<span class="bar-note">Bấm vào nhà để <b>${MWW_FNS[fn][1]}</b>.</span>` : ''}`;
+    bar = `${hide}<button class="btn" data-act="mww.fns">↩ Chức năng</button>${fn ? `<span class="bar-note">Bấm nhà để <b>${MWW_FNS[fn][1]}</b></span>` : ''}`;
     cover = mwwTurnCover(g, i, acts, names);
   } else {
     const k = g.calls.indexOf(wwWakes(role));
-    const when = k < 0 ? 'Vai của bạn không thức dậy ban đêm.' : k < g.turn ? 'Lượt của bạn đêm nay đã qua.' : 'Chưa đến lượt của bạn.';
-    body = `<div class="secret night">${wwArt(role, 'small')}<div class="who">Bạn là ${WW_ROLES[role].label}</div><p class="muted">${when} Nhắm mắt nhé.</p></div>`;
+    const when = k < 0 ? 'Vai này ngủ suốt đêm.' : k < g.turn ? 'Đã xong lượt.' : 'Chưa tới lượt.';
+    body = `<div class="secret night">${wwArt(role, 'small')}<div class="who">Bạn là ${WW_ROLES[role].label}</div><p class="muted">${when}</p></div>`;
   }
   return mwwFrame({
     sub,
@@ -4133,9 +4164,9 @@ function mwwDayView() {
     body: `
       ${mwwSay(`
         ${g.deaths.length
-          ? g.deaths.map((k) => `<p>💀 Đêm qua <b>${esc(names[k])}</b> đã chết. ${mwwTag(g, k)}</p>`).join('')
-          : '<p>🌤️ Đêm qua bình yên, không ai chết.</p>'}
-        ${g.talking ? `<p class="small">Còn ${wwAlive(g).length} người sống. Bàn bạc xem ai là Sói; hết giờ, cả làng bỏ phiếu treo cổ trên máy của mình. Ai cũng bấm Xong thì bỏ phiếu ngay.</p>` : ''}`)}
+          ? g.deaths.map((k) => `<p>💀 <b>${esc(names[k])}</b> đã chết ${mwwTag(g, k)}</p>`).join('')
+          : '<p>🌤️ Không ai chết</p>'}
+        ${g.talking ? `<p class="small">💬 Thảo luận · còn ${wwAlive(g).length} người</p>` : ''}`)}
       ${g.turned?.[i] ? '<div class="info">🌑 Bạn đã bị nguyền: giờ bạn là <b>Ma Sói</b>, thắng cùng bầy Sói và thức dậy cùng bầy mỗi đêm. Giữ bí mật nhé!</div>' : ''}
       ${mpIsHost() && !blocked ? '<button class="link small" data-act="mww.votenow">Chủ phòng: bỏ phiếu ngay</button>' : ''}`,
     bar,
@@ -4154,10 +4185,10 @@ function mwwVoteView() {
   const canVote = i >= 0 && g.alive[i];
   const done = votes.filter((v, k) => g.alive[k] && v !== undefined).length;
   const tip = !canVote
-    ? 'Bạn đã bị loại nên không bỏ phiếu.'
+    ? 'Bạn đã bị loại.'
     : mine === undefined
-      ? 'Bấm vào người bạn muốn treo cổ trong làng.'
-      : 'Đã bỏ phiếu. Bạn đổi được tới khi hết giờ.';
+      ? 'Bấm người muốn treo cổ.'
+      : 'Đã bỏ phiếu.';
   const choice = mine === undefined ? 'Chưa bỏ phiếu' : mine < 0 ? 'Bạn chọn bỏ qua' : `Bạn bầu <b>${esc(names[mine])}</b>`;
   return mwwFrame({
     sub: 'Bỏ phiếu treo cổ',
@@ -4167,7 +4198,7 @@ function mwwVoteView() {
     body: `
       ${mwwSay(`
         <p><b>${tip}</b></p>
-        <p class="small">${done}/${wwAlive(g).length} người đã bỏ phiếu.${g.hideVotes ? ' Phiếu được giữ kín tới khi có kết quả.' : ''} Nhiều phiếu nhất sẽ lên giàn treo cổ để cả làng phán xử; hòa thì không ai lên giàn.</p>`)}
+        <p class="small">🗳️ ${done}/${wwAlive(g).length}${g.hideVotes ? ' · phiếu kín' : ''}</p>`)}
       ${mpIsHost() ? '<button class="link small" data-act="mww.tally">Chủ phòng: kết thúc bỏ phiếu ngay</button>' : ''}`,
     bar: canVote
       ? `<span class="bar-note">${choice}</span>
@@ -4205,20 +4236,20 @@ function mwwTrialView() {
   const mine = verdicts[i];
   const canVote = i >= 0 && g.alive[i] && i !== a;
   const tip = i === a
-    ? 'Bạn đang đứng trên giàn treo cổ. Thanh minh đi!'
+    ? 'Bạn đang trên giàn. Thanh minh đi!'
     : !canVote
-      ? 'Bạn đã bị loại nên không phán xử.'
+      ? 'Bạn đã bị loại.'
       : mine === undefined
-        ? `Treo hay tha ${esc(names[a])}?`
-        : 'Đã chọn. Bạn đổi được tới khi hết giờ.';
+        ? 'Treo hay tha?'
+        : 'Đã chọn.';
   return mwwFrame({
     sub: `Phán xử ${esc(names[a])}`,
     ring: mwwRing(g.deadline, WW_TIMES.turn),
     title: 'Trên giàn treo cổ',
     body: `
       ${mwwSay(`
-        <p><b>${esc(names[a])}</b> bị cả làng đưa lên giàn. <b>${tip}</b></p>
-        <p class="small">${g.hideVotes ? `${kill + save} người đã chọn, phiếu được giữ kín.` : `☠️ Treo: ${kill} · 🙏 Tha: ${save}.`} Treo nhiều hơn Tha thì bị treo cổ; hòa thì được tha.</p>`)}
+        <p>⚖️ <b>${esc(names[a])}</b> · <b>${tip}</b></p>
+        <p class="small">${g.hideVotes ? `${kill + save} người đã chọn · phiếu kín` : `☠️ ${kill} · 🙏 ${save}`}</p>`)}
       ${mpIsHost() ? '<button class="link small" data-act="mww.judge">Chủ phòng: kết thúc phán xử ngay</button>' : ''}`,
     bar: canVote
       ? `<button class="btn ${mine === true ? 'blood' : 'ghost'}" data-act="mww.verdict" data-kill="1">${mine === true ? '✓ ' : ''}☠️ Treo</button>
@@ -4240,12 +4271,12 @@ function mwwRevealView() {
     body: `
       <div class="secret reveal">
         ${i === null && g.spared !== null && g.spared !== undefined
-          ? `<div class="emoji">🙏</div><p class="muted">Dân làng tha cho <b>${esc(names[g.spared])}</b></p><p class="muted small">${esc(names[g.spared])} xuống giàn và chơi tiếp.</p>`
+          ? `<div class="emoji">🙏</div><p class="muted">Dân làng tha cho <b>${esc(names[g.spared])}</b></p>`
           : i === null
-          ? '<div class="emoji">🤝</div><p class="muted">Không ai bị treo cổ</p><p class="muted small">Phiếu hòa hoặc không ai bị chọn.</p>'
+          ? '<div class="emoji">🤝</div><p class="muted">Không ai bị treo cổ</p>'
           : `${g.shown[i] ? wwArt(g.roles[i], 'small') : '<div class="emoji">⚰️</div>'}
             <p class="muted">${esc(names[i])} bị treo cổ</p>
-            ${g.shown[i] ? `<div class="role ${role.tag}">${role.label.toUpperCase()}</div>` : '<p class="muted">Vai trò được giữ kín.</p>'}`}
+            ${g.shown[i] ? `<div class="role ${role.tag}">${role.label.toUpperCase()}</div>` : ''}`}
       </div>
       ${g.verdicts ? mwwVerdictList(g, names) : ''}
       ${g.ballots ? mwwBallots(g, names) : ''}`,
@@ -4256,19 +4287,29 @@ function mwwRevealView() {
 // Điểm nhấn của ván, rút từ nhật ký và vai đã lật
 function mwwHighlights(g) {
   const names = mpNames();
+  const who = (k) => `<b>${esc(names[k])}</b>`;
+  // Mỗi điểm nhấn một dòng: [biểu tượng, câu]
   const items = [];
   (g.log || []).forEach((e) => {
-    if (e.kind === 'hanged') {
-      items.push(wwIsWolf(g, e.who) ? `🎯 Cả làng treo đúng Sói <b>${esc(names[e.who])}</b> ở ngày ${e.night}.` : `😢 <b>${esc(names[e.who])}</b> (${WW_ROLES[g.roles[e.who]].label}) bị treo oan ở ngày ${e.night}.`);
-    }
+    if (e.kind !== 'hanged') return;
+    items.push(wwIsWolf(g, e.who)
+      ? ['🎯', `Treo đúng Sói ${who(e.who)}`, `Ngày ${e.night}`]
+      : ['😢', `${who(e.who)} bị treo oan`, `Ngày ${e.night}`]);
   });
   (g.shots || []).forEach(({ hunter, target, night }) => {
-    if (wwIsWolf(g, target)) items.push(`🏹 Thợ săn <b>${esc(names[hunter])}</b> bắn trúng Sói <b>${esc(names[target])}</b> ở đêm ${night}.`);
+    if (wwIsWolf(g, target)) items.push(['🏹', `${who(hunter)} bắn trúng Sói ${who(target)}`, `Đêm ${night}`]);
   });
-  Object.entries(g.turned || {}).forEach(([k, was]) => items.push(`🌑 <b>${esc(names[k])}</b> từng là ${WW_ROLES[was].label}, bị nguyền hóa Sói.`));
-  const winners = wwAlive(g).filter((k) => wwIsWolf(g, k) === (g.winner === 'wolf')).map((k) => `<b>${esc(names[k])}</b>`);
-  if (winners.length) items.push(`🛡️ Sống sót tới cuối: ${winners.join(', ')}.`);
-  return items.length ? `<div class="info"><b>Điểm nhấn</b><ul class="hl">${items.map((t) => `<li>${t}</li>`).join('')}</ul></div>` : '';
+  Object.entries(g.turned || {}).forEach(([k, was]) => items.push(['🌑', `${who(k)} hóa Sói`, WW_ROLES[was].label]));
+  const winners = wwAlive(g).filter((k) => wwIsWolf(g, k) === (g.winner === 'wolf'));
+  if (!items.length && !winners.length) return '';
+  return `
+    <div class="info hl-box">
+      <span class="tc-label">Điểm nhấn</span>
+      ${items.length ? `<ul class="hl">${items.map(([icon, text, when]) => `<li><span class="hl-icon">${icon}</span><span class="grow">${text}</span>${when ? `<small>${when}</small>` : ''}</li>`).join('')}</ul>` : ''}
+      ${winners.length ? `
+        <span class="tc-label">Sống sót</span>
+        <div class="tc-chips">${winners.map((k) => `<span class="tc-chip ${wwIsWolf(g, k) ? '' : 'village'}">${esc(names[k])}</span>`).join('')}</div>` : ''}
+    </div>`;
 }
 
 const mwwWon = (g, k) => (wwWakes(g.roles[k]) === 'wolf') === (g.winner === 'wolf');
@@ -4305,7 +4346,6 @@ function mwwEndView() {
         <div class="grow">
           <div class="v-big">${wolfWin ? 'Ma Sói thắng' : 'Dân làng thắng'}</div>
           ${i >= 0 ? `<div class="v-me ${mwwWon(g, i) ? 'win' : 'lose'}">${mwwWon(g, i) ? '⚜️ Bạn chiến thắng' : '✝ Bạn thất bại'}</div>` : ''}
-          <p class="small">${wolfWin ? 'Bầy sói đã áp đảo dân làng.' : 'Con sói cuối cùng đã bị tiêu diệt.'}</p>
         </div>
       </div>
       <div class="stats">
@@ -4657,6 +4697,15 @@ Object.assign(actions, {
   'mww.fns': () => {
     mwwTurnShut = '';
     mwwFocus = null;
+  },
+  'mww.redo': () => {
+    const me = mp.players[myId];
+    mpHeal = Boolean(me?.act?.heal);
+    mpPick = null;
+    mpCurse = false;
+    mwwMode = { key: '', fn: null };
+    mwwTurnShut = '';
+    mpWritePlayer({ ...me, act: null });
   },
   'mww.pass': () => {
     mwwTurnShut = mwwTurnKey();
