@@ -1,7 +1,8 @@
 // DMI Boardgame (/boardgame, web/public/boardgame/index.html), played without signing in. The players to pick from are
 // the active staff; the leaderboard, the Gián Điệp pairs already dealt and the Ma Sói rooms for several phones live here.
-// A player is an anonymous id the browser made (x-bg-player) with a secret (x-bg-key, kept hashed) so only that browser
-// changes its own part, and only someone in a room changes the room. Resetting the leaderboard takes a Workspace admin.
+// A player signed in to DMI Workspace is their account (u-<user id>), the same on every phone and computer they open it
+// on; otherwise an anonymous id the browser made (x-bg-player) with a secret (x-bg-key, kept hashed) so only that
+// browser changes its own part. Only someone in a room changes the room. Resetting the leaderboard takes a Workspace admin.
 import crypto from 'node:crypto';
 import { all, get, run, uid, now } from './db';
 import { HttpError, json, readJson, type Router, type Req } from './http';
@@ -14,19 +15,22 @@ const ROOM_ID = /^\d{4}$/, PLAYER_ID = /^[\w-]{8,64}$/;
 
 const hash = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 const parse = (s: string | undefined) => { try { return JSON.parse(s ?? 'null'); } catch { return null; } };
-/** The browser calling: its player id and its hashed secret. */
-function who(req: Req) {
+/** Who is calling: the signed-in account, or else the browser's player id; with the hashed secret that proves it. */
+async function who(req: Req) {
+  const u = await currentUser(req);
+  if (u) return { id: playerOf(u.id), key: hash(`account:${u.id}`) };
   const id = String(req.headers['x-bg-player'] || ''), key = String(req.headers['x-bg-key'] || '');
   if (!PLAYER_ID.test(id) || key.length < 16 || key.length > 128) throw new HttpError(400, 'Thiếu mã người chơi');
   return { id, key: hash(key) };
 }
+export const playerOf = (userId: string) => `u-${userId}`;
 function roomOf(req: Req) {
   if (!ROOM_ID.test(req.params.id)) throw new HttpError(400, 'Mã phòng không hợp lệ');
   return req.params.id;
 }
 /** Only someone who joined the room (from the same browser) changes it. */
 async function member(req: Req, room: string) {
-  const me = who(req);
+  const me = await who(req);
   if (!(await get('SELECT 1 FROM bg_players WHERE room_id = ? AND player_id = ? AND secret = ?', room, me.id, me.key))) throw new HttpError(403, 'Bạn không ở trong phòng này');
 }
 function sized(v: unknown, max: number) {
@@ -104,7 +108,7 @@ export function registerBoardgame(api: Router) {
   api.put('/api/boardgame/rooms/:id', async (req, res) => {
     const id = roomOf(req), b = await readJson(req), state = sized(b.state, MAX_STATE), t = now();
     if (b.create) {
-      who(req);
+      await who(req);
       if (await get('SELECT 1 FROM bg_rooms WHERE id = ? AND created_at > ?', id, t - FRESH)) throw new HttpError(409, 'Mã phòng đang được dùng');
       // Old rooms go, with their players: an old one under this code, and any left untouched for days.
       await run('DELETE FROM bg_players WHERE room_id = ? OR room_id IN (SELECT id FROM bg_rooms WHERE updated_at < ?)', id, t - KEEP);
@@ -132,7 +136,7 @@ export function registerBoardgame(api: Router) {
   });
   // Joining, and each night's choice: the first write keeps the browser's secret, later ones must bring it.
   api.put('/api/boardgame/rooms/:id/players/me', async (req, res) => {
-    const id = roomOf(req), me = who(req), b = await readJson(req), data = sized(b.data, MAX_PLAYER);
+    const id = roomOf(req), me = await who(req), b = await readJson(req), data = sized(b.data, MAX_PLAYER);
     if (typeof b.data.name !== 'string' || !b.data.name.trim() || b.data.name.length > 60) throw new HttpError(400, 'Tên không hợp lệ');
     if (!(await get('SELECT 1 FROM bg_rooms WHERE id = ?', id))) throw new HttpError(404, 'Phòng đã đóng');
     const r = await run(`INSERT INTO bg_players(room_id, player_id, secret, data, updated_at) VALUES(?,?,?,?,?)
@@ -142,7 +146,7 @@ export function registerBoardgame(api: Router) {
     json(res, 200, { ok: true });
   });
   api.delete('/api/boardgame/rooms/:id/players/me', async (req, res) => {
-    const id = roomOf(req), me = who(req);
+    const id = roomOf(req), me = await who(req);
     await run('DELETE FROM bg_players WHERE room_id = ? AND player_id = ? AND secret = ?', id, me.id, me.key);
     await bump(id);
     json(res, 200, { ok: true });

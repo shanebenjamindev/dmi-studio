@@ -15,6 +15,7 @@ export const UPDATES: Update[] = [
     items: [
       { kind: 'new', vi: 'Ma Sói: đến lượt vai mình, mỗi chức năng là một nút riêng và có nút “Không làm gì”; Thiết lập có khung đếm vai trong ván, số Sói là Sói thường và bật Sói nguyền thì có thêm một con.', en: 'Werewolf: on your turn each action is its own button, with a “Do nothing” option; Settings shows a count of the roles in the game, the wolf number is ordinary wolves, and turning on the Cursed Wolf adds one more.' },
       { kind: 'fix', vi: 'Ma Sói giờ dùng tên tài khoản DMI Workspace: chưa đăng nhập thì cần đăng nhập để chơi, không chọn tên nữa.', en: 'Werewolf now uses your DMI Workspace account name: sign in to play, there is no name picker any more.' },
+      { kind: 'fix', vi: 'Ma Sói: mở cùng một tài khoản trên điện thoại và máy tính giờ là cùng một người chơi, không còn báo “Đã có người tên… trong phòng”. Trên điện thoại, thẻ ban đêm không còn bị cắt và thanh các bước luôn hiện.', en: 'Werewolf: the same account on a phone and a computer is now one player, no more “someone with that name is already in the room”. On phones the night card is no longer cut off and the step bar always shows.' },
     ],
   },
   {

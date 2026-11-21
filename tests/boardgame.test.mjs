@@ -1,5 +1,5 @@
-// DMI Boardgame's API (server/boardgame.ts): played without an account, players are browsers with a secret, only
-// someone in a room changes it, and only an admin resets the leaderboard.
+// DMI Boardgame's API (server/boardgame.ts): without an account players are browsers with a secret (signed in, the
+// account, on every device), only someone in a room changes it, and only an admin resets the leaderboard.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -91,6 +91,18 @@ test('board game: no account needed, players keep their own part, admins reset',
     assert.deepEqual(Object.keys(ok(await s.call('GET', '/api/boardgame/rooms/1234')).players), [a.id]);
     ok(await s.call('DELETE', '/api/boardgame/rooms/1234', undefined, { player: a }));
     assert.equal((await s.call('GET', '/api/boardgame/rooms/1234')).status, 404);
+
+    // Signed in, the player is the account: the same on a phone and a computer (each with its own browser id and key).
+    ok(await s.call('PUT', '/api/boardgame/rooms/5678', { create: true, state: lobby }, { player: a }), 'create 5678');
+    const annPc = { cookie: ann, player: player('ann-pc') }, annPhone = { cookie: ann, player: player('ann-phone') };
+    ok(await s.call('PUT', '/api/boardgame/rooms/5678/players/me', { data: { name: 'Ann', at: 1 } }, annPc), 'join from the computer');
+    ok(await s.call('PUT', '/api/boardgame/rooms/5678/players/me', { data: { name: 'Ann', at: 1, ready: 1 } }, annPhone), 'same player from the phone');
+    const both = ok(await s.call('GET', '/api/boardgame/rooms/5678')).players;
+    const ids = Object.keys(both);
+    assert.equal(ids.length, 1, 'one player, not two');
+    assert.match(ids[0], /^u-/);
+    assert.equal(both[ids[0]].ready, 1);
+    ok(await s.call('PUT', '/api/boardgame/rooms/5678', { state: { ...lobby, phase: 'play' } }, annPhone), 'the account writes the room from either device');
 
     // The leaderboard: anyone records a game; only an admin resets it.
     const game = { game: 'ww', text: 'Dân làng thắng sau 2 đêm', results: [{ name: 'Ann', pts: 2, win: true }, { name: 'Bob', pts: 0, win: false }] };

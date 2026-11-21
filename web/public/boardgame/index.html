@@ -543,9 +543,11 @@ body.salem-room #app > * { pointer-events: auto; }
   box-shadow: inset 0 0 0 1px rgba(197, 164, 109, .3), 0 8px 22px rgba(0, 0, 0, .55);
 }
 .hud-event-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; background: none; color: var(--gold); font: 800 1.05rem/1.2 "Grenze Gotisch", Georgia, serif; text-align: left; }
-.hud-event-body { padding: 0 12px 12px; overflow-y: auto; gap: 10px; }
+.hud-event-body { min-height: 0; padding: 0 12px 12px; overflow-y: auto; gap: 10px; }
 .hud-event.min .hud-event-body { display: none; }
-.hud-event .secret { padding: 12px; gap: 6px; }
+/* Thanh các bước ban đêm: luôn hiện ở đầu thẻ (kể cả khi thu gọn), phần dưới cuộn riêng */
+.hud-event-pin { flex: none; padding: 0 12px 6px; }
+.hud-event .secret { flex: none; min-height: 0; padding: 12px; gap: 6px; }
 .hud-event .secret .emoji { font-size: 2.2rem; }
 .hud-event .secret .who { font-size: 1.35rem; }
 .hud-event .result { font-size: 1.25rem; }
@@ -674,7 +676,10 @@ body.salem .role-cover .btn { width: 100%; background: #30241F; color: var(--tex
   .hud-top .ring { width: 46px; height: 46px; }
   .hud-top .ring span { font-size: .85rem; }
   .hud-right .ios span { display: none; }
-  .hud-event { top: calc(max(10px, env(safe-area-inset-top, 0px)) + 70px); max-height: 26dvh; }
+  .hud-event { top: calc(max(10px, env(safe-area-inset-top, 0px)) + 70px); max-height: 34dvh; }
+  .hud-event .secret { padding: 8px; }
+  .hud-event .secret .emoji { font-size: 1.6rem; }
+  .hud-event .secret .role-art.small { width: 40px; }
   .hud-dock { gap: 4px; }
   .hud-dock button { flex: 1 1 auto; justify-content: center; padding: 7px 8px; font-size: .75rem; gap: 4px; }
 }
@@ -3389,7 +3394,7 @@ function mwwBanner(big, sub, ring, { night = false, fresh = false, icon = night 
 
 // Khung giao diện nổi trên cảnh làng: thanh trên (rời phòng, bước, nhạc), thẻ tin, bảng nổi đang mở, thẻ người đang xem,
 // rồi dưới đáy là các nút mở bảng và thanh hành động
-function mwwOverlay({ banner, event, eventTitle, panels, panel, focus = '', bar = '', cover = '', side = '' }) {
+function mwwOverlay({ banner, event, eventTitle, panels, panel, focus = '', bar = '', cover = '', side = '', pin = '' }) {
   const room = mp.room;
   const hostGone = mpJoined() && !mpMembers().some(([uid]) => uid === room.host);
   const quit = mpIsHost() && room.phase === 'play' && room.g?.step !== 'end';
@@ -3410,6 +3415,7 @@ function mwwOverlay({ banner, event, eventTitle, panels, panel, focus = '', bar 
       </div>` : ''}
     <section class="hud-event ${mwwEventMin ? 'min' : ''}" aria-label="${eventTitle}">
       <button class="hud-event-head" data-act="mww.event" aria-expanded="${!mwwEventMin}"><b>${eventTitle}</b><span aria-hidden="true">${mwwEventMin ? '▾' : '▴'}</span></button>
+      ${pin ? `<div class="hud-event-pin">${pin}</div>` : ''}
       <div class="hud-event-body stack" data-scroll="event">${event}</div>
     </section>
     ${open ? `
@@ -3538,7 +3544,7 @@ function mwwRoleCover(g, i) {
 
 // Màn của một bước trong ván: cảnh làng với người chơi, bảng tên bước, thẻ tin (body), thanh hành động (bar).
 // town: cách bấm người (xem mwwCastOf); bấm một người thì hiện thẻ của người đó với việc làm được (bỏ phiếu, chọn, bắn).
-function mwwFrame({ sub, ring = '', town = {}, body, bar = '', title = 'Tin của làng', cover = '' }) {
+function mwwFrame({ sub, ring = '', town = {}, body, bar = '', title = 'Tin của làng', cover = '', pin = '' }) {
   const g = mp.room.g;
   const i = mpSeat();
   const fresh = mwwFresh(g);
@@ -3577,6 +3583,7 @@ function mwwFrame({ sub, ring = '', town = {}, body, bar = '', title = 'Tin củ
     side: side ? `<aside class="pack-side" aria-label="Chat của bầy sói">${mwwPackChat(g, i)}</aside>` : '',
     banner: mwwBanner(g.step === 'end' ? 'Hết ván' : `${g.step === 'night' ? 'Đêm' : 'Ngày'} ${g.night}`, sub, ring, { night: g.step === 'night', fresh, icon: g.step === 'end' ? '⚜️' : undefined }),
     event: body,
+    pin,
     eventTitle: title,
     panels,
     focus: mwwFocusCard(g, town),
@@ -4054,8 +4061,8 @@ function mwwNightView() {
     ring,
     title: 'Ban đêm',
     town: { act: 'mww.pick', can: (k) => targets.includes(k), sel: acting ? mpPick : null, mates, walkers, counts: mwwPackCounts(g, i, acts), verb: fn && MWW_FNS[fn][1] },
+    pin: mwwTimeline(g),
     body: `
-      ${mwwTimeline(g)}
       ${body}
       ${mpIsHost() && g.turn < g.calls.length ? '<button class="link small" data-act="mww.skip">Quản trò: bỏ qua lượt này</button>' : ''}`,
     bar,
@@ -4689,11 +4696,13 @@ let canReset = false;
 // Tài khoản DMI Workspace đang đăng nhập trên trình duyệt này (cùng trang web nên cookie đăng nhập đi kèm), null nếu chưa
 let wsUser = null;
 
-// Mã người chơi ẩn danh của trình duyệt này, kèm khóa bí mật để chỉ trình duyệt này sửa được lượt của mình
+// Mã người chơi: đã đăng nhập thì theo tài khoản (u-<mã tài khoản>, máy chủ cũng nhận ra như vậy), nên cùng một tài
+// khoản mở trên điện thoại và máy tính là một người; chưa đăng nhập thì mã ẩn danh của trình duyệt này, kèm khóa bí mật
+// để chỉ trình duyệt này sửa được lượt của mình
 const newId = () => crypto.randomUUID().replace(/-/g, '');
-const myId = load('dmi.pid', null) || newId();
+let myId = load('dmi.pid', null) || newId();
 const myKey = load('dmi.pkey', null) || newId() + newId();
-save('dmi.pid', myId);
+save('dmi.pid', myId.startsWith('u-') ? newId() : myId);
 save('dmi.pkey', myKey);
 
 async function api(method, path, body) {
@@ -4718,6 +4727,7 @@ async function loadMe() {
     const { user } = await (await fetch('/api/auth/me')).json();
     if (!user?.name?.trim()) return;
     wsUser = { name: user.name.trim() };
+    if (user.id) myId = `u-${user.id}`;
     mpSetName(wsUser.name);
   } catch {}
 }
